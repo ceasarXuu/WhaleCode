@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-05 verified offline
+- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 authorized
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 

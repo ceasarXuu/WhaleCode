@@ -15,7 +15,7 @@ use crate::tools::registry::ToolKind;
 use crate::tools::router::ToolRouter;
 use futures::StreamExt;
 
-use super::PreparedHostedBinding;
+use super::PreparedProviderAction;
 use super::TaskSpaceExecCatalog;
 use super::TaskSpaceExecEnvelopeError;
 use super::TaskSpaceExecPlanDecodeError;
@@ -126,7 +126,7 @@ impl ToolHandler for TaskSpaceExecHandler {
             request_revision = ?envelope.request().request_revision(),
             capability_identity = self.catalog.capability_identity(),
             client_call_count = prepared.client_calls.len(),
-            hosted_binding_count = prepared.hosted_bindings.len(),
+            provider_action_count = prepared.provider_actions.len(),
             read_count = prepared.read_maps.len(),
         );
         let native_calls =
@@ -142,7 +142,7 @@ impl ToolHandler for TaskSpaceExecHandler {
 
         let action_bindings = client_action_bindings(&prepared.client_calls)
             .into_iter()
-            .chain(hosted_action_bindings(&prepared.hosted_bindings))
+            .chain(provider_action_bindings(&prepared.provider_actions))
             .collect::<Vec<_>>();
         let candidate_map = attach_preflight_actions(prepared.candidate_map, &action_bindings)
             .map_err(|error| {
@@ -175,7 +175,7 @@ impl ToolHandler for TaskSpaceExecHandler {
             capability_identity = self.catalog.capability_identity(),
             action_count = action_bindings.len(),
         );
-        for binding in &prepared.hosted_bindings {
+        for action in &prepared.provider_actions {
             tracing::info!(
                 target: "codex_core::taskspace_exec",
                 event_name = "taskspace.exec.hosted_action_attributed",
@@ -187,11 +187,12 @@ impl ToolHandler for TaskSpaceExecHandler {
                 map_id = %map_id,
                 map_revision = ?candidate_revision,
                 capability_identity = self.catalog.capability_identity(),
-                output_index = binding.output_index,
-                action_id = %binding.provider_id,
-                node_ids = ?binding.node_ids,
-                tool = %binding.tool,
-                outcome = outcome_name(binding.outcome),
+                tool_index = action.tool_index,
+                output_index = action.output_index,
+                action_id = %action.provider_id,
+                node_ids = ?action.node_ids,
+                tool = %action.tool,
+                outcome = outcome_name(action.outcome),
             );
         }
 
@@ -240,7 +241,7 @@ impl ToolHandler for TaskSpaceExecHandler {
         }
         client_results.sort_by_key(|result| result.call_index);
         let hosted_results = prepared
-            .hosted_bindings
+            .provider_actions
             .into_iter()
             .map(hosted_result)
             .collect::<Vec<_>>();
@@ -325,14 +326,14 @@ fn client_action_bindings(calls: &[super::PreparedClientCall]) -> Vec<ActionBind
         .collect()
 }
 
-fn hosted_action_bindings(
-    bindings: &[PreparedHostedBinding],
+fn provider_action_bindings(
+    actions: &[PreparedProviderAction],
 ) -> impl Iterator<Item = ActionBinding> + '_ {
-    bindings.iter().map(|binding| ActionBinding {
-        action_id: binding.provider_id.clone(),
-        tool_name: binding.tool.clone(),
-        outcome: binding.outcome,
-        node_ids: binding.node_ids.clone(),
+    actions.iter().map(|action| ActionBinding {
+        action_id: action.provider_id.clone(),
+        tool_name: action.tool.clone(),
+        outcome: action.outcome,
+        node_ids: action.node_ids.clone(),
     })
 }
 
@@ -377,8 +378,9 @@ async fn persist_candidate(
     result.map_err(|error| taskspace_rejection("map_persist_rejected", Some(outer_call_id), error))
 }
 
-fn hosted_result(binding: PreparedHostedBinding) -> HostedResult {
+fn hosted_result(binding: PreparedProviderAction) -> HostedResult {
     HostedResult {
+        tool_index: binding.tool_index,
         output_index: binding.output_index,
         provider_id: binding.provider_id,
         tool: binding.tool,

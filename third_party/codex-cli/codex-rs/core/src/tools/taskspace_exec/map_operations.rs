@@ -32,49 +32,12 @@ pub(crate) enum MapOperation {
 }
 
 impl MapOperation {
-    pub(crate) fn name(&self) -> &'static str {
-        match self {
-            Self::InitializeMap(_) => INITIALIZE_MAP,
-            Self::UpdateMap(_) => UPDATE_MAP,
-            Self::ReadMap(_) => READ_MAP,
-            Self::ReopenMap(_) => REOPEN_MAP,
-            Self::FinishMap(_) => FINISH_MAP,
-        }
-    }
-
-    pub(crate) fn is_initialize(&self) -> bool {
-        matches!(self, Self::InitializeMap(_))
-    }
-
-    pub(crate) fn is_reopen(&self) -> bool {
-        matches!(self, Self::ReopenMap(_))
-    }
-
-    pub(crate) fn is_read(&self) -> bool {
-        matches!(self, Self::ReadMap(_))
-    }
-
-    pub(crate) fn is_finish(&self) -> bool {
-        matches!(self, Self::FinishMap(_))
-    }
-
     pub(crate) fn is_noop_update(&self) -> bool {
         matches!(
             self,
             Self::UpdateMap(args)
                 if args.add_work_nodes.is_empty()
                     && args.node_patches.iter().all(NodePatchArgs::is_noop)
-        )
-    }
-
-    pub(crate) fn completes_work_node(&self) -> bool {
-        matches!(
-            self,
-            Self::UpdateMap(args)
-                if args
-                    .node_patches
-                    .iter()
-                    .any(|patch| patch.state == Some(NodeState::Completed))
         )
     }
 }

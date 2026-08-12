@@ -20,7 +20,7 @@ pub(crate) struct TaskSpaceExecPlan {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ToolAction {
     Client(ClientCall),
-    Hosted(HostedBinding),
+    Hosted(ProviderAction),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -39,7 +39,7 @@ pub(crate) enum ClientCallInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct HostedBinding {
+pub(crate) struct ProviderAction {
     pub(crate) tool: String,
     pub(crate) node_ids: Vec<String>,
 }
@@ -169,7 +169,7 @@ fn decode_tool(
                         .ok_or_else(|| invalid_envelope("node id must be a string"))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(ToolAction::Hosted(HostedBinding {
+            Ok(ToolAction::Hosted(ProviderAction {
                 tool: tool_name.name,
                 node_ids,
             }))

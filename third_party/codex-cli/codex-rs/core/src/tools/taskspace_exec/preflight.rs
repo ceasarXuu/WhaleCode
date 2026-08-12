@@ -28,7 +28,8 @@ pub(crate) struct PreparedClientCall {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PreparedHostedBinding {
+pub(crate) struct PreparedProviderAction {
+    pub(crate) tool_index: usize,
     pub(crate) output_index: usize,
     pub(crate) provider_id: String,
     pub(crate) tool: String,
@@ -41,7 +42,7 @@ pub(crate) struct TaskSpaceExecPreflightResult {
     pub(crate) candidate_map: Option<TaskSpaceMap>,
     pub(crate) read_maps: Vec<(usize, TaskSpaceMapView)>,
     pub(crate) client_calls: Vec<PreparedClientCall>,
-    pub(crate) hosted_bindings: Vec<PreparedHostedBinding>,
+    pub(crate) provider_actions: Vec<PreparedProviderAction>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,12 +98,12 @@ pub(crate) enum TaskSpaceExecPreflightError {
         reason: &'static str,
     },
     HostedToolMismatch {
-        binding_index: usize,
+        tool_index: usize,
         actual: String,
         declared: String,
     },
     HostedNodeInvalid {
-        binding_index: usize,
+        tool_index: usize,
         node_id: String,
         reason: &'static str,
     },
@@ -132,7 +133,7 @@ pub(crate) fn preflight_taskspace_exec(
         )?;
     }
 
-    let mut hosted_bindings = Vec::new();
+    let mut provider_actions = Vec::new();
     for (index, action) in envelope.plan().tools.iter().enumerate() {
         match action {
             ToolAction::Client(call) => {
@@ -147,7 +148,7 @@ pub(crate) fn preflight_taskspace_exec(
                     call: call.clone(),
                 });
             }
-            ToolAction::Hosted(binding) => hosted_bindings.push(binding.clone()),
+            ToolAction::Hosted(action) => provider_actions.push((index, action.clone())),
         }
     }
     if patch_indices.len() > 1 {
@@ -155,9 +156,9 @@ pub(crate) fn preflight_taskspace_exec(
             indices: patch_indices,
         });
     }
-    let hosted_bindings =
-        validate_hosted_bindings(&hosted_bindings, candidate_map.as_ref(), hosted_facts)?;
-    candidate_map = activate_ready_tool_nodes(candidate_map, &client_calls, &hosted_bindings)?;
+    let provider_actions =
+        reconcile_provider_actions(&provider_actions, candidate_map.as_ref(), hosted_facts)?;
+    candidate_map = activate_ready_tool_nodes(candidate_map, &client_calls, &provider_actions)?;
 
     if let Some(operation) = envelope.plan().terminal_map.as_ref() {
         apply_map_stage(
@@ -172,7 +173,7 @@ pub(crate) fn preflight_taskspace_exec(
         candidate_map,
         read_maps,
         client_calls,
-        hosted_bindings,
+        provider_actions,
     })
 }
 
@@ -284,15 +285,15 @@ fn is_apply_patch(call: &ClientCall) -> bool {
     call.tool_name.namespace.is_none() && call.tool_name.name == "apply_patch"
 }
 
-fn validate_hosted_bindings(
-    bindings: &[super::plan::HostedBinding],
+fn reconcile_provider_actions(
+    actions: &[(usize, super::plan::ProviderAction)],
     candidate_map: Option<&TaskSpaceMap>,
     hosted_facts: &[HostedOutputFact],
-) -> Result<Vec<PreparedHostedBinding>, TaskSpaceExecPreflightError> {
-    if hosted_facts.len() != bindings.len() {
+) -> Result<Vec<PreparedProviderAction>, TaskSpaceExecPreflightError> {
+    if hosted_facts.len() != actions.len() {
         return Err(TaskSpaceExecPreflightError::HostedCountMismatch {
             actual: hosted_facts.len(),
-            declared: bindings.len(),
+            declared: actions.len(),
         });
     }
     let mut facts = hosted_facts.to_vec();
@@ -316,28 +317,27 @@ fn validate_hosted_bindings(
 
     facts
         .into_iter()
-        .zip(bindings)
-        .enumerate()
-        .map(|(binding_index, (fact, binding))| {
-            if fact.tool != binding.tool {
+        .zip(actions)
+        .map(|(fact, (tool_index, action))| {
+            if fact.tool != action.tool {
                 return Err(TaskSpaceExecPreflightError::HostedToolMismatch {
-                    binding_index,
+                    tool_index: *tool_index,
                     actual: fact.tool,
-                    declared: binding.tool.clone(),
+                    declared: action.tool.clone(),
                 });
             }
             let mut node_ids = BTreeSet::new();
-            for node_id in &binding.node_ids {
+            for node_id in &action.node_ids {
                 if node_id.trim().is_empty() || !node_ids.insert(node_id.as_str()) {
                     return Err(TaskSpaceExecPreflightError::HostedNodeInvalid {
-                        binding_index,
+                        tool_index: *tool_index,
                         node_id: node_id.clone(),
                         reason: "empty_or_duplicate_node",
                     });
                 }
                 if candidate_map.is_none_or(|map| rooted_dag::node(map, node_id).is_none()) {
                     return Err(TaskSpaceExecPreflightError::HostedNodeInvalid {
-                        binding_index,
+                        tool_index: *tool_index,
                         node_id: node_id.clone(),
                         reason: "unknown_node",
                     });
@@ -346,7 +346,7 @@ fn validate_hosted_bindings(
                     != Some(NodeRole::Work)
                 {
                     return Err(TaskSpaceExecPreflightError::HostedNodeInvalid {
-                        binding_index,
+                        tool_index: *tool_index,
                         node_id: node_id.clone(),
                         reason: "boundary_node",
                     });
@@ -358,18 +358,19 @@ fn validate_hosted_bindings(
                     })
                 {
                     return Err(TaskSpaceExecPreflightError::HostedNodeInvalid {
-                        binding_index,
+                        tool_index: *tool_index,
                         node_id: node_id.clone(),
                         reason: "non_executable_state",
                     });
                 }
             }
-            Ok(PreparedHostedBinding {
+            Ok(PreparedProviderAction {
+                tool_index: *tool_index,
                 output_index: fact.output_index,
                 provider_id: fact.provider_id,
                 tool: fact.tool,
                 outcome: fact.outcome,
-                node_ids: binding.node_ids.clone(),
+                node_ids: action.node_ids.clone(),
             })
         })
         .collect()
@@ -378,7 +379,7 @@ fn validate_hosted_bindings(
 fn activate_ready_tool_nodes(
     candidate_map: Option<TaskSpaceMap>,
     clients: &[PreparedClientCall],
-    hosted: &[PreparedHostedBinding],
+    hosted: &[PreparedProviderAction],
 ) -> Result<Option<TaskSpaceMap>, TaskSpaceExecPreflightError> {
     let Some(map) = candidate_map else {
         return Ok(None);

@@ -36,7 +36,6 @@ pub(crate) use transactions::reopen_map;
 pub(crate) use transitions::derive_node_views;
 pub(crate) use transitions::normalize_readiness;
 pub(crate) use transitions::predecessors_satisfied;
-pub(crate) use transitions::ready_node_ids;
 
 #[cfg(test)]
 mod tests;

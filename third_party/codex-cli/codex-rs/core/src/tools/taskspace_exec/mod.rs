@@ -38,7 +38,7 @@ pub(crate) use plan::TaskSpaceExecPlan;
 pub(crate) use plan::TaskSpaceExecPlanDecodeError;
 pub(crate) use plan::ToolAction;
 pub(crate) use preflight::PreparedClientCall;
-pub(crate) use preflight::PreparedHostedBinding;
+pub(crate) use preflight::PreparedProviderAction;
 #[cfg(test)]
 pub(crate) use preflight::TaskSpaceExecPreflightError;
 pub(crate) use preflight::preflight_taskspace_exec;

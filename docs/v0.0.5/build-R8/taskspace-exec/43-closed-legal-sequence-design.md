@@ -1,6 +1,6 @@
 # TaskSpace Exec 闭集合法序列设计
 
-- Status: Approved product design / LS-01～LS-05 verified offline
+- Status: Approved product design / LS-01～LS-08 verified offline / LS-09 authorized
 - Created: 2026-08-12
 - Updated: 2026-08-12
 - Product Authority: [`00-product-contract.md`](00-product-contract.md#confirmed-product-decisions)

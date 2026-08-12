@@ -233,18 +233,6 @@ impl TaskSpaceExecCatalog {
     pub(super) fn input_schema(&self) -> &JsonSchema {
         &self.declaration.parameters
     }
-
-    pub(super) fn is_map_operation(&self, name: &str) -> bool {
-        self.map_capabilities.contains_key(name)
-    }
-
-    pub(super) fn is_hosted_tool(&self, name: &str) -> bool {
-        matches!(
-            self.tool_capabilities
-                .get(&codex_tools::ToolName::plain(name)),
-            Some(TaskSpaceToolCapability::Hosted(_))
-        )
-    }
 }
 
 fn is_excluded_client_capability(capability: &ToolSpecCapability) -> bool {

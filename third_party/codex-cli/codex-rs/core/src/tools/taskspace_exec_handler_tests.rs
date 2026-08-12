@@ -706,7 +706,10 @@ async fn hosted_result_is_bound_by_provider_identity_without_changing_node_state
         .handler
         .handle(invocation(
             &harness,
-            initialize_work(vec![json!({"tool": "web_search", "node_ids": ["work"]})]),
+            initialize_work(vec![
+                json!({"tool": "web_search", "node_ids": ["work"]}),
+                inspect_action(json!({})),
+            ]),
         ))
         .await
         .unwrap();
@@ -718,6 +721,7 @@ async fn hosted_result_is_bound_by_provider_identity_without_changing_node_state
         feedback["hosted_results"][0]["provider_id"],
         "provider-search-1"
     );
+    assert_eq!(feedback["hosted_results"][0]["tool_index"], 0);
     let map = harness
         .session
         .canonical_action_map_snapshot()
@@ -727,8 +731,14 @@ async fn hosted_result_is_bound_by_provider_identity_without_changing_node_state
         .unwrap();
     let work = map.nodes.iter().find(|node| node.id == "work").unwrap();
     assert_eq!(work.state, "in_flight");
-    assert_eq!(work.actions[0].action_id, "provider-search-1");
-    assert_eq!(work.actions[0].outcome, "succeeded");
+    assert!(work.actions.iter().any(|action| {
+        action.action_id == "provider-search-1" && action.outcome == "succeeded"
+    }));
+    assert!(
+        work.actions
+            .iter()
+            .any(|action| action.action_id == "outer/taskspace/call/1")
+    );
 }
 
 #[tokio::test]

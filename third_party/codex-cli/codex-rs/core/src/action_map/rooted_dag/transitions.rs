@@ -1,10 +1,8 @@
-use super::model::NodeId;
 use super::model::NodeState;
 use super::model::NodeView;
 use super::model::TaskSpaceMap;
 use super::model::children_by_parent;
 use super::model::node;
-use super::model::node_ids;
 use super::model::nodes;
 
 pub(crate) fn predecessors_satisfied(map: &TaskSpaceMap, node_id: &str) -> bool {
@@ -61,13 +59,5 @@ pub(crate) fn derive_node_views(map: &TaskSpaceMap) -> Vec<NodeView> {
             children: children.get(&node.node_id).cloned().unwrap_or_default(),
             actions: node.actions.clone(),
         })
-        .collect()
-}
-
-pub(crate) fn ready_node_ids(map: &TaskSpaceMap) -> Vec<NodeId> {
-    node_ids(map)
-        .into_iter()
-        .filter(|node_id| node(map, node_id).is_some_and(|node| node.state == NodeState::Ready))
-        .map(str::to_string)
         .collect()
 }

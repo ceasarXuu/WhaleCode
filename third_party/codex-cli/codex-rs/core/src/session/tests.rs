@@ -7588,7 +7588,8 @@ async fn taskspace_self_heal_replaces_the_item_before_history_is_recorded() {
     let (sess, tc, _rx) = make_session_and_context_with_rx().await;
     let runtime = test_taskspace_tool_runtime(Arc::clone(&sess), Arc::clone(&tc));
     let valid_arguments = serde_json::json!({
-        "calls": [{"map": {"operation": "read_map", "input": {}}}]
+        "type": "read_map",
+        "read_map": {}
     })
     .to_string();
     let malformed_arguments = valid_arguments

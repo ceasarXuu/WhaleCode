@@ -104,16 +104,18 @@ fn hosted_facts_are_sorted_by_provider_index_and_bind_to_multiple_nodes() {
     ];
 
     let prepared = preflight_taskspace_exec(&envelope, Some(&current), &facts).unwrap();
-    assert_eq!(prepared.hosted_bindings[0].output_index, 2);
+    assert_eq!(prepared.provider_actions[0].tool_index, 0);
+    assert_eq!(prepared.provider_actions[0].output_index, 2);
     assert_eq!(
-        prepared.hosted_bindings[0].node_ids,
+        prepared.provider_actions[0].node_ids,
         vec!["work", "support"]
     );
-    assert_eq!(prepared.hosted_bindings[1].output_index, 9);
+    assert_eq!(prepared.provider_actions[1].output_index, 9);
+    assert_eq!(prepared.provider_actions[1].tool_index, 1);
 }
 
 #[test]
-fn initialization_can_bind_already_completed_hosted_work_to_new_nodes() {
+fn initialization_can_record_already_completed_provider_work_on_new_nodes() {
     let envelope = envelope(
         json!({
             "type": "initialize_and_work",
@@ -131,11 +133,11 @@ fn initialization_can_bind_already_completed_hosted_work_to_new_nodes() {
 
     let prepared = preflight_taskspace_exec(&envelope, None, &facts).unwrap();
     assert_eq!(prepared.candidate_map.unwrap().map_id, "map-1");
-    assert_eq!(prepared.hosted_bindings[0].node_ids, vec!["work"]);
+    assert_eq!(prepared.provider_actions[0].node_ids, vec!["work"]);
 }
 
 #[test]
-fn read_map_schema_cannot_share_a_response_with_hosted_work() {
+fn read_map_schema_cannot_share_a_response_with_provider_work() {
     let current = open_map();
     let context = TaskSpaceExecRequestContext::capture("map-1", Some(&current), catalog()).unwrap();
     assert!(
