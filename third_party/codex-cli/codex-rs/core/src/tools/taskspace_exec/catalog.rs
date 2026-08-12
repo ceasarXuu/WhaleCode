@@ -30,9 +30,14 @@ const EXCLUDED_CLIENT_TOOL_NAMES: [&str; 4] =
 pub(crate) struct TaskSpaceExecCatalog {
     declaration: ResponsesApiTool,
     capability_identity: Arc<str>,
-    client_capabilities: BTreeMap<codex_tools::ToolName, TaskSpaceClientCapability>,
+    tool_capabilities: BTreeMap<codex_tools::ToolName, TaskSpaceToolCapability>,
     map_capabilities: BTreeMap<String, ToolSpecCapability>,
-    hosted_tools: BTreeSet<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum TaskSpaceToolCapability {
+    Client(TaskSpaceClientCapability),
+    Hosted(HostedToolKind),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -85,12 +90,17 @@ impl TaskSpaceExecCatalog {
             .flat_map(project_tool_spec_capabilities)
             .map(|capability| capability.tool_name)
             .collect::<BTreeSet<_>>();
-        let mut client_capabilities = BTreeMap::new();
-        let mut hosted_tools = BTreeSet::new();
+        let mut tool_capabilities = BTreeMap::new();
         let mut hosted_specs = Vec::new();
         for spec in specs {
             if let Some(kind) = HostedToolKind::from_spec(spec) {
-                hosted_tools.insert(kind.name().to_string());
+                let tool_name = codex_tools::ToolName::plain(kind.name());
+                if tool_capabilities
+                    .insert(tool_name.clone(), TaskSpaceToolCapability::Hosted(kind))
+                    .is_some()
+                {
+                    return Err(TaskSpaceExecCatalogError::DuplicateCapability { tool_name });
+                }
                 hosted_specs.push(spec.clone());
                 continue;
             }
@@ -115,13 +125,13 @@ impl TaskSpaceExecCatalog {
                             continue;
                         }
                         let tool_name = capability.tool_name.clone();
-                        if client_capabilities
+                        if tool_capabilities
                             .insert(
                                 tool_name.clone(),
-                                TaskSpaceClientCapability {
+                                TaskSpaceToolCapability::Client(TaskSpaceClientCapability {
                                     capability,
                                     transport,
-                                },
+                                }),
                             )
                             .is_some()
                         {
@@ -149,12 +159,12 @@ impl TaskSpaceExecCatalog {
                 {
                     continue;
                 }
-                client_capabilities.insert(
+                tool_capabilities.insert(
                     capability.tool_name.clone(),
-                    TaskSpaceClientCapability {
+                    TaskSpaceToolCapability::Client(TaskSpaceClientCapability {
                         capability,
                         transport: TaskSpaceClientTransport::Function,
-                    },
+                    }),
                 );
             }
         }
@@ -164,30 +174,25 @@ impl TaskSpaceExecCatalog {
             .map(|capability| (capability.public_name.clone(), capability))
             .collect::<BTreeMap<_, _>>();
         if let Some(public_name) = map_capabilities.keys().find(|name| {
-            client_capabilities.contains_key(&codex_tools::ToolName::plain((*name).clone()))
+            tool_capabilities.contains_key(&codex_tools::ToolName::plain((*name).clone()))
         }) {
             return Err(TaskSpaceExecCatalogError::MapCapabilityCollision {
                 public_name: public_name.clone(),
             });
         }
 
-        let declaration = build_declaration(
-            client_capabilities.values(),
-            map_capabilities.values(),
-            &hosted_tools,
-        );
+        let declaration = build_declaration(&tool_capabilities, map_capabilities.values());
         let capability_identity = build_capability_identity(
             &declaration,
             &hosted_specs,
-            &client_capabilities,
+            &tool_capabilities,
             &map_capabilities,
         )?;
         Ok(Self {
             declaration,
             capability_identity,
-            client_capabilities,
+            tool_capabilities,
             map_capabilities,
-            hosted_tools,
         })
     }
 
@@ -214,7 +219,10 @@ impl TaskSpaceExecCatalog {
         &self,
         tool_name: &codex_tools::ToolName,
     ) -> Option<&TaskSpaceClientCapability> {
-        self.client_capabilities.get(tool_name)
+        match self.tool_capabilities.get(tool_name) {
+            Some(TaskSpaceToolCapability::Client(capability)) => Some(capability),
+            Some(TaskSpaceToolCapability::Hosted(_)) | None => None,
+        }
     }
 
     pub(super) fn is_map_operation(&self, name: &str) -> bool {
@@ -222,7 +230,11 @@ impl TaskSpaceExecCatalog {
     }
 
     pub(super) fn is_hosted_tool(&self, name: &str) -> bool {
-        self.hosted_tools.contains(name)
+        matches!(
+            self.tool_capabilities
+                .get(&codex_tools::ToolName::plain(name)),
+            Some(TaskSpaceToolCapability::Hosted(_))
+        )
     }
 }
 
@@ -243,7 +255,7 @@ struct CapabilityIdentityInput<'a> {
 fn build_capability_identity(
     declaration: &ResponsesApiTool,
     hosted_specs: &[ToolSpec],
-    client_capabilities: &BTreeMap<codex_tools::ToolName, TaskSpaceClientCapability>,
+    tool_capabilities: &BTreeMap<codex_tools::ToolName, TaskSpaceToolCapability>,
     map_capabilities: &BTreeMap<String, ToolSpecCapability>,
 ) -> Result<Arc<str>, TaskSpaceExecCatalogError> {
     let provider_specs = std::iter::once(ToolSpec::Function(declaration.clone()))
@@ -259,7 +271,13 @@ fn build_capability_identity(
         schema: "taskspace-capability-identity-v3",
         provider_declarations,
         outer_output_schema: declaration.output_schema.as_ref(),
-        client_capabilities: client_capabilities.values().collect(),
+        client_capabilities: tool_capabilities
+            .values()
+            .filter_map(|capability| match capability {
+                TaskSpaceToolCapability::Client(capability) => Some(capability),
+                TaskSpaceToolCapability::Hosted(_) => None,
+            })
+            .collect(),
         map_capabilities,
     })
     .map_err(
@@ -271,11 +289,23 @@ fn build_capability_identity(
 }
 
 fn build_declaration<'a>(
-    clients: impl Iterator<Item = &'a TaskSpaceClientCapability>,
+    tool_capabilities: &'a BTreeMap<codex_tools::ToolName, TaskSpaceToolCapability>,
     map_operations: impl Iterator<Item = &'a ToolSpecCapability>,
-    hosted_tools: &BTreeSet<String>,
 ) -> ResponsesApiTool {
-    let clients = clients.collect::<Vec<_>>();
+    let clients = tool_capabilities
+        .values()
+        .filter_map(|capability| match capability {
+            TaskSpaceToolCapability::Client(capability) => Some(capability),
+            TaskSpaceToolCapability::Hosted(_) => None,
+        })
+        .collect::<Vec<_>>();
+    let hosted_tools = tool_capabilities
+        .values()
+        .filter_map(|capability| match capability {
+            TaskSpaceToolCapability::Hosted(kind) => Some(kind.name().to_string()),
+            TaskSpaceToolCapability::Client(_) => None,
+        })
+        .collect::<BTreeSet<_>>();
     let client_labels = clients
         .iter()
         .map(|client| client_tool_label(&client.capability.tool_name))
@@ -295,13 +325,13 @@ fn build_declaration<'a>(
         None,
     );
     let hosted_bindings = JsonSchema::array(
-        hosted_binding_schema(hosted_tools),
+        hosted_binding_schema(&hosted_tools),
         Some("Bindings for provider-hosted outputs in provider output order.".into()),
     );
     let output_schema = result_schema(clients.iter().map(|client| &client.capability));
     let output_schema =
         serde_json::to_value(output_schema).expect("TaskSpace Exec output schema must serialize");
-    let description = build_description(client_labels.iter().map(String::as_str), hosted_tools);
+    let description = build_description(client_labels.iter().map(String::as_str), &hosted_tools);
     let structured_parameters = strict_object(
         [("calls", calls), ("hosted_bindings", hosted_bindings)],
         &["calls"],
