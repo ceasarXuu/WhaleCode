@@ -65,21 +65,13 @@ fn envelope(arguments: serde_json::Value, map: Option<&TaskSpaceMap>) -> TaskSpa
         .unwrap()
 }
 
-fn initialize_call() -> serde_json::Value {
+fn initialize_input() -> serde_json::Value {
     json!({
-        "map": {
-            "operation": "initialize_map",
-            "input": {
-                "root": {"node_id": "root", "goal": "deliver", "content": "", "parents": []},
-                "work_nodes": [{
-                    "node_id": "work",
-                    "goal": "implement",
-                    "content": "",
-                    "parents": ["root"]
-                }],
-                "finish": {"node_id": "finish", "goal": "close", "content": "", "parents": ["work"]}
-            }
-        }
+        "root": {"node_id": "root", "goal": "deliver", "content": "", "parents": []},
+        "work_nodes": [{
+            "node_id": "work", "goal": "implement", "content": "", "parents": ["root"]
+        }],
+        "finish": {"node_id": "finish", "goal": "close", "content": "", "parents": ["work"]}
     })
 }
 
@@ -88,8 +80,8 @@ fn hosted_facts_are_sorted_by_provider_index_and_bind_to_multiple_nodes() {
     let current = open_map();
     let envelope = envelope(
         json!({
-            "calls": [],
-            "hosted_bindings": [
+            "type": "work",
+            "tools": [
                 {"tool": "web_search", "node_ids": ["work", "support"]},
                 {"tool": "image_generation", "node_ids": ["work"]}
             ]
@@ -124,8 +116,9 @@ fn hosted_facts_are_sorted_by_provider_index_and_bind_to_multiple_nodes() {
 fn initialization_can_bind_already_completed_hosted_work_to_new_nodes() {
     let envelope = envelope(
         json!({
-            "calls": [initialize_call()],
-            "hosted_bindings": [{"tool": "web_search", "node_ids": ["work"]}]
+            "type": "initialize_and_work",
+            "initialize_map": initialize_input(),
+            "tools": [{"tool": "web_search", "node_ids": ["work"]}]
         }),
         None,
     );
@@ -142,35 +135,37 @@ fn initialization_can_bind_already_completed_hosted_work_to_new_nodes() {
 }
 
 #[test]
-fn read_map_cannot_share_a_response_with_hosted_work() {
+fn read_map_schema_cannot_share_a_response_with_hosted_work() {
     let current = open_map();
-    let envelope = envelope(
-        json!({
-            "calls": [{"map": {"operation": "read_map", "input": {}}}],
-            "hosted_bindings": [{"tool": "web_search", "node_ids": ["work"]}]
-        }),
-        Some(&current),
-    );
-    let facts = [HostedOutputFact {
-        output_index: 1,
-        provider_id: "search-1".into(),
-        tool: "web_search".into(),
-        outcome: ActionOutcome::Succeeded,
-    }];
-
-    assert_eq!(
-        preflight_taskspace_exec(&envelope, Some(&current), &facts),
-        Err(TaskSpaceExecPreflightError::InvalidMapBoundary {
-            index: 0,
-            operation: "read_map",
-        })
+    let context = TaskSpaceExecRequestContext::capture("map-1", Some(&current), catalog()).unwrap();
+    assert!(
+        context
+            .decode_outer_call(
+                "outer",
+                &json!({
+                    "type": "read_map",
+                    "read_map": {},
+                    "tools": [{"tool": "web_search", "node_ids": ["work"]}]
+                })
+                .to_string()
+            )
+            .is_err()
     );
 }
 
 #[test]
 fn hosted_count_tool_and_node_mismatches_are_rejected() {
     let current = open_map();
-    let omitted_binding = envelope(json!({"calls": [initialize_call()]}), None);
+    let omitted_binding = envelope(
+        json!({
+            "type": "update_map",
+            "update_map": {
+                "add_work_nodes": [],
+                "node_patches": [{"node_id": "work", "content": "noted"}]
+            }
+        }),
+        Some(&current),
+    );
     let search = [HostedOutputFact {
         output_index: 1,
         provider_id: "search-1".into(),
@@ -178,7 +173,7 @@ fn hosted_count_tool_and_node_mismatches_are_rejected() {
         outcome: ActionOutcome::Succeeded,
     }];
     assert_eq!(
-        preflight_taskspace_exec(&omitted_binding, None, &search),
+        preflight_taskspace_exec(&omitted_binding, Some(&current), &search),
         Err(TaskSpaceExecPreflightError::HostedCountMismatch {
             actual: 1,
             declared: 0
@@ -187,8 +182,8 @@ fn hosted_count_tool_and_node_mismatches_are_rejected() {
 
     let one_binding = envelope(
         json!({
-            "calls": [],
-            "hosted_bindings": [{"tool": "web_search", "node_ids": ["work"]}]
+            "type": "work",
+            "tools": [{"tool": "web_search", "node_ids": ["work"]}]
         }),
         Some(&current),
     );
@@ -217,8 +212,8 @@ fn hosted_count_tool_and_node_mismatches_are_rejected() {
     ] {
         let binding = envelope(
             json!({
-                "calls": [],
-                "hosted_bindings": [{"tool": "web_search", "node_ids": nodes}]
+                "type": "work",
+                "tools": [{"tool": "web_search", "node_ids": nodes}]
             }),
             Some(&current),
         );
@@ -234,8 +229,8 @@ fn duplicate_hosted_provider_facts_are_rejected() {
     let current = open_map();
     let envelope = envelope(
         json!({
-            "calls": [],
-            "hosted_bindings": [
+            "type": "work",
+            "tools": [
                 {"tool": "web_search", "node_ids": ["work"]},
                 {"tool": "web_search", "node_ids": ["work"]}
             ]

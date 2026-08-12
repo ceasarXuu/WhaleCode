@@ -12,6 +12,7 @@ mod response_scope;
 mod result;
 mod schema_validation;
 mod self_heal;
+mod sequence_schema;
 
 pub(crate) use catalog::TASKSPACE_EXEC_TOOL_NAME;
 pub(crate) use catalog::TaskSpaceExecCatalog;
@@ -33,9 +34,9 @@ pub(crate) use map_operations::apply_map_operation;
 pub(crate) use map_operations::map_operation_capabilities;
 pub(crate) use plan::ClientCall;
 pub(crate) use plan::ClientCallInput;
-pub(crate) use plan::ExecCall;
 pub(crate) use plan::TaskSpaceExecPlan;
 pub(crate) use plan::TaskSpaceExecPlanDecodeError;
+pub(crate) use plan::ToolAction;
 pub(crate) use preflight::PreparedClientCall;
 pub(crate) use preflight::PreparedHostedBinding;
 #[cfg(test)]

@@ -1,16 +1,13 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
-use codex_tools::AdditionalProperties;
 use codex_tools::JsonSchema;
 use codex_tools::ResponsesApiTool;
 use codex_tools::ToolSpec;
 use codex_tools::ToolSpecCapability;
-use codex_tools::ToolSpecCapabilityInput;
 use codex_tools::create_tools_json_for_responses_api;
 use codex_tools::project_tool_spec_capabilities;
 use serde::Serialize;
-use serde_json::json;
 use sha2::Digest;
 use sha2::Sha256;
 use std::sync::Arc;
@@ -21,6 +18,7 @@ use super::hosted::HostedToolKind;
 use super::map_operation_capabilities;
 use super::protocol::build_description;
 use super::result::result_schema;
+use super::sequence_schema::build_sequence_schema;
 
 pub(crate) const TASKSPACE_EXEC_TOOL_NAME: &str = "taskspace_exec";
 const EXCLUDED_CLIENT_TOOL_NAMES: [&str; 4] =
@@ -35,7 +33,7 @@ pub(crate) struct TaskSpaceExecCatalog {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-enum TaskSpaceToolCapability {
+pub(super) enum TaskSpaceToolCapability {
     Client(TaskSpaceClientCapability),
     Hosted(HostedToolKind),
 }
@@ -181,7 +179,7 @@ impl TaskSpaceExecCatalog {
             });
         }
 
-        let declaration = build_declaration(&tool_capabilities, map_capabilities.values());
+        let declaration = build_declaration(&tool_capabilities, &map_capabilities);
         let capability_identity = build_capability_identity(
             &declaration,
             &hosted_specs,
@@ -223,6 +221,17 @@ impl TaskSpaceExecCatalog {
             Some(TaskSpaceToolCapability::Client(capability)) => Some(capability),
             Some(TaskSpaceToolCapability::Hosted(_)) | None => None,
         }
+    }
+
+    pub(super) fn tool_capability(
+        &self,
+        tool_name: &codex_tools::ToolName,
+    ) -> Option<&TaskSpaceToolCapability> {
+        self.tool_capabilities.get(tool_name)
+    }
+
+    pub(super) fn input_schema(&self) -> &JsonSchema {
+        &self.declaration.parameters
     }
 
     pub(super) fn is_map_operation(&self, name: &str) -> bool {
@@ -290,7 +299,7 @@ fn build_capability_identity(
 
 fn build_declaration<'a>(
     tool_capabilities: &'a BTreeMap<codex_tools::ToolName, TaskSpaceToolCapability>,
-    map_operations: impl Iterator<Item = &'a ToolSpecCapability>,
+    map_operations: &'a BTreeMap<String, ToolSpecCapability>,
 ) -> ResponsesApiTool {
     let clients = tool_capabilities
         .values()
@@ -310,32 +319,11 @@ fn build_declaration<'a>(
         .iter()
         .map(|client| client_tool_label(&client.capability.tool_name))
         .collect::<Vec<_>>();
-    let call_variants = map_operations
-        .map(map_call_schema)
-        .chain(clients.iter().copied().map(client_call_schema))
-        .collect::<Vec<_>>();
-    let calls = JsonSchema::array(
-        JsonSchema::object_any_of(
-            call_variants,
-            Some(
-                "Map operations take effect before later calls; client outcomes do not change node state. Dependencies come from Map node parents."
-                    .into(),
-            ),
-        ),
-        None,
-    );
-    let hosted_bindings = JsonSchema::array(
-        hosted_binding_schema(&hosted_tools),
-        Some("Bindings for provider-hosted outputs in provider output order.".into()),
-    );
     let output_schema = result_schema(clients.iter().map(|client| &client.capability));
     let output_schema =
         serde_json::to_value(output_schema).expect("TaskSpace Exec output schema must serialize");
     let description = build_description(client_labels.iter().map(String::as_str), &hosted_tools);
-    let structured_parameters = strict_object(
-        [("calls", calls), ("hosted_bindings", hosted_bindings)],
-        &["calls"],
-    );
+    let structured_parameters = build_sequence_schema(tool_capabilities, map_operations);
     ResponsesApiTool {
         name: TASKSPACE_EXEC_TOOL_NAME.to_string(),
         description,
@@ -346,116 +334,9 @@ fn build_declaration<'a>(
     }
 }
 
-fn map_call_schema(capability: &ToolSpecCapability) -> JsonSchema {
-    let ToolSpecCapabilityInput::Function(arguments) = &capability.input else {
-        unreachable!("Map operations are structured Functions")
-    };
-    described(
-        strict_object(
-            [(
-                "map",
-                strict_object(
-                    [
-                        ("operation", exact_name_schema(&capability.public_name)),
-                        ("input", arguments.clone()),
-                    ],
-                    &["operation", "input"],
-                ),
-            )],
-            &["map"],
-        ),
-        &capability.description,
-    )
-}
-
-fn client_call_schema(client: &TaskSpaceClientCapability) -> JsonSchema {
-    let capability = &client.capability;
-    let input_schema = match &capability.input {
-        ToolSpecCapabilityInput::Function(arguments) => arguments.clone(),
-        ToolSpecCapabilityInput::Freeform(format) => JsonSchema::string(Some(format!(
-            "Freeform {} input using {} syntax.\n{}",
-            format.r#type, format.syntax, format.definition
-        ))),
-    };
-    let node_id = JsonSchema::string(Some("Agent-declared owner node.".into()));
-    let invocation = match capability.tool_name.namespace.as_deref() {
-        Some(namespace) => strict_object(
-            [
-                ("name", exact_name_schema(&capability.tool_name.name)),
-                ("namespace", exact_name_schema(namespace)),
-                ("node_id", node_id),
-                ("input", input_schema),
-            ],
-            &["name", "namespace", "node_id", "input"],
-        ),
-        None => strict_object(
-            [
-                ("name", exact_name_schema(&capability.tool_name.name)),
-                ("node_id", node_id),
-                ("input", input_schema),
-            ],
-            &["name", "node_id", "input"],
-        ),
-    };
-    described(
-        strict_object([("client", invocation)], &["client"]),
-        &capability.description,
-    )
-}
-
 fn client_tool_label(tool_name: &codex_tools::ToolName) -> String {
     match tool_name.namespace.as_deref() {
         Some(namespace) => format!("{namespace} / {}", tool_name.name),
         None => tool_name.name.clone(),
     }
-}
-
-fn hosted_binding_schema(hosted_tools: &BTreeSet<String>) -> JsonSchema {
-    let tool_schema = if hosted_tools.is_empty() {
-        JsonSchema::string(Some(
-            "No provider-hosted Tool is available in this request.".into(),
-        ))
-    } else {
-        JsonSchema::string_enum(
-            hosted_tools.iter().map(|name| json!(name)).collect(),
-            Some("Provider-hosted Tool type.".into()),
-        )
-    };
-    strict_object(
-        [
-            ("tool", tool_schema),
-            (
-                "node_ids",
-                JsonSchema::array(
-                    JsonSchema::string(None),
-                    Some("Agent-declared owner nodes for this hosted output.".into()),
-                )
-                .with_min_items(1),
-            ),
-        ],
-        &["tool", "node_ids"],
-    )
-}
-
-fn exact_name_schema(name: &str) -> JsonSchema {
-    JsonSchema::string_enum(vec![json!(name)], None)
-}
-
-fn described(mut schema: JsonSchema, description: &str) -> JsonSchema {
-    schema.description = Some(description.to_string());
-    schema
-}
-
-fn strict_object<const N: usize>(
-    properties: impl IntoIterator<Item = (&'static str, JsonSchema)>,
-    required: &[&str; N],
-) -> JsonSchema {
-    JsonSchema::object(
-        properties
-            .into_iter()
-            .map(|(name, schema)| (name.to_string(), schema))
-            .collect(),
-        Some(required.iter().map(|name| (*name).to_string()).collect()),
-        Some(AdditionalProperties::Boolean(false)),
-    )
 }

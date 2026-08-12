@@ -185,15 +185,8 @@ mod tests {
     }
 
     fn valid_arguments() -> String {
-        serde_json::json!({
-            "calls": [{
-                "map": {
-                    "operation": "read_map",
-                    "input": {}
-                }
-            }]
-        })
-        .to_string()
+        r#"{"type":"work","tools":[{"tool":"exec_command","node_id":"work","input":{}}]}"#
+            .to_string()
     }
 
     #[test]
@@ -212,18 +205,18 @@ mod tests {
     }
 
     #[test]
-    fn repairs_missing_call_envelope_brace_before_next_call() {
+    fn repairs_missing_tool_action_brace_before_next_action() {
         let valid = serde_json::json!({
-            "calls": [
-                {"map": {"operation": "read_map", "input": {}}},
-                {"client": {"name": "exec_command", "node_id": "work", "input": {}}}
+            "type": "work",
+            "tools": [
+                {"tool": "exec_command", "node_id": "work", "input": {}},
+                {"tool": "exec_command", "node_id": "work", "input": {}}
             ]
         })
         .to_string();
-        let boundary = valid.find(",{\"client\"").expect("client boundary");
-        assert_eq!(valid.as_bytes()[boundary - 1], b'}');
+        let boundary = valid.rfind("},{").expect("action boundary");
         let mut malformed = valid.clone();
-        malformed.remove(boundary - 1);
+        malformed.remove(boundary);
         let mut item = call(malformed);
 
         self_heal_taskspace_exec_response_item(&mut item, &catalog()).expect("repair");
@@ -235,30 +228,12 @@ mod tests {
     }
 
     #[test]
-    fn repairs_missing_call_envelope_after_non_ascii_content() {
-        let valid = serde_json::json!({
-            "calls": [
-                {
-                    "map": {
-                        "operation": "update_map",
-                        "input": {
-                            "add_work_nodes": [],
-                            "node_patches": [{
-                                "node_id": "work",
-                                "state": "completed",
-                                "content": "已定位到实现中的舍入精度问题，需要修改并验证。"
-                            }]
-                        }
-                    }
-                },
-                {"client": {"name": "exec_command", "node_id": "work", "input": {}}}
-            ]
-        })
-        .to_string();
-        let boundary = valid.find(",{\"client\"").expect("client boundary");
-        assert_eq!(valid.as_bytes()[boundary - 1], b'}');
+    fn repairs_missing_node_patch_brace_after_non_ascii_content() {
+        let valid = r#"{"type":"update_and_work","update_map":{"add_work_nodes":[],"node_patches":[{"node_id":"work","state":"completed","content":"已定位到实现中的舍入精度问题，需要修改并验证。"}]},"tools":[{"tool":"exec_command","node_id":"work","input":{}}]}"#.to_string();
+        let boundary = valid.find("}]},\"tools\"").expect("node patch boundary");
+        assert_eq!(valid.as_bytes()[boundary], b'}');
         let mut malformed = valid.clone();
-        malformed.remove(boundary - 1);
+        malformed.remove(boundary);
         let mut item = call(malformed);
 
         self_heal_taskspace_exec_response_item(&mut item, &catalog()).expect("repair");
@@ -270,9 +245,9 @@ mod tests {
     }
 
     #[test]
-    fn repairs_one_missing_calls_array_bracket() {
+    fn repairs_one_missing_tools_array_bracket() {
         let valid = valid_arguments();
-        let boundary = valid.rfind("]}").expect("calls array boundary");
+        let boundary = valid.rfind("]}").expect("tools array boundary");
         let mut malformed = valid.clone();
         malformed.remove(boundary);
         let mut item = call(malformed);
@@ -304,7 +279,7 @@ mod tests {
 
     #[test]
     fn refuses_repairs_that_do_not_decode_as_exec_plan() {
-        let original = "{\"not_calls\":[]".to_string();
+        let original = "{\"not_tools\":[]".to_string();
         let mut item = call(original.clone());
 
         assert!(self_heal_taskspace_exec_response_item(&mut item, &catalog()).is_none());

@@ -413,7 +413,7 @@ fn taskspace_rejection(
 }
 
 fn render_envelope_rejection(error: &TaskSpaceExecEnvelopeError) -> String {
-    const NOTHING_EXECUTED: &str = "No Map or client calls were executed.";
+    const NOTHING_EXECUTED: &str = "No Map or Tool actions were executed.";
     match error {
         TaskSpaceExecEnvelopeError::PlanDecode(TaskSpaceExecPlanDecodeError::InvalidJson(
             detail,
@@ -421,12 +421,12 @@ fn render_envelope_rejection(error: &TaskSpaceExecEnvelopeError) -> String {
         TaskSpaceExecEnvelopeError::PlanDecode(
             TaskSpaceExecPlanDecodeError::UnexpectedArgumentsField,
         ) => format!(
-            "invalid top-level contract: unexpected field `arguments`. The top-level input must directly contain `calls` and may contain `hosted_bindings`; do not wrap it in an `arguments` field. {NOTHING_EXECUTED}"
+            "invalid top-level contract: unexpected field `arguments`. Submit exactly one declared TaskSpace sequence directly; do not wrap it in an `arguments` field. {NOTHING_EXECUTED}"
         ),
         TaskSpaceExecEnvelopeError::PlanDecode(TaskSpaceExecPlanDecodeError::InvalidEnvelope(
             detail,
         )) => format!("invalid top-level contract: {detail}. {NOTHING_EXECUTED}"),
-        _ => format!("invalid envelope: {error:?}. No Map or client calls were executed."),
+        _ => format!("invalid envelope: {error:?}. {NOTHING_EXECUTED}"),
     }
 }
 
@@ -438,10 +438,10 @@ pub(super) fn render_preflight_rejection(error: &TaskSpaceExecPreflightError) ->
             state,
             incomplete_parent_ids,
         } => format!(
-            "client call {index} targeted work node `{node_id}` in state `{}`; incomplete direct parent nodes: {incomplete_parent_ids:?}. Only preceding Map operations can unlock work in this batch; client Tool outcomes do not change node state. No Map or client calls were executed.",
+            "Tool action {index} targeted work node `{node_id}` in state `{}`; incomplete direct parent nodes: {incomplete_parent_ids:?}. Only the sequence's preceding Map operation can unlock work; Tool outcomes do not change node state. No Map or Tool actions were executed.",
             node_state_label(*state)
         ),
-        _ => format!("preflight: {error:?}. No Map or client calls were executed."),
+        _ => format!("preflight: {error:?}. No Map or Tool actions were executed."),
     }
 }
 

@@ -1,24 +1,26 @@
 use codex_tools::ToolName;
 use codex_tools::ToolSpecCapabilityInput;
-use serde::Deserialize;
-use serde::Deserializer;
-use serde::Serialize;
 use serde_json::Value;
 
 use super::MapOperation;
 use super::TaskSpaceExecCatalog;
+use super::catalog::TaskSpaceClientCapability;
 use super::catalog::TaskSpaceClientTransport;
+use super::catalog::TaskSpaceToolCapability;
+use super::schema_validation::validate_json_schema;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TaskSpaceExecPlan {
-    pub(crate) calls: Vec<ExecCall>,
-    pub(crate) hosted_bindings: Vec<HostedBinding>,
+    pub(crate) sequence_type: String,
+    pub(crate) pre_map: Vec<MapOperation>,
+    pub(crate) tools: Vec<ToolAction>,
+    pub(crate) terminal_map: Option<MapOperation>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum ExecCall {
-    Map(MapOperation),
+pub(crate) enum ToolAction {
     Client(ClientCall),
+    Hosted(HostedBinding),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -36,8 +38,7 @@ pub(crate) enum ClientCallInput {
     Freeform(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HostedBinding {
     pub(crate) tool: String,
     pub(crate) node_ids: Vec<String>,
@@ -48,61 +49,8 @@ pub(crate) enum TaskSpaceExecPlanDecodeError {
     InvalidJson(String),
     UnexpectedArgumentsField,
     InvalidEnvelope(String),
-    EmptyPlan,
     UnknownTool { index: usize, tool: String },
     InvalidCall { index: usize, reason: String },
-    InvalidHostedBinding { index: usize, reason: String },
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawPlan {
-    calls: Vec<Value>,
-    #[serde(default)]
-    hosted_bindings: Vec<Value>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawMapEnvelope {
-    map: RawMapCall,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawMapCall {
-    operation: String,
-    input: Value,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawClientEnvelope {
-    client: RawClientCall,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawClientCall {
-    name: String,
-    #[serde(default, deserialize_with = "deserialize_namespace")]
-    namespace: RawNamespace,
-    node_id: String,
-    input: Value,
-}
-
-#[derive(Default)]
-enum RawNamespace {
-    #[default]
-    Missing,
-    Present(String),
-}
-
-fn deserialize_namespace<'de, D>(deserializer: D) -> Result<RawNamespace, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    String::deserialize(deserializer).map(RawNamespace::Present)
 }
 
 impl TaskSpaceExecPlan {
@@ -118,121 +66,159 @@ impl TaskSpaceExecPlan {
         {
             return Err(TaskSpaceExecPlanDecodeError::UnexpectedArgumentsField);
         }
-        let raw: RawPlan = serde_json::from_value(value)
-            .map_err(|error| TaskSpaceExecPlanDecodeError::InvalidEnvelope(error.to_string()))?;
-        if raw.calls.is_empty() && raw.hosted_bindings.is_empty() {
-            return Err(TaskSpaceExecPlanDecodeError::EmptyPlan);
+        validate_json_schema(&value, catalog.input_schema()).map_err(|error| {
+            TaskSpaceExecPlanDecodeError::InvalidEnvelope(format!(
+                "{}: {}",
+                error.path, error.reason
+            ))
+        })?;
+
+        let sequence_type = string_field(&value, "type")?;
+        let mut pre_map = Vec::new();
+        let mut tools = Vec::new();
+        let mut terminal_map = None;
+        match sequence_type {
+            "initialize_and_work" => {
+                pre_map.push(decode_map(
+                    "initialize_map",
+                    field(&value, "initialize_map")?,
+                )?);
+                tools = decode_tools(&value, catalog)?;
+            }
+            "work" => tools = decode_tools(&value, catalog)?,
+            "update_map" => pre_map.push(decode_map("update_map", field(&value, "update_map")?)?),
+            "update_and_work" => {
+                pre_map.push(decode_map("update_map", field(&value, "update_map")?)?);
+                tools = decode_tools(&value, catalog)?;
+            }
+            "update_and_finish" => {
+                pre_map.push(decode_map("update_map", field(&value, "update_map")?)?);
+                terminal_map = Some(decode_map("finish_map", field(&value, "finish_map")?)?);
+            }
+            "read_map" => pre_map.push(decode_map("read_map", field(&value, "read_map")?)?),
+            "reopen_update_and_work" => {
+                pre_map.push(decode_map("reopen_map", field(&value, "reopen_map")?)?);
+                pre_map.push(decode_map("update_map", field(&value, "update_map")?)?);
+                tools = decode_tools(&value, catalog)?;
+            }
+            "finish_map" => {
+                terminal_map = Some(decode_map("finish_map", field(&value, "finish_map")?)?)
+            }
+            _ => unreachable!("sequence type was validated by the closed schema"),
         }
-        let calls = raw
-            .calls
-            .into_iter()
-            .enumerate()
-            .map(|(index, call)| decode_call(index, call, catalog))
-            .collect::<Result<Vec<_>, _>>()?;
-        let hosted_bindings = raw
-            .hosted_bindings
-            .into_iter()
-            .enumerate()
-            .map(|(index, binding)| decode_hosted_binding(index, binding, catalog))
-            .collect::<Result<Vec<_>, _>>()?;
         Ok(Self {
-            calls,
-            hosted_bindings,
+            sequence_type: sequence_type.to_string(),
+            pre_map,
+            tools,
+            terminal_map,
         })
     }
 }
 
-fn decode_call(
-    index: usize,
-    value: Value,
-    catalog: &TaskSpaceExecCatalog,
-) -> Result<ExecCall, TaskSpaceExecPlanDecodeError> {
-    if value.get("map").is_some() {
-        return decode_map_call(index, value, catalog);
-    }
-    if value.get("client").is_none() {
-        return Err(TaskSpaceExecPlanDecodeError::InvalidCall {
-            index,
-            reason: "call must contain exactly one `map` or `client` envelope".to_string(),
-        });
-    }
-    decode_client_call(index, value, catalog)
-}
-
-fn decode_map_call(
-    index: usize,
-    value: Value,
-    catalog: &TaskSpaceExecCatalog,
-) -> Result<ExecCall, TaskSpaceExecPlanDecodeError> {
-    let raw = serde_json::from_value::<RawMapEnvelope>(value).map_err(|error| {
-        TaskSpaceExecPlanDecodeError::InvalidCall {
-            index,
-            reason: error.to_string(),
-        }
-    })?;
-    if !catalog.is_map_operation(&raw.map.operation) {
-        return Err(TaskSpaceExecPlanDecodeError::UnknownTool {
-            index,
-            tool: raw.map.operation,
-        });
-    }
+fn decode_map(
+    operation: &str,
+    input: &Value,
+) -> Result<MapOperation, TaskSpaceExecPlanDecodeError> {
     serde_json::from_value(serde_json::json!({
-        "tool": raw.map.operation,
-        "arguments": raw.map.input,
+        "tool": operation,
+        "arguments": input,
     }))
-    .map(ExecCall::Map)
     .map_err(|error| TaskSpaceExecPlanDecodeError::InvalidCall {
-        index,
+        index: 0,
         reason: error.to_string(),
     })
 }
 
-fn decode_client_call(
-    index: usize,
-    value: Value,
+fn decode_tools(
+    plan: &Value,
     catalog: &TaskSpaceExecCatalog,
-) -> Result<ExecCall, TaskSpaceExecPlanDecodeError> {
-    let raw = serde_json::from_value::<RawClientEnvelope>(value).map_err(|error| {
-        TaskSpaceExecPlanDecodeError::InvalidCall {
-            index,
-            reason: error.to_string(),
+) -> Result<Vec<ToolAction>, TaskSpaceExecPlanDecodeError> {
+    let tools = field(plan, "tools")?
+        .as_array()
+        .ok_or_else(|| invalid_envelope("`tools` must be an array"))?;
+    tools
+        .iter()
+        .enumerate()
+        .map(|(index, value)| decode_tool(index, value, catalog))
+        .collect()
+}
+
+fn decode_tool(
+    index: usize,
+    value: &Value,
+    catalog: &TaskSpaceExecCatalog,
+) -> Result<ToolAction, TaskSpaceExecPlanDecodeError> {
+    let namespace = value
+        .get("namespace")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let name = string_field(value, "tool")?.to_string();
+    let tool_name = ToolName::new(namespace, name);
+    match catalog.tool_capability(&tool_name) {
+        Some(TaskSpaceToolCapability::Client(capability)) => {
+            decode_client(value, capability, tool_name).map(ToolAction::Client)
         }
-    })?;
-    let namespace = match &raw.client.namespace {
-        RawNamespace::Missing => None,
-        RawNamespace::Present(namespace) => Some(namespace.clone()),
-    };
-    let tool_name = ToolName::new(namespace, raw.client.name.clone());
-    let Some(capability) = catalog.client_capability(&tool_name) else {
-        return Err(TaskSpaceExecPlanDecodeError::UnknownTool {
+        Some(TaskSpaceToolCapability::Hosted(_)) => {
+            let node_ids = field(value, "node_ids")?
+                .as_array()
+                .ok_or_else(|| invalid_envelope("`node_ids` must be an array"))?
+                .iter()
+                .map(|node| {
+                    node.as_str()
+                        .map(str::to_string)
+                        .ok_or_else(|| invalid_envelope("node id must be a string"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(ToolAction::Hosted(HostedBinding {
+                tool: tool_name.name,
+                node_ids,
+            }))
+        }
+        None => Err(TaskSpaceExecPlanDecodeError::UnknownTool {
             index,
             tool: tool_label(&tool_name),
-        });
-    };
-    let projected = &capability.capability;
-    let input = match (&projected.tool_name.namespace, &projected.input) {
-        (_, ToolSpecCapabilityInput::Function(_)) => ClientCallInput::Function(raw.client.input),
-        (None, ToolSpecCapabilityInput::Freeform(_)) => ClientCallInput::Freeform(
-            raw.client
-                .input
+        }),
+    }
+}
+
+fn decode_client(
+    value: &Value,
+    capability: &TaskSpaceClientCapability,
+    tool_name: ToolName,
+) -> Result<ClientCall, TaskSpaceExecPlanDecodeError> {
+    let input = field(value, "input")?;
+    let input = match &capability.capability.input {
+        ToolSpecCapabilityInput::Function(_) => ClientCallInput::Function(input.clone()),
+        ToolSpecCapabilityInput::Freeform(_) => ClientCallInput::Freeform(
+            input
                 .as_str()
-                .ok_or_else(|| TaskSpaceExecPlanDecodeError::InvalidCall {
-                    index,
-                    reason: "freeform client input must be a string".to_string(),
-                })?
+                .ok_or_else(|| invalid_envelope("freeform Tool input must be a string"))?
                 .to_string(),
         ),
-        (Some(_), ToolSpecCapabilityInput::Freeform(_)) => {
-            unreachable!("namespaced freeform Tool")
-        }
     };
-    Ok(ExecCall::Client(ClientCall {
-        display_name: tool_label(&projected.tool_name),
-        tool_name: projected.tool_name.clone(),
-        node_id: raw.client.node_id,
+    Ok(ClientCall {
+        display_name: tool_label(&tool_name),
+        tool_name,
+        node_id: string_field(value, "node_id")?.to_string(),
         input,
         transport: capability.transport,
-    }))
+    })
+}
+
+fn field<'a>(value: &'a Value, name: &str) -> Result<&'a Value, TaskSpaceExecPlanDecodeError> {
+    value
+        .get(name)
+        .ok_or_else(|| invalid_envelope(format!("missing `{name}`")))
+}
+
+fn string_field<'a>(value: &'a Value, name: &str) -> Result<&'a str, TaskSpaceExecPlanDecodeError> {
+    field(value, name)?
+        .as_str()
+        .ok_or_else(|| invalid_envelope(format!("`{name}` must be a string")))
+}
+
+fn invalid_envelope(reason: impl Into<String>) -> TaskSpaceExecPlanDecodeError {
+    TaskSpaceExecPlanDecodeError::InvalidEnvelope(reason.into())
 }
 
 fn tool_label(tool_name: &ToolName) -> String {
@@ -240,24 +226,4 @@ fn tool_label(tool_name: &ToolName) -> String {
         Some(namespace) => format!("{namespace} / {}", tool_name.name),
         None => tool_name.name.clone(),
     }
-}
-
-fn decode_hosted_binding(
-    index: usize,
-    value: Value,
-    catalog: &TaskSpaceExecCatalog,
-) -> Result<HostedBinding, TaskSpaceExecPlanDecodeError> {
-    let binding = serde_json::from_value::<HostedBinding>(value).map_err(|error| {
-        TaskSpaceExecPlanDecodeError::InvalidHostedBinding {
-            index,
-            reason: error.to_string(),
-        }
-    })?;
-    if !catalog.is_hosted_tool(&binding.tool) {
-        return Err(TaskSpaceExecPlanDecodeError::InvalidHostedBinding {
-            index,
-            reason: format!("unknown provider-hosted Tool `{}`", binding.tool),
-        });
-    }
-    Ok(binding)
 }

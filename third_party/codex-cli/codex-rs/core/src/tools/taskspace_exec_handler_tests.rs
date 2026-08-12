@@ -43,7 +43,7 @@ fn waiting_preflight_feedback_names_parents_and_mechanical_batch_boundary() {
 
     assert_eq!(
         feedback,
-        "client call 2 targeted work node `implement` in state `waiting`; incomplete direct parent nodes: [\"inspect\", \"design\"]. Only preceding Map operations can unlock work in this batch; client Tool outcomes do not change node state. No Map or client calls were executed."
+        "Tool action 2 targeted work node `implement` in state `waiting`; incomplete direct parent nodes: [\"inspect\", \"design\"]. Only the sequence's preceding Map operation can unlock work; Tool outcomes do not change node state. No Map or Tool actions were executed."
     );
 }
 use crate::tools::registry::ToolHandler;
@@ -95,8 +95,20 @@ fn initialize_input() -> Value {
     })
 }
 
-fn initialize_call() -> Value {
-    json!({"map": {"operation": "initialize_map", "input": initialize_input()}})
+fn inspect_action(input: Value) -> Value {
+    json!({"tool": "inspect", "node_id": "work", "input": input})
+}
+
+fn inspect_action_for(node_id: &str, input: Value) -> Value {
+    json!({"tool": "inspect", "node_id": node_id, "input": input})
+}
+
+fn initialize_work(tools: Vec<Value>) -> Value {
+    json!({
+        "type": "initialize_and_work",
+        "initialize_map": initialize_input(),
+        "tools": tools
+    })
 }
 
 #[derive(Default)]
@@ -152,7 +164,7 @@ impl ToolHandler for LedgerAwareHandler {
                 .find(|node| node.id == "work")
                 .unwrap();
             if work.actions.iter().any(|action| {
-                action.action_id.ends_with("/call/1") && action.outcome == "succeeded"
+                action.action_id.ends_with("/call/0") && action.outcome == "succeeded"
             }) {
                 self.slow_saw_fast_settled.store(true, Ordering::SeqCst);
             }
@@ -295,7 +307,7 @@ async fn malformed_json_feedback_preserves_only_the_syntax_error() {
     let harness = harness(false).await;
     begin_scope(&harness).await;
     finalize_scope(&harness);
-    let malformed = r#"{"calls":[{"map":{"operation":"initialize_map","input":{}}},{"client":{"name":"inspect","node_id":"work","input":{}}}]"#;
+    let malformed = r#"{"type":"initialize_and_work","initialize_map":{},"tools":[{"tool":"inspect","node_id":"work","input":{}}]"#;
 
     let result = harness
         .handler
@@ -308,9 +320,9 @@ async fn malformed_json_feedback_preserves_only_the_syntax_error() {
     let message = error.to_string();
 
     assert!(message.contains("invalid JSON syntax:"));
-    assert!(!message.contains("top-level input must directly contain `calls`"));
+    assert!(!message.contains("top-level input must directly contain"));
     assert!(!message.contains("do not wrap it in an `arguments` field"));
-    assert!(message.contains("No Map or client calls were executed"));
+    assert!(message.contains("No Map or Tool actions were executed"));
     assert_eq!(harness.client_handler.calls.load(Ordering::SeqCst), 0);
     assert!(
         harness
@@ -328,7 +340,8 @@ async fn wrapped_arguments_feedback_distinguishes_contract_from_json_syntax() {
     let harness = harness(false).await;
     begin_scope(&harness).await;
     finalize_scope(&harness);
-    let wrapped = json!({"arguments": json!({"calls": [initialize_call()]}).to_string()});
+    let wrapped =
+        json!({"arguments": initialize_work(vec![inspect_action(json!({}))]).to_string()});
 
     let result = harness.handler.handle(invocation(&harness, wrapped)).await;
     let error = match result {
@@ -349,7 +362,12 @@ async fn other_top_level_contract_errors_do_not_inject_wrapper_guidance() {
     let harness = harness(false).await;
     begin_scope(&harness).await;
     finalize_scope(&harness);
-    let unknown = json!({"calls": [initialize_call()], "unexpected": true});
+    let unknown = json!({
+        "type": "initialize_and_work",
+        "initialize_map": initialize_input(),
+        "tools": [inspect_action(json!({}))],
+        "unexpected": true
+    });
 
     let result = harness.handler.handle(invocation(&harness, unknown)).await;
     let error = match result {
@@ -376,13 +394,7 @@ async fn cancelled_native_call_is_settled_without_changing_node_state() {
         .handler
         .handle(invocation_with_token(
             &harness,
-            json!({
-                "calls": [
-                    initialize_call(),
-                    {"client": {"name": "inspect", "node_id": "work", "input": {"delay_ms": 60}}}
-                ],
-                "hosted_bindings": []
-            }),
+            initialize_work(vec![inspect_action(json!({"delay_ms": 60}))]),
             cancellation_token,
         ))
         .await
@@ -404,7 +416,7 @@ async fn cancelled_native_call_is_settled_without_changing_node_state() {
         .map
         .unwrap();
     let work = map.nodes.iter().find(|node| node.id == "work").unwrap();
-    assert_eq!(work.state, "ready");
+    assert_eq!(work.state, "in_flight");
     assert_eq!(work.actions[0].outcome, "cancelled");
 }
 
@@ -428,14 +440,8 @@ async fn interrupted_outer_exec_does_not_cancel_registered_action_producer() {
                 tool_name: ToolName::plain(TASKSPACE_EXEC_TOOL_NAME),
                 source: ToolCallSource::Direct,
                 payload: ToolPayload::Function {
-                    arguments: json!({
-                        "calls": [
-                            initialize_call(),
-                            {"client": {"name": "inspect", "node_id": "work", "input": {"delay_ms": 60}}}
-                        ],
-                        "hosted_bindings": []
-                    })
-                    .to_string(),
+                    arguments: initialize_work(vec![inspect_action(json!({"delay_ms": 60}))])
+                        .to_string(),
                 },
             })
             .await
@@ -485,14 +491,10 @@ async fn handler_persists_pending_then_settles_each_native_result_without_node_t
         .handler
         .handle(invocation(
             &harness,
-            json!({
-                "calls": [
-                    initialize_call(),
-                    {"client": {"name": "inspect", "node_id": "work", "input": {"delay_ms": 5}}},
-                    {"client": {"name": "inspect", "node_id": "work", "input": {"delay_ms": 60, "fail": true}}}
-                ],
-                "hosted_bindings": []
-            }),
+            initialize_work(vec![
+                inspect_action(json!({"delay_ms": 5})),
+                inspect_action(json!({"delay_ms": 60, "fail": true})),
+            ]),
         ))
         .await
         .unwrap();
@@ -504,7 +506,7 @@ async fn handler_persists_pending_then_settles_each_native_result_without_node_t
     assert_eq!(feedback["outer_call_id"], "outer");
     assert_eq!(
         feedback["client_results"][0]["action_id"],
-        "outer/taskspace/call/1"
+        "outer/taskspace/call/0"
     );
     assert_eq!(
         feedback["client_results"][0]["result"],
@@ -538,7 +540,7 @@ async fn handler_persists_pending_then_settles_each_native_result_without_node_t
         .map
         .unwrap();
     let work = map.nodes.iter().find(|node| node.id == "work").unwrap();
-    assert_eq!(work.state, "ready");
+    assert_eq!(work.state, "in_flight");
     assert_eq!(work.actions[0].outcome, "succeeded");
     assert_eq!(work.actions[1].outcome, "failed");
 }
@@ -552,14 +554,10 @@ async fn internal_fatal_is_returned_once_with_successful_sibling_feedback() {
         .handler
         .handle(invocation(
             &harness,
-            json!({
-                "calls": [
-                    initialize_call(),
-                    {"client": {"name": "inspect", "node_id": "work", "input": {"delay_ms": 5}}},
-                    {"client": {"name": "inspect", "node_id": "work", "input": {"fatal": true}}}
-                ],
-                "hosted_bindings": []
-            }),
+            initialize_work(vec![
+                inspect_action(json!({"delay_ms": 5})),
+                inspect_action(json!({"fatal": true})),
+            ]),
         ))
         .await
         .expect("internal fatal must remain an outer Tool result");
@@ -605,13 +603,7 @@ async fn failed_preflight_has_no_map_or_client_tool_side_effect() {
         .handler
         .handle(invocation(
             &harness,
-            json!({
-                "calls": [
-                    initialize_call(),
-                    {"client": {"name": "inspect", "node_id": "work", "input": {"delay_ms": "invalid"}}}
-                ],
-                "hosted_bindings": []
-            }),
+            initialize_work(vec![inspect_action_for("missing", json!({}))]),
         ))
         .await;
     let error = match result {
@@ -678,13 +670,7 @@ async fn response_uses_request_time_revision_and_rejects_a_stale_plan() {
         .handler
         .handle(invocation(
             &harness,
-            json!({
-                "calls": [
-                    initialize_call(),
-                    {"client": {"name": "inspect", "node_id": "work", "input": {}}}
-                ],
-                "hosted_bindings": []
-            }),
+            initialize_work(vec![inspect_action(json!({}))]),
         ))
         .await;
 
@@ -720,10 +706,7 @@ async fn hosted_result_is_bound_by_provider_identity_without_changing_node_state
         .handler
         .handle(invocation(
             &harness,
-            json!({
-                "calls": [initialize_call()],
-                "hosted_bindings": [{"tool": "web_search", "node_ids": ["work"]}]
-            }),
+            initialize_work(vec![json!({"tool": "web_search", "node_ids": ["work"]})]),
         ))
         .await
         .unwrap();
@@ -743,7 +726,7 @@ async fn hosted_result_is_bound_by_provider_identity_without_changing_node_state
         .map
         .unwrap();
     let work = map.nodes.iter().find(|node| node.id == "work").unwrap();
-    assert_eq!(work.state, "ready");
+    assert_eq!(work.state, "in_flight");
     assert_eq!(work.actions[0].action_id, "provider-search-1");
     assert_eq!(work.actions[0].outcome, "succeeded");
 }
@@ -765,10 +748,7 @@ async fn failed_hosted_result_preserves_failure_without_changing_node_state() {
         .handler
         .handle(invocation(
             &harness,
-            json!({
-                "calls": [initialize_call()],
-                "hosted_bindings": [{"tool": "web_search", "node_ids": ["work"]}]
-            }),
+            initialize_work(vec![json!({"tool": "web_search", "node_ids": ["work"]})]),
         ))
         .await
         .unwrap();
@@ -783,7 +763,7 @@ async fn failed_hosted_result_preserves_failure_without_changing_node_state() {
         .map
         .unwrap();
     let work = map.nodes.iter().find(|node| node.id == "work").unwrap();
-    assert_eq!(work.state, "ready");
+    assert_eq!(work.state, "in_flight");
     assert_eq!(work.actions[0].action_id, "provider-search-failed");
     assert_eq!(work.actions[0].outcome, "failed");
 }

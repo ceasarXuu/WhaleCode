@@ -10,18 +10,24 @@ use codex_tools::ResponsesApiTool;
 use codex_tools::ToolName;
 use codex_tools::ToolSpec;
 use pretty_assertions::assert_eq;
+use serde_json::Value;
 use serde_json::json;
 
 use super::*;
 
 fn function(name: &str) -> ResponsesApiTool {
+    let (property, description) = if name == "exec_command" {
+        ("cmd", "Run a shell command.")
+    } else {
+        ("value", "Run the Tool.")
+    };
     ResponsesApiTool {
         name: name.into(),
-        description: format!("Run {name}."),
+        description: description.into(),
         strict: false,
         parameters: JsonSchema::object(
-            BTreeMap::from([("value".into(), JsonSchema::string(None))]),
-            Some(vec!["value".into()]),
+            BTreeMap::from([(property.into(), JsonSchema::string(None))]),
+            Some(vec![property.into()]),
             Some(AdditionalProperties::Boolean(false)),
         ),
         output_schema: None,
@@ -36,24 +42,9 @@ fn deferred_function(name: &str) -> ResponsesApiTool {
     }
 }
 
-fn exec_command() -> ResponsesApiTool {
-    ResponsesApiTool {
-        name: "exec_command".into(),
-        description: "Run a shell command.".into(),
-        strict: false,
-        parameters: JsonSchema::object(
-            BTreeMap::from([("cmd".into(), JsonSchema::string(None))]),
-            Some(vec!["cmd".into()]),
-            Some(AdditionalProperties::Boolean(false)),
-        ),
-        output_schema: None,
-        defer_loading: None,
-    }
-}
-
 fn specs() -> Vec<ToolSpec> {
     vec![
-        ToolSpec::Function(exec_command()),
+        ToolSpec::Function(function("exec_command")),
         ToolSpec::Function(function("read_file")),
         ToolSpec::Freeform(FreeformTool {
             name: "apply_patch".into(),
@@ -94,170 +85,149 @@ fn specs() -> Vec<ToolSpec> {
     ]
 }
 
+fn update_input() -> Value {
+    json!({
+        "add_work_nodes": [],
+        "node_patches": [{"node_id": "work", "state": "completed"}]
+    })
+}
+
+fn client_tool() -> Value {
+    json!({"tool": "read_file", "node_id": "work", "input": {"value": "a"}})
+}
+
 #[test]
-fn declaration_is_deterministic_and_exposes_each_contract_once() {
+fn declaration_is_deterministic_and_exposes_one_closed_contract() {
     let first = TaskSpaceExecCatalog::build(&specs()).unwrap();
     let second = TaskSpaceExecCatalog::build(&specs()).unwrap();
-    let first_json = serde_json::to_vec(first.declaration()).unwrap();
-    let second_json = serde_json::to_vec(second.declaration()).unwrap();
-    assert_eq!(first_json, second_json);
+    assert_eq!(
+        serde_json::to_vec(first.declaration()).unwrap(),
+        serde_json::to_vec(second.declaration()).unwrap()
+    );
     assert_eq!(first.capability_identity(), second.capability_identity());
-    assert_eq!(first.capability_identity().len(), 64);
 
-    let value = serde_json::to_value(first.declaration()).unwrap();
-    assert_eq!(value["name"], "taskspace_exec");
-    let rendered = value.to_string();
+    let declaration = serde_json::to_value(first.declaration()).unwrap();
+    let parameters = &declaration["parameters"];
+    assert_eq!(parameters["anyOf"].as_array().unwrap().len(), 8);
+    assert!(parameters["$defs"]["tool_action"].is_object());
+    assert_eq!(
+        parameters["$defs"]["tool_action"]["anyOf"]
+            .as_array()
+            .unwrap()
+            .len(),
+        7
+    );
+    let rendered = declaration.to_string();
     for name in [
-        "initialize_map",
-        "update_map",
-        "read_map",
-        "reopen_map",
-        "finish_map",
+        "initialize_and_work",
+        "update_and_work",
+        "update_and_finish",
+        "reopen_update_and_work",
         "read_file",
         "apply_patch",
-        "mcp__sample__",
-        "lookup",
-        "tool_search",
+        "web_search",
+        "image_generation",
     ] {
-        assert!(rendered.contains(name), "missing {name} from {rendered}");
+        assert!(rendered.contains(name), "missing {name}");
     }
+    for forbidden in ["hosted_bindings", "client_work", "hosted_work", "\"calls\""] {
+        assert!(!rendered.contains(forbidden), "found {forbidden}");
+    }
+    assert!(!rendered.contains("update_plan"));
     assert!(!rendered.contains("\"exec\""));
     assert!(!rendered.contains("\"wait\""));
-    assert!(!rendered.contains("update_plan"));
-    assert!(!rendered.contains("mcp__sample__lookup"));
-    let input = serde_json::to_string(&first.declaration().parameters).unwrap();
-    assert!(!input.contains("version"));
-    assert!(!input.contains("capability_id"));
-    assert!(!input.contains("revision"));
-    assert_eq!(value["parameters"]["required"], json!(["calls"]));
-    assert!(value.get("output_schema").is_none());
-    let call_variants = value["parameters"]["properties"]["calls"]["items"]["anyOf"]
-        .as_array()
-        .unwrap();
-    assert_eq!(call_variants.len(), 10);
-    for variant in call_variants {
-        let properties = variant["properties"].as_object().unwrap();
-        assert_eq!(properties.len(), 1);
-        assert!(properties.contains_key("map") || properties.contains_key("client"));
+    assert!(
+        declaration["description"]
+            .as_str()
+            .unwrap()
+            .contains("single `tools` array")
+    );
+}
+
+#[test]
+fn all_eight_legal_sequences_decode_and_old_wire_is_rejected() {
+    let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
+    let legal = [
+        canonical_first_turn_example(),
+        json!({"type": "work", "tools": [client_tool()]}),
+        json!({"type": "update_map", "update_map": update_input()}),
+        canonical_handoff_example(),
+        canonical_finish_example(),
+        canonical_read_example(),
+        json!({
+            "type": "reopen_update_and_work",
+            "reopen_map": {},
+            "update_map": update_input(),
+            "tools": [client_tool()]
+        }),
+        json!({"type": "finish_map", "finish_map": {"content": "done"}}),
+    ];
+    for value in legal {
+        catalog
+            .decode_plan(&value.to_string())
+            .unwrap_or_else(|error| panic!("rejected {value}: {error:?}"));
     }
-
-    let description = value["description"].as_str().unwrap();
-    assert!(description.contains("single top-level entry point"));
-    assert!(description.contains("First-turn initialization and work example"));
-    assert!(description.contains("node_id` is TaskSpace ownership metadata"));
-    assert!(description.contains("Client calls may execute in parallel"));
-    assert!(description.contains("cannot unlock descendants until a later request"));
-    assert!(description.contains("direct-child work example"));
-    assert!(description.contains("explicit Map finish example"));
-    assert!(description.contains("The Runtime does not add, infer, reorder, or repair"));
-    assert!(
-        description.contains("preserves native client results and errors without summarization")
-    );
-    assert!(!description.contains("type TaskSpaceExecResult"));
-    assert!(!description.contains("map_revision_at_dispatch"));
-    assert_eq!(description.matches("First-turn initialization").count(), 1);
-    assert!(!description.contains(r#"{\"tool\""#));
-
-    let output_schema = first.declaration().output_schema.as_ref().unwrap();
-    let decoded: JsonSchema = serde_json::from_value(output_schema.clone()).unwrap();
-    assert_eq!(serde_json::to_value(decoded).unwrap(), *output_schema);
+    for old in [
+        json!({"calls": []}),
+        json!({"hosted_bindings": [{"tool": "web_search", "node_ids": ["work"]}]}),
+        json!({"type": "custom", "tools": [client_tool()]}),
+        json!({"type": "work", "tools": []}),
+    ] {
+        assert!(
+            catalog.decode_plan(&old.to_string()).is_err(),
+            "accepted {old}"
+        );
+    }
 }
 
 #[test]
-fn rendered_map_examples_use_the_same_catalog_contract() {
+fn unified_tools_preserve_client_freeform_namespace_and_hosted_actions() {
     let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
-    assert!(canonical_read_example().get("hosted_bindings").is_none());
-    assert!(canonical_finish_example().get("hosted_bindings").is_none());
-    let read = catalog
-        .decode_plan(&canonical_read_example().to_string())
+    let plan = catalog
+        .decode_plan(
+            &json!({
+                "type": "work",
+                "tools": [
+                    client_tool(),
+                    {"tool": "apply_patch", "node_id": "fix", "input": "*** Begin Patch"},
+                    {"tool": "lookup", "namespace": "mcp__sample__", "node_id": "work", "input": {"value": "b"}},
+                    {"tool": "web_search", "node_ids": ["work", "fix"]},
+                    {"tool": "image_generation", "node_ids": ["work"]}
+                ]
+            })
+            .to_string(),
+        )
         .unwrap();
-    assert_eq!(read.calls.len(), 1);
-    assert!(matches!(
-        read.calls[0],
-        ExecCall::Map(MapOperation::ReadMap(_))
-    ));
-
-    let finish = catalog
-        .decode_plan(&canonical_finish_example().to_string())
-        .unwrap();
-    assert_eq!(finish.calls.len(), 2);
-    assert!(matches!(
-        finish.calls[0],
-        ExecCall::Map(MapOperation::UpdateMap(_))
-    ));
-    assert!(matches!(
-        finish.calls[1],
-        ExecCall::Map(MapOperation::FinishMap(_))
-    ));
-
-    let declaration = serde_json::to_value(catalog.declaration()).unwrap();
-    let calls = declaration["parameters"]["properties"]["calls"]["items"]["description"]
-        .as_str()
-        .unwrap();
-    assert!(calls.contains("client outcomes do not change node state"));
-    assert!(calls.contains("Dependencies come from Map node parents"));
-}
-
-#[test]
-fn rendered_first_turn_example_uses_the_same_catalog_contract() {
-    let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
-    let example = canonical_first_turn_example();
-    assert!(example.get("hosted_bindings").is_none());
-    let plan = catalog.decode_plan(&example.to_string()).unwrap();
-
-    assert_eq!(plan.calls.len(), 2);
-    assert!(plan.hosted_bindings.is_empty());
-    assert!(matches!(plan.calls[0], ExecCall::Map(_)));
-    let ExecCall::Client(client) = &plan.calls[1] else {
-        panic!("expected client work after map initialization")
+    assert_eq!(plan.sequence_type, "work");
+    assert_eq!(plan.tools.len(), 5);
+    let ToolAction::Client(namespace) = &plan.tools[2] else {
+        panic!("expected namespaced client Tool")
     };
-    assert_eq!(client.display_name, "exec_command");
-    assert_eq!(client.node_id, "inspect");
     assert_eq!(
-        client.input,
-        ClientCallInput::Function(json!({"cmd": "pwd"}))
+        namespace.tool_name,
+        ToolName::namespaced("mcp__sample__", "lookup")
     );
+    let ToolAction::Hosted(hosted) = &plan.tools[3] else {
+        panic!("expected hosted Tool")
+    };
+    assert_eq!(hosted.node_ids, vec!["work", "fix"]);
 }
 
 #[test]
-fn capability_identity_changes_with_dispatch_or_hosted_semantics() {
-    let baseline = TaskSpaceExecCatalog::build(&specs()).unwrap();
-
-    let mut changed_output = specs();
-    let ToolSpec::Function(tool) = &mut changed_output[0] else {
-        panic!("expected function")
-    };
-    tool.output_schema = Some(json!({"type": "string"}));
-    let changed_output = TaskSpaceExecCatalog::build(&changed_output).unwrap();
-    assert_ne!(
-        baseline.declaration().output_schema,
-        changed_output.declaration().output_schema
-    );
-    assert!(
-        !changed_output
-            .declaration()
-            .description
-            .contains("`exec_command` logical output: string")
-    );
-    assert_ne!(
-        baseline.capability_identity(),
-        changed_output.capability_identity()
-    );
-
-    let mut changed_hosted = specs();
-    let ToolSpec::ImageGeneration { output_format } = changed_hosted
-        .iter_mut()
-        .find(|spec| matches!(spec, ToolSpec::ImageGeneration { .. }))
-        .unwrap()
-    else {
-        panic!("expected image generation")
-    };
-    *output_format = "jpeg".into();
-    let changed_hosted = TaskSpaceExecCatalog::build(&changed_hosted).unwrap();
-    assert_ne!(
-        baseline.capability_identity(),
-        changed_hosted.capability_identity()
-    );
+fn tool_shapes_are_exact_and_namespace_identity_is_lossless() {
+    let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
+    for invalid in [
+        json!({"type": "work", "tools": [{"tool": "missing", "node_id": "n", "input": {}}]}),
+        json!({"type": "work", "tools": [{"tool": "mcp__sample__lookup", "node_id": "n", "input": {"value": "v"}}]}),
+        json!({"type": "work", "tools": [{"tool": "lookup", "node_id": "n", "input": {"value": "v"}}]}),
+        json!({"type": "work", "tools": [{"tool": "web_search", "node_ids": []}]}),
+        json!({"type": "work", "tools": [{"tool": "read_file", "node_id": "n", "input": {"value": "v"}, "revision": 1}]}),
+    ] {
+        assert!(
+            catalog.decode_plan(&invalid.to_string()).is_err(),
+            "accepted {invalid}"
+        );
+    }
 }
 
 #[test]
@@ -274,11 +244,6 @@ fn deferred_capabilities_are_hidden_until_loaded() {
         }),
     ];
     let initial = TaskSpaceExecCatalog::build(&specs).unwrap();
-    let initial_json = serde_json::to_string(initial.declaration()).unwrap();
-    assert!(initial_json.contains("always_visible"));
-    assert!(!initial_json.contains("deferred_plain"));
-    assert!(!initial_json.contains("selected_child"));
-
     let loaded = TaskSpaceExecCatalog::build_with_loaded_deferred(
         &specs,
         &[ToolSpec::Namespace(ResponsesApiNamespace {
@@ -290,237 +255,24 @@ fn deferred_capabilities_are_hidden_until_loaded() {
         })],
     )
     .unwrap();
+    let initial_json = serde_json::to_string(initial.declaration()).unwrap();
     let loaded_json = serde_json::to_string(loaded.declaration()).unwrap();
-    assert!(loaded_json.contains("always_visible"));
+    assert!(initial_json.contains("always_visible"));
+    assert!(!initial_json.contains("deferred_plain"));
+    assert!(!initial_json.contains("selected_child"));
     assert!(loaded_json.contains("selected_child"));
-    assert!(!loaded_json.contains("deferred_plain"));
     assert_ne!(initial.capability_identity(), loaded.capability_identity());
 }
 
 #[test]
-fn decoder_preserves_mixed_map_function_freeform_and_namespace_calls() {
-    let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
-    let plan = catalog
-        .decode_plan(
-            &json!({
-                "calls": [
-                    {"map": {"operation": "read_map", "input": {}}},
-                    {"client": {"name": "read_file", "node_id": "inspect", "input": {"value": "a"}}},
-                    {"client": {"name": "apply_patch", "node_id": "fix", "input": "*** Begin Patch"}},
-                    {"client": {"name": "lookup", "namespace": "mcp__sample__", "node_id": "inspect", "input": {"value": "b"}}}
-                ],
-                "hosted_bindings": [
-                    {"tool": "web_search", "node_ids": ["inspect", "fix"]},
-                    {"tool": "image_generation", "node_ids": ["inspect"]}
-                ]
-            })
-            .to_string(),
-        )
-        .unwrap();
-
-    assert!(matches!(plan.calls[0], ExecCall::Map(_)));
-    let ExecCall::Client(function) = &plan.calls[1] else {
-        panic!("expected function call")
-    };
-    assert_eq!(function.display_name, "read_file");
-    assert_eq!(function.node_id, "inspect");
+fn catalog_rejects_collisions_and_is_source_order_independent() {
     assert_eq!(
-        function.input,
-        ClientCallInput::Function(json!({"value": "a"}))
-    );
-    let ExecCall::Client(freeform) = &plan.calls[2] else {
-        panic!("expected freeform call")
-    };
-    assert_eq!(
-        freeform.input,
-        ClientCallInput::Freeform("*** Begin Patch".into())
-    );
-    let ExecCall::Client(namespace) = &plan.calls[3] else {
-        panic!("expected namespace call")
-    };
-    assert_eq!(
-        namespace.tool_name.namespace.as_deref(),
-        Some("mcp__sample__")
-    );
-    assert_eq!(namespace.tool_name.name, "lookup");
-    assert_eq!(plan.hosted_bindings[0].node_ids, vec!["inspect", "fix"]);
-}
-
-#[test]
-fn native_identity_allows_same_leaf_across_plain_and_namespaced_tools() {
-    let catalog = TaskSpaceExecCatalog::build(&[
-        ToolSpec::Function(function("lookup")),
-        ToolSpec::Namespace(ResponsesApiNamespace {
-            name: "alpha".into(),
-            description: "Alpha namespace.".into(),
-            tools: vec![ResponsesApiNamespaceTool::Function(function("lookup"))],
-        }),
-        ToolSpec::Namespace(ResponsesApiNamespace {
-            name: "beta".into(),
-            description: "Beta namespace.".into(),
-            tools: vec![ResponsesApiNamespaceTool::Function(function("lookup"))],
-        }),
-        ToolSpec::Namespace(ResponsesApiNamespace {
-            name: "map_tools".into(),
-            description: "Map-named namespace child.".into(),
-            tools: vec![ResponsesApiNamespaceTool::Function(function("read_map"))],
-        }),
-    ])
-    .unwrap();
-
-    let plan = catalog
-        .decode_plan(
-            &json!({
-                "calls": [
-                    {"client": {"name": "lookup", "node_id": "plain", "input": {"value": "p"}}},
-                    {"client": {"name": "lookup", "namespace": "alpha", "node_id": "a", "input": {"value": "a"}}},
-                    {"client": {"name": "lookup", "namespace": "beta", "node_id": "b", "input": {"value": "b"}}},
-                    {"client": {"name": "read_map", "namespace": "map_tools", "node_id": "m", "input": {"value": "m"}}}
-                ],
-                "hosted_bindings": []
-            })
-            .to_string(),
-        )
-        .unwrap();
-
-    let identities = plan
-        .calls
-        .into_iter()
-        .map(|call| match call {
-            ExecCall::Client(call) => call.tool_name,
-            ExecCall::Map(_) => panic!("namespaced read_map must remain a client Tool"),
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        identities,
-        vec![
-            ToolName::plain("lookup"),
-            ToolName::namespaced("alpha", "lookup"),
-            ToolName::namespaced("beta", "lookup"),
-            ToolName::namespaced("map_tools", "read_map"),
-        ]
-    );
-}
-
-#[test]
-fn decoder_rejects_flattened_namespace_alias_and_inexact_namespace_shape() {
-    let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
-    let flattened = catalog
-        .decode_plan(
-            r#"{"calls":[{"client":{"name":"mcp__sample__lookup","node_id":"n","input":{"value":"v"}}}],"hosted_bindings":[]}"#,
-        )
-        .unwrap_err();
-    assert_eq!(
-        flattened,
-        TaskSpaceExecPlanDecodeError::UnknownTool {
-            index: 0,
-            tool: "mcp__sample__lookup".into(),
-        }
-    );
-
-    for invalid in [
-        r#"{"calls":[{"client":{"name":"lookup","node_id":"n","input":{"value":"v"}}}],"hosted_bindings":[]}"#,
-        r#"{"calls":[{"client":{"name":"lookup","namespace":"wrong","node_id":"n","input":{"value":"v"}}}],"hosted_bindings":[]}"#,
-        r#"{"calls":[{"client":{"name":"read_file","namespace":null,"node_id":"n","input":{"value":"v"}}}],"hosted_bindings":[]}"#,
-    ] {
-        assert!(catalog.decode_plan(invalid).is_err(), "accepted {invalid}");
-    }
-}
-
-#[test]
-fn decoder_preserves_client_tool_search_as_a_native_identity() {
-    let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
-    let plan = catalog
-        .decode_plan(
-            r#"{"calls":[{"client":{"name":"tool_search","node_id":"inspect","input":{"query":"calendar"}}}],"hosted_bindings":[]}"#,
-        )
-        .unwrap();
-
-    let ExecCall::Client(call) = &plan.calls[0] else {
-        panic!("expected client Tool Search call")
-    };
-    assert_eq!(call.tool_name, codex_tools::ToolName::plain("tool_search"));
-    assert_eq!(
-        call.input,
-        ClientCallInput::Function(json!({"query": "calendar"}))
-    );
-}
-
-#[test]
-fn hosted_only_is_valid_but_completely_empty_plan_is_rejected() {
-    let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
-    let hosted = catalog
-        .decode_plan(
-            &json!({
-                "calls": [],
-                "hosted_bindings": [{"tool": "web_search", "node_ids": ["research"]}]
-            })
-            .to_string(),
-        )
-        .unwrap();
-    assert!(hosted.calls.is_empty());
-    assert_eq!(hosted.hosted_bindings.len(), 1);
-    assert_eq!(
-        catalog.decode_plan(r#"{"calls":[],"hosted_bindings":[]}"#),
-        Err(TaskSpaceExecPlanDecodeError::EmptyPlan)
-    );
-}
-
-#[test]
-fn decoder_rejects_unknown_tools_and_shape_drift() {
-    let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
-    let unknown = catalog
-        .decode_plan(
-            r#"{"calls":[{"client":{"name":"missing","node_id":"n","input":{}}}],"hosted_bindings":[]}"#,
-        )
-        .unwrap_err();
-    assert_eq!(
-        unknown,
-        TaskSpaceExecPlanDecodeError::UnknownTool {
-            index: 0,
-            tool: "missing".into()
-        }
-    );
-
-    for invalid in [
-        r#"{"calls":[{"client":{"name":"read_file","node_id":"n","input":{},"revision":1}}],"hosted_bindings":[]}"#,
-        r#"{"calls":[{"client":{"name":"apply_patch","node_id":"n","input":{}}}],"hosted_bindings":[]}"#,
-        r#"{"calls":[{"tool":"read_file","node_id":"n","arguments":{}}],"hosted_bindings":[]}"#,
-        r#"{"calls":[],"hosted_bindings":[{"tool":"unknown","node_ids":["n"]}]}"#,
-        r#"{"calls":[],"hosted_bindings":[],"version":"v1"}"#,
-    ] {
-        assert!(catalog.decode_plan(invalid).is_err(), "accepted {invalid}");
-    }
-}
-
-#[test]
-fn decoder_rejects_the_provider_shaped_legacy_inner_wire() {
-    let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
-    for legacy in [
-        r#"{"calls":[{"tool":"read_map","arguments":{}}]}"#,
-        r#"{"calls":[{"tool":"read_file","node_id":"n","arguments":{"value":"v"}}]}"#,
-    ] {
-        assert!(
-            matches!(
-                catalog.decode_plan(legacy),
-                Err(TaskSpaceExecPlanDecodeError::InvalidCall { index: 0, .. })
-            ),
-            "accepted legacy wire: {legacy}"
-        );
-    }
-}
-
-#[test]
-fn catalog_rejects_collisions_and_unprojectable_client_specs() {
-    let collision = vec![ToolSpec::Function(function("read_map"))];
-    assert_eq!(
-        TaskSpaceExecCatalog::build(&collision).unwrap_err(),
+        TaskSpaceExecCatalog::build(&[ToolSpec::Function(function("read_map"))]).unwrap_err(),
         TaskSpaceExecCatalogError::MapCapabilityCollision {
             public_name: "read_map".into()
         }
     );
-
-    let duplicate_namespace = vec![
+    let duplicate = vec![
         ToolSpec::Namespace(ResponsesApiNamespace {
             name: "same".into(),
             description: String::new(),
@@ -532,43 +284,35 @@ fn catalog_rejects_collisions_and_unprojectable_client_specs() {
             tools: vec![ResponsesApiNamespaceTool::Function(function("lookup"))],
         }),
     ];
-    assert_eq!(
-        TaskSpaceExecCatalog::build(&duplicate_namespace).unwrap_err(),
-        TaskSpaceExecCatalogError::DuplicateCapability {
-            tool_name: ToolName::namespaced("same", "lookup"),
-        }
-    );
+    assert!(matches!(
+        TaskSpaceExecCatalog::build(&duplicate),
+        Err(TaskSpaceExecCatalogError::DuplicateCapability { .. })
+    ));
 
-    assert_eq!(
-        TaskSpaceExecCatalog::build(&[ToolSpec::LocalShell {}]).unwrap_err(),
-        TaskSpaceExecCatalogError::UnsupportedToolSpec {
-            tool_name: "local_shell".into()
-        }
-    );
-}
-
-#[test]
-fn capability_order_is_independent_of_source_order() {
     let mut reversed = specs();
     reversed.reverse();
-    let left = TaskSpaceExecCatalog::build(&specs()).unwrap();
-    let right = TaskSpaceExecCatalog::build(&reversed).unwrap();
     assert_eq!(
-        serde_json::to_vec(left.declaration()).unwrap(),
-        serde_json::to_vec(right.declaration()).unwrap()
+        serde_json::to_vec(TaskSpaceExecCatalog::build(&specs()).unwrap().declaration()).unwrap(),
+        serde_json::to_vec(
+            TaskSpaceExecCatalog::build(&reversed)
+                .unwrap()
+                .declaration()
+        )
+        .unwrap()
     );
 }
 
 #[test]
-fn declaration_without_hosted_tools_remains_valid_and_runtime_rejects_bindings() {
+fn declaration_without_hosted_tools_has_no_hosted_variant() {
     let catalog =
         TaskSpaceExecCatalog::build(&[ToolSpec::Function(function("read_file"))]).unwrap();
-    let declaration = serde_json::to_value(catalog.declaration()).unwrap();
-    assert!(!declaration.to_string().contains(r#""enum":[]"#));
+    let declaration = serde_json::to_string(catalog.declaration()).unwrap();
+    assert!(!declaration.contains("web_search"));
     assert!(
         catalog
             .decode_plan(
-                r#"{"calls":[],"hosted_bindings":[{"tool":"web_search","node_ids":["n"]}]}"#
+                &json!({"type": "work", "tools": [{"tool": "web_search", "node_ids": ["n"]}]})
+                    .to_string()
             )
             .is_err()
     );

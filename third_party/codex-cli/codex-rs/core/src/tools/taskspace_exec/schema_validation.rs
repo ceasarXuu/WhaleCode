@@ -31,15 +31,26 @@ fn validate_at(
         return validate_at(value, target, root, path);
     }
     if let Some(variants) = schema.any_of.as_ref() {
-        if !variants
-            .iter()
-            .any(|variant| validate_at(value, variant, root, path).is_ok())
-        {
-            return Err(SchemaViolation {
+        let discriminated = discriminated_variants(value, variants);
+        let candidates = if discriminated.is_empty() {
+            variants.iter().collect::<Vec<_>>()
+        } else {
+            discriminated
+        };
+        let mut violations = Vec::new();
+        for variant in candidates {
+            match validate_at(value, variant, root, path) {
+                Ok(()) => return Ok(()),
+                Err(violation) => violations.push(violation),
+            }
+        }
+        return Err(violations
+            .into_iter()
+            .max_by_key(|violation| violation.path.len())
+            .unwrap_or_else(|| SchemaViolation {
                 path: path.to_string(),
                 reason: "value does not match any allowed schema variant".into(),
-            });
-        }
+            }));
     }
     if let Some(schema_type) = schema.schema_type.as_ref()
         && !matches_type(value, schema_type)
@@ -86,6 +97,27 @@ fn validate_at(
     Ok(())
 }
 
+fn discriminated_variants<'a>(value: &Value, variants: &'a [JsonSchema]) -> Vec<&'a JsonSchema> {
+    ["type", "tool"]
+        .into_iter()
+        .find_map(|field| {
+            let actual = value.get(field)?;
+            let matching = variants
+                .iter()
+                .filter(|variant| {
+                    variant
+                        .properties
+                        .as_ref()
+                        .and_then(|properties| properties.get(field))
+                        .and_then(|schema| schema.enum_values.as_ref())
+                        .is_some_and(|allowed| allowed.contains(actual))
+                })
+                .collect::<Vec<_>>();
+            (!matching.is_empty()).then_some(matching)
+        })
+        .unwrap_or_default()
+}
+
 fn validate_object(
     object: &serde_json::Map<String, Value>,
     schema: &JsonSchema,
@@ -112,7 +144,7 @@ fn validate_object(
             Some(AdditionalProperties::Boolean(false)) => {
                 return Err(SchemaViolation {
                     path: format!("{path}.{name}"),
-                    reason: "additional property is not allowed".into(),
+                    reason: format!("unknown field `{name}`"),
                 });
             }
             Some(AdditionalProperties::Schema(additional_schema)) => {

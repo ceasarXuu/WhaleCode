@@ -11,13 +11,13 @@ use crate::action_map::taskspace_map_view;
 
 use super::ClientCall;
 use super::ClientCallInput;
-use super::ExecCall;
 use super::HostedOutputFact;
 use super::MapOperationApplyError;
 use super::MapOperationEffect;
 use super::TaskSpaceExecEnvelope;
 use super::TaskSpaceExecEnvelopeError;
 use super::TaskSpaceExecInternalCallId;
+use super::ToolAction;
 use super::apply_map_operation;
 use super::schema_validation::validate_json_schema;
 
@@ -47,10 +47,6 @@ pub(crate) struct TaskSpaceExecPreflightResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TaskSpaceExecPreflightError {
     RequestContext(TaskSpaceExecEnvelopeError),
-    InvalidMapBoundary {
-        index: usize,
-        operation: &'static str,
-    },
     NoEffectMapUpdate {
         index: usize,
     },
@@ -62,9 +58,8 @@ pub(crate) enum TaskSpaceExecPreflightError {
         index: usize,
         reason: String,
     },
-    LifecycleRequiresWork {
-        index: usize,
-        operation: &'static str,
+    ToolActivationRejected {
+        error: rooted_dag::Rejection,
     },
     ClientNodeMissing {
         index: usize,
@@ -127,38 +122,20 @@ pub(crate) fn preflight_taskspace_exec(
     let mut read_maps = Vec::new();
     let mut client_calls = Vec::new();
     let mut patch_indices = Vec::new();
-    let calls = &envelope.plan().calls;
-    let has_hosted_work = !hosted_facts.is_empty();
+    for (index, operation) in envelope.plan().pre_map.iter().enumerate() {
+        apply_map_stage(
+            index,
+            operation,
+            envelope,
+            &mut candidate_map,
+            &mut read_maps,
+        )?;
+    }
 
-    for (index, call) in calls.iter().enumerate() {
-        match call {
-            ExecCall::Map(operation) => {
-                validate_map_boundary(index, calls, operation, has_hosted_work)?;
-                if operation.is_noop_update() {
-                    return Err(TaskSpaceExecPreflightError::NoEffectMapUpdate { index });
-                }
-                let effect = apply_map_operation(
-                    candidate_map.as_ref(),
-                    envelope.request().map_id(),
-                    operation.clone(),
-                )
-                .map_err(|error| {
-                    TaskSpaceExecPreflightError::MapOperationRejected { index, error }
-                })?;
-                match effect {
-                    MapOperationEffect::Read(map) => {
-                        let view = taskspace_map_view(&map).map_err(|error| {
-                            TaskSpaceExecPreflightError::ReadMapViewFailed {
-                                index,
-                                reason: error.to_string(),
-                            }
-                        })?;
-                        read_maps.push((index, view));
-                    }
-                    MapOperationEffect::Candidate(map) => candidate_map = Some(map),
-                }
-            }
-            ExecCall::Client(call) => {
+    let mut hosted_bindings = Vec::new();
+    for (index, action) in envelope.plan().tools.iter().enumerate() {
+        match action {
+            ToolAction::Client(call) => {
                 validate_client_call(index, call, candidate_map.as_ref(), envelope)?;
                 if is_apply_patch(call) {
                     patch_indices.push(index);
@@ -170,6 +147,7 @@ pub(crate) fn preflight_taskspace_exec(
                     call: call.clone(),
                 });
             }
+            ToolAction::Hosted(binding) => hosted_bindings.push(binding.clone()),
         }
     }
     if patch_indices.len() > 1 {
@@ -177,7 +155,19 @@ pub(crate) fn preflight_taskspace_exec(
             indices: patch_indices,
         });
     }
-    let hosted_bindings = validate_hosted_bindings(envelope, candidate_map.as_ref(), hosted_facts)?;
+    let hosted_bindings =
+        validate_hosted_bindings(&hosted_bindings, candidate_map.as_ref(), hosted_facts)?;
+    candidate_map = activate_ready_tool_nodes(candidate_map, &client_calls, &hosted_bindings)?;
+
+    if let Some(operation) = envelope.plan().terminal_map.as_ref() {
+        apply_map_stage(
+            envelope.plan().pre_map.len(),
+            operation,
+            envelope,
+            &mut candidate_map,
+            &mut read_maps,
+        )?;
+    }
     Ok(TaskSpaceExecPreflightResult {
         candidate_map,
         read_maps,
@@ -186,51 +176,33 @@ pub(crate) fn preflight_taskspace_exec(
     })
 }
 
-fn validate_map_boundary(
+fn apply_map_stage(
     index: usize,
-    calls: &[ExecCall],
     operation: &super::MapOperation,
-    has_hosted_work: bool,
+    envelope: &TaskSpaceExecEnvelope,
+    candidate_map: &mut Option<TaskSpaceMap>,
+    read_maps: &mut Vec<(usize, TaskSpaceMapView)>,
 ) -> Result<(), TaskSpaceExecPreflightError> {
-    if (operation.is_initialize() || operation.is_reopen()) && index != 0 {
-        return Err(TaskSpaceExecPreflightError::InvalidMapBoundary {
-            index,
-            operation: operation.name(),
-        });
+    if operation.is_noop_update() {
+        return Err(TaskSpaceExecPreflightError::NoEffectMapUpdate { index });
     }
-    if operation.is_read() && (calls.len() != 1 || has_hosted_work) {
-        return Err(TaskSpaceExecPreflightError::InvalidMapBoundary {
-            index,
-            operation: operation.name(),
-        });
-    }
-    if operation.is_finish() && index + 1 != calls.len() {
-        return Err(TaskSpaceExecPreflightError::InvalidMapBoundary {
-            index,
-            operation: operation.name(),
-        });
-    }
-    if operation.is_initialize() || operation.is_reopen() {
-        let has_later_work = calls[index + 1..]
-            .iter()
-            .any(|call| matches!(call, ExecCall::Client(_)));
-        if !has_later_work && !has_hosted_work {
-            return Err(TaskSpaceExecPreflightError::LifecycleRequiresWork {
-                index,
-                operation: operation.name(),
-            });
+    let effect = apply_map_operation(
+        candidate_map.as_ref(),
+        envelope.request().map_id(),
+        operation.clone(),
+    )
+    .map_err(|error| TaskSpaceExecPreflightError::MapOperationRejected { index, error })?;
+    match effect {
+        MapOperationEffect::Read(map) => {
+            let view = taskspace_map_view(&map).map_err(|error| {
+                TaskSpaceExecPreflightError::ReadMapViewFailed {
+                    index,
+                    reason: error.to_string(),
+                }
+            })?;
+            read_maps.push((index, view));
         }
-    } else if operation.completes_work_node() {
-        let has_later_work_or_finish = calls[index + 1..].iter().any(|call| {
-            matches!(call, ExecCall::Client(_))
-                || matches!(call, ExecCall::Map(operation) if operation.is_finish())
-        });
-        if !has_later_work_or_finish && !has_hosted_work {
-            return Err(TaskSpaceExecPreflightError::LifecycleRequiresWork {
-                index,
-                operation: operation.name(),
-            });
-        }
+        MapOperationEffect::Candidate(map) => *candidate_map = Some(map),
     }
     Ok(())
 }
@@ -313,11 +285,10 @@ fn is_apply_patch(call: &ClientCall) -> bool {
 }
 
 fn validate_hosted_bindings(
-    envelope: &TaskSpaceExecEnvelope,
+    bindings: &[super::plan::HostedBinding],
     candidate_map: Option<&TaskSpaceMap>,
     hosted_facts: &[HostedOutputFact],
 ) -> Result<Vec<PreparedHostedBinding>, TaskSpaceExecPreflightError> {
-    let bindings = &envelope.plan().hosted_bindings;
     if hosted_facts.len() != bindings.len() {
         return Err(TaskSpaceExecPreflightError::HostedCountMismatch {
             actual: hosted_facts.len(),
@@ -380,6 +351,18 @@ fn validate_hosted_bindings(
                         reason: "boundary_node",
                     });
                 }
+                if candidate_map
+                    .and_then(|map| rooted_dag::node(map, node_id))
+                    .is_none_or(|node| {
+                        !matches!(node.state, NodeState::Ready | NodeState::InFlight)
+                    })
+                {
+                    return Err(TaskSpaceExecPreflightError::HostedNodeInvalid {
+                        binding_index,
+                        node_id: node_id.clone(),
+                        reason: "non_executable_state",
+                    });
+                }
             }
             Ok(PreparedHostedBinding {
                 output_index: fact.output_index,
@@ -390,4 +373,47 @@ fn validate_hosted_bindings(
             })
         })
         .collect()
+}
+
+fn activate_ready_tool_nodes(
+    candidate_map: Option<TaskSpaceMap>,
+    clients: &[PreparedClientCall],
+    hosted: &[PreparedHostedBinding],
+) -> Result<Option<TaskSpaceMap>, TaskSpaceExecPreflightError> {
+    let Some(map) = candidate_map else {
+        return Ok(None);
+    };
+    let owner_ids = clients
+        .iter()
+        .map(|client| client.call.node_id.as_str())
+        .chain(
+            hosted
+                .iter()
+                .flat_map(|binding| binding.node_ids.iter().map(String::as_str)),
+        )
+        .collect::<BTreeSet<_>>();
+    let patches = owner_ids
+        .into_iter()
+        .filter(|node_id| {
+            rooted_dag::node(&map, node_id).is_some_and(|node| node.state == NodeState::Ready)
+        })
+        .map(|node_id| rooted_dag::NodePatch {
+            node_id: node_id.to_string(),
+            state: Some(NodeState::InFlight),
+            ..Default::default()
+        })
+        .collect::<Vec<_>>();
+    if patches.is_empty() {
+        return Ok(Some(map));
+    }
+    rooted_dag::execute(
+        &map,
+        rooted_dag::ExecuteTransaction {
+            request_revision: map.revision,
+            add_work_nodes: Vec::new(),
+            patches,
+        },
+    )
+    .map(|commit| Some(commit.map))
+    .map_err(|error| TaskSpaceExecPreflightError::ToolActivationRejected { error })
 }

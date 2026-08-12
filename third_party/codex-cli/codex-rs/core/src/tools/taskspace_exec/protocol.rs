@@ -14,23 +14,18 @@ use super::map_operations::NodePatchArgs;
 use super::map_operations::UpdateMapArgs;
 use super::map_operations::WorkNodeArgs;
 
-const PROTOCOL: &str = r#"Use `taskspace_exec` as the single top-level entry point for TaskSpace Map operations and client Tool calls. Submit one Agent-authored batch; the Runtime only validates and executes it.
+const PROTOCOL: &str = r#"Use `taskspace_exec` as the single top-level entry point for TaskSpace Map and Tool actions. Choose exactly one sequence `type` allowed by the schema.
 
-Call contract:
-- Put every Map operation and client Tool invocation in `calls`, in the order you declare.
-- Map operations affect later calls in the batch. Client calls may execute in parallel, do not change node state, and cannot unlock descendants until a later request.
-- A client Tool call is `{"client":{"name":"<name>","node_id":"<work-node>","input":<native-input>}}`. A namespaced function call also has `"namespace":"<namespace>"` and keeps only the leaf Tool name in `name`. `node_id` is TaskSpace ownership metadata outside the Tool's native input.
-- A Map operation is `{"map":{"operation":"<map-operation>","input":{...}}}` and has no owner `node_id`.
-- Include `hosted_bindings` only when the response contains provider-hosted output. It contains one binding for each hosted output, in provider output order; one output may name multiple owner work nodes.
+Tool contract:
+- Put client and provider-hosted Tool actions in the sequence's single `tools` array.
+- Each client action keeps its native Tool input in `input` and declares one owner `node_id`; namespaced Tools also declare `namespace`.
+- Each provider-hosted action declares its Tool name and non-empty owner `node_ids`; the Runtime reconciles the already executed provider facts and does not execute them again.
+- Tool array order supplies stable action identity and provider-fact pairing. It does not create Tool dependencies; result-dependent work belongs in a later request.
 
-Sequence contract:
-- `initialize_map` or `reopen_map`, when present, is first and shares the batch with real client or hosted work.
-- `read_map` is the only call in its batch and cannot accompany hosted output.
-- `finish_map` is last.
-- An `update_map` that completes a work node shares the batch with later client work, hosted work, or `finish_map`.
-- To unlock dependent work, patch only its parent to `completed`; readiness is derived from Map node `parents`.
-- A batch contains at most one `apply_patch` call.
-- The complete batch is preflighted before side effects. The Runtime does not add, infer, reorder, or repair Agent actions.
+Map contract:
+- Map fields use the canonical operation input directly. Node readiness derives from `parents`.
+- Tool outcomes do not complete nodes. A batch contains at most one `apply_patch` action.
+- The complete sequence is preflighted before unexecuted side effects. The Runtime does not add, infer, reorder, or repair Agent actions.
 
 Feedback contract:
 - The outer result reports every client and hosted action, preserves native client results and errors without summarization, and returns the complete Map for `read_map`."#;
@@ -63,7 +58,7 @@ pub(super) fn build_description<'a>(
     ));
     if !hosted_tools.is_empty() {
         sections.push(format!(
-            "Available provider-hosted Tool types for `hosted_bindings`: {}.",
+            "Available provider-hosted Tool actions: {}.",
             hosted_tools.iter().cloned().collect::<Vec<_>>().join(", ")
         ));
     }
@@ -92,22 +87,20 @@ pub(crate) fn canonical_first_turn_example() -> Value {
         },
     });
     json!({
-        "calls": [
-            map_call(initialize),
-            {
-                "client": {
-                    "name": "exec_command",
-                    "node_id": "inspect",
-                    "input": {"cmd": "pwd"}
-                }
-            }
-        ]
+        "type": "initialize_and_work",
+        "initialize_map": map_input(initialize),
+        "tools": [{
+            "tool": "exec_command",
+            "node_id": "inspect",
+            "input": {"cmd": "pwd"}
+        }]
     })
 }
 
 pub(crate) fn canonical_read_example() -> Value {
     json!({
-        "calls": [map_call(MapOperation::ReadMap(EmptyArgs::default()))]
+        "type": "read_map",
+        "read_map": map_input(MapOperation::ReadMap(EmptyArgs::default()))
     })
 }
 
@@ -123,16 +116,13 @@ pub(crate) fn canonical_handoff_example() -> Value {
         }],
     });
     json!({
-        "calls": [
-            map_call(complete),
-            {
-                "client": {
-                    "name": "exec_command",
-                    "node_id": "implement",
-                    "input": {"cmd": "test -f README.md"}
-                }
-            }
-        ]
+        "type": "update_and_work",
+        "update_map": map_input(complete),
+        "tools": [{
+            "tool": "exec_command",
+            "node_id": "implement",
+            "input": {"cmd": "test -f README.md"}
+        }]
     })
 }
 
@@ -151,17 +141,14 @@ pub(crate) fn canonical_finish_example() -> Value {
         content: "Task completed and verified.".into(),
     });
     json!({
-        "calls": [map_call(complete), map_call(finish)]
+        "type": "update_and_finish",
+        "update_map": map_input(complete),
+        "finish_map": map_input(finish)
     })
 }
 
-fn map_call(operation: MapOperation) -> Value {
+fn map_input(operation: MapOperation) -> Value {
     let serialized =
         serde_json::to_value(operation).expect("canonical Map operation must serialize");
-    json!({
-        "map": {
-            "operation": serialized["tool"],
-            "input": serialized["arguments"]
-        }
-    })
+    serialized["arguments"].clone()
 }

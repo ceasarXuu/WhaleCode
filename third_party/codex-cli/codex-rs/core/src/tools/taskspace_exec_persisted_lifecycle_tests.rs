@@ -123,20 +123,13 @@ async fn persisted_exec_reaches_map_rollout_and_provider_preparation() {
         )
         .unwrap();
     let plan = json!({
-        "calls": [
-            {
-                "map": {
-                    "operation": "initialize_map",
-                    "input": {
-                        "root": {"node_id": "root", "goal": "deliver", "content": "", "parents": []},
-                        "work_nodes": [{"node_id": "work", "goal": "inspect", "content": "", "parents": ["root"]}],
-                        "finish": {"node_id": "finish", "goal": "close", "content": "", "parents": ["work"]}
-                    }
-                }
-            },
-            {"client": {"name": "inspect", "node_id": "work", "input": {}}}
-        ],
-        "hosted_bindings": []
+        "type": "initialize_and_work",
+        "initialize_map": {
+            "root": {"node_id": "root", "goal": "deliver", "content": "", "parents": []},
+            "work_nodes": [{"node_id": "work", "goal": "inspect", "content": "", "parents": ["root"]}],
+            "finish": {"node_id": "finish", "goal": "close", "content": "", "parents": ["work"]}
+        },
+        "tools": [{"tool": "inspect", "node_id": "work", "input": {}}]
     });
     let arguments = plan;
     let output = router
