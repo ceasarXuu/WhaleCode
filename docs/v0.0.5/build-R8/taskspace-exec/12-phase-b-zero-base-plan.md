@@ -1,7 +1,7 @@
 # Phase B 零基线重建计划
 
 - Created: 2026-08-06
-- Status: Active / Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 branch contract repaired offline, provider revalidation pending
+- Status: Active / Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 Hosted contract revalidation failed, product protocol decision required
 - Supersedes: [`02-engineering-plan.md`](02-engineering-plan.md) 中 TX-06B 之后的兼容迁移顺序
 - Completed foundation: TX-06A (`54fc781fc`)
 - Paid Whale Agent run: 本阶段删除与离线建设不需要
@@ -409,6 +409,7 @@ Ready -> InFlight 只由 Agent 声明的 Tool action 触发；Runtime 不选节�
 | LS-09 branch applicability repair | 2026-08-13 | `sequence_schema.rs`、catalog declaration test；TaskSpace Exec 72/72；zero-base PASS；缓存敏感面门禁 PASS | L1～L8 的 `anyOf` 分支均获得自包含适用条件；L2 明确旧 Tool outcome 不完成 owner，L4 明确只有前置 Map update 解锁本批 owner、同批 Tool outcome 不解锁后继。未增加 Runtime 决策、拒绝或状态转移 | 离线实现完整；Run B 仍是修复前历史证据。获得新的真实运行预算并复验之前，不宣称 waiting 误选频率或成本改善；不自动恢复 Run C |
 | LS-09 Run C | 2026-08-13 | [`44-ls09-run-c-result.md`](44-ls09-run-c-result.md)；`WAR-20260813-053410-CACHE-REGRESSION-93CFAC19`；`provider-web-search-probe × map-request × repeat=1`；12 Provider requests；334,942 input / 291,584 cached / 43,358 uncached / 15,517 output；USD 0.0112313152 | 修复后的 L2/L4 在 Map 初始化后被正确采用，未复现 Waiting 误选；业务文件、公开验证和隐藏 oracle 通过。但 Agent 在 Hosted `web_search` 的 Exec 归属声明上连续 7 次试探，耗尽请求上限，未执行最终校验、Map 闭合和回复。根因是 Agent 可见合同只给出 `tool + node_ids` 结构，未说明它是同响应 Hosted output 的逐项归属声明、参数不在 Exec 内、失败 output 也必须声明 | 正式验收未通过，不重试、不晋升缓存基线；Hosted action 最小操作合同继续归入 I03，离线修复后另行申请最小复验预算 |
 | LS-09 Hosted contract repair | 2026-08-13 | 最终 Provider-visible Hosted variant 与 catalog test；TaskSpace Exec 72/72 | 在统一 `tools[]` 内补回同响应已执行 output、无原生 input、逐项按序覆盖、失败项/action subtype 也声明、始终使用公开 Tool 名五项合同；Runtime 对账、DAG、状态转移和 Provider 执行均未改变 | 缓存敏感面门禁和提交后，按用户批准执行 `provider-web-search-probe × map-request × repeat=1`，零自动重试 |
+| LS-09 Hosted contract revalidation | 2026-08-13 | [`45-ls09-hosted-contract-revalidation-result.md`](45-ls09-hosted-contract-revalidation-result.md)；`WAR-20260813-061928-CACHE-REGRESSION-04087B3B`；12 Provider requests；367,309 input / 318,976 cached / 48,333 uncached / 13,674 output；USD 0.0114884728 | 新合同已进入真实 wire，但 Agent 仍把 Hosted action 当作带输入的 client 执行请求，并在错误响应轮次补登记。业务文件未生成，Map 未闭合。证据表明缺口不再只是文字遗漏，而是统一 `tools[]` 同时承载执行前 client 请求和执行后 Hosted 凭据，生命周期语义冲突 | LS-09 未通过，不重试、不晋升缓存基线；先由用户确认 Hosted 绑定继续逐 output item，还是改为逻辑 Provider Tool 调用粒度，再重写后续实施计划 |
 
 ## 6. 证据校准
 

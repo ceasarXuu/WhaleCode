@@ -1,0 +1,38 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "approved_at": "2026-08-13T06:18:16+08:00",
+  "authorization_id": "CBA-20260813-R8-LS09-D-E812AF35173D8D45",
+  "approval_reference": "用户于 2026-08-13 明确批准针对 Hosted action 合同修复后再跑一轮测试；本授权只认领 provider-web-search-probe × map-request × repeat=1，最多 12 Provider requests、220,000 input 与 8,000 output 观测阈值、720 秒，零自动重试。",
+  "proposal_id": "CBP-E812AF35173D8D45",
+  "proposal_sha256": "6a5fbdc093ccc845254f857c7334f8c4e9b126915c8bbd81d5e423b0023d7f9f",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "provider-web-search-probe"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 1,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 1,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "LS-09 Hosted contract revalidation: verify same-response per-item provider-hosted ownership declarations without exploratory schema retries, complete Map closure, and no retry."
+  },
+  "approved_maximums": {
+    "provider_requests": 12,
+    "input_tokens": 12000000,
+    "output_tokens": 4608000,
+    "elapsed_seconds": 840,
+    "estimated_cost": 2.97024,
+    "currency": "USD"
+  }
+}

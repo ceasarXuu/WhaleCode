@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 Run C failed, Hosted action contract gap pending repair
+- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 Hosted contract revalidation failed, product protocol decision required
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -105,6 +105,12 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   当前 L1～L8 均已在自身 schema 分支声明选择边界；L2 明确既有 Tool outcome 不会完成 owner，L4 明确只有前置
   Map update 能解锁本批 Tool owner，且本批 Tool outcome 不会解锁后继。72 项 TaskSpace Exec 测试、zero-base 和缓存
   敏感面门禁通过。该记录只证明 Agent-visible 合同已完整落线，不把尚未执行的真实 Provider 复验写成行为收益。
+- Run C 暴露的 Hosted action 文字合同已经补入最终 Provider-visible schema，并由 Run D 证明真实生效；但 Agent 仍把
+  Hosted action 套用为 client Tool 的执行请求，连续产生字段、生命周期和同响应对账错误。当前证据把根因推进到统一
+  `tools[]` 表达模型：client 是执行前请求，Hosted 是执行后归属凭据，两者位于同一动作槽却具有相反生命周期。Run D
+  12 requests 后仍未生成业务文件，正式验收失败。继续修复前需确认 Hosted 绑定应保留逐 output item 模型，还是收敛到
+  逻辑 Provider Tool 调用粒度；详见
+  [`45-ls09-hosted-contract-revalidation-result.md`](45-ls09-hosted-contract-revalidation-result.md)。
 
 ## 3. 文档
 
@@ -159,6 +165,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     统一 Tool action、Ready 启动、纯 Map update 和 blocked 移除决策。
 45. [`44-ls09-run-c-result.md`](44-ls09-run-c-result.md)：分支适用合同修复后的 Provider-hosted 真实验收、请求路径、成本、
     Map 中断状态和 Hosted action 操作合同缺口。
+46. [`45-ls09-hosted-contract-revalidation-result.md`](45-ls09-hosted-contract-revalidation-result.md)：Hosted 最小操作合同修复后的
+    真实复验、逐请求失败链、成本和统一 Tool action 表达冲突。
 
 ## 4. 推进规则
 
