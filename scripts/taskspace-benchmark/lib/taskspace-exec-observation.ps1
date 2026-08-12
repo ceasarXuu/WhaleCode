@@ -35,10 +35,10 @@ function New-TaskspaceExecObservation {
         exec_count = $null
         map_operation_count = $null
         client_action_count = $null
-        hosted_binding_count = $null
+        provider_action_count = $null
         node_binding_count = $null
         client_result_count = $null
-        hosted_result_count = $null
+        provider_result_count = $null
         failed_action_count = $null
         trace_event_count = $null
         correlated_request_count = $null
@@ -61,9 +61,9 @@ function Get-TaskspaceExecObservation {
 
     $mapTools = @('initialize_map', 'update_map', 'read_map', 'reopen_map', 'finish_map')
     $execCalls = @{}
-    $execCount = 0; $mapCalls = 0; $clientCalls = 0; $hostedBindings = 0
+    $execCount = 0; $mapCalls = 0; $clientCalls = 0; $providerActions = 0
     $nodeBindings = 0; $shell = 0; $patch = 0; $other = 0
-    $clientResults = 0; $hostedResults = 0; $failedActions = 0
+    $clientResults = 0; $providerResults = 0; $failedActions = 0
     $findings = [Collections.Generic.List[string]]::new()
     $integrityFindings = [Collections.Generic.List[string]]::new()
     $rejectedCalls = @{}
@@ -84,9 +84,6 @@ function Get-TaskspaceExecObservation {
             $execCalls[$callId] = $false
             $execCount++
             try {
-                $arguments = if ($payload.arguments -is [string]) {
-                    ([string]$payload.arguments) | ConvertFrom-Json
-                } else { $payload.arguments }
                 foreach ($declared in @(Get-TaskspaceExecDeclaredCalls $payload)) {
                     if ([string]$declared.kind -eq 'invalid') {
                         $findings.Add("exec_call_shape_invalid:${callId}:$($declared.call_index)")
@@ -100,6 +97,11 @@ function Get-TaskspaceExecObservation {
                         $mapCalls++
                         continue
                     }
+                    if ([string]$declared.kind -eq 'hosted') {
+                        $providerActions++
+                        $nodeBindings += @($declared.value.node_ids).Count
+                        continue
+                    }
                     $client = $declared.value
                     $tool = [string](Get-TaskspaceExecProperty $client 'name')
                     $clientCalls++
@@ -108,13 +110,6 @@ function Get-TaskspaceExecObservation {
                         'exec_command' { $shell++ }
                         'apply_patch' { $patch++ }
                         default { $other++ }
-                    }
-                }
-                $hostedBindingValues = Get-TaskspaceExecProperty $arguments 'hosted_bindings'
-                if ($null -ne $hostedBindingValues) {
-                    foreach ($binding in @($hostedBindingValues)) {
-                        $hostedBindings++
-                        $nodeBindings += @($binding.node_ids).Count
                     }
                 }
             } catch {
@@ -141,7 +136,7 @@ function Get-TaskspaceExecObservation {
                     $findings.Add("exec_result_outer_call_mismatch:$callId")
                 }
                 $clientResults += @($result.client_results).Count
-                $hostedResults += @($result.hosted_results).Count
+                $providerResults += @($result.hosted_results).Count
                 $failedActions += @($result.client_results | Where-Object { [string]$_.outcome -ne 'succeeded' }).Count
                 $failedActions += @($result.hosted_results | Where-Object { [string]$_.outcome -ne 'succeeded' }).Count
             } catch {
@@ -288,12 +283,12 @@ function Get-TaskspaceExecObservation {
         protocol = 'taskspace_exec'; availability = if ($integrityFindings.Count) { 'incomparable' } else { 'measured' }
         source = 'rollout+taskspace_exec_trace+request_facts'
         provider_outer_tool_calls = [int]$execCount
-        nested_action_count = [int]($mapCalls + $clientCalls + $hostedBindings)
+        nested_action_count = [int]($mapCalls + $clientCalls + $providerActions)
         shell = [int]$shell; patch = [int]$patch; other = [int]$other
         exec_count = [int]$execCount; map_operation_count = [int]$mapCalls
-        client_action_count = [int]$clientCalls; hosted_binding_count = [int]$hostedBindings
+        client_action_count = [int]$clientCalls; provider_action_count = [int]$providerActions
         node_binding_count = [int]$nodeBindings; client_result_count = [int]$clientResults
-        hosted_result_count = [int]$hostedResults; failed_action_count = [int]$failedActions
+        provider_result_count = [int]$providerResults; failed_action_count = [int]$failedActions
         trace_event_count = [int]$traceEvents; correlated_request_count = [int]$correlatedRequests.Count
         correlated_outer_call_count = [int]$correlatedOuterCalls.Count
         capability_identity = if ($traceIdentities.Count -eq 1) { [string]$traceIdentities[0] } else { $null }

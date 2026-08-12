@@ -293,7 +293,7 @@ function Get-PerformanceSideObservation {
             provider_completed_responses = $requests.completed
             provider_failed_or_cancelled_attempts = $requests.failed_or_cancelled
             ordinary_tools = if ([string]$actions.protocol -eq "taskspace_exec") {
-                [int64]$actions.client_action_count + [int64]$actions.hosted_binding_count
+                [int64]$actions.client_action_count + [int64]$actions.provider_action_count
             } else { Get-PerformanceCount (Get-PerformanceProperty $metrics "tool_call_count") }
             failed_tools = if ([string]$actions.protocol -eq "taskspace_exec") {
                 $actions.failed_action_count
@@ -306,10 +306,10 @@ function Get-PerformanceSideObservation {
             taskspace_exec = Get-PerformanceCount (Get-PerformanceProperty $actions "exec_count")
             map_operations = Get-PerformanceCount (Get-PerformanceProperty $actions "map_operation_count")
             client_actions = Get-PerformanceCount (Get-PerformanceProperty $actions "client_action_count")
-            hosted_bindings = Get-PerformanceCount (Get-PerformanceProperty $actions "hosted_binding_count")
+            provider_actions = Get-PerformanceCount (Get-PerformanceProperty $actions "provider_action_count")
             node_bindings = Get-PerformanceCount (Get-PerformanceProperty $actions "node_binding_count")
             client_results = Get-PerformanceCount (Get-PerformanceProperty $actions "client_result_count")
-            hosted_results = Get-PerformanceCount (Get-PerformanceProperty $actions "hosted_result_count")
+            provider_results = Get-PerformanceCount (Get-PerformanceProperty $actions "provider_result_count")
             exec_trace_events = Get-PerformanceCount (Get-PerformanceProperty $actions "trace_event_count")
             correlated_requests = Get-PerformanceCount (Get-PerformanceProperty $actions "correlated_request_count")
             correlated_outer_calls = Get-PerformanceCount (Get-PerformanceProperty $actions "correlated_outer_call_count")
@@ -396,7 +396,7 @@ function Get-PerformanceModeAggregate {
     $selected = @($observed | Where-Object { $_.comparison_eligible })
     if ($selected.Count -eq 0) { return $null }
     $sum = [ordered]@{}
-    foreach ($field in @("provider_requests", "provider_logical_requests", "provider_local_attempts", "provider_boundary_requests", "provider_completed_responses", "provider_failed_or_cancelled_attempts", "ordinary_tools", "failed_tools", "provider_outer_tool_calls", "nested_actions", "taskspace_exec", "map_operations", "client_actions", "hosted_bindings", "node_bindings", "client_results", "hosted_results", "exec_trace_events", "correlated_requests", "correlated_outer_calls", "taskspace_control", "action_manifests", "declared_actions", "initialize_and_execute", "committed_initialize_and_execute", "failed_initialize_and_execute", "sequence_preflight_rejected_calls", "control_failures", "control_protocol_failures", "control_state_failures", "nested_action_failures", "provider_tool_responses", "control_responses", "mixed_control_action_responses", "multi_control_responses", "action_manifest_count", "action_manifest_pairs", "action_manifest_violations", "orphan_siblings", "cadence_declared_actions", "cadence_owned_siblings", "initialize_and_execute_pairs", "execute_pairs", "reopen_pairs", "finish_maps", "finish_map_final_work", "standalone_control_responses", "terminal_candidates", "terminal_extra_requests", "cadence_parse_errors")) {
+    foreach ($field in @("provider_requests", "provider_logical_requests", "provider_local_attempts", "provider_boundary_requests", "provider_completed_responses", "provider_failed_or_cancelled_attempts", "ordinary_tools", "failed_tools", "provider_outer_tool_calls", "nested_actions", "taskspace_exec", "map_operations", "client_actions", "provider_actions", "node_bindings", "client_results", "provider_results", "exec_trace_events", "correlated_requests", "correlated_outer_calls", "taskspace_control", "action_manifests", "declared_actions", "initialize_and_execute", "committed_initialize_and_execute", "failed_initialize_and_execute", "sequence_preflight_rejected_calls", "control_failures", "control_protocol_failures", "control_state_failures", "nested_action_failures", "provider_tool_responses", "control_responses", "mixed_control_action_responses", "multi_control_responses", "action_manifest_count", "action_manifest_pairs", "action_manifest_violations", "orphan_siblings", "cadence_declared_actions", "cadence_owned_siblings", "initialize_and_execute_pairs", "execute_pairs", "reopen_pairs", "finish_maps", "finish_map_final_work", "standalone_control_responses", "terminal_candidates", "terminal_extra_requests", "cadence_parse_errors")) {
         $values = @($selected | ForEach-Object { $_.actions.$field })
         $sum[$field] = Get-PerformanceOptionalExactInt64Sum $values $field
     }

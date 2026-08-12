@@ -12,12 +12,11 @@ $temp = Join-Path ([IO.Path]::GetTempPath()) "taskspace-exec-observation-$([guid
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
 try {
     $arguments = [pscustomobject]@{
-        calls = @(
-            [pscustomobject]@{ map = [pscustomobject]@{ operation = 'initialize_map'; input = [pscustomobject]@{} } },
-            [pscustomobject]@{ client = [pscustomobject]@{ name = 'exec_command'; node_id = 'inspect'; input = [pscustomobject]@{ cmd = 'pwd' } } },
-            [pscustomobject]@{ client = [pscustomobject]@{ name = 'apply_patch'; node_id = 'fix'; input = 'x' } }
-        )
-        hosted_bindings = @(
+        type = 'initialize_and_work'
+        initialize_map = [pscustomobject]@{}
+        tools = @(
+            [pscustomobject]@{ tool = 'exec_command'; node_id = 'inspect'; input = [pscustomobject]@{ cmd = 'pwd' } },
+            [pscustomobject]@{ tool = 'apply_patch'; node_id = 'fix'; input = 'x' },
             [pscustomobject]@{ tool = 'web_search'; node_ids = @('inspect', 'fix') }
         )
     }
@@ -59,13 +58,29 @@ try {
     Assert-Equal $facts.exec_count 1 'outer Exec count drifted'
     Assert-Equal $facts.map_operation_count 1 'Map operation count drifted'
     Assert-Equal $facts.client_action_count 2 'client action count drifted'
-    Assert-Equal $facts.hosted_binding_count 1 'Hosted binding count drifted'
+    Assert-Equal $facts.provider_action_count 1 'Provider action count drifted'
     Assert-Equal $facts.node_binding_count 4 'node binding count drifted'
     Assert-Equal $facts.failed_action_count 1 'failure count drifted'
     Assert-Equal $facts.correlated_request_count 1 'request identity was not joined'
     Assert-Equal $facts.correlated_outer_call_count 1 'outer call identity was not joined'
     Assert-Equal $facts.capability_identity $capabilityIdentity 'Exec capability identity was not observed'
     Assert-Equal $facts.wire_capability_identity $capabilityIdentity 'wire capability identity was not observed'
+    $sequenceCases = @(
+        @('work', @{ type = 'work'; tools = @([pscustomobject]@{ tool = 'exec_command'; node_id = 'n'; input = @{} }) }, 'client'),
+        @('update_map', @{ type = 'update_map'; update_map = @{} }, 'map'),
+        @('update_and_work', @{ type = 'update_and_work'; update_map = @{}; tools = @([pscustomobject]@{ tool = 'web_search'; node_ids = @('n') }) }, 'map,hosted'),
+        @('update_and_finish', @{ type = 'update_and_finish'; update_map = @{}; finish_map = @{} }, 'map,map'),
+        @('read_map', @{ type = 'read_map'; read_map = @{} }, 'map'),
+        @('reopen_update_and_work', @{ type = 'reopen_update_and_work'; reopen_map = @{}; update_map = @{}; tools = @([pscustomobject]@{ tool = 'exec_command'; node_id = 'n'; input = @{} }) }, 'map,map,client'),
+        @('finish_map', @{ type = 'finish_map'; finish_map = @{} }, 'map')
+    )
+    foreach ($case in $sequenceCases) {
+        $payload = [pscustomobject]@{
+            type = 'function_call'; name = 'taskspace_exec'; arguments = (($case[1]) | ConvertTo-Json -Compress -Depth 8)
+        }
+        $kinds = @((Get-TaskspaceExecDeclaredCalls $payload).kind) -join ','
+        Assert-Equal $kinds $case[2] "sequence observer drifted: $($case[0])"
+    }
     $identity = Get-PerformanceCountIdentity `
         ([pscustomobject]@{ tool_call_count = 99; failed_tool_call_count = 99 }) `
         $facts `
@@ -79,10 +94,9 @@ try {
     Assert-Equal $identity.values.tool_call_count 3 'R8 action total used outer Tool count'
 
     $zeroHostedArguments = [pscustomobject]@{
-        calls = @(
-            [pscustomobject]@{ map = [pscustomobject]@{ operation = 'initialize_map'; input = [pscustomobject]@{} } },
-            [pscustomobject]@{ client = [pscustomobject]@{ name = 'exec_command'; node_id = 'inspect'; input = [pscustomobject]@{ cmd = 'pwd' } } }
-        )
+        type = 'initialize_and_work'
+        initialize_map = [pscustomobject]@{}
+        tools = @([pscustomobject]@{ tool = 'exec_command'; node_id = 'inspect'; input = [pscustomobject]@{ cmd = 'pwd' } })
     }
     $zeroHostedResult = [pscustomobject]@{
         kind = 'taskspace_exec_result'; status = 'completed'; outer_call_id = 'outer-1'
@@ -103,7 +117,7 @@ try {
     $zeroHostedFacts = Get-TaskspaceExecObservation $temp $null
     Assert-Equal $zeroHostedFacts.availability 'measured' 'omitted Hosted bindings were treated as invalid'
     Assert-Equal $zeroHostedFacts.nested_action_count 2 'zero-Hosted nested action count drifted'
-    Assert-Equal $zeroHostedFacts.hosted_binding_count 0 'omitted Hosted bindings were not empty'
+    Assert-Equal $zeroHostedFacts.provider_action_count 0 'omitted Provider actions were not empty'
     Assert-Equal $zeroHostedFacts.node_binding_count 1 'zero-Hosted node binding count drifted'
 
     @(
@@ -124,11 +138,11 @@ try {
     @(
         [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
                 type = 'function_call'; name = 'taskspace_exec'; call_id = 'outer-1'
-                arguments = '{"calls":['
+                arguments = '{"type":"work","tools":['
             } },
         [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
                 type = 'function_call_output'; call_id = 'outer-1'
-                output = 'taskspace_exec rejected: invalid JSON syntax; no calls executed'
+                output = 'taskspace_exec rejected: invalid JSON syntax; no Map or Tool actions executed'
             } }
     ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 15 } |
         Set-Content -LiteralPath (Join-Path $temp 'rollout.jsonl') -Encoding UTF8

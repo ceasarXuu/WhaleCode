@@ -71,21 +71,23 @@ $rows = @(
     New-Output "read-2" "second content"
 
     New-Call "taskspace_exec" "exec-success" @{
-        calls = @(
-            @{ client = @{ name = "apply_patch"; node_id = "edit"; input = $singlePatch } }
-            @{ client = @{ name = "exec_command"; node_id = "verify"; input = @{ cmd = "pytest" } } }
+        type = "work"
+        tools = @(
+            @{ tool = "apply_patch"; node_id = "edit"; input = $singlePatch }
+            @{ tool = "exec_command"; node_id = "verify"; input = @{ cmd = "pytest" } }
         )
     }
     New-Output "exec-success" $execSuccess
 
     New-Call "taskspace_exec" "exec-rejected" @{
-        calls = @(@{ client = @{ name = "apply_patch"; node_id = "waiting"; input = $singlePatch } })
+        type = "work"
+        tools = @(@{ tool = "apply_patch"; node_id = "waiting"; input = $singlePatch })
     }
-    New-Output "exec-rejected" 'taskspace_exec rejected: client call 0 targeted work node `waiting` in state `waiting`'
+    New-Output "exec-rejected" 'taskspace_exec rejected: Tool action 0 targeted work node `waiting` in state `waiting`'
 
     [pscustomobject]@{
         type = "response_item"
-        payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_exec"; call_id = "exec-invalid"; arguments = '{"calls":[' }
+        payload = [pscustomobject]@{ type = "function_call"; name = "taskspace_exec"; call_id = "exec-invalid"; arguments = '{"type":"work","tools":[' }
     }
     New-Output "exec-invalid" "taskspace_exec rejected: invalid JSON syntax"
 )

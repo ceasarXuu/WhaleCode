@@ -12,7 +12,7 @@ function Get-PerformanceCountIdentity {
     $facts = [ordered]@{
         tool_call_count = if ([string](Get-PerformanceProperty $Actions "protocol") -eq "taskspace_exec") {
             [int64](Get-PerformanceProperty $Actions "client_action_count") +
-                [int64](Get-PerformanceProperty $Actions "hosted_binding_count")
+                [int64](Get-PerformanceProperty $Actions "provider_action_count")
         } else { Get-PerformanceProperty $Metrics "tool_call_count" }
         failed_tool_call_count = if ([string](Get-PerformanceProperty $Actions "protocol") -eq "taskspace_exec") {
             Get-PerformanceProperty $Actions "failed_action_count"
@@ -30,8 +30,8 @@ function Get-PerformanceCountIdentity {
         if ([string](Get-PerformanceProperty $Actions "protocol") -eq "taskspace_exec") {
             foreach ($field in @(
                     "exec_count", "map_operation_count", "client_action_count",
-                    "hosted_binding_count", "node_binding_count", "client_result_count",
-                    "hosted_result_count", "trace_event_count", "correlated_request_count",
+                    "provider_action_count", "node_binding_count", "client_result_count",
+                    "provider_result_count", "trace_event_count", "correlated_request_count",
                     "correlated_outer_call_count"
                 )) {
                 $facts[$field] = Get-PerformanceProperty $Actions $field

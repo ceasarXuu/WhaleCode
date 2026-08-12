@@ -32,24 +32,58 @@ function Get-TaskspaceExecDeclaredCalls {
     } else {
         $Payload.arguments
     }
+    $sequence = [string]$arguments.type
+    $shapes = @{
+        initialize_and_work = @('initialize_map', 'tools')
+        work = @('tools')
+        update_map = @('update_map')
+        update_and_work = @('update_map', 'tools')
+        update_and_finish = @('update_map', 'finish_map')
+        read_map = @('read_map')
+        reopen_update_and_work = @('reopen_map', 'update_map', 'tools')
+        finish_map = @('finish_map')
+    }
+    if (-not $shapes.ContainsKey($sequence)) { throw "unknown TaskSpace Exec sequence: $sequence" }
     $declared = New-Object System.Collections.Generic.List[object]
-    $index = 0
-    foreach ($call in @($arguments.calls)) {
-        $map = $call.PSObject.Properties["map"]
-        $client = $call.PSObject.Properties["client"]
-        $kind = if ($null -ne $map -and $null -eq $client) {
-            "map"
-        } elseif ($null -ne $client -and $null -eq $map) {
-            "client"
-        } else {
-            "invalid"
+    foreach ($slot in @($shapes[$sequence])) {
+        $property = $arguments.PSObject.Properties[$slot]
+        if ($null -eq $property) { throw "TaskSpace Exec sequence $sequence is missing $slot" }
+        if ($slot -ne 'tools') {
+            $declared.Add([pscustomobject]@{
+                    call_index = $declared.Count
+                    kind = 'map'
+                    value = [pscustomobject]@{ operation = $slot; input = $property.Value }
+                })
+            continue
         }
-        $declared.Add([pscustomobject]@{
-                call_index = $index
-                kind = $kind
-                value = if ($kind -eq "map") { $map.Value } elseif ($kind -eq "client") { $client.Value } else { $call }
-            })
-        $index++
+        $toolIndex = 0
+        foreach ($tool in @($property.Value)) {
+            $nodeId = $tool.PSObject.Properties['node_id']
+            $nodeIds = $tool.PSObject.Properties['node_ids']
+            $input = $tool.PSObject.Properties['input']
+            $kind = if ($null -ne $nodeId -and $null -ne $input -and $null -eq $nodeIds) {
+                'client'
+            } elseif ($null -ne $nodeIds -and $null -eq $nodeId -and $null -eq $input) {
+                'hosted'
+            } else {
+                'invalid'
+            }
+            $value = if ($kind -eq 'client') {
+                $namespace = $tool.PSObject.Properties['namespace']
+                [pscustomobject]@{
+                    name = [string]$tool.tool
+                    namespace = if ($null -eq $namespace) { $null } else { $namespace.Value }
+                    node_id = [string]$nodeId.Value
+                    input = $input.Value
+                }
+            } else { $tool }
+            $declared.Add([pscustomobject]@{
+                    call_index = $toolIndex
+                    kind = $kind
+                    value = $value
+                })
+            $toolIndex++
+        }
     }
     @($declared.ToArray())
 }
