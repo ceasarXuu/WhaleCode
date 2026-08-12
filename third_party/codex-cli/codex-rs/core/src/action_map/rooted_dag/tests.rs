@@ -181,7 +181,7 @@ fn canonical_transactions_derive_new_work_state_from_the_complete_graph() {
         root: node("root", NodeState::Completed, &[]),
         work_nodes: vec![
             node("tail", NodeState::Completed, &["head"]),
-            node("head", NodeState::Blocked, &["root"]),
+            node("head", NodeState::Waiting, &["root"]),
         ],
         finish: node("finish", NodeState::Completed, &["tail"]),
     })

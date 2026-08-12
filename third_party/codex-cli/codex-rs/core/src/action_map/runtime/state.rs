@@ -203,6 +203,21 @@ mod tests {
     }
 
     #[test]
+    fn restore_rejects_previous_canonical_schema() {
+        let owner = ThreadId::new();
+        let mut map = valid_map("map-v4");
+        map.schema_version = "taskspace-canonical-map-v4".to_string();
+        let mut runtime = ActionMapRuntimeState::default();
+
+        let error = runtime
+            .restore_store_map("map-v4", owner, Some(map))
+            .unwrap_err();
+
+        assert!(error.contains("schema_version_invalid"));
+        assert!(runtime.active_map_id().is_none());
+    }
+
+    #[test]
     fn empty_store_identity_requires_bootstrap() {
         let owner = ThreadId::new();
         let mut runtime = ActionMapRuntimeState::default();

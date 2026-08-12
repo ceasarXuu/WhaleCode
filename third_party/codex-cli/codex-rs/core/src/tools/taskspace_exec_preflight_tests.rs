@@ -81,9 +81,9 @@ fn open_map() -> TaskSpaceMap {
                 vec!["root".into()],
             ),
             map_node(
-                "blocked",
-                "blocked work",
-                NodeState::Blocked,
+                "support",
+                "supporting work",
+                NodeState::Ready,
                 "",
                 vec!["root".into()],
             ),
@@ -93,7 +93,7 @@ fn open_map() -> TaskSpaceMap {
             "close",
             NodeState::Waiting,
             "",
-            vec!["work".into(), "blocked".into()],
+            vec!["work".into(), "support".into()],
         ),
     )
 }
@@ -145,7 +145,7 @@ fn valid_work_update_and_finish_builds_one_side_effect_free_candidate() {
     current
         .work_nodes
         .iter_mut()
-        .find(|node| node.node_id == "blocked")
+        .find(|node| node.node_id == "support")
         .unwrap()
         .state = NodeState::Completed;
     let before = current.clone();
@@ -430,7 +430,7 @@ fn reopen_requires_and_accepts_real_followup_work() {
                                 "node_id": "followup",
                                 "goal": "handle user follow-up",
                                 "content": "",
-                                "parents": ["work", "blocked"]
+                                "parents": ["work", "support"]
                             }],
                             "node_patches": [{"node_id": "finish", "parents": ["followup"]}]
                         }
@@ -510,11 +510,18 @@ fn client_node_state_and_function_schema_are_checked_before_dispatch() {
         );
     }
 
-    let blocked = envelope(
-        json!({"calls": [read_call("blocked")], "hosted_bindings": []}),
-        Some(&current),
+    let mut in_flight_map = current.clone();
+    in_flight_map
+        .work_nodes
+        .iter_mut()
+        .find(|node| node.node_id == "support")
+        .unwrap()
+        .state = NodeState::InFlight;
+    let in_flight = envelope(
+        json!({"calls": [read_call("support")], "hosted_bindings": []}),
+        Some(&in_flight_map),
     );
-    assert!(preflight_taskspace_exec(&blocked, Some(&current), &[]).is_ok());
+    assert!(preflight_taskspace_exec(&in_flight, Some(&in_flight_map), &[]).is_ok());
 
     let mut waiting_map = current.clone();
     waiting_map.work_nodes.push(map_node(
@@ -524,7 +531,7 @@ fn client_node_state_and_function_schema_are_checked_before_dispatch() {
         "",
         vec!["work".into()],
     ));
-    waiting_map.finish.parents = vec!["waiting".into(), "blocked".into()];
+    waiting_map.finish.parents = vec!["waiting".into(), "support".into()];
     let waiting = envelope(
         json!({"calls": [read_call("waiting")], "hosted_bindings": []}),
         Some(&waiting_map),

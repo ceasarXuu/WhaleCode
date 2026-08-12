@@ -413,7 +413,7 @@ fn work_node_schema() -> JsonSchema {
 
 fn node_state_schema() -> JsonSchema {
     JsonSchema::string_enum(
-        ["waiting", "ready", "in_flight", "blocked", "completed"]
+        ["waiting", "ready", "in_flight", "completed"]
             .into_iter()
             .map(|value| json!(value))
             .collect(),

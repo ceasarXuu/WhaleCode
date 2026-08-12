@@ -104,7 +104,6 @@ pub(super) fn node_state_name(state: TaskSpaceNodeState) -> &'static str {
         TaskSpaceNodeState::Waiting => "waiting",
         TaskSpaceNodeState::Ready => "ready",
         TaskSpaceNodeState::InFlight => "in_flight",
-        TaskSpaceNodeState::Blocked => "blocked",
         TaskSpaceNodeState::Completed => "completed",
     }
 }
@@ -114,7 +113,6 @@ pub(super) fn parse_node_state(value: &str) -> anyhow::Result<TaskSpaceNodeState
         "waiting" => Ok(TaskSpaceNodeState::Waiting),
         "ready" => Ok(TaskSpaceNodeState::Ready),
         "in_flight" => Ok(TaskSpaceNodeState::InFlight),
-        "blocked" => Ok(TaskSpaceNodeState::Blocked),
         "completed" => Ok(TaskSpaceNodeState::Completed),
         _ => anyhow::bail!("invalid TaskSpace node state `{value}`"),
     }

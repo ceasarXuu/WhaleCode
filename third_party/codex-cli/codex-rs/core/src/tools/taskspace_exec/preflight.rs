@@ -264,10 +264,7 @@ fn validate_client_call(
             role,
         });
     }
-    if !matches!(
-        node.state,
-        NodeState::Ready | NodeState::InFlight | NodeState::Blocked
-    ) {
+    if !matches!(node.state, NodeState::Ready | NodeState::InFlight) {
         let incomplete_parent_ids = node
             .parents
             .iter()

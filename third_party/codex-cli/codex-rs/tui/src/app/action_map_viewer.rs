@@ -226,7 +226,7 @@ summary{cursor:pointer}
 .graph-controls button{font:12px/1 Consolas,Menlo,monospace;border:1px solid #777;background:Canvas;color:CanvasText;padding:4px 7px}
 .graph-help{position:absolute;left:8px;bottom:8px;color:#777;background:Canvas;padding:2px 5px;border:1px solid #777}
 .graph-node{position:absolute;box-sizing:border-box;width:220px;min-height:76px;border:1px solid #777;background:Canvas;padding:7px}
-.graph-node.in_flight{border-color:#0a84ff}.graph-node.ready{border-color:#6a8f00}.graph-node.completed{border-color:#2d8a4d}.graph-node.blocked{border-color:#b00020}
+.graph-node.in_flight{border-color:#0a84ff}.graph-node.ready{border-color:#6a8f00}.graph-node.completed{border-color:#2d8a4d}
 .graph-node.frontier{box-shadow:inset 0 0 0 2px color-mix(in srgb,CanvasText 32%,transparent)}
 .node-title{font-weight:700;margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .node-meta{color:#777;margin-top:5px}

@@ -64,7 +64,6 @@ pub(crate) fn node_state_name(state: NodeState) -> &'static str {
         NodeState::Waiting => "waiting",
         NodeState::Ready => "ready",
         NodeState::InFlight => "in_flight",
-        NodeState::Blocked => "blocked",
         NodeState::Completed => "completed",
     }
 }

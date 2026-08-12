@@ -41,9 +41,9 @@ fn open_map() -> TaskSpaceMap {
                 vec!["root".into()],
             ),
             map_node(
-                "blocked",
-                "blocked work",
-                NodeState::Blocked,
+                "support",
+                "supporting work",
+                NodeState::Ready,
                 "",
                 vec!["root".into()],
             ),
@@ -53,7 +53,7 @@ fn open_map() -> TaskSpaceMap {
             "close",
             NodeState::Waiting,
             "",
-            vec!["work".into(), "blocked".into()],
+            vec!["work".into(), "support".into()],
         ),
     )
 }
@@ -90,7 +90,7 @@ fn hosted_facts_are_sorted_by_provider_index_and_bind_to_multiple_nodes() {
         json!({
             "calls": [],
             "hosted_bindings": [
-                {"tool": "web_search", "node_ids": ["work", "blocked"]},
+                {"tool": "web_search", "node_ids": ["work", "support"]},
                 {"tool": "image_generation", "node_ids": ["work"]}
             ]
         }),
@@ -115,7 +115,7 @@ fn hosted_facts_are_sorted_by_provider_index_and_bind_to_multiple_nodes() {
     assert_eq!(prepared.hosted_bindings[0].output_index, 2);
     assert_eq!(
         prepared.hosted_bindings[0].node_ids,
-        vec!["work", "blocked"]
+        vec!["work", "support"]
     );
     assert_eq!(prepared.hosted_bindings[1].output_index, 9);
 }

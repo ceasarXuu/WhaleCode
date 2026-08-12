@@ -160,7 +160,7 @@ fn node_view_schema() -> JsonSchema {
             ("goal", JsonSchema::string(None)),
             (
                 "state",
-                string_enum(["waiting", "ready", "in_flight", "blocked", "completed"]),
+                string_enum(["waiting", "ready", "in_flight", "completed"]),
             ),
             ("content", JsonSchema::string(None)),
             ("parents", JsonSchema::array(JsonSchema::string(None), None)),

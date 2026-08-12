@@ -110,7 +110,7 @@ function Invoke-ActionMapStoreExport {
     $canonicalMap = Get-ActionMapStoreProperty $map "canonical_map"
     if ($status -eq "ok" -and $canonicalMap) {
         $canonicalSchema = [string](Get-ActionMapStoreProperty $canonicalMap "schema_version" "")
-        if ($canonicalSchema -ne "taskspace-canonical-map-v4") {
+        if ($canonicalSchema -ne "taskspace-canonical-map-v5") {
             $status = "error"
             $errorCode = "invalid_canonical_map"
             $errorMessage = "Unsupported canonical Map schema '$canonicalSchema'."

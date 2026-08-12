@@ -450,7 +450,6 @@ fn node_state_label(state: rooted_dag::NodeState) -> &'static str {
         rooted_dag::NodeState::Waiting => "waiting",
         rooted_dag::NodeState::Ready => "ready",
         rooted_dag::NodeState::InFlight => "in_flight",
-        rooted_dag::NodeState::Blocked => "blocked",
         rooted_dag::NodeState::Completed => "completed",
     }
 }

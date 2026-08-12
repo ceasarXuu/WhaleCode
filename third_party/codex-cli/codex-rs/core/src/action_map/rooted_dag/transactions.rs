@@ -223,19 +223,8 @@ fn allowed_transition(from: NodeState, to: NodeState) -> bool {
     from == to
         || matches!(
             (from, to),
-            (NodeState::Waiting, NodeState::Blocked)
-                | (
-                    NodeState::Ready,
-                    NodeState::InFlight | NodeState::Blocked | NodeState::Completed
-                )
-                | (
-                    NodeState::InFlight,
-                    NodeState::Blocked | NodeState::Completed
-                )
-                | (
-                    NodeState::Blocked,
-                    NodeState::Ready | NodeState::InFlight | NodeState::Completed
-                )
+            (NodeState::Ready, NodeState::InFlight | NodeState::Completed)
+                | (NodeState::InFlight, NodeState::Completed)
         )
 }
 

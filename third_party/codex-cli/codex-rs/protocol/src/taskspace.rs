@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use serde::Serialize;
 
-pub const TASKSPACE_CANONICAL_SCHEMA_VERSION: &str = "taskspace-canonical-map-v4";
+pub const TASKSPACE_CANONICAL_SCHEMA_VERSION: &str = "taskspace-canonical-map-v5";
 
 pub type TaskSpaceActionId = String;
 pub type TaskSpaceMapId = String;
@@ -14,7 +14,6 @@ pub enum TaskSpaceNodeState {
     Waiting,
     Ready,
     InFlight,
-    Blocked,
     Completed,
 }
 
@@ -127,6 +126,12 @@ mod tests {
             serde_json::from_value::<TaskSpaceCanonicalMap>(value).unwrap(),
             fixture()
         );
+    }
+
+    #[test]
+    fn blocked_is_not_a_canonical_node_state() {
+        let error = serde_json::from_str::<TaskSpaceNodeState>(r#""blocked""#).unwrap_err();
+        assert!(error.to_string().contains("unknown variant `blocked`"));
     }
 
     #[test]
