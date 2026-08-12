@@ -1,7 +1,7 @@
 # R8 TaskSpace 全局约束
 
 - Created: 2026-07-31
-- Updated: 2026-08-07
+- Updated: 2026-08-12
 - Status: Active
 - Scope: 产品、设计、实现、测试和评测
 
@@ -42,14 +42,14 @@
 3. Runtime 不自动初始化、不代选节点、不补动作、不修改参数、不解释任务语义，也不因 Agent 可能犯错增加语义约束。
 4. TaskSpace 下 Agent 只通过 Function Call 形态的 `taskspace_exec` 提交 client/map 动作；普通 client Tool 和
    canonical Map operations 都由该工具内部声明，不再作为 TaskSpace 顶层 sibling Tool 暴露。
-5. Provider-hosted Tool 保持 provider 原生能力和执行路径；Agent 在同一响应的 `taskspace_exec` 中为每项 Hosted 动作
-   分别声明节点归属，Runtime 逐项核对声明与事实的结构错配、漏项、重复和未知引用，但不判断节点的业务语义是否合适，
-   也不重执行或猜配。同一响应可归属多个节点。
+5. Client 与 Provider-hosted Tool 在 Agent-visible `taskspace_exec.tools[]` 中使用同一动作位置和顺序规则。Provider 保持
+   原生执行路径；Runtime 只在适配阶段将其与同响应顶层已执行事实逐项核对、记录且不重执行。不得建立序列外
+   `hosted_work[]`、`hosted_bindings[]` 或其他平行协议；漏项、错配、重复和未知引用仍 fail closed。
 6. Agent 在 `taskspace_exec` 外层 invocation metadata 中为每个普通 client call 显式声明单个 `node_id`，为每项
    Provider-hosted fact 显式声明非空 `node_ids[]`。Map call 不声明外层 owner，其节点引用只来自对应 canonical Map
    operation 参数。Runtime 只解析和校验，不推断或选择归属，TaskSpace metadata 不得进入普通 Tool 原生参数。
-7. `taskspace_exec` 只负责承载合法序列和节点绑定；canonical Map operations 只提供 Map 操作和读取能力，在内部执行路径中
-   地位不高于普通 Tool。
+7. `taskspace_exec` 只负责承载合法顺序和节点绑定；canonical Map operations 只提供 Map 操作和读取能力，在内部执行路径中
+   地位不高于普通 Tool。`update_map` 是受限 Map 动作，可作为纯 Map 更新单独提交，不能执行 Tool 或关闭 Map。
 8. 普通 Tool 的 schema、参数、handler、权限、sandbox、hook 和原生结果对 TaskSpace 完全无感；内部 Tool 合同必须
    从同一原生 ToolSpec 机械派生，不手写第二套协议。
 9. Client Tool 能力合同在一次请求中只能向 Agent 暴露一次：Standard 在顶层暴露原生 Tool schema；TaskSpace
@@ -62,10 +62,10 @@
 11. `taskspace_exec` schema 必须是静态能力合同，只能由确定排序的 ToolSpec 能力快照和协议版本机械生成。Map revision、
     node、调用计划、Provider output、Session 状态及其他运行时数据只能进入 Function Call 参数、Tool result、自然上下文或
     canonical Store，严禁写入 Tool schema/description。相同能力集合和协议版本必须生成逐字稳定的 Tool declaration。
-12. 静态 schema 必须把 Agent-visible 输入表达为带稳定判别值的合法序列闭集；Agent 每次只能选择一个已声明类型，并在该
-    类型允许的字段内声明节点、Tool、参数和归属。禁止任意 `calls[]`、raw/custom/other 或其他通用逃生分支。新增序列必须
-    来自已探明场景，具备不重叠职责、正反合同和独立收益/回归证据；Runtime 只做机械归一化与硬规则验证。
-    原生 client Tool catalog 必须在最终 declaration 中只定义一次，由各 work-bearing sequence 机械引用；禁止按序列数量
+12. 静态 schema 必须把 Agent-visible 输入表达为 Map 与统一 Tool 动作的合法顺序闭集；Agent 每次只能选择一个已声明形状，
+    并在其字段内声明节点、Tool、参数和归属。禁止任意 `calls[]`、raw/custom/other 或其他通用逃生分支。七个首批产品场景
+    必须逐项关联真实 trace，或确定性工程能力加已确认产品需要；新增序列继续遵守同一证据门槛。Runtime 只做机械归一化与
+    硬规则验证。原生 Tool catalog 必须在最终 declaration 中只定义一次，由各含 Tool 的顺序形状机械引用；禁止按序列数量
     重复展开整份 Tool schema。
 13. 协议版本、能力快照身份和内部调用传输身份由 Runtime 从本次 request、outer `call_id` 与归一化 work 位置机械维护，不要求
     Agent 回显。它们可以进入内部 envelope、日志和结果关联字段，但不得成为 Agent-visible 必填参数。
@@ -84,7 +84,8 @@
 
 ## 3. 动作与状态硬约束
 
-1. 初始化、reopen 和非终态节点完成必须与至少一个真实后续动作位于同一 Agent response。
+1. 初始化和 reopen 必须与至少一个真实后续 Tool action 位于同一 Agent response。`update_map` 可用于纯 Map 更新；完成节点
+   不再被普遍强制捆绑后续 Tool 或 finish，合法性由所选闭集顺序和完整候选 Map 决定。
 2. 一个 response 可以包含多个无结果依赖的普通工具动作，并可推进多个节点。
 3. Runtime 在已定义的真实动作副作用边界前验证 `taskspace_exec` 计划的成员、Map 边界、节点归属和硬规则；完整批次
    预检边界必须先由 TX-03/TX-04 证明确立，不能用执行后的惩罚式拒绝代替。
@@ -92,13 +93,15 @@
 5. 普通 Tool 失败保持普通 Tool 失败；Map 拒绝保持 Map 拒绝，二者不得互相伪装。
 6. `apply_patch` 作为 `taskspace_exec` 内部成员时仍保持原生 freeform 文本输入形态；一个 response 最多实际执行一个
    Patch。
-7. `finish_map` 是 Agent 显式终态事务；它必须能够同时完成最后 Work、Finish、Root 和总结。
+7. `finish_map` 是 Agent 显式终态事务；合法终态顺序必须能够显式完成最后 Work、Finish、Root 和总结。
 8. client 事实读取也必须通过 `taskspace_exec` 提交；存在结果依赖时允许只包含一个读取 Tool 的单项调用，但不存在
    TaskSpace client Tool 的序列外入口。
-9. Ready、InFlight 和 Blocked Work node 可以承载 client Tool action；Waiting 与 Completed node 不可执行。Blocked
-   表示工作遇到阻碍，不剥夺 Agent 调用 Tool 调查或解除阻碍的能力。
-10. `read_map` 必须作为独立 `taskspace_exec` 调用出现，不得与 client Tool、Hosted binding 或其他 Map operation 混合；
+9. Ready 和 InFlight Work node 可以承载 Tool action；Waiting 与 Completed node 不可执行。Agent 在 Ready 节点声明
+   Tool action 后，Runtime 在执行/对账前机械转为 InFlight；Tool outcome 不自动完成节点。
+10. `read_map` 必须作为独立 `taskspace_exec` 调用出现，不得与任何 Tool action 或其他 Map operation 混合；
     返回值必须是完整 Agent-visible Map，包含全局节点路径、状态、内容、动作以及机械派生的 `children[]`。
+11. Node lifecycle 只包含 Waiting、Ready、InFlight 和 Completed。当前没有 `blocked` 帮助 Agent 推理的真实运行证据，
+    因此 schema、状态转移、Store、projection、反馈和规则均不得保留该状态；外部阻碍事实由 Agent 写入 `content`。
 
 ## 4. 上下文与反馈
 
@@ -129,8 +132,8 @@
 8. 每次真实运行必须写入 `benchmarks/whale-agent-run-ledger.json`，失败和重试也不得覆盖历史。
 9. 成本报告至少包含 request、input、cached/uncached input、output、wall time 和费用。
 10. Tool 成本比较必须使用同一能力集合并拆分原有 Tool 合同、TaskSpace metadata 和序列化形式差值。Standard 在顶层
-   暴露 Client Tool；TaskSpace 将同一合同迁移到 `taskspace_exec` 内部，并只增加 `node_id`、合法序列、Hosted binding
-   和必要容器字段。Provider-hosted Tool 的完整 schema 只保留在 provider 原生顶层，Exec 内仅表达逐项绑定。
+   暴露 Client Tool；TaskSpace 将同一合同迁移到 `taskspace_exec` 内部，并只增加节点归属、合法顺序和必要容器字段。
+   Provider-hosted Tool 在 Exec 的统一 Tool catalog 中只表达 Agent 需要构造的动作和归属，不复制 Provider 顶层传输身份。
 11. 单一 `taskspace_exec` 入口沿用 Codex `exec/code-mode` 的 Tool 暴露和嵌套执行形态，并完整保留原生 Tool 名称、
     描述、参数、结果及多 Tool 组合能力。行为测试用于验证具体实现和 Provider 兼容性。
 12. 涉及用户体验或重大技术路线时暂停实施，给出源码证据、外部依据和方案代价后由用户决策。
@@ -158,6 +161,7 @@
 - 同一 Client Tool 合同同时出现在 TaskSpace 顶层和 `taskspace_exec` 内部，或被多个 Prompt/Tool 层完整复述；
 - 同一事实出现第二个权威来源；
 - Map 重新出现顶层 `edges[]`、任何 `*_ref`、独立语义分类账本，或要求 Agent 同时双写 parent/child；
+- Agent-visible Exec 重新出现独立 hosted action/binding 通道，或 Node lifecycle 恢复无正向证据的 `blocked`；
 - 为旧 Map 代码增加改名、兼容、转接、保留注释或 dormant 分支，而不是删除无效设计及其消费者；
 - Standard 路径发生非必要变化；
 - Map Store 与 Session/rollout 形成双事实源；

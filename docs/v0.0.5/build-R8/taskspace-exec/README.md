@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B5 engineering complete / Phase B6 closed legal-sequence design pending product review
+- Status: Phase B0～B5 engineering complete / Phase B6 product contract confirmed, implementation pending
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -17,18 +17,20 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
    调用和原 Router 复用方式，但不照搬其 Freeform Tool wire。
 2. TaskSpace 请求不再向 Agent 顶层暴露普通 client Tool。普通 client Tool 的能力说明由 `taskspace_exec` 从原生
    `ToolSpec` 派生；Map 操作从 canonical Action Map transaction 原语直接定义并作为平级内部 variant 暴露。
-3. Agent 在 `taskspace_exec` 内选择一个明确合法的序列类型，并在该类型允许的字段中声明 client Tool、
-   `node_id`、Map 事实和本响应已完成 provider-hosted Tool 的节点归属。
-4. Runtime 对 client 部分执行机械预检、解析和原生 Tool dispatch；对 provider 部分不重执行。Runtime 直接复用
+3. Agent 在 `taskspace_exec` 内选择一个明确合法的 Map/Tool 顺序形状，并在统一 `tools[]` 中声明 client 或 Provider Tool、
+   原生调用内容和节点归属；纯 `update_map` 继续作为受限 Map 动作合法存在。
+4. Runtime 对 client Tool 执行机械预检、解析和原生 Tool dispatch；对 Provider Tool 只在执行适配时不重执行。Runtime 直接复用
    provider 原始结果中的 `id/item_id`，但节点归属必须由 Agent 逐项声明并完整核对。
 5. `taskspace_exec` 只增加两个 TaskSpace 职责：合法序列和节点绑定。它不规划任务、不选择节点、不解释 Tool 结果，
    也不根据 Tool 成败推进节点状态。
-6. `taskspace_exec` schema 是静态能力合同，只提供一组带稳定判别值的合法序列类型。Agent 不再自由拼装任意
+6. `taskspace_exec` schema 是静态能力合同，只提供一组带稳定判别值、有场景证据的合法顺序形状。Agent 不再自由拼装任意
    `calls[]`，但仍自主决定具体序列、节点、Tool、参数和归属；Runtime 收到调用后只机械归一化、预检和路由。
 7. 普通 Client Tool 合同从 Standard 顶层迁移到 Exec 内部，只暴露一次；运行时 Map、node、plan、Provider output 和
    Session 状态不进入 Tool declaration。
 8. Agent 不回显协议版本、能力快照身份或内部调用 ID；Runtime 从 request-local ToolSpec、outer `call_id` 和数组位置
    机械维护这些关联信息。
+9. Agent 在 Ready 节点声明 Tool action 后，Runtime 只机械转为 InFlight；Tool outcome 不自动完成节点。无正向运行证据的
+   `blocked` 状态和相关规则从目标模型删除。
 
 旧的普通 Tool schema 入侵、顶层结构化序列容器和 `taskspace_control.actions[] + sibling calls` 三条路线只保留历史
 文档证据，active code 直接删除。新方案不维护旧 TaskSpace 可运行性、不增加 adapter 或兼容分支，也不从旧
@@ -144,8 +146,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 41. [`40-va02-source-structured-ab-plan.md`](40-va02-source-structured-ab-plan.md)：已结束并封存的 structured/source 单变量实验、选型证据与后续离线修复结果。
 42. [`41-phase-b5-sr04-ff01-revalidation-result.md`](41-phase-b5-sr04-ff01-revalidation-result.md)：UTF-8 自愈与忠实反馈修复后的三轮在线稳定性、waiting 观察及预算结算。
 43. [`42-phase-b5-schema-compression-result.md`](42-phase-b5-schema-compression-result.md)：TaskSpace Exec 固定合同单变量压缩、SC-01 两轮在线结果和预算结算。
-44. [`43-closed-legal-sequence-design.md`](43-closed-legal-sequence-design.md)：Phase B6 闭集合法序列的场景证据、候选类型、
-    归一化边界、迁移验收和待确认产品决策。
+44. [`43-closed-legal-sequence-design.md`](43-closed-legal-sequence-design.md)：Phase B6 闭集合法顺序的场景证据、L1～L8、
+    统一 Tool action、Ready 启动、纯 Map update 和 blocked 移除决策。
 
 ## 4. 推进规则
 
