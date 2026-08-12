@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "release_tag": "rust-v0.146.0",
-  "commit_sha": "e363b08c9175ac1cbe5893615dd2cb9ddf95043b",
-  "tree_sha": "cc0637ac7f20250fb1711982d21f4619fb2c8e23",
-  "release_date": "2026-07-29",
+  "release_tag": "rust-v0.147.0",
+  "commit_sha": "be6e8eac029b183056b7e4402879f15d2c85f61b",
+  "tree_sha": "3828c818254d4c756585f5b59fe46b6fa3634765",
+  "release_date": "2026-08-07",
   "license_path": "LICENSE",
   "license_sha256": "d17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc",
   "source_method": "git-archive",
@@ -15,79 +15,128 @@
   },
   "qualification_commands": [
     {
-      "command": ["cargo", "fmt", "--all", "--", "--check"],
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
       "cwd": "codex-rs",
       "environment": {
         "INSTA_UPDATE": "no",
         "NEXTEST_PROFILE": "local",
         "RUST_MIN_STACK": "8388608"
       },
-      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.146.0/01-fmt.log",
+      "proxy_environment": "inherited",
+      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.147.0/01-fmt.log",
       "exit_code": 0,
       "id": "01-fmt",
       "result": "passed"
     },
     {
-      "command": ["cargo", "check", "-p", "codex-cli", "--bin", "codex", "--offline"],
+      "command": [
+        "cargo",
+        "check",
+        "-p",
+        "codex-cli",
+        "--bin",
+        "codex",
+        "--offline"
+      ],
       "cwd": "codex-rs",
       "environment": {
         "INSTA_UPDATE": "no",
         "NEXTEST_PROFILE": "local",
         "RUST_MIN_STACK": "8388608"
       },
-      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.146.0/02-cli-check.log",
+      "proxy_environment": "inherited",
+      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.147.0/02-cli-check.log",
       "exit_code": 0,
       "id": "02-cli-check",
       "result": "passed"
     },
     {
-      "command": ["cargo", "nextest", "run", "--no-fail-fast", "-p", "codex-core"],
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "-p",
+        "codex-code-mode-host",
+        "--bin",
+        "codex-code-mode-host"
+      ],
       "cwd": "codex-rs",
       "environment": {
         "INSTA_UPDATE": "no",
         "NEXTEST_PROFILE": "local",
         "RUST_MIN_STACK": "8388608"
       },
-      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.146.0/03-core-tests.log",
-      "exit_code": 100,
-      "id": "03-core-tests",
+      "proxy_environment": "inherited",
+      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.147.0/03-code-mode-host-build.log",
+      "exit_code": 101,
+      "id": "03-code-mode-host-build",
       "result": "failed"
     },
     {
-      "command": ["cargo", "build", "--offline", "-p", "codex-code-mode-host", "--bin", "codex-code-mode-host"],
+      "command": [
+        "cargo",
+        "nextest",
+        "run",
+        "--no-fail-fast",
+        "-p",
+        "codex-core"
+      ],
       "cwd": "codex-rs",
       "environment": {
         "INSTA_UPDATE": "no",
         "NEXTEST_PROFILE": "local",
         "RUST_MIN_STACK": "8388608"
       },
-      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.146.0/04-code-mode-host-build.log",
-      "exit_code": 0,
-      "id": "04-code-mode-host-build",
-      "result": "passed"
+      "proxy_environment": "scrubbed",
+      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.147.0/04-core-tests.log",
+      "exit_code": 100,
+      "id": "04-core-tests",
+      "result": "failed"
     },
     {
-      "command": ["cargo", "nextest", "run", "--no-fail-fast", "-p", "codex-app-server"],
+      "command": [
+        "cargo",
+        "nextest",
+        "run",
+        "--no-fail-fast",
+        "-p",
+        "codex-app-server"
+      ],
       "cwd": "codex-rs",
       "environment": {
         "INSTA_UPDATE": "no",
         "NEXTEST_PROFILE": "local",
         "RUST_MIN_STACK": "8388608"
       },
-      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.146.0/05-app-server-tests.log",
+      "proxy_environment": "scrubbed",
+      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.147.0/05-app-server-tests.log",
       "exit_code": 100,
       "id": "05-app-server-tests",
       "result": "failed"
     },
     {
-      "command": ["cargo", "nextest", "run", "--no-fail-fast", "-p", "codex-tui"],
+      "command": [
+        "cargo",
+        "nextest",
+        "run",
+        "--no-fail-fast",
+        "-p",
+        "codex-tui"
+      ],
       "cwd": "codex-rs",
       "environment": {
         "INSTA_UPDATE": "no",
         "NEXTEST_PROFILE": "local",
         "RUST_MIN_STACK": "8388608"
       },
-      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.146.0/06-tui-tests.log",
+      "proxy_environment": "scrubbed",
+      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.147.0/06-tui-tests.log",
       "exit_code": 100,
       "id": "06-tui-tests",
       "result": "failed"
@@ -98,8 +147,8 @@
   "summary": {
     "command_count": 6,
     "by_result": {
-      "failed": 3,
-      "passed": 3
+      "failed": 4,
+      "passed": 2
     }
   }
 }

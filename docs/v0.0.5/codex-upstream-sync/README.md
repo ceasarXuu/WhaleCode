@@ -2,14 +2,14 @@
 
 > 计划治理说明（2026-08-10）：本专题只保留一份工程计划：[plan.md](plan.md)。已完成工作统一记录在该计划的状态表中，详细证据由 execution report 和 ledger 承载；不存在并行或嵌套的历史计划。唯一产品决策权威源为 [decisions.md](decisions.md)。
 
-> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 资格与差异证据 9/9 均已完成并作为 U1–U16 的输入；U1–U16 尚未开始仅表示生产 vendor cutover/replay 尚未执行。
+> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据、0.147 U2 正式资格均已完成；0.147 因 Linux rusty_v8 sandbox 发布资产缺失判定 no-go，生产 vendor cutover/replay 尚未执行。
 
-- 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成并作出 0.146 no-go 结论
+- 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成；Phase A 在 0.147 U2 no-go 后停止
 - 分析日期：2026-08-01
 - 适用版本：WhaleCode v0.0.5
 - 当前仓库提交：`c539cbe18030727ae9c48e27246c0439ad246390`
 - 当前 Codex vendor 基线：`fed0a8f4faa58db3138488cca77628c1d54a2cd8`
-- 建议追赶目标：Codex CLI `rust-v0.146.0` / `e363b08c9175ac1cbe5893615dd2cb9ddf95043b`
+- 最近正式验证目标：Codex CLI `rust-v0.147.0` / `be6e8eac029b183056b7e4402879f15d2c85f61b`（direction-rejected）
 - 范围：只读差异审计、合并风险分类和追赶顺序；不代表已经实施上游同步
 
 ## 专题文档
@@ -28,6 +28,7 @@
 - Windows 自动与实机验证按用户决策延期；
 - 第二批以 12/15 verified、3/15 deferred 收口，不把延期项表述为通过。
 - 0.146 资格与差异证据已完成：候选身份、4,355 条无 rename 推断的 upstream delta、730 路径 replay ledger 和五批 DAG 已落地；纯上游资格矩阵为 1 passed / 4 failed，因此 0.146 当前 no-go，未替换当前 vendor。
+- 0.147 U2 Checkpoint A 已完成：fmt/offline CLI 通过，但候选启用 V8 sandbox 后要求的 Linux rusty_v8 发布资产缺失，helper 无法构建；结论 `direction-rejected`，未执行 Checkpoint B/U3，旧 0.146 delta/replay 仅保留为历史查询证据。
 - replay ledger 和五批 DAG 已降级为非权威证据；后续不得直接按自动 disposition 或路径桶实施，应按 `plan.md` 的 U1–U16 语义闭环推进。
 
 ## 1. 执行摘要
@@ -37,7 +38,7 @@
 建议采用两段式路线：
 
 1. 在现有基线上优先回移少量已经验证可干净应用的安全和通用修复；
-2. 以官方稳定版 `rust-v0.146.0` 建立新的 vendor 候选快照，按明确的 Whale overlay 清单分组重放品牌、DeepSeek、缓存和 TaskSpace 改造。
+2. 等待官方补齐 0.147 发布资产或选择后续具备完整构建闭环的稳定版，再建立 vendor 候选快照，按明确的 Whale overlay 清单分组重放品牌、DeepSeek、缓存和 TaskSpace 改造。
 
 主要依据：
 
@@ -55,7 +56,7 @@
 | --- | --- | --- |
 | Whale 当前 HEAD | `c539cbe18030727ae9c48e27246c0439ad246390` | 本次本地事实边界 |
 | Whale vendor 固定基线 | `fed0a8f4faa58db3138488cca77628c1d54a2cd8` | 识别 Whale 自有修改 |
-| 官方稳定目标 | `rust-v0.146.0` / `e363b08c9175ac1cbe5893615dd2cb9ddf95043b` | 建议的同步版本 |
+| 最近正式候选 | `rust-v0.147.0` / `be6e8eac029b183056b7e4402879f15d2c85f61b` | U2 direction-rejected；不作为 cutover 目标 |
 | 官方 main | `ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff` | 观察稳定版之后的演进，不作为本轮目标 |
 
 ### 2.2 使用的方法
@@ -312,7 +313,7 @@ Upstream AgentGraphStore + WorldState + ThreadManager
 - 修正 `UPSTREAM.md` 中失真的 local patch count；
 - 生成机器可读 Whale overlay inventory；
 - 按 brand/home、provider/model、wire/SSE、cache observability、TaskSpace domain、TaskSpace host hooks 分组；
-- 记录 `rust-v0.146.0` 的 commit、release date 和 license。
+- 记录候选稳定版的 commit、release date 和 license；0.147 记录已完成。
 
 ### Wave 1：快速安全回移
 
@@ -320,7 +321,7 @@ Upstream AgentGraphStore + WorldState + ThreadManager
 - 运行对应 crate 测试、smoke 和平台专项验证；
 - 不触及 DeepSeek/provider payload/TaskSpace/cache 敏感面。
 
-### Wave 2：准备 0.146 substrate
+### Wave 2：准备合格稳定版 substrate
 
 - 建立干净的官方稳定版候选快照；
 - 采用 upstream 的 message history、prompts、context fragments、HTTP transport、permission profiles 和 thread store；
@@ -359,7 +360,7 @@ Upstream AgentGraphStore + WorldState + ThreadManager
 - OpenAI hosted Apps、remote plugin service 的专属路由；
 - audio/image/realtime 等 DeepSeek 当前未声明兼容的能力；
 - Bedrock 专属模型和 marketplace 产品逻辑；
-- 0.147 alpha 的未稳定接口。
+- 0.147 之后尚未进入稳定版的实验接口。
 
 处理原则是保留 upstream 内部接口兼容性，但通过 Whale feature/product policy 禁用或延后，不在同步时删除其底层通用能力。
 
@@ -382,7 +383,7 @@ Upstream AgentGraphStore + WorldState + ThreadManager
 ## 14. 外部资料
 
 1. [OpenAI Codex 官方仓库](https://github.com/openai/codex)
-2. [Codex CLI 0.146.0 Release](https://github.com/openai/codex/releases/tag/rust-v0.146.0)
+2. [Codex CLI 0.147.0 Release](https://github.com/openai/codex/releases/tag/rust-v0.147.0)
 3. [Codex App Server v2 文档](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md)
 4. [Codex 配置 schema](https://github.com/openai/codex/blob/main/codex-rs/core/config.schema.json)
 5. [DeepSeek Codex 接入文档](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/)

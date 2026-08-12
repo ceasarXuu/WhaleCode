@@ -1,0 +1,13 @@
+candidate: rust-v0.147.0
+commit: be6e8eac029b183056b7e4402879f15d2c85f61b
+host: Linux 7.0.0-28-generic x86_64
+bubblewrap: 0.9.0
+kernel.unprivileged_userns_clone: 1
+user.max_user_namespaces: 236241
+unshare_user_network: passed
+bubblewrap_user_network: passed
+pty: passed
+unix_ipc_socket: passed
+loopback_tcp: passed
+conclusion: host capability preflight passed; full package qualification is eligible to run
+model_request_count: 0

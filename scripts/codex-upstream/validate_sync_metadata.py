@@ -27,6 +27,7 @@ from metadata_contract import (
     validate_tui_baseline,
     validate_upstream_delta,
 )
+from qualify_candidate import CANDIDATE_TARGET
 
 LEDGER_PATH = "docs/v0.0.5/codex-upstream-sync/backport-ledger.json"
 BACKLOG_PATH = "docs/v0.0.5/codex-upstream-sync/backport-provenance-backlog.json"
@@ -83,8 +84,8 @@ def validate_repository(repo: Path) -> list[str]:
     if candidate_path.exists():
         candidate = _load(repo, CANDIDATE_PATH)
         errors.extend(validate_candidate(candidate))
-        if candidate.get("commit_sha") != TARGET:
-            errors.append("candidate commit does not match generator target")
+        if candidate.get("commit_sha") != CANDIDATE_TARGET:
+            errors.append("candidate commit does not match candidate target")
     delta_path = repo / DELTA_PATH
     if delta_path.exists():
         delta = _load(repo, DELTA_PATH)

@@ -11,6 +11,12 @@ import qualify_candidate  # noqa: E402
 
 
 class QualifyCandidateTests(unittest.TestCase):
+    def test_candidate_target_is_independent_from_overlay_target(self) -> None:
+        self.assertEqual(
+            qualify_candidate.CANDIDATE_TARGET,
+            "be6e8eac029b183056b7e4402879f15d2c85f61b",
+        )
+
     def test_environment_scrubs_proxy_variants(self) -> None:
         environment = qualify_candidate._qualification_environment(
             {
@@ -40,7 +46,7 @@ class QualifyCandidateTests(unittest.TestCase):
             ("cargo", "check", "-p", "codex-cli", "--bin", "codex", "--offline"),
         )
         self.assertEqual(
-            commands["04-code-mode-host-build"],
+            commands["03-code-mode-host-build"],
             (
                 "cargo",
                 "build",
@@ -51,8 +57,16 @@ class QualifyCandidateTests(unittest.TestCase):
                 "codex-code-mode-host",
             ),
         )
-        for command_id in ("03-core-tests", "05-app-server-tests", "06-tui-tests"):
+        for command_id in ("04-core-tests", "05-app-server-tests", "06-tui-tests"):
             self.assertIn("--no-fail-fast", commands[command_id])
+        self.assertEqual(
+            qualify_candidate.PREPARATION_COMMAND,
+            ("cargo", "fetch"),
+        )
+        self.assertEqual(
+            qualify_candidate.PACKAGE_TEST_IDS,
+            {"04-core-tests", "05-app-server-tests", "06-tui-tests"},
+        )
 
     def test_output_normalization_removes_paths_and_trailing_whitespace(self) -> None:
         normalized = qualify_candidate._normalize_output(

@@ -1,0 +1,15 @@
+candidate: rust-v0.147.0
+candidate_commit: be6e8eac029b183056b7e4402879f15d2c85f61b
+dependency: v8 150.4.0
+feature: v8_enable_sandbox
+required_asset: librusty_v8_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.a.gz
+required_asset_url: https://github.com/denoland/rusty_v8/releases/download/v150.4.0/librusty_v8_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.a.gz
+required_asset_http_status: 404
+release_asset_count: 74
+published_linux_ptrcomp_asset: librusty_v8_ptrcomp_release_x86_64-unknown-linux-gnu.a.gz
+published_linux_ptrcomp_sandbox_asset: absent
+source_commands:
+  - curl -I -L --max-time 30 <required_asset_url>
+  - gh api repos/denoland/rusty_v8/releases/tags/v150.4.0 --jq '.assets[].name'
+conclusion: the immutable candidate cannot build codex-code-mode-host through the normal prebuilt V8 path on x86_64 Linux
+model_request_count: 0

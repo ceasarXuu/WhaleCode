@@ -1,6 +1,6 @@
 # Codex CLI 主线融合执行计划
 
-- 文档状态：有效，Phase A rebase gate ready，下一单元 U2
+- 文档状态：有效，Phase A 已在 U2 `direction-rejected` 停止，等待新的合格上游候选
 - Plan Validity：`valid-with-qualifications`
 - 计划性质：覆盖已完成里程碑与剩余工作的唯一执行计划
 - 适用版本：WhaleCode v0.0.5
@@ -8,7 +8,7 @@
 - Product Authority：[./decisions.md](decisions.md)
 - Applicable Decisions：D1、D2
 - 当前生产 vendor：保持不变，直至 U4 通过自身门禁
-- 当前候选：Codex CLI `rust-v0.147.0` / `be6e8eac029b183056b7e4402879f15d2c85f61b`，已完成只读预检，待 U2 正式资格验证
+- 当前候选：Codex CLI `rust-v0.147.0` / `be6e8eac029b183056b7e4402879f15d2c85f61b`，U2 结论 `direction-rejected`；生产 vendor 保持不变
 - 官方发布依据：[OpenAI Codex Changelog：0.147.0（2026-08-07）](https://learn.chatgpt.com/docs/changelog)
 
 ## 1. 执行合同
@@ -33,9 +33,10 @@
 | 同步基线与测试门禁 | 12/15 verified；3 deferred | upstream 基线、overlay inventory、测试门禁；DeepSeek Responses 兼容、Flash 默认/Pro 隐藏已经落到当前 vendor | U5–U10 迁移的是这些既有行为在新 substrate 上的重放，不是重新设计或首次实现 | 已收口；TaskSpace TUI 已知夹具问题、Windows runner、Windows 终端 smoke 保持延期 |
 | 0.146 资格与差异证据 | 9/9 completed；U1 verified | 候选身份、4,355 条 upstream delta、730 路径索引、两轮 qualification 日志；U1 修正 3 个 runner 问题并确认完整矩阵未通过 | 仅作为历史归因和 0.147 增量比较输入；不得充当 0.147 的身份、delta 或 qualification 证据 | U1 execution=`verified`；V1 validation=`direction-rejected` |
 | 0.147 只读预检 | discovery completed | 官方 tag commit 已核验；相对 0.146 有 344 个提交、1,504 个变化路径；snapshot/Cargo.lock 仍保留开发版本 `0.0.0` | U2 checkpoint A 先复用 U1 runner 验证资格；仅 direction-supported 后由 checkpoint B 重算 target-dependent manifest、delta 和 replay 路由 | 只证明值得进入 U2，不证明候选合格或可 cutover |
+| 0.147 正式资格 | U2 completed；V2 direction-rejected | fmt、offline CLI 通过；候选启用 V8 sandbox 后要求的 Linux rusty_v8 发布资产缺失，helper 无法构建 | Checkpoint B、U3 及后续阶段停止；等待官方补齐资产或后续稳定版形成新候选 | 不属于 DeepSeek/TaskSpace 冲突；生产 vendor 未变化 |
 | 计划治理 | 1/1 verified | 唯一产品权威、唯一执行计划、历史工件降级和闭环工作单元 | 约束 U1–U17 的范围和停止条件 | 已完成 |
 
-因此，`U2–U17` 尚未执行只表示 0.147 正式资格、vendor cutover 和 replay 尚未开始，不表示整个 Codex 主线追赶从零开始。历史工作、已完成的 U1 与剩余工作目标、单位和验收标准不同，不做失真的简单平均百分比。
+因此，U2 已执行并形成 no-go；`U3–U17` 尚未执行是停止条件的结果，不表示整个 Codex 主线追赶从零开始。历史工作、已完成的 U1/U2 与剩余工作目标、单位和验收标准不同，不做失真的简单平均百分比。
 
 当前状态应读取为：
 
@@ -43,7 +44,7 @@
 - 同步基线、门禁和差异准备：已完成并带 3 项明确延期；
 - 0.146 候选初次资格审查：已完成，结论 no-go；
 - no-go 原因的最小增量复核：已完成（U1）；
-- 0.147 候选只读预检：已完成，正式资格与目标工件刷新尚未开始（U2）；
+- 0.147 候选正式资格：已完成（U2），因 rusty_v8 Linux sandbox 发布资产缺失判定 no-go；Checkpoint B/U3 未执行；
 - 生产 vendor cutover 与 DeepSeek/TaskSpace 重放：尚未开始（U4–U17）。
 
 ### 2.2 治理后的权威关系
@@ -51,7 +52,7 @@
 | 工件 | 治理后角色 | 可以证明 | 不可以决定 |
 | --- | --- | --- | --- |
 | `backport-ledger.json` | 已完成变更证据 | 哪些独立补丁已合入 | 后续架构迁移顺序 |
-| `upstream-candidate.json` 与 qualification 日志 | 候选事实证据 | 当前仍记录 0.146 的历史身份和命令结果；U2 后才代表 0.147 | 0.147 已经通过，或失败一定属于上游产品缺陷 |
+| `upstream-candidate.json` 与 qualification 日志 | 候选事实证据 | 当前记录 0.147 的身份、命令结果和缺失 rusty_v8 发布资产的独立 no-go；0.146 历史日志仍独立保留 | 未来稳定版自动合格，或其他失败均属于上游产品缺陷 |
 | `overlay-inventory.json`、`upstream-delta-inventory.json` | 路径查询索引 | 路径、hash、双方是否变化 | 文件的产品语义或处理方式 |
 | `overlay-replay-ledger.json` | 非权威路由提示 | 自动分类结果和待人工检查热点 | `adapt`、`drop`、owner 或 cutover 的最终决定 |
 | 历史执行报告与 ledger | 已完成工作证据 | 当时做过什么、得到什么结果 | 当前或未来执行授权 |
@@ -113,7 +114,7 @@
 | ID | Critical Assumption | Decision Unlocked | Cheapest Credible Method | Enough Evidence / Not Proven | Budget / Isolation | Stop / Cleanup | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | V1 | 0.146 的四项失败是否主要来自错误命令、ambient proxy 或过严 `--locked` | 是否继续以 0.146 为候选 | 在临时官方树读取该 tag 自带 README/justfile/CI，清空非必要代理和 Whale 环境，执行官方入口 | 三个 runner 问题已证实并修正；完整 core/app-server/TUI 入口未全部完成 | 独立临时树和 target；0 模型请求 | 日志已保留；0.146 不再作为当前候选 | direction-rejected |
-| V2 | 0.147 是否在复用 U1 runner 修正后具备进入 overlay 验证的资格 | 是否执行 U2 checkpoint B 和 U3 | 固定官方 commit；先探测 user namespace/bwrap loopback、sandbox helper、loopback proxy、PTY/IPC socket 和 sibling binary 条件，再执行 fmt、offline CLI、helper build、focused regressions；环境能力满足时才执行包级测试 | Enough：身份一致；原 U1 runner 签名消失；版本 snapshot 仅允许精确的 `0.0.0 -> 0.147.0` 机械差异；其他失败有可复现实证和明确归属；完整包测试在能力匹配环境通过。Not proven：修改候选业务源码、接受未知 snapshot、忽略未归因失败，或只在能力不足主机得到大量同源失败 | 独立临时树和 target；0 模型请求；不写生产 vendor | 能力不足则包级测试记 `not-run`/`inconclusive`，保留 focused 证据并等待合格 CI/主机；资格 direction-rejected 时不重算 delta/replay、不执行 U3 | planned |
+| V2 | 0.147 是否在复用 U1 runner 修正后具备进入 overlay 验证的资格 | 是否执行 U2 checkpoint B 和 U3 | 固定官方 commit；先探测 user namespace/bwrap loopback、sandbox helper、loopback proxy、PTY/IPC socket 和 sibling binary 条件，再执行 fmt、offline CLI、helper build、focused regressions；环境能力满足时才执行包级测试 | 身份和宿主能力通过；fmt/offline CLI 通过；候选要求的 rusty_v8 Linux `ptrcomp_sandbox` 发布资产缺失且 URL 404，helper 无法构建。snapshot 的 `0.0.0 -> 0.147.0` 仅按机械差异处理 | 独立临时树和 target；0 模型请求；生产 vendor index tree 未变 | 已保留 manifest、六项日志和资产审计；按停止条件不重算 delta/replay、不执行 U3 | direction-rejected |
 | V3 | 0.147 substrate 能以很薄的 identity/home overlay 支撑 Whale CLI | 是否替换生产 vendor | 一次性临时候选树只应用品牌、二进制身份、`WHALE_HOME`、auth 隔离 patch | Enough：CLI build、version、home/keyring/auth 隔离测试通过；Not proven：需要 DeepSeek/TaskSpace stub | 不提交第二份 vendor；0 模型请求 | 删除临时树；失败则回到 seam 识别 | planned |
 | V4 | 0.147 新增用户可见能力不会在整仓替换时静默改变 Whale 默认权限、持久化或协议行为 | 是否执行 U4 | 在临时 0.147 tree 检查 `--approve-for-me`、portable Agent Plugins、thread sections、MCP 2026-07-28 的 CLI help、配置 schema、feature/default、protocol 和持久化入口 | Enough：能力仅显式 opt-in、默认关闭或与现有语义等价；Not proven：默认开启、改变权限/持久化/模型可见性，或依赖 Whale 专用禁用框架 | 只读源码/生成 schema 和本地无模型 smoke；不改候选 | material 默认行为变化标 `conflict` 并请用户决定；不得用专用兼容层掩盖 | planned |
 
@@ -134,10 +135,10 @@
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | U1 | 增量复核候选 no-go 原因 | compatibility | 临时 0.146 tree；既有 candidate manifest/report | 已记录的四个失败与官方 build/test entrypoints | 已修 runner 的 offline lock 处理、代理隔离、local nextest 参数和显式 helper build；候选源码未改 | 三个初始失败归入 runner，TUI 归入不可变上游 fixture；完整矩阵仍失败 | 排除假 blocker，同时保留真实 no-go | 仅 runner、契约、日志、manifest 和报告；无生产影响 | 36 个 runner/metadata 单测；6 命令矩阵；vendor diff 为零；0 模型请求 | 已按失败停止条件收口 | verified |
-| U2 | 正式验证 0.147 候选 | compatibility/evidence | `generate_overlay_inventory.py`、`qualify_candidate.py`、`metadata_contract.py`、candidate schema/单测、candidate/delta/overlay/replay JSON 与 0.147 evidence、临时 0.147 tree | candidate identity、qualification、0.147 target-dependent routing | Checkpoint A：更新固定 target 和 candidate metadata，执行 sandbox capability preflight 与 V2 资格命令并完成归因。只有 validation=`direction-supported` 才进入 Checkpoint B：机械重算 overlay、delta、replay 工件及联合校验 | 0.147 得到独立、可复现的 go/no-go 结论；失败候选不会触发无价值的全量工件重算 | 在 overlay 和 vendor 投资前消除候选不确定性并降低失败成本 | Complexity：只改列明的同步常量/契约/生成证据，不新增框架；Reach/Cost：Checkpoint A 为 Rust focused/包级测试，B 为大 JSON 机械重算，0 生产影响 | A：commit/tree/license、preflight、6 命令/focused matrix、vendor diff、0 模型请求；B：四类工件 schema/reproducibility 与联合 metadata 校验 | A 为 `direction-rejected`/`inconclusive` 即提交证据并停止，不执行 B/U3；能力不足须等待合格 CI/主机；临时树清理 | not-started |
+| U2 | 正式验证 0.147 候选 | compatibility/evidence | `qualify_candidate.py`、`metadata_contract.py`、candidate schema/单测、0.147 candidate/evidence、临时 0.147 tree | candidate identity 与 qualification；旧 overlay target 保持 0.146 | Checkpoint A 已完成：更新独立 candidate target/metadata，执行宿主预检、依赖准备、六项矩阵和 rusty_v8 资产审计；V2=`direction-rejected`，未执行 Checkpoint B | 0.147 得到独立、可复现 no-go；旧 overlay/delta/replay 未被无价值重算 | 在 overlay 和 vendor 投资前消除候选不确定性并降低失败成本 | 仅同步 runner、契约、证据和文档；无生产影响 | 37 个同步脚本单测；commit/tree/license；六命令矩阵；rusty_v8 74 资产审计；vendor index tree 不变；0 模型请求 | 已按停止条件收口；不执行 B/U3；恢复条件见执行报告 | completed-direction-rejected |
 | U3 | 验证最小 Whale substrate 兼容边界 | compatibility | 一次性临时 0.147 candidate tree；CLI/config/protocol feature surfaces | brand、binary identity、`WHALE_HOME`、auth isolation；0.147 新能力默认状态 | 执行 V3 与 V4：只应用最小 identity/home patch，并审计 `--approve-for-me`、portable Agent Plugins、thread sections、MCP 2026-07-28 是否改变默认产品面 | Whale 身份与数据隔离正确；0.147 新能力不会未经决策静默改变默认权限、持久化或协议行为 | 在生产替换前同时验证最小 overlay 和用户可见兼容边界 | Complexity：临时 patch 与只读/default smoke，不建禁用框架；Reach/Cost：CLI/config/schema/protocol 定向测试，0 模型请求 | CLI build/version、home/keyring/auth tests；patch 清单；CLI help/config schema/feature defaults/protocol smoke | 需要 DeepSeek/TaskSpace stub 即停止；material 默认变化标 `conflict` 并请示；删除临时树 | not-started |
 
-退出条件：U2、U3 均 verified；否则停在当前 vendor。U1 保留为历史已完成单元。结束时审计本阶段 Product Decision Delta。
+退出条件：U2、U3 均 verified；否则停在当前 vendor。U2 已 `direction-rejected`，因此 Phase A 当前停止，U3 不执行。U1 保留为历史已完成单元。执行证据见 [0.147 qualification report](../../migration/codex-sync/2026-08-13-rust-0.147-candidate-qualification.md)。
 
 ### Phase B：上游 substrate 落地
 
@@ -231,7 +232,7 @@
 | 已完成：基线与门禁 | 模型默认值与 Responses | Flash 默认、Pro 隐藏；Responses 按能力处理 | D1、D2 | covered | 保留为现行为证据，不作未来授权 |
 | 已完成：资格与差异证据 | 无生产语义 | 仅候选、差异和 replay 证据；vendor 未变 | none | engineering-only | 自动语义分类已降级 |
 | 已完成：U1 | 无产品语义 | 修正 qualification runner 并确认 0.146 validation direction-rejected；vendor 未变 | D2 | engineering-only | 已收口为 Phase A 历史输入 |
-| Phase A | 待执行 | 0.147 U2/U3 尚未执行 | D2 | 待分类 | U2、U3 verified 后审计；当前不得预判为 engineering-only |
+| Phase A | 已停止 | U2 确认 0.147 候选缺失 Linux rusty_v8 sandbox 资产；U3 未执行；vendor 未变 | D2 | engineering-only | 无产品决策变化；等待新候选后重做 Phase A rebase gate |
 | Phase B | 待执行 | 待记录 | D2 | 待分类 | U4 后审计 |
 | Phase C | 待执行 | 待记录 | D1、D2 | 待分类 | U5–U10 后审计 |
 | Phase D | 待执行 | 待记录 | D2 | 待分类 | U11–U16 后审计 |
@@ -239,16 +240,16 @@
 
 ## 7. Pending Product Decisions
 
-当前没有必须在 Phase A 前决定的新产品行为。以下情况出现时必须停下请示：
+当前停止原因是候选工程资格失败，不需要新的产品决策。以下情况出现时必须停下请示：
 
 - upstream AgentGraph/WorldState 与 TaskSpace Event Store 无法保持单一任务状态权威；
-- 0.147 出现无法归因到发布机械过程或执行环境的资格失败，需要再次改选上游版本或改变资格策略；
+- 后续拟改变“固定官方候选必须通过正常发布资产闭环”的资格标准，以本地源码构建/替换依赖规避上游发布缺口；
 - DeepSeek 官方 Pro Responses 支持状态变化，可能触发 D1 恢复条件；
 - 新上游能力会改变默认权限、持久化、模型可见性或用户控制方式。
 
 ## 8. 执行与提交边界
 
-严格按 `U1（历史完成） -> U2 -> U3 -> U4 -> U5 -> U6 -> U7 -> U8 -> U9 -> U10 -> U11 -> U12 -> U13 -> U14 -> U15 -> U16 -> U17` 推进。顺序只在新证据证明依赖错误时修订，不能用并行大合并绕过门禁。
+执行顺序仍为 `U1（历史完成） -> U2（direction-rejected） -> U3 -> ... -> U17`，但 U2 停止条件已触发，当前不得进入 U3。官方补齐资产或选定后续稳定版时，先重做 Phase A rebase gate，再恢复顺序；不能用并行大合并绕过门禁。
 
 - 每个 U 单元至少一个独立、可理解、已基本验证的 commit，并立即 push。
 - 单元内出现两个可独立回滚的行为主题时继续拆 commit；不得把 vendor 机械替换与产品 overlay 混为一个提交。

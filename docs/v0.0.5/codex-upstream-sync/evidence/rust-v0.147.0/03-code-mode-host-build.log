@@ -1,0 +1,513 @@
+command: cargo build --offline -p codex-code-mode-host --bin codex-code-mode-host
+cwd: codex-rs
+environment: {"INSTA_UPDATE": "no", "NEXTEST_PROFILE": "local", "RUST_MIN_STACK": "8388608"}
+proxy_environment: inherited
+exit_code: 101
+
+   Compiling cfg-if v1.0.4
+   Compiling memchr v2.8.1
+   Compiling itoa v1.0.17
+   Compiling scopeguard v1.2.0
+   Compiling shlex v1.3.0
+   Compiling pin-project-lite v0.2.16
+   Compiling bytes v1.11.1
+   Compiling critical-section v1.2.0
+   Compiling futures-core v0.3.32
+   Compiling stable_deref_trait v1.2.1
+   Compiling equivalent v1.0.2
+   Compiling serde_core v1.0.228
+   Compiling libc v0.2.186
+   Compiling portable-atomic v1.13.1
+   Compiling regex-syntax v0.8.8
+   Compiling futures-sink v0.3.32
+   Compiling hashbrown v0.17.1
+   Compiling lock_api v0.4.14
+   Compiling slab v0.4.12
+   Compiling subtle v2.6.1
+   Compiling zmij v1.0.19
+   Compiling serde_json v1.0.149
+   Compiling getrandom v0.3.4
+   Compiling fnv v1.0.7
+   Compiling cc v1.2.55
+   Compiling thiserror v2.0.18
+   Compiling zerofrom v0.1.6
+   Compiling futures-channel v0.3.32
+   Compiling futures-task v0.3.32
+   Compiling futures-io v0.3.32
+   Compiling generic-array v0.14.7
+   Compiling typenum v1.20.0
+   Compiling writeable v0.6.2
+   Compiling log v0.4.29
+   Compiling num-traits v0.2.19
+   Compiling yoke v0.8.2
+   Compiling bitflags v2.13.1
+   Compiling litemap v0.8.1
+   Compiling utf8_iter v1.0.4
+   Compiling zerocopy v0.8.37
+   Compiling mime v0.3.17
+   Compiling futures-util v0.3.32
+   Compiling aho-corasick v1.1.4
+   Compiling http v1.4.0
+   Compiling zerovec v0.11.6
+   Compiling zerotrie v0.2.4
+   Compiling dunce v1.0.5
+   Compiling percent-encoding v2.3.2
+   Compiling cpufeatures v0.2.17
+   Compiling once_cell v1.21.4
+   Compiling spin v0.9.8
+   Compiling ipnet v2.11.0
+   Compiling either v1.15.0
+   Compiling base64 v0.22.1
+   Compiling sync_wrapper v1.0.2
+   Compiling crossbeam-utils v0.8.21
+   Compiling tracing-core v0.1.36
+   Compiling indexmap v2.14.0
+   Compiling lazy_static v1.5.0
+   Compiling itertools v0.14.0
+   Compiling psl-types v2.0.11
+   Compiling unicase v2.9.0
+   Compiling icu_properties_data v2.2.0
+   Compiling mime_guess v2.0.5
+   Compiling tracing v0.1.44
+   Compiling icu_normalizer_data v2.2.0
+   Compiling form_urlencoded v1.2.2
+   Compiling cmake v0.1.57
+   Compiling http-body v1.0.1
+   Compiling const_format v0.2.35
+   Compiling crossbeam-epoch v0.9.20
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling potential_utf v0.1.4
+   Compiling tinystr v0.8.3
+   Compiling http-body-util v0.1.3
+   Compiling toml_edit v0.23.10+spec-1.0.0
+   Compiling digest v0.10.7
+   Compiling wildcard v0.3.0
+   Compiling icu_collections v2.2.0
+   Compiling icu_locale_core v2.2.0
+   Compiling httpdate v1.0.3
+   Compiling smol_str v0.3.5
+   Compiling fastrand v2.3.0
+   Compiling zeroize v1.8.2
+   Compiling minimal-lexical v0.2.1
+   Compiling asynk-strim v0.1.5
+   Compiling num-conv v0.2.0
+   Compiling powerfmt v0.2.0
+   Compiling rama-error v0.3.0-alpha.4
+   Compiling time-core v0.1.8
+   Compiling sha2 v0.10.9
+   Compiling errno v0.3.14
+   Compiling mio v1.2.0
+   Compiling socket2 v0.6.3
+   Compiling time-macros v0.2.27
+   Compiling deranged v0.5.5
+   Compiling nom v8.0.0
+   Compiling signal-hook-registry v1.4.8
+   Compiling regex-automata v0.4.13
+   Compiling rand_core v0.9.5
+   Compiling aws-lc-sys v0.39.0
+   Compiling proc-macro-crate v3.4.0
+   Compiling ring v0.17.14
+   Compiling endian-type v0.2.0
+   Compiling data-encoding v2.10.0
+   Compiling getrandom v0.2.17
+   Compiling httparse v1.10.1
+   Compiling flume v0.12.0
+   Compiling rustls-pki-types v1.14.0
+   Compiling serde v1.0.228
+   Compiling icu_provider v2.2.0
+   Compiling rama-macros v0.3.0-alpha.4
+   Compiling uuid v1.20.0
+   Compiling futures-executor v0.3.32
+   Compiling icu_properties v2.2.0
+   Compiling num-integer v0.1.46
+   Compiling psl v2.1.184
+   Compiling futures v0.3.31
+   Compiling time v0.3.47
+   Compiling hex v0.4.3
+   Compiling smallvec v1.15.1
+   Compiling untrusted v0.7.1
+   Compiling md5 v0.8.0
+   Compiling untrusted v0.9.0
+   Compiling parking_lot_core v0.9.12
+   Compiling nibble_vec v0.1.0
+   Compiling icu_normalizer v2.2.0
+   Compiling num-bigint v0.4.6
+   Compiling sha1 v0.10.6
+   Compiling byteorder v1.5.0
+   Compiling getrandom v0.4.2
+   Compiling try-lock v0.2.5
+   Compiling radix_trie v0.3.0
+   Compiling atomic-waker v1.1.2
+   Compiling parking_lot v0.12.5
+   Compiling want v0.3.1
+   Compiling openssl-sys v0.9.111
+   Compiling foldhash v0.2.0
+   Compiling rand_core v0.10.1
+   Compiling allocator-api2 v0.2.21
+   Compiling tokio v1.52.3
+   Compiling adler2 v2.0.1
+   Compiling rustls v0.23.36
+   Compiling hashbrown v0.16.1
+   Compiling ryu v1.0.22
+   Compiling tower-service v0.3.3
+   Compiling strsim v0.11.1
+   Compiling crc32fast v1.5.0
+   Compiling nom v7.1.3
+   Compiling tinyvec_macros v0.1.1
+   Compiling utf8parse v0.2.2
+   Compiling option-ext v0.2.0
+   Compiling libm v0.2.16
+   Compiling tinyvec v1.10.0
+   Compiling dirs-sys v0.5.0
+   Compiling idna_adapter v1.2.1
+   Compiling idna v1.1.0
+   Compiling ppv-lite86 v0.2.21
+   Compiling ahash v0.8.12
+   Compiling bytemuck v1.25.0
+   Compiling rand v0.10.1
+   Compiling hash32 v0.2.1
+   Compiling blake3 v1.8.2
+   Compiling crossbeam-deque v0.8.6
+   Compiling url v2.5.8
+   Compiling crossbeam-channel v0.5.15
+   Compiling unicode-segmentation v1.12.0
+   Compiling rustix v1.1.4
+   Compiling atomic v0.5.3
+   Compiling rand_chacha v0.9.0
+   Compiling home v0.5.12
+   Compiling iri-string v0.7.10
+   Compiling link-section v0.17.2
+   Compiling dyn-clone v1.0.20
+   Compiling pin-utils v0.1.0
+   Compiling bit-vec v0.8.0
+   Compiling foreign-types-shared v0.1.1
+   Compiling tagptr v0.2.0
+   Compiling rand v0.9.3
+   Compiling crc-catalog v2.4.0
+   Compiling crc v3.4.0
+   Compiling bit-set v0.8.0
+   Compiling foreign-types v0.3.2
+   Compiling ctor v1.0.6
+   Compiling moka v0.12.13
+   Compiling schemars v0.8.22
+   Compiling regex v1.12.3
+   Compiling openssl v0.10.75
+   Compiling lock_free_hashtable v0.1.4
+   Compiling ref-cast v1.0.25
+   Compiling dupe v0.9.1
+   Compiling rayon-core v1.13.0
+   Compiling heapless v0.7.17
+   Compiling dirs v6.0.0
+   Compiling typeid v1.0.3
+   Compiling ts-rs v11.1.0
+   Compiling rusticata-macros v4.1.0
+   Compiling env_filter v1.0.0
+   Compiling asn1-rs v0.7.1
+   Compiling icu_locale_data v2.2.0
+   Compiling anyhow v1.0.103
+   Compiling env_logger v0.11.9
+   Compiling zstd-sys v2.0.16+zstd.1.5.7
+   Compiling quickcheck v1.1.0
+   Compiling cobs v0.3.0
+   Compiling linux-raw-sys v0.12.1
+   Compiling bumpalo v3.19.1
+   Compiling constant_time_eq v0.3.1
+   Compiling unicode-width v0.1.14
+   Compiling arrayref v0.3.9
+   Compiling hashbrown v0.14.5
+   Compiling simd-adler32 v0.3.8
+   Compiling tower-layer v0.3.3
+   Compiling glob v0.3.3
+   Compiling arrayvec v0.7.6
+   Compiling openssl-probe v0.2.1
+   Compiling resolv-conf v0.7.6
+   Compiling iana-time-zone v0.1.65
+   Compiling rustls-native-certs v0.8.3
+   Compiling schemafy_core v0.5.2
+   Compiling chrono v0.4.43
+   Compiling clang-sys v1.8.1
+   Compiling sorted_vector_map v0.2.1
+   Compiling core_maths v0.1.1
+   Compiling native-tls v0.2.14
+   Compiling allocative v0.3.6
+   Compiling Inflector v0.11.4
+   Compiling logos-codegen v0.15.1
+   Compiling dashmap v6.1.0
+   Compiling nix v0.28.0
+   Compiling postcard v1.1.3
+   Compiling codex-utils-absolute-path v0.147.0 (<candidate>/codex-rs/utils/absolute-path)
+   Compiling strong_hash v0.1.0
+   Compiling icu_locale v2.2.0
+   Compiling erased-serde v0.4.10
+   Compiling static_interner v0.1.2
+   Compiling fancy-regex v0.16.2
+   Compiling convert_case v0.6.0
+   Compiling anstyle-parse v0.2.7
+   Compiling triomphe v0.1.15
+   Compiling csv-core v0.1.13
+   Compiling prettyplease v0.2.37
+   Compiling inventory v0.3.24
+   Compiling colorchoice v1.0.4
+   Compiling bitflags v1.3.2
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling static_assertions v1.1.0
+   Compiling anstyle v1.0.13
+   Compiling sequence_trie v0.3.6
+   Compiling take_mut v0.2.2
+   Compiling anstyle-query v1.1.5
+   Compiling openssl-probe v0.1.6
+   Compiling csv v1.4.0
+   Compiling fluent-uri v0.1.4
+   Compiling darling_core v0.21.3
+   Compiling anstream v0.6.21
+   Compiling derive_more-impl v1.0.0
+   Compiling oid-registry v0.8.1
+   Compiling schemafy_lib v0.5.2
+   Compiling der-parser v10.0.0
+   Compiling calendrical_calculations v0.2.4
+   Compiling miniz_oxide v0.8.9
+   Compiling pagable v0.4.1
+   Compiling serde_html_form v0.3.2
+   Compiling fxhash v0.2.1
+   Compiling icu_calendar_data v2.2.0
+   Compiling http-range-header v0.4.2
+   Compiling matchit v0.9.1
+   Compiling clap_lex v1.0.0
+   Compiling rustix v0.38.44
+   Compiling endian-type v0.1.2
+   Compiling clap_builder v4.5.58
+   Compiling flate2 v1.1.8
+   Compiling radix_trie v0.2.1
+   Compiling logos-derive v0.15.1
+   Compiling fd-lock v4.0.4
+   Compiling lsp-types v0.97.0
+   Compiling schemafy v0.5.2
+   Compiling cookie v0.18.1
+   Compiling fdeflate v0.3.7
+   Compiling annotate-snippets v0.9.2
+   Compiling publicsuffix v2.3.0
+   Compiling yasna v0.5.2
+   Compiling resb v0.1.2
+   Compiling logos v0.15.1
+   Compiling tokio-util v0.7.18
+   Compiling rama-utils v0.3.0-alpha.4
+   Compiling tokio-graceful v0.2.2
+   Compiling hickory-proto v0.25.2
+   Compiling tower v0.5.3
+   Compiling tokio-stream v0.1.18
+   Compiling pxfm v0.1.27
+   Compiling starlark_map v0.14.2
+   Compiling rama-core v0.3.0-alpha.4
+   Compiling h2 v0.4.13
+   Compiling tokio-test v0.4.5
+   Compiling tokio-native-tls v0.3.1
+   Compiling tracing-log v0.2.0
+   Compiling sharded-slab v0.1.7
+   Compiling pem v3.0.6
+   Compiling libloading v0.8.9
+   Compiling thread_local v1.1.9
+   Compiling encoding_rs v0.8.35
+   Compiling weezl v0.1.12
+   Compiling linux-raw-sys v0.4.15
+   Compiling quick-error v2.0.1
+   Compiling indenter v0.3.4
+   Compiling byteorder-lite v0.1.0
+   Compiling zune-core v0.5.1
+   Compiling nu-ansi-term v0.50.3
+   Compiling color_quant v1.1.0
+   Compiling bindgen v0.72.1
+   Compiling gif v0.14.1
+   Compiling display_container v0.9.0
+   Compiling zune-jpeg v0.5.12
+   Compiling tracing-subscriber v0.3.22
+   Compiling darling_macro v0.21.3
+   Compiling clap v4.5.58
+   Compiling image-webp v0.2.4
+   Compiling cexpr v0.6.0
+   Compiling rustyline v14.0.0
+   Compiling darling v0.21.3
+   Compiling hickory-resolver v0.25.2
+   Compiling moxcms v0.7.11
+   Compiling tower-http v0.6.8
+   Compiling debugserver-types v0.5.0
+   Compiling zoneinfo64 v0.3.0
+   Compiling rama-http-types v0.3.0-alpha.4
+   Compiling png v0.18.0
+   Compiling cookie_store v0.22.1
+   Compiling derive_more v1.0.0
+   Compiling memoffset v0.9.1
+   Compiling itertools v0.13.0
+   Compiling textwrap v0.11.0
+   Compiling starlark_derive v0.14.2
+   Compiling lru v0.16.3
+   Compiling serde_urlencoded v0.7.1
+   Compiling erased-serde v0.3.31
+   Compiling webpki-roots v1.0.5
+   Compiling opentelemetry v0.31.0
+   Compiling bstr v1.12.1
+   Compiling strck v1.0.0
+   Compiling hyper v1.8.1
+   Compiling strsim v0.10.0
+   Compiling cmp_any v0.8.1
+   Compiling maplit v1.0.2
+   Compiling diplomat_core v0.15.0
+   Compiling enumflags2 v0.7.12
+   Compiling codex-utils-cache v0.147.0 (<candidate>/codex-rs/utils/cache)
+   Compiling globset v0.4.18
+   Compiling icu_calendar v2.2.1
+   Compiling which v6.0.3
+   Compiling timezone_provider v0.2.3
+   Compiling serde_with_macros v3.17.0
+   Compiling tracing-opentelemetry v0.32.1
+   Compiling icu_decimal_data v2.2.0
+   Compiling tempfile v3.27.0
+   Compiling codex-utils-home-dir v0.147.0 (<candidate>/codex-rs/utils/home-dir)
+   Compiling rama-net v0.3.0-alpha.4
+   Compiling gzip-header v1.0.0
+   Compiling fixed_decimal v0.7.2
+   Compiling multimap v0.10.1
+   Compiling headers-core v0.3.0
+   Compiling fslock v0.2.1
+   Compiling regex-lite v0.1.8
+   Compiling ixdtf v0.6.4
+   Compiling hyper-util v0.1.20
+   Compiling urlencoding v2.1.3
+   Compiling serde_with v3.17.0
+   Compiling codex-utils-path-uri v0.147.0 (<candidate>/codex-rs/utils/path-uri)
+   Compiling icu_decimal v2.2.0
+   Compiling headers v0.4.1
+   Compiling landlock v0.4.4
+   Compiling codex-utils-string v0.147.0 (<candidate>/codex-rs/utils/string)
+   Compiling temporal_rs v0.2.3
+   Compiling chardetng v0.1.17
+   Compiling codex-async-utils v0.147.0 (<candidate>/codex-rs/async-utils)
+   Compiling codex-extension-items v0.147.0 (<candidate>/codex-rs/ext/items)
+   Compiling quick-xml v0.41.0
+   Compiling seccompiler v0.5.0
+   Compiling utf-8 v0.7.6
+   Compiling diplomat v0.15.0
+   Compiling strum v0.27.2
+   Compiling wildmatch v2.6.1
+   Compiling sys-locale v0.3.2
+   Compiling diplomat-runtime v0.15.1
+   Compiling tungstenite v0.27.0 (https://github.com/openai-oss-forks/tungstenite-rs?rev=4fffad30fe373adbdcffab9545e9e9bf4f2fc19f#4fffad30)
+   Compiling axum-core v0.5.6
+   Compiling hyper-tls v0.6.0
+   Compiling deno_core_icudata v0.77.0
+   Compiling matchit v0.8.4
+   Compiling temporal_capi v0.2.3
+   Compiling tokio-tungstenite v0.28.0 (https://github.com/openai-oss-forks/tokio-tungstenite?rev=0e5b2d73aa18dd9f0a50ee9ff199d5aef7594186#0e5b2d73)
+   Compiling image v0.25.9
+   Compiling axum v0.8.8
+   Compiling zstd-safe v7.2.4
+   Compiling zstd v0.13.3
+   Compiling v8 v150.4.0
+   Compiling codex-utils-image v0.147.0 (<candidate>/codex-rs/utils/image)
+   Compiling rama-http-headers v0.3.0-alpha.4
+   Compiling rama-dns v0.3.0-alpha.4
+   Compiling rama-unix v0.3.0-alpha.4
+   Compiling rama-udp v0.3.0-alpha.4
+   Compiling starlark_syntax v0.14.2
+   Compiling starlark v0.14.2
+   Compiling rama-http v0.3.0-alpha.4
+   Compiling rama-tcp v0.3.0-alpha.4
+   Compiling rama-socks5 v0.3.0-alpha.4
+   Compiling aws-lc-rs v1.16.2
+   Compiling rustls-webpki v0.103.13
+   Compiling x509-parser v0.18.1
+   Compiling rcgen v0.14.7
+   Compiling rama-http-core v0.3.0-alpha.4
+   Compiling tokio-rustls v0.26.4
+   Compiling codex-utils-rustls-provider v0.147.0 (<candidate>/codex-rs/utils/rustls-provider)
+   Compiling hyper-rustls v0.27.7
+   Compiling rama-tls-rustls v0.3.0-alpha.4
+   Compiling reqwest v0.12.28
+   Compiling rama-http-backend v0.3.0-alpha.4
+   Compiling codex-http-client v0.147.0 (<candidate>/codex-rs/http-client)
+   Compiling codex-network-proxy v0.147.0 (<candidate>/codex-rs/network-proxy)
+   Compiling codex-execpolicy v0.147.0 (<candidate>/codex-rs/execpolicy)
+   Compiling codex-protocol v0.147.0 (<candidate>/codex-rs/protocol)
+   Compiling codex-code-mode-protocol v0.147.0 (<candidate>/codex-rs/code-mode-protocol)
+error: failed to run custom build command for `v8 v150.4.0`
+
+Caused by:
+  process didn't exit successfully: `<candidate>/codex-rs/target/debug/build/v8-3d7bf02fbec7ea01/build-script-build` (exit status: 101)
+  --- stdout
+  cargo:rerun-if-changed=.gn
+  cargo:rerun-if-changed=BUILD.gn
+  cargo:rerun-if-changed=src/binding.cc
+  cargo:rerun-if-env-changed=CCACHE
+  cargo:rerun-if-env-changed=CLANG_BASE_PATH
+  cargo:rerun-if-env-changed=CXXSTDLIB
+  cargo:rerun-if-env-changed=DENO_TRYBUILD
+  cargo:rerun-if-env-changed=DOCS_RS
+  cargo:rerun-if-env-changed=GN
+  cargo:rerun-if-env-changed=GN_ARGS
+  cargo:rerun-if-env-changed=HOST
+  cargo:rerun-if-env-changed=NINJA
+  cargo:rerun-if-env-changed=OUT_DIR
+  cargo:rerun-if-env-changed=RUSTY_V8_ARCHIVE
+  cargo:rerun-if-env-changed=RUSTY_V8_MIRROR
+  cargo:rerun-if-env-changed=RUSTY_V8_SRC_BINDING_PATH
+  cargo:rerun-if-env-changed=SCCACHE
+  cargo:rerun-if-env-changed=V8_FORCE_DEBUG
+  cargo:rerun-if-env-changed=V8_FROM_SOURCE
+  cargo:rerun-if-env-changed=PYTHON
+  cargo:rerun-if-env-changed=DISABLE_CLANG
+  cargo:rerun-if-env-changed=EXTRA_GN_ARGS
+  cargo:rerun-if-env-changed=PRINT_GN_ARGS
+  cargo:rerun-if-env-changed=CARGO_ENCODED_RUSTFLAGS
+  cargo:rustc-link-lib=static=rusty_v8
+  lockfile: "<candidate>/codex-rs/target/debug/build/v8.fslock"
+  cargo:rustc-env=RUSTY_V8_SRC_BINDING_PATH=<home>/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/v8-150.4.0/gen/src_binding_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.rs
+  static lib URL: https://github.com/denoland/rusty_v8/releases/download/v150.4.0/librusty_v8_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.a.gz
+  cargo:rustc-link-search=<candidate>/codex-rs/target/debug/gn_out/obj
+  Looking for download in '"<home>/.cargo/.rusty_v8/https___github_com_denoland_rusty_v8_releases_download_v150_4_0_librusty_v8_ptrcomp_sandbox_release_x86_64_unknown_linux_gnu_a_gz"'
+  Downloading https://github.com/denoland/rusty_v8/releases/download/v150.4.0/librusty_v8_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.a.gz
+  Trying with Python...
+  Downloading https://github.com/denoland/rusty_v8/releases/download/v150.4.0/librusty_v8_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.a.gz...
+  <urlopen error unknown url type: https>
+  Retrying in 5 s ...
+  Downloading https://github.com/denoland/rusty_v8/releases/download/v150.4.0/librusty_v8_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.a.gz...
+  <urlopen error unknown url type: https>
+  Retrying in 10 s ...
+  Downloading https://github.com/denoland/rusty_v8/releases/download/v150.4.0/librusty_v8_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.a.gz...
+  <urlopen error unknown url type: https>
+  Retrying in 20 s ...
+  Downloading https://github.com/denoland/rusty_v8/releases/download/v150.4.0/librusty_v8_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.a.gz...
+  <urlopen error unknown url type: https>
+  Python downloader failed, trying with curl.
+
+  --- stderr
+  Traceback (most recent call last):
+    File "<home>/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/v8-150.4.0/./tools/download_file.py", line 63, in <module>
+      sys.exit(main())
+               ~~~~^^
+    File "<home>/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/v8-150.4.0/./tools/download_file.py", line 58, in main
+      DownloadUrl(args.url, f)
+      ~~~~~~~~~~~^^^^^^^^^^^^^
+    File "<home>/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/v8-150.4.0/./tools/download_file.py", line 44, in DownloadUrl
+      raise e
+    File "<home>/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/v8-150.4.0/./tools/download_file.py", line 28, in DownloadUrl
+      response = urlopen(url)
+    File "<home>/.linuxbrew/Cellar/python@3.14/3.14.6/lib/python3.14/urllib/request.py", line 187, in urlopen
+      return opener.open(url, data, timeout)
+             ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+    File "<home>/.linuxbrew/Cellar/python@3.14/3.14.6/lib/python3.14/urllib/request.py", line 487, in open
+      response = self._open(req, data)
+    File "<home>/.linuxbrew/Cellar/python@3.14/3.14.6/lib/python3.14/urllib/request.py", line 509, in _open
+      return self._call_chain(self.handle_open, 'unknown',
+             ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                              'unknown_open', req)
+                              ^^^^^^^^^^^^^^^^^^^^
+    File "<home>/.linuxbrew/Cellar/python@3.14/3.14.6/lib/python3.14/urllib/request.py", line 464, in _call_chain
+      result = func(*args)
+    File "<home>/.linuxbrew/Cellar/python@3.14/3.14.6/lib/python3.14/urllib/request.py", line 1397, in unknown_open
+      raise URLError('unknown url type: %s' % type)
+  urllib.error.URLError: <urlopen error unknown url type: https>
+
+  thread 'main' (867845) panicked at <home>/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/v8-150.4.0/build.rs:852:5:
+  Failed to download V8 prebuilt archive from https://github.com/denoland/rusty_v8/releases/download/v150.4.0/librusty_v8_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.a.gz
+  This is usually because no prebuilt archive is published for your target, in which case you should compile V8 from source by setting V8_FROM_SOURCE=1. It can also indicate a network connectivity problem.
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

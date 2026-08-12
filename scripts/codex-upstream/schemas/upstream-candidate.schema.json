@@ -9,7 +9,7 @@
     "production_vendor_unchanged": {"const": true},
     "qualification_commands": {"items": {"type": "object"}, "minItems": 1, "type": "array"},
     "release_date": {"type": "string"},
-    "release_tag": {"const": "rust-v0.146.0"},
+    "release_tag": {"const": "rust-v0.147.0"},
     "schema_version": {"const": 1},
     "source_method": {"const": "git-archive"},
     "source_object_verified": {"const": true},
