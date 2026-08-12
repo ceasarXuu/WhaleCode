@@ -1,0 +1,1 @@
+请使用 web search 查找 DeepSeek 官方 API 文档中介绍 Tool Calls 的页面。将检索到的页面标题、完整 URL，以及一段简短摘要写入 `provider_fact.json`，然后运行本地校验命令确认文件格式正确。不要只依赖已有知识，必须实际执行检索。
