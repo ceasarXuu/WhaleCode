@@ -403,6 +403,8 @@ Ready -> InFlight 只由 Agent 声明的 Tool action 触发；Runtime 不选节�
 | LS-06 | 2026-08-12 | TaskSpace Exec 72 tests；Provider-only/mixed/missing/wrong-tool/multi-node/failed 对账矩阵；outer result 与 trace identity | Provider 动作保留统一 `tools[]` 稳定位置并与同响应事实逐项核对；client 保持原 Router；Provider 不重执行、不默认绑定，Tool 结果不改变节点生命周期 | LS-07 |
 | LS-07 | 2026-08-12 | L1～L8 observer self-test、Patch observer、performance observer 全部 PASS | canonical rollout、性能报告和拒绝反馈读取同一闭集合同；报告术语收敛为 Provider action/result，不再把 Provider 描述为独立 binding 通道 | LS-08 |
 | LS-08 | 2026-08-12 | TaskSpace Exec 72/72；Core 1881 passed / 3 ignored；final-wire 2/2；workspace check、zero-base、observer suites 与缓存敏感面门禁 PASS | 旧 A2 probe、无消费者 helper、Agent-visible `calls[]`、`hosted_bindings` 和 blocked 生命周期均从 active code 清除；Standard final wire 未改变 | 提交推送后激活已批准 LS-09 |
+| LS-09 Run A | 2026-08-12 | `WAR-20260812-232516-CACHE-REGRESSION-55EA8834`；`single-file-fast-fix × map-request × repeat=1`；8 Provider requests；115,779 input / 95,488 cached / 20,291 uncached / 2,352 output；USD 0.0037666664；业务与隐藏 oracle 通过 | 8 次请求保持同一 Tool schema 与 `tool_choice`，无零命中或 shape transition；request 2+ 为 87.99%，其中 request 2 仍在预热，第 3 次起为 93.65%。严格前缀差异来自 `map-request` 每轮替换请求尾 Map handle，不是 Tool schema 漂移。一次 L4 尝试同时完成父节点并手工把 Tool owner 设为 InFlight，触发零副作用拒绝；既定 PD4 已由 Tool action 机械启动 Ready owner，缺口是该规则未在模型可见合同中直述，现以一行合同和断言补齐，不改状态机 | Run A 结算完成；候选 final-wire 免费门禁通过，发布基线继续阻断。重建当前二进制后按原授权首次执行 Run B；不得重跑 A |
+| LS-09 orphan preflight | 2026-08-12 | `WAR-20260812-232437-CACHE-REGRESSION-8B1AF391` 仅完成 Provider route preflight；runner 因相对 `run-root` 参数在创建 ledger/sample 前退出 | 0 sample、0 Provider request、0 token、未认领预算；保留原始 preflight 证据，不伪造真实 run ledger | 不计入三项真实验收，也不删除证据 |
 
 ## 6. 证据校准
 

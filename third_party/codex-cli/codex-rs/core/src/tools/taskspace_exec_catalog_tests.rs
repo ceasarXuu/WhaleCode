@@ -142,6 +142,12 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
             .unwrap()
             .contains("single `tools` array")
     );
+    assert!(
+        declaration["description"]
+            .as_str()
+            .unwrap()
+            .contains("do not also patch that owner to `in_flight`")
+    );
 }
 
 #[test]

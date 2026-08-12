@@ -1,7 +1,122 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-12T05:24:57+08:00",
+  "updated_at": "2026-08-12T23:26:35+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260812-232516-CACHE-REGRESSION-55EA8834",
+      "record_type": "run_batch",
+      "status": "settled",
+      "started_at": "2026-08-12T23:25:23+08:00",
+      "ended_at": "2026-08-12T23:26:35+08:00",
+      "elapsed_calendar_seconds": 71.257,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "LS-09 Run A: accept the closed legal sequence on single-file-fast-fix under the user-approved three-run package; no retry.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260812-R8-LS09-A-BFA6943F5975B105",
+        "reference": "用户于 2026-08-12 批准 R8-LS09-LIVE-ACCEPT-20260812：三项 map-request 验收顺序执行、总计最多 52 requests、1,180,000 input、80,000 output、60 分钟、USD 0.19，零重试；本授权仅认领 Run A single-file-fast-fix repeat=1，token 与费用按每次运行结束后的观测阈值累计并在异常时停止后续运行。",
+        "budget_summary": {
+          "provider_requests": 12,
+          "input_tokens": 12000000,
+          "output_tokens": 4608000,
+          "elapsed_seconds": 720,
+          "estimated_cost": 2.97024,
+          "currency": "USD"
+        },
+        "note": "严格绑定预算提案 CBP-BFA6943F5975B105。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "f77114af33d465c0d55a9cc5f125d80343b1361253fbff39281d1017bef6bc02",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 8,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 115779,
+        "cached_input": 95488,
+        "uncached_input": 20291,
+        "output": 2352
+      },
+      "monetary_cost": {
+        "status": "estimated",
+        "currency": "USD",
+        "amount": 0.0037666664,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.00026736640000000003,
+          "uncached_input": 0.0028407400000000005,
+          "output": 0.0006585600000000001
+        },
+        "pricing_snapshot": {
+          "currency": "USD",
+          "captured_at": "2026-07-31",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "按完整 provider token 遥测和冻结价格估算。"
+      },
+      "evidence": {
+        "planned_run_root": "target/r8-ls09/run-a",
+        "subject_commit": "c4d17a59edfd529bd933e322455823f65914d89f",
+        "surface_sha256": "74cfe909169661cb4caa007f1125685402c68a145d5196608d41ccacf700e547",
+        "proposal_id": "CBP-BFA6943F5975B105",
+        "proposal_contract_sha256": "2ff50984ffa668cb3d01bfc24e0a249a39a7954a49b66ae29fb2eae3e6142e8a",
+        "proposal_path": "benchmarks/cache-regression/proposals/CBP-BFA6943F5975B105.json",
+        "proposal_sha256": "fc63c2959edc63a992c0492e694ae19599e46dfc2522ad0a1e9d85f0b126ec8d",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260812-R8-LS09-A-BFA6943F5975B105.json",
+        "authorization_sha256": "baebf9c41fa8562ba5d0deef469f8caeadd5903709b8b6d1466e291f05b524a4",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "single-file-fast-fix"
+          ],
+          "arms": [
+            "map-request"
+          ],
+          "repeat": 1,
+          "planned_sample_runs": 1,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 1,
+          "stop_conditions": [
+            "after_any_run_failure",
+            "after_any_business_failure",
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "LS-09 Run A: accept the closed legal sequence on single-file-fast-fix under the user-approved three-run package; no retry."
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_run_failure",
+          "after_any_business_failure",
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "complete",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260812-232516-CACHE-REGRESSION-55EA8834/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "377139fe5c3be9ca524a67cf08c8429250176e9995bff294532c7e71be41b766",
+        "actual_run_root": "target/r8-ls09/run-a",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260812-232516-CACHE-REGRESSION-55EA8834.json",
+        "runner_exit_code": 0,
+        "outcome": "completed"
+      }
+    },
     {
       "record_id": "WAR-20260812-052311-CACHE-REGRESSION-08BB8620",
       "record_type": "run_batch",

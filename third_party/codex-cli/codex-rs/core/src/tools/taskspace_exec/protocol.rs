@@ -24,6 +24,7 @@ Tool contract:
 
 Map contract:
 - Map fields use the canonical operation input directly. Node readiness derives from `parents`.
+- A Tool action on a Ready owner mechanically starts it; do not also patch that owner to `in_flight` in the same sequence.
 - Tool outcomes do not complete nodes. A batch contains at most one `apply_patch` action.
 - The complete sequence is preflighted before unexecuted side effects. The Runtime does not add, infer, reorder, or repair Agent actions.
 
