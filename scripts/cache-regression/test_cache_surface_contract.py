@@ -32,6 +32,7 @@ KNOWN_PRODUCTION_ENTRIES = [
     "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/map_operations.rs",
     "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/protocol.rs",
     "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/result.rs",
+    "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/sequence_schema.rs",
     "third_party/codex-cli/codex-rs/core/src/mcp_tool_exposure.rs",
     "third_party/codex-cli/codex-rs/core/src/plugins/injection.rs",
     "third_party/codex-cli/codex-rs/core/src/skills.rs",
