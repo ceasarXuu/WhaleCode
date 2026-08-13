@@ -2,7 +2,7 @@
   "schema_version": 1,
   "baseline_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
   "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
-  "overlay_tree": "20b1d0dc2ba388e973cd73eb8fb3f64881ce6a78",
+  "overlay_tree": "44bf881f603ce5e84a93fbe635e2eba438bd87db",
   "cutover_batches": [
     {
       "id": "batch-1-brand-home",
@@ -159,6 +159,61 @@
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "cache_observability",
+        "provider_model",
+        "provider_transport",
+        "wire_sse"
+      ],
+      "current_sha256": "63d3fb8449d1c408b540170886b2cbb2e756e3a048426f0de3138d22df650b9d",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/codex-api/src/sse/responses.rs",
+      "target_sha256": "4995c9c692dd9e3ebf8dcccc3e0f458d1d0f4c21fa60d75042594d00ba961fca",
+      "upstream_status": "modified",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "provider_model",
+        "provider_transport",
+        "test_fixture"
+      ],
+      "current_sha256": "7b6771fc04be4657c41b4e0db4b37a98d66e23ec9623240082bd9477d2b18fa0",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/codex-api/tests/clients.rs",
+      "target_sha256": "e0e0f0a3ca5355602ab4d60d386622d6260afc8c55ae2e805242369fbf23f826",
+      "upstream_status": "modified",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
         "sync metadata validator"
       ],
       "whale_status": "modified"
@@ -436,15 +491,15 @@
     }
   ],
   "summary": {
-    "path_count": 16,
+    "path_count": 18,
     "by_disposition": {
-      "adapt-semantically": 14,
+      "adapt-semantically": 16,
       "reapply-exact": 2
     },
     "by_cutover_batch": {
       "batch-1-brand-home": 9,
       "batch-2-substrate": 2,
-      "batch-3-deepseek-wire": 5
+      "batch-3-deepseek-wire": 7
     }
   }
 }

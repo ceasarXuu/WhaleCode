@@ -869,6 +869,79 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn parses_deepseek_native_responses_stream() {
+        let events = run_sse(vec![
+            json!({
+                "type": "response.reasoning_text.delta",
+                "item_id": "reasoning-1",
+                "content_index": 0,
+                "delta": "Inspecting the repository",
+            }),
+            json!({
+                "type": "response.output_text.delta",
+                "item_id": "message-1",
+                "content_index": 0,
+                "delta": "I found the relevant file.",
+            }),
+            json!({
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "function_call",
+                    "id": "fc-1",
+                    "call_id": "call-1",
+                    "name": "shell",
+                    "arguments": "{\"cmd\":\"pwd\"}",
+                    "status": "completed",
+                },
+            }),
+            json!({
+                "type": "response.completed",
+                "response": {
+                    "id": "resp-deepseek-1",
+                    "usage": {
+                        "input_tokens": 12,
+                        "output_tokens": 8,
+                        "total_tokens": 20,
+                    },
+                },
+            }),
+        ])
+        .await;
+
+        assert_matches!(
+            &events[0],
+            ResponseEvent::ReasoningContentDelta {
+                delta,
+                content_index: 0,
+            } if delta == "Inspecting the repository"
+        );
+        assert_matches!(
+            &events[1],
+            ResponseEvent::OutputTextDelta(delta) if delta == "I found the relevant file."
+        );
+        assert_matches!(
+            &events[2],
+            ResponseEvent::OutputItemDone(ResponseItem::FunctionCall {
+                name,
+                arguments,
+                call_id,
+                ..
+            }) if name == "shell" && arguments == "{\"cmd\":\"pwd\"}" && call_id == "call-1"
+        );
+        assert_matches!(
+            &events[3],
+            ResponseEvent::Completed {
+                response_id,
+                token_usage: Some(usage),
+                ..
+            } if response_id == "resp-deepseek-1"
+                && usage.input_tokens == 12
+                && usage.output_tokens == 8
+                && usage.total_tokens == 20
+        );
+    }
+
+    #[tokio::test]
     async fn error_when_missing_completed() {
         let item1 = json!({
             "type": "response.output_item.done",

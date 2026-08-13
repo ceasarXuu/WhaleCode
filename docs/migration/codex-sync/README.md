@@ -18,3 +18,5 @@ Required fields:
 
 - [2026-08-01：第二批上游基线与测试门禁](2026-08-01-upstream-baseline-and-test-gates.md)
 - [2026-08-02：第二批上游基线与测试门禁最终收口](2026-08-02-upstream-baseline-and-test-gates-closeout.md)
+- [2026-08-14：U5 恢复 DeepSeek provider 与默认鉴权](2026-08-14-u5-deepseek-provider.md)
+- [2026-08-14：U7 验证 DeepSeek 原生 Responses 请求与流式事件](2026-08-14-u7-deepseek-native-responses.md)

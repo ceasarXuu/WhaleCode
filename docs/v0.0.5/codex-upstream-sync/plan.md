@@ -1,6 +1,6 @@
 # Codex CLI 主线融合执行计划
 
-- 文档状态：有效，Phase A、Phase B verified；Phase C rebase gate ready，U5 verified，下一步执行 U7
+- 文档状态：有效，Phase A、Phase B verified；Phase C rebase gate ready，U5、U7 verified，下一步执行 U8
 - Plan Validity：`valid-with-qualifications`
 - 计划性质：覆盖已完成里程碑与剩余工作的唯一执行计划
 - 适用版本：WhaleCode v0.0.5
@@ -39,7 +39,7 @@
 | 0.147 vendor substrate | U4 verified | vendor 替换只含 8 个 U3 修改路径；U4a 已独立迁移免费缓存合同，U4 cache index gate 通过 | Phase C 按独立工作单元重放 DeepSeek；TaskSpace 保留到 Phase D | 已纳入 U4 原子交付；0 模型请求 |
 | 计划治理 | 1/1 verified | 唯一产品权威、唯一执行计划、历史工件降级和闭环工作单元 | 约束 U1–U17 的范围和停止条件 | 已完成 |
 
-因此，U2 已按纠正后的官方构建合同完成，U3、U4 均已验证；`U5–U17` 尚未执行，不表示整个 Codex 主线追赶从零开始。历史工作、已完成单元与剩余工作目标、单位和验收标准不同，不做失真的简单平均百分比。
+因此，U2 已按纠正后的官方构建合同完成，U3、U4、U5、U7 均已验证；其余单元尚未执行，不表示整个 Codex 主线追赶从零开始。历史工作、已完成单元与剩余工作目标、单位和验收标准不同，不做失真的简单平均百分比。
 
 当前状态应读取为：
 
@@ -48,7 +48,7 @@
 - 0.146 候选初次资格审查：已完成，结论 no-go；
 - no-go 原因的最小增量复核：已完成（U1）；
 - 0.147 候选正式资格：已完成（U2）；结论为 `direction-supported-with-known-test-risks`；
-- 生产 vendor cutover：实现与门禁验证均已完成（U4）；DeepSeek/TaskSpace 重放尚未开始（U5–U17）。
+- 生产 vendor cutover：实现与门禁验证均已完成（U4）；DeepSeek provider 与原生 Responses 合同已恢复/验证（U5、U7），U8–U10/U6 与 TaskSpace 尚未执行。
 
 ### 2.2 治理后的权威关系
 
@@ -186,7 +186,7 @@ Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依�
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | U5 | 恢复 provider 身份与鉴权 | provider | `model-provider-info` 及配置调用点 | DeepSeek provider identity、base URL、API key auth、Flash 默认 | 已按 0.147 provider 接口恢复内置 DeepSeek provider、保留 `DEEPSEEK_API_KEY` 环境鉴权，并把无显式配置时的 provider/model 恢复为 DeepSeek/Flash；未引入模型目录与请求 payload | CLI 能识别、配置并默认选择 DeepSeek provider 与 Flash | 先恢复最小接入点，隔离目录和 wire 问题 | Complexity：一个局部 provider 分支和配置默认值；Reach/Cost：配置解析和 auth tests | provider 23、config 235、core config 307 项通过；cache index gate 通过；0 真实请求 | 独立 revert；模型目录与能力留给 U6 | verified |
-| U7 | 恢复原生 Responses 请求与流式事件 | provider-wire | `codex-api`、`core` 的 Responses/SSE seam | DeepSeek Responses request、reasoning stream、tool-call assembly | 复用 0.147 Responses-only 主链；只对官方兼容表和失败 fixture 证明必要的字段或事件做局部适配，不恢复 Chat Completions 转换层 | reasoning 与 streamed tool calls 通过 DeepSeek 原生 Responses 工作 | 恢复主请求链，同时删除已失效的兼容假设 | Complexity：优先零分支复用，必要时仅局部 provider 条件；Reach/Cost：API/core fixtures | 无网络 request contracts、SSE reasoning/tool-call fixtures；官方兼容表逐项核对 | 出现 TaskSpace 数据需求即停止并留给 U13/U14；需要通用转换层时重新审查 | not-started |
+| U7 | 恢复原生 Responses 请求与流式事件 | provider-wire | `codex-api` 的 Responses/SSE seam | DeepSeek Responses request、reasoning stream、tool-call assembly | 已用显式 DeepSeek provider 请求和官方形状 SSE fixture 验证 0.147 Responses-only 主链；fixture 直接通过，因此未增加生产分支，也未恢复 Chat Completions 转换层 | reasoning、文本和完整 function call 可由 DeepSeek 原生 Responses 进入现有事件链 | 以零生产侵入恢复主请求合同并淘汰失效兼容假设 | Complexity：仅 2 组测试 fixture；Reach/Cost：无 runtime 变化、0 网络请求 | fmt；2 个定向 fixture；codex-api 159 项；42 个 sync tests、metadata 和 cache index gate 全过 | 测试可独立回滚；final-wire/cache 仍留给 U10 | verified |
 | U8 | 恢复用量与请求预算 | accounting | `core/src/client.rs` 现有 accounting seam | provider usage、hard request limit、terminal reconciliation | 将现有计数与限额接到上游响应/事件类型 | 请求用量和终止对账保持一致 | 防止主线融合丢失成本与请求保护 | Complexity：局部计数状态；Reach/Cost：client/session accounting tests | usage fixtures、hard-limit、terminal reconciliation tests | 独立 revert；不修改 compaction threshold | not-started |
 | U9 | 恢复 DeepSeek compaction | context-lifecycle | `core/src/compact*.rs` 及现有调用点 | Flash compact request、1M/755K threshold、保留状态 | 按新上游 context API 迁移现有 compaction 合同，不引入 TaskSpace projection 改动 | 长上下文收缩保持现有阈值和状态保留 | 将上下文生命周期风险从 wire/cache 中隔离 | Complexity：复用现 compaction 分支；Reach/Cost：context/session tests | compact request、threshold、retention、zero-short-job tests | 若必须修改 TaskSpace retention，停下留给 U14 | not-started |
 | U10 | 恢复缓存与 final-wire 证据 | cache/observability | `provider_wire_*`、cache contract/gate | Standard 最终 payload 与敏感面 | 迁移 free final-wire/trace，运行 index gate；不建新缓存框架 | 可在零模型请求下检测 payload 漂移 | 付费回归前提供确定性保护 | Complexity：复用现合同、原则上无新 runtime state；Reach/Cost：cache-sensitive，可能预算阻塞 | contract tests；cache index gate；真实回归须另获批 | gate 阻断则回退/停在 U10，不用 `--no-verify` | not-started |
@@ -247,7 +247,7 @@ Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依�
 | 已完成：U1 | 无产品语义 | 修正 qualification runner 并确认 0.146 validation direction-rejected；vendor 未变 | D2 | engineering-only | 已收口为 Phase A 历史输入 |
 | Phase A | 已完成 | U2 direction-supported-with-known-test-risks；Checkpoint B 已刷新 0.147 查询工件；U3 最小 identity/home/auth/default seam 验证通过；vendor 未变 | D2 | covered + engineering-only | 进入 Phase B rebase gate |
 | Phase B | 已完成 | vendor 对齐 0.147 且只保留 U3 seam；U4a 独立迁移免费缓存合同，cache index gate 通过；live baseline 仍保持失败状态 | D2 | covered + engineering-only | 进入 Phase C rebase gate |
-| Phase C | 执行中 | PLD-004 已批准；U5 已恢复 DeepSeek provider、环境鉴权与 Flash 默认，未触及目录/wire/TaskSpace | D1、D2 | 当前增量 covered + engineering-only；待阶段完成后终审 | 执行 U7，完成 U5→U7→U8→U9→U10→U6 后审计 |
+| Phase C | 执行中 | PLD-004 已批准；U5 已恢复 provider/鉴权/Flash 默认；U7 已用离线 fixture 证明 0.147 原生 Responses 请求和 SSE 无需生产适配；未触及目录/TaskSpace | D1、D2 | 当前增量 covered + engineering-only；待阶段完成后终审 | 执行 U8，完成 U8→U9→U10→U6 后审计 |
 | Phase D | 待执行 | 待记录 | D2 | 待分类 | U11–U16 后审计 |
 | Phase E | 待执行 | 待记录 | D1、D2 | 待分类 | U17 后审计 |
 
@@ -262,7 +262,7 @@ Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依�
 
 ## 8. 执行与提交边界
 
-执行顺序当前到达 `... -> U4（已验证） -> Phase C rebase gate（PLD-004 已批准） -> U5（已验证）`。下一步执行 U7；Phase C 按 `U5→U7→U8→U9→U10→U6` 推进，在 DeepSeek/TaskSpace 被测路径恢复前不消耗真实回归预算，也不晋升 live baseline。
+执行顺序当前到达 `... -> U4（已验证） -> Phase C rebase gate（PLD-004 已批准） -> U5（已验证） -> U7（已验证）`。下一步执行 U8；Phase C 继续按 `U8→U9→U10→U6` 推进，在 DeepSeek/TaskSpace 被测路径恢复前不消耗真实回归预算，也不晋升 live baseline。
 
 - 每个 U 单元至少一个独立、可理解、已基本验证的 commit，并立即 push。
 - 单元内出现两个可独立回滚的行为主题时继续拆 commit；不得把 vendor 机械替换与产品 overlay 混为一个提交。

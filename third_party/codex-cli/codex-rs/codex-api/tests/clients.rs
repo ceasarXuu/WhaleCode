@@ -10,6 +10,7 @@ use codex_api::AuthError;
 use codex_api::AuthProvider;
 use codex_api::Compression;
 use codex_api::Provider;
+use codex_api::Reasoning;
 use codex_api::ResponsesApiRequest;
 use codex_api::ResponsesClient;
 use codex_api::ResponsesOptions;
@@ -20,8 +21,10 @@ use codex_client::Response;
 use codex_client::StreamResponse;
 use codex_client::TransportError;
 use codex_protocol::ResponseItemId;
+use codex_protocol::config_types::ReasoningSummary;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseItem;
+use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
 use http::HeaderMap;
@@ -353,6 +356,59 @@ async fn responses_client_stream_request_preserves_item_ids() -> Result<()> {
         prepared.headers.get(http::header::CONTENT_TYPE),
         Some(&HeaderValue::from_static("application/json"))
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn deepseek_client_uses_native_responses_request() -> Result<()> {
+    let state = RecordingState::default();
+    let transport = RecordingTransport::new(state.clone());
+    let client = ResponsesClient::new(transport, provider("deepseek"), Arc::new(NoAuth));
+    let request = ResponsesApiRequest {
+        model: "deepseek-v4-pro".into(),
+        instructions: "Use the available tools when needed.".into(),
+        input: vec![ResponseItem::Message {
+            id: None,
+            role: "user".into(),
+            content: vec![ContentItem::InputText {
+                text: "Inspect the repository".into(),
+            }],
+            phase: None,
+            internal_chat_message_metadata_passthrough: None,
+        }],
+        tools: Some(empty_tools().into()),
+        tool_choice: "auto".into(),
+        parallel_tool_calls: true,
+        reasoning: Some(Reasoning {
+            effort: Some(ReasoningEffort::High),
+            summary: Some(ReasoningSummary::Auto),
+            context: None,
+        }),
+        store: false,
+        stream: true,
+        stream_options: None,
+        include: vec!["reasoning.encrypted_content".into()],
+        service_tier: None,
+        prompt_cache_key: Some("session-1".into()),
+        text: None,
+        client_metadata: None,
+    };
+
+    let _stream = client
+        .stream_request(request, ResponsesOptions::default())
+        .await?;
+
+    let requests = state.take_stream_requests();
+    assert_path_ends_with(&requests, "/responses");
+    assert!(!requests[0].url.ends_with("/chat/completions"));
+    let body: serde_json::Value = serde_json::from_slice(request_body_bytes(&requests[0]))?;
+    assert_eq!(body["model"], "deepseek-v4-pro");
+    assert_eq!(body["reasoning"]["effort"], "high");
+    assert_eq!(body["reasoning"]["summary"], "auto");
+    assert_eq!(body["parallel_tool_calls"], true);
+    assert_eq!(body["store"], false);
+    assert_eq!(body["stream"], true);
+    assert!(body.get("stream_options").is_none());
     Ok(())
 }
 
