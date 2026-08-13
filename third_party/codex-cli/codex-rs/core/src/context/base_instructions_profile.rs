@@ -9,9 +9,9 @@ use sha2::Sha256;
 pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION: &str = "1.0.2";
 pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256: &str =
     "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382";
-pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "3.0.0";
+pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "3.0.1";
 pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256: &str =
-    "db2095e88dd61fb2a7118526be3f43b1aa729f7db89d494700d55b4989810286";
+    "405173391a2d64faba59d02515b17508bb08e2267bf8fc35445a6aec893715b2";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WhaleCodeBaseInstructionsProfile {

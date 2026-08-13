@@ -149,15 +149,15 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
         .unwrap();
     let hosted_contract = web_search["description"].as_str().unwrap();
     for required in [
-        "one logical `web_search` Tool action",
+        "one indivisible `web_search` pair",
         "native top-level Provider Tool interface",
-        "same assistant response",
-        "native Provider Tool item performs the work",
+        "this assistant response contains the native",
+        "include exactly one matching entry",
+        "response contains no matching native item",
+        "native item performs the work",
         "only records ownership",
-        "must not appear without that matching item",
-        "declare it exactly once",
-        "all of its internal steps and results",
-        "Do not repeat declarations for internal actions",
+        "Never emit either side alone",
+        "defer it to a later response",
         "include native Tool input",
         "public Tool name `web_search`",
     ] {
