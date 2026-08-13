@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "baseline_commit": "fed0a8f4faa58db3138488cca77628c1d54a2cd8",
-  "target_commit": "e363b08c9175ac1cbe5893615dd2cb9ddf95043b",
+  "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
   "overlay_tree": "7bcedd04a466e407dd160b7c541fe13605c2d4ec",
   "cutover_batches": [
     {
@@ -104,7 +104,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": ".github/workflows/rust-release-windows.yml",
-      "target_sha256": "ccc4490cd4326687c12aafb47577041ae1a3226283aed987e28d085dba3543ad",
+      "target_sha256": "64197ee29715bae16a3fd06a4a4522fc56814febe10981333d0ead3574217f9a",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -128,7 +128,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": ".github/workflows/rust-release.yml",
-      "target_sha256": "2cfcacabc2576d89b3cd1c86230dbf13ff6165a1caf68dc0eb9ebfaddf6f2ce9",
+      "target_sha256": "62367daacaabcc8972b6f0a60d2f964bd957e7ec68cab5d62756fd494041d183",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -248,7 +248,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "MODULE.bazel.lock",
-      "target_sha256": "1964bbb1e34081ae96af10f73844803fef52344fe477f68d3bc28bc57118e23f",
+      "target_sha256": "716ebd531666273434bc45464f8f603fdcaf1e00149662d9060486a364f5c0ec",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -419,7 +419,7 @@
       "generated_lineage": null,
       "owner_domain": "generated-release",
       "path": "codex-rs/Cargo.lock",
-      "target_sha256": "828175f2781fe6c83e3396194f1b00d7fab6b2a27017ea0daa896456c4079d77",
+      "target_sha256": "eeab4e9d3466da54037032251e2f13ad1ed11eae18bb8ee7dd2c89dbb86f645d",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -446,7 +446,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/Cargo.toml",
-      "target_sha256": "624b901218e659a11d106e6ad1de7407be11ed7e3f8c831cfc0482784c35b1cc",
+      "target_sha256": "852ffe282c3c97cd642419d70babd94391624525bcdc48f7942160776f83e710",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -471,7 +471,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/analytics/src/facts.rs",
-      "target_sha256": "c9a5b48ced667c0b5890e3012145a444a146c65c8794f5a30863aadd94805f16",
+      "target_sha256": "d9555d61fedd169df53edc62e66a405954d8fb48f2b13bf009ee5d591ac971ad",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -500,12 +500,12 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/ClientRequest.json",
-      "target_sha256": "176700239f2322dd1420e23137ac2d4b9350e5c6c1e3dc51f35a243722166865",
+      "target_sha256": "6ba8920b1eb51583d43829d73a353bb069a888d08ed763a44272440c14efc88f",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -534,12 +534,12 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/ServerNotification.json",
-      "target_sha256": "61341f7cc0730e6b0c4f59be97d18acec190fa87aa7551ae03d1abfef0536311",
+      "target_sha256": "558aab11da20cd0d278ec6f9067a46444f0566be7e3953f443dcc5d7cb23736f",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -570,12 +570,12 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/codex_app_server_protocol.schemas.json",
-      "target_sha256": "08cc0c836bf0caca1e65b92956c3d57fd59c6be9b66277f77afe1cf65aefa592",
+      "target_sha256": "f72b2caa3cbfa4298de9e85c62dda6dfbaf2266ffeb916fed30615ca69ff8c74",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -606,12 +606,12 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/codex_app_server_protocol.v2.schemas.json",
-      "target_sha256": "380e97f5778c40c7fead146c6af5da97e478164b194c0ce1b15edac80d8c8527",
+      "target_sha256": "f3dec1e031d99a420b137b903f02196d4325eece57620c925bb7130b25f168d2",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -641,7 +641,7 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
@@ -675,12 +675,12 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/v2/ItemCompletedNotification.json",
-      "target_sha256": "86a0436e252fa246aabc24f91fbd14e4fa6ab2c79a2e54dd788233f3718dba16",
+      "target_sha256": "cfbd72e98b6103825a1e6b2393fc82472b7f2d85d57a5263cc6e4fff5fde1b5f",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -709,12 +709,12 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/v2/ItemStartedNotification.json",
-      "target_sha256": "f3968ffd3a123c0ffa9bf0f1ada634356d9ea6eba72b95142f5d236dfb93b74a",
+      "target_sha256": "f6677d223483607c666c56b2b1cf1e872046cdbed4d025deadd853f23831656c",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -743,12 +743,12 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/v2/ModelListResponse.json",
-      "target_sha256": "c5a8ad50c02db0280e41392cdd8a2b1611aa5e562a7b4eb36a1a71cdcad62475",
+      "target_sha256": "4d4fe3b0c52f71d7ed33eeda1e67e00673851f4af4ce1cca6b2b5cf1f3a2495f",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -777,12 +777,12 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/v2/ReviewStartResponse.json",
-      "target_sha256": "eeb8129d9ab98985f72ae631f48719834afaa9a45d5cfab53aafa65d50c53529",
+      "target_sha256": "2b8dc29f39b84d77d0c140b56a8d9c6a9e40dff49db6d12e826de56c2539ff29",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -811,12 +811,12 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/v2/ThreadForkResponse.json",
-      "target_sha256": "ef9013c2828ee33704a6c40710cd5f8c0597fb37988899cd8d496b47430c65c2",
+      "target_sha256": "967f779d17674f97ff4f9c348ae993f2373da448b40931499c3c662a9d623b1f",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -845,12 +845,12 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/v2/ThreadListResponse.json",
-      "target_sha256": "ec588f6bdbefd1ddc32135bab75f32070918e9fbae014a2d59bf835bac140598",
+      "target_sha256": "08d5ffb0a799cf0d1c42c11b12c8bc4b04d6e515f96c6789bbec532eba1b2612",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -879,12 +879,12 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/v2/ThreadMetadataUpdateResponse.json",
-      "target_sha256": "e69626ed4ccd9e8b25478e83552cd0004a5c444ecaa06581314261d27cdc40da",
+      "target_sha256": "999324a92eb6611e95d7f26e941236914454eb036e01a18674f4946d144d8ff6",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -913,12 +913,12 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/v2/ThreadReadResponse.json",
-      "target_sha256": "f82d0baa1c867ba8e6e9b7968fe6b71e6d591a49f6be502e6cc7d9c5a724b07c",
+      "target_sha256": "755212bcb52ddd605501cdf6b7bde73a141605a22ea8037912ad9a7e79d1c20a",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -947,12 +947,12 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/v2/ThreadResumeResponse.json",
-      "target_sha256": "579946363130d46f5b81c3963dbb89ee492455a2cf8668eb59436cacf6bd0b9d",
+      "target_sha256": "1da0ef836c3b2e57f133b7fc55f40a934b5ad39e82b79af44d95d7c98b500c64",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -981,12 +981,12 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/v2/ThreadRollbackResponse.json",
-      "target_sha256": "d1a81cba50fe679135b99d46835df3ecae74b42ad81ce6c0345962e891469eda",
+      "target_sha256": "9c3b00ccd615d74917bed0c131bf34c1ba5c870c4b06892ea073983a467d3375",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -1015,12 +1015,12 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/v2/ThreadStartResponse.json",
-      "target_sha256": "71f77a47a2e2dfc6b772d6a6f73304a2447f4c948682f5d6f2b792d4209942b3",
+      "target_sha256": "86d37438580ac2da25fa144ee9b4dda1269953cd92c9f9c94d7a2904a28a9517",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -1049,12 +1049,12 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/v2/ThreadStartedNotification.json",
-      "target_sha256": "99f714d877d021b4f52efade7f5bd336e0dc5634f4fbccb94e159129754939ad",
+      "target_sha256": "23564ee066724ea02da74faeaa0b2ba5a092de2686fc9209cf41026b15b6ae3c",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -1083,7 +1083,7 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
@@ -1117,12 +1117,12 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/v2/ThreadUnarchiveResponse.json",
-      "target_sha256": "e09904e5615fe7ad51d6900f928907c7344a7c29598d09526ea07d8852efc1d8",
+      "target_sha256": "00ab76e3faea8c9e38ab5eeab7d170f0dd778b9988fe2ad961caded77da3d5d7",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -1151,12 +1151,12 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/v2/TurnCompletedNotification.json",
-      "target_sha256": "afa1517d752e3e95d8c8ac545ecde3f777bc93e6730b3e2fce3679545bae9921",
+      "target_sha256": "be5938b288e6b36b3f46585f2878f7a88150fc3f56fb373a6c961eea838cfdd6",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -1185,7 +1185,7 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
@@ -1219,12 +1219,12 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/v2/TurnStartResponse.json",
-      "target_sha256": "f52c8025c05b922ee1e3deb9fd777b2fbc3004d4ed9cfa0d8d20a0fb5fb2e2e8",
+      "target_sha256": "888a437b6c818b10fb2ec3c255cb71c82293b378d9ce47e7be9c0028ed9e8a34",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -1253,12 +1253,12 @@
       "generated_kind": "app-server-json-schema",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-json-schema"
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/v2/TurnStartedNotification.json",
-      "target_sha256": "05c544c3d77ddb0a4c2c79feb9d94ccf13926df0553cba6dd161de61507e0649",
+      "target_sha256": "15cb5196aa661487fce238c0f918dd629ea85cbc89a08fce846f296c5e33268c",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -1288,7 +1288,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -1323,7 +1323,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -1358,7 +1358,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -1393,7 +1393,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -1428,7 +1428,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -1463,7 +1463,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -1498,7 +1498,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -1533,7 +1533,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -1568,7 +1568,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -1603,7 +1603,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -1638,7 +1638,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -1673,7 +1673,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -1708,7 +1708,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -1742,7 +1742,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -1777,7 +1777,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -1811,7 +1811,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -1846,7 +1846,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -1881,7 +1881,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -1915,7 +1915,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -1950,7 +1950,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -1984,7 +1984,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -2019,7 +2019,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -2055,7 +2055,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -2089,12 +2089,12 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/typescript/v2/ThreadItem.ts",
-      "target_sha256": "23efe935fe3582ae96b1611be9f191d564db26d00463ff2cec2bc67c553cb02b",
+      "target_sha256": "f32622ac45c25b7bbeef2ea77ed47d3b6e4e11f01c405e189241a5ebfa85b224",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -2123,7 +2123,7 @@
       "generated_kind": "app-server-typescript",
       "generated_lineage": {
         "command": "just write-app-server-schema",
-        "generator": "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
         "kind": "app-server-typescript"
       },
       "owner_domain": "generated-release",
@@ -2156,7 +2156,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/app-server-protocol/src/protocol/common.rs",
-      "target_sha256": "78b895d789d65fe676b83b961f354d6a797d1b9c005f1bf42577f5311c47a2ec",
+      "target_sha256": "c0cf823533c377d41f4b2c36f6b2672620a6882c62a36d5d7c8f2135f1ca92c0",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -2181,7 +2181,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/app-server-protocol/src/protocol/item_builders.rs",
-      "target_sha256": "0c1b782224cf0975d4634d49eab2a217c9fb1ebe2a95374899066d81a38e2bea",
+      "target_sha256": "af2aba43ae6b0187c9b6da68750253d43cc8fe3b1849755d4dd62dc848743d40",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -2206,7 +2206,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/app-server-protocol/src/protocol/thread_history.rs",
-      "target_sha256": "9acc641f60c43f065c7317b43c5ede7378ca811cfbd1640fb2a78f73fcc9527c",
+      "target_sha256": "951c998e7ec633aa96f1252ba95f38861994a25350fb77c948c869ef4ca106d8",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -2231,7 +2231,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/app-server-protocol/src/protocol/v1.rs",
-      "target_sha256": "bec8dfc4beb1460fca9483b6224d436605bf1fd7b0796fc7e72b6cb1a43f5fe7",
+      "target_sha256": "6177fc28441f759181feee0eb983d46fc2b8864a7ede6686503b1f8b74cd12af",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -2286,8 +2286,8 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/app-server-protocol/tests/schema_fixtures.rs",
-      "target_sha256": "0bf938d82f0014abe28f99c5ea02caed8d0b9188d1734599ab4ffe7c45be96cc",
-      "upstream_status": "modified",
+      "target_sha256": null,
+      "upstream_status": "deleted",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
         "sync metadata validator"
@@ -2334,7 +2334,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/app-server/Cargo.toml",
-      "target_sha256": "8a15dc299b78d09a326be6f39c6bab7b7a52b10e135998aaf5fdf9e2b7fce0f0",
+      "target_sha256": "7873bd0f9c24d9f1cda6fbc6d3ed6aecf45104b03aa7303976f3a3974cc49750",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -2359,7 +2359,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/app-server/src/bespoke_event_handling.rs",
-      "target_sha256": "c7bffcc416ed9de86f0a6c619df8d871abb03902abb0e70f45a090b5745f32ed",
+      "target_sha256": "70325aa66ef9f6cf953819c5339ae2d800a74ad12d091713321e87b01900aa88",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -2411,7 +2411,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/app-server/src/main.rs",
-      "target_sha256": "e7f7128eba53906ebf9da2bf0d9a48ddd51198a0d213620510d8ccdeb5749765",
+      "target_sha256": "902d2888068fe4cadf3381e6ee5a6358feeb3ddc6440295973f6920d67db4f5c",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -2464,7 +2464,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/app-server/tests/common/rollout.rs",
-      "target_sha256": "04307966b77430a34cde562a7068c0cc9c72f4eddb2a1368eaf75c99134e24b9",
+      "target_sha256": "1fce58d2ee3b356793d76294579be32d6df03de2912bb9cc870ceed586a4c87d",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -2544,7 +2544,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/app-server/tests/suite/v2/mcp_tool.rs",
-      "target_sha256": "731c6cc2394f80891ac5b67aa8a3e3283e4fc6cb77850431a7f4a42e4ef5445a",
+      "target_sha256": "cf925515d6c333730091524cbfb97f48ef81c688fcd70a2d4836dbe2641b2ca9",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -2570,7 +2570,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/app-server/tests/suite/v2/mod.rs",
-      "target_sha256": "db04002ed772358a8c62ba50a9f43b4365fcdd615f39232b187f86485683a2f3",
+      "target_sha256": "a269e050cee7ef3ddaa592bad36243013966983354303fc0a46e2e79b0a3a522",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -2597,7 +2597,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/app-server/tests/suite/v2/model_list.rs",
-      "target_sha256": "f82d403e6c021369e9ca8a865aca6692da3abe7c7ba03133ece5e980bfcab662",
+      "target_sha256": "d6772aad66237f15457c440088a5c7820875acda6bdcb521ca892e2fbd3c366e",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -2652,7 +2652,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/app-server/tests/suite/v2/thread_resume.rs",
-      "target_sha256": "b1094b990f2938ddf2cf34f1de30b51f84beda57b49a19ab4d49b8dabb274f7c",
+      "target_sha256": "3ed1752e87d898a54ceeb8f04d55f4a696b707ba6b79fdbca1c1bdca5b65fc2b",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -3040,7 +3040,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/cli/Cargo.toml",
-      "target_sha256": "cd86d41746418cbe5dad4608933a94bdeb74f8f7f0cc6826f135450c66283700",
+      "target_sha256": "37a433be6835d07b4ac0241ec99b79ff73905bbd6b1b043db1d459f5f7152de2",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -3086,7 +3086,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/cli/src/debug_sandbox.rs",
-      "target_sha256": "750bfbd60d95a9faf9ee6c26d144d8940a842858f5f0d01f06e0fe0198699d77",
+      "target_sha256": "b0a3d21615a4d3a82fdbe0ccb7cee11f1ae54b148f80a9985647ec976f3ebbed",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -3158,7 +3158,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/cli/src/login.rs",
-      "target_sha256": "a47a74eb143c3927b0e1267f6369a69cbe6485817af837e2b6268406b19fba41",
+      "target_sha256": "9b274997ec7cde0cb834b9e8c423da7b95a8988dce0bd689efb737faf26f0ca5",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -3186,7 +3186,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/cli/src/main.rs",
-      "target_sha256": "b2a2cafaafd00bba6005e8c80aa0e92a710d1e1e15237004a6c506a8a37f99f4",
+      "target_sha256": "1ca67a651488dd9af26b1328531dfaf68cc4cd3290afeec9dd9ca6f04bcd8091",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -3234,7 +3234,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/cli/src/mcp_cmd.rs",
-      "target_sha256": "414c6ccd222de391aa35406a80d32cb13e8a1171d7798dd4689d7873e02fa54c",
+      "target_sha256": "a2827c808c3775c0d9571688932e639bf7f1d12168c51639585ae2e456d48055",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -3363,7 +3363,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/cloud-tasks/Cargo.toml",
-      "target_sha256": "613211c7c2230a70f309b14aae53dd41c5eee5f9c70826200870e1f6468b3f41",
+      "target_sha256": "5f06b8116e9f3f2486953e3776d256946c4faaab9f3c26c2e4001b9d14a95faf",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -3645,7 +3645,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/codex-api/src/endpoint/models.rs",
-      "target_sha256": "3ee296c3fbde1336f9e434c7f983b3ffa5c6d6743281c0e2953c92e4cc8644eb",
+      "target_sha256": "304447b51c88e2519fd1bab0cfa6045c8534c955c93a5f4be098569adcc6e16d",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -3670,7 +3670,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/codex-api/src/endpoint/realtime_call.rs",
-      "target_sha256": "4ac93cbcbe1e09f41b55a69ef40fc7eaf4ecf8f50c2dd6381577ed5180f83c0e",
+      "target_sha256": "b08ffff66ba728d5275e52d5ac04b976a49b5eb1eb8efad9dd65ccafc49271b3",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -3695,7 +3695,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/codex-api/src/endpoint/realtime_websocket/methods.rs",
-      "target_sha256": "1e91db3fac18f8ff0c1a15748df75d7d2226e94419f8890bf0cd8f45972a5a60",
+      "target_sha256": "f15339dd752b7260251ae653a2ec0a24ace7c8b3cb79de12c351b7fce71bed05",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -3857,7 +3857,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/codex-api/src/sse/responses.rs",
-      "target_sha256": "5dc15cc21e18bb83b0bff21c220a23101ea27f546e0569587520c89ad8a21540",
+      "target_sha256": "4995c9c692dd9e3ebf8dcccc3e0f458d1d0f4c21fa60d75042594d00ba961fca",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -3936,7 +3936,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/codex-api/tests/models_integration.rs",
-      "target_sha256": "7efc9fe03dcdb74334024cb02bb10a2cf0144d30d976976c902354d6bd7c97f6",
+      "target_sha256": "a462220d4a54aa366cc500f7ef45c8753493204a4401a2ac46a25c4fbae1e7f4",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -3962,7 +3962,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/codex-api/tests/realtime_websocket_e2e.rs",
-      "target_sha256": "754956550e46321858f33505bca6cfde69fe7de48ae0574ded9a50c01b9e8b07",
+      "target_sha256": "31887cb14f37bd34a6c0b9654f4f4100086fa681325a521925d841ee31f16dbc",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -3988,7 +3988,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/codex-api/tests/sse_end_to_end.rs",
-      "target_sha256": "df049cd85c630d6c7d341f8c29b5d7d39b6f1d65013c55a30e2da3cbb9d236a4",
+      "target_sha256": "e1a116375cfb884586d81a69eb145fdfe9eebbc8df75d871d7dfc5aaefaa1004",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -4013,7 +4013,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/codex-mcp/src/mcp/mod.rs",
-      "target_sha256": "2c95c16fa602d64fcdac08b5cf0cf485a02125a3b31d135daddac61e9562f8dc",
+      "target_sha256": "8ed861cfdf2c5108567c499f1e474e410ef610218aac16009130e7fee5df7112",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -4038,7 +4038,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/codex-mcp/src/mcp/mod_tests.rs",
-      "target_sha256": "fbb4cf37aeb1dd6d539a837a1ac7becdd07f891bbeafe1e819f66adb4190030c",
+      "target_sha256": "6c8e1b4b4577ce45a73067fd045a525198aaa3061a93c13f5ac5c5b81ec89542",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -4144,7 +4144,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/config/src/mcp_types.rs",
-      "target_sha256": "cc2a7a07032c0e0089f83c1158a0151e64d1a89ffe169bd8ce5d6c13fed0a58d",
+      "target_sha256": "11782acef26352f866e2cc5bed10a6d71228353ca73220e2ddfcb2f48d4623ab",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -4346,7 +4346,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/core-skills/Cargo.toml",
-      "target_sha256": "35d266b453d186e6e5aa88e50bbb6ad20d3b276e3a31534c763cd3d3b0789b81",
+      "target_sha256": "9eee62c39e246cebac7e03c16caa4152c200f1c1920b9746e3b87ff5953b9839",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -4371,7 +4371,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core-skills/src/injection.rs",
-      "target_sha256": "d183153d3d199e728a54e9ec61f8373d1032907bfc521272a76d3f00c5926816",
+      "target_sha256": "91586726c087364fa5763e8690bde86f809269f1225c56a2a6e42e519b47d0dd",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -4398,7 +4398,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core-skills/src/lib.rs",
-      "target_sha256": "95192cf408672f1bbc477b588769cb069fbd6ef10e412f6630adfeb5a3b9b1be",
+      "target_sha256": "f9f58ba7a0d08fc8911387e9cae345b95a00429d6e7160e7ae7a3a6b35907981",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -4425,7 +4425,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core-skills/src/model.rs",
-      "target_sha256": "78ad524b5e89135199627a9c1a18246eb8fc4ece6b957185f4b03007f340b6c9",
+      "target_sha256": "e180b03f203b6a08bd20a35acd3bae93a6a98cf22ed438e614d99fff34d6cb7d",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -4452,7 +4452,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/Cargo.toml",
-      "target_sha256": "c24c1aed4632d261ba2c4b11d38924d6aea9a5c2fdd467908bc3acdf6f552a4a",
+      "target_sha256": "28be02ba0c60c4e9f871935768eb230169070024e82d6662255ea2dc3bab2fdc",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -4487,7 +4487,7 @@
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/core/config.schema.json",
-      "target_sha256": "da0f92a68f2bd5dbdc8937ad8e29b4d98a688effd72fd305539b0ffdc2c773ae",
+      "target_sha256": "b9105f17442d5c41ba5d4d82603259d3cc0ceb38aeb3badf9e5ca20da328ae6e",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -5321,7 +5321,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/agent/control.rs",
-      "target_sha256": "9f82c16648c329355acde8da7160a395ba2333ac9ce990e978db75b89b9aa282",
+      "target_sha256": "fc7f32488f1de23becbc5899f7078c015995e2e9197db9344c6e77282edce4d6",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -5347,7 +5347,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/agent/control_tests.rs",
-      "target_sha256": "88430c73fcce3ce9f3a7afe0689e604c18466d3a4a27f5c1c2dcbde0c51007a3",
+      "target_sha256": "40ddabeba07ea8ace315bc2dc787a59c743d9d9a066ca7d9c5520fa958cd6742",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -5372,7 +5372,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/agents_md.rs",
-      "target_sha256": "e45e6aee08a566b745759f256b0df9a356b429c8e119c50b1954abc99adc24e6",
+      "target_sha256": "61c0374190f323dd0bb1cfdd1b17b033a1263133921a1021c392d922dbe397bd",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -5397,7 +5397,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/agents_md_tests.rs",
-      "target_sha256": "1abe0b008f16a56c9696861a1a8cf8e3f1dacfeba70e36cd8a373d1375c33e89",
+      "target_sha256": "5b4d4dd30fccb88e347cabafda032c93c1f81b0ccde0c663275f1e220bd3c91f",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -5426,7 +5426,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/client.rs",
-      "target_sha256": "49cead56a5a4d0f390e404a21e5fe91d7b316e0ed4696cf77d89458387d7ae8b",
+      "target_sha256": "ac595b26fb7cf1c222cd273b8c9048a5f4e366dc33b50088302c916a4d9563a5",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -5506,7 +5506,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/client_tests.rs",
-      "target_sha256": "b76578b4c7094762ae356eae8c2b989649c1d0db32dd9aa87fdbdaf42a1fd8f0",
+      "target_sha256": "8c01f1bc4672d1338372d3a289fc4960963f486921b7c701c650d97dba0813c3",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -5532,7 +5532,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/codex_thread.rs",
-      "target_sha256": "ffffc383e42edd9e0f85dc451ac76085b69bc57cac2a348b9299cc9364a952b0",
+      "target_sha256": "c0e040d3cc41c6a7e17e627eaba850505ee0a8e49464ca977c181f3ea91e064f",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -5604,7 +5604,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/core/src/compact.rs",
-      "target_sha256": "af0de931d36a6b9f7a97911c65da23ea43a0c9233fb23b88195116eba0b8902b",
+      "target_sha256": "b6144028b74a97127de7e4728ffc7e909667ca18f873e2b28f96c0a3a3075f51",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -5629,7 +5629,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/compact_remote.rs",
-      "target_sha256": "e91d5460b3ef7d025c8cbd88e05821bc2fe5cd7cde6a8a3d2b690e31185bb496",
+      "target_sha256": "c93c2cf1131546e7795a0b791e7e55575145908273d229fb91d1c45fe347190d",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -5655,7 +5655,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/core/src/compact_tests.rs",
-      "target_sha256": "8b93854116e917ea26c9f95f1568fc7c30db951f510609700a8799a3f48e00da",
+      "target_sha256": "1c2fe9317e75b35d55bc22dea5f1d77dab1738740e0ab1807097145de417d764",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -5684,7 +5684,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/config/config_tests.rs",
-      "target_sha256": "682056d0b42d3510c33b169faebff8ebb96980aabab3db41baac86567459eb87",
+      "target_sha256": "bee62381efeb736d7a8e6489dace764665c94d740a6ed99ec8d891a2174fce53",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -5709,7 +5709,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/config/edit.rs",
-      "target_sha256": "eff2486cd8bfbcaf3a1ace7bc2cd99c19b74dac5e3ca92c6cb25f4ff589ac305",
+      "target_sha256": "3c14d5aba7f9b2bd54945feefa33267b383f24e5045a1a3d8d6c2b8991d726c4",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -5734,7 +5734,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/config/edit_tests.rs",
-      "target_sha256": "884faa34f4fa845466f09233c94cd5c5075f990d78cc15b69ee243037b82fea9",
+      "target_sha256": "c2ac01b64fac823398589568388f7c0d002e74e292f1be5f13ff567068419bc4",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -5763,7 +5763,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/config/mod.rs",
-      "target_sha256": "e57f9a6b75c82201cb90c196dcf584a2db2a9f27104f13b29bbe2140431ab3d2",
+      "target_sha256": "a2d7e4065493687e244504eb3e3d3f497bcdbad15d8718e72beac940742da7b0",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -5813,7 +5813,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/connectors.rs",
-      "target_sha256": "047eec126786f2570bf7670903d9cf6abf3e379ad67bc938888f0eb81db0fbd6",
+      "target_sha256": "3aab3c2cf8c505b606d009f2901475771114d9edef5e3bff05a5de7e4b43560e",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -5868,7 +5868,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/context/mod.rs",
-      "target_sha256": "5013d6a83e9b19e92a1ce4b85f37a69ae24c0dcb85854c2b154aadd757ea6a9a",
+      "target_sha256": "f55d36447861a6e13a3e52e07097be76ab505806ab9e4b4d9a3f9c27c5c63f0f",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -6002,7 +6002,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/context_manager/history.rs",
-      "target_sha256": "7471b7bf90fa7bd90f81ffc62cef6c73ca5dba008e767f12df4b1d0ce520da1b",
+      "target_sha256": "d3e9e797744554192613f8361f274312047ca3d94abd5a4c6efb92eba4268310",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -6029,7 +6029,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/context_manager/history_tests.rs",
-      "target_sha256": "2c8425441f16454ce42fd010073e20138e6690b0aa53fbde645160d880eef78b",
+      "target_sha256": "46d9958793ed03a72479c627f4331a14e443910335cf65795755b64457976ac9",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -6131,7 +6131,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/exec.rs",
-      "target_sha256": "46d06f8e093d365374fb33248a7a46d7cb947e6a2d40e5937d600c3cfd9c2b0c",
+      "target_sha256": "7b49c507f14049b1b9f09ed30b62df1efb5a6eb63cb05e96ad9baef04075e6d0",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -6156,7 +6156,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/exec_policy_tests.rs",
-      "target_sha256": "70531ae7361ab28a04ad737c2a8d234ee838babe5ca5e3c92389fa83fb696048",
+      "target_sha256": "f017ca1f7ce4fd0974e9aba4c27aba8fbb6a13891dd29611e0048892edada4ce",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -6181,7 +6181,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/exec_tests.rs",
-      "target_sha256": "7ae3a7f9c22df33a497324f88ec580615c92983e87d6657e788dddbb5c2a1719",
+      "target_sha256": "a6d04c29d5b9f0edc4abdb2bd5746de11f7f9c0e4411d9cacdc45ca9c15716aa",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -6206,7 +6206,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/git_info_tests.rs",
-      "target_sha256": "304380e765d5e6722d0b52601b9512dfe51429c72662c2637f1b7ae7ceb14161",
+      "target_sha256": "975f1a39f039f2af3ac9f64963717af631904f8f11e1d26ffba896769a8bf7d6",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -6231,7 +6231,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/guardian/tests.rs",
-      "target_sha256": "555993c0497377f181615051d05589eeb5979991145a7025dc43c4e37da47443",
+      "target_sha256": "2ceac5045da8bbd9e011807836429f93a724ada3531507f208062b2da98525ff",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -6257,7 +6257,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/lib.rs",
-      "target_sha256": "2b5209e5bcd2cdbb16d85d166956bda2e3017581f7aff9797ddb7369e6569ca8",
+      "target_sha256": "89fe8da4950fa23af91df28f1a5b48ae935bc7e3dcdfb104987d30789a0b2197",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -6283,7 +6283,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/mcp_tool_call.rs",
-      "target_sha256": "23613cd6c769240f3169198161da6289cdc49c01eb22f8836815c63370f93c31",
+      "target_sha256": "7529e5a33fd7386ebea5af517f726c97cac2f4e7e7615be336a12110547156bf",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -6309,7 +6309,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/mcp_tool_call_tests.rs",
-      "target_sha256": "6445377fc750cad8502d2c3c4ce1b0bcc8f4449a2cf3a04e7625f6786ec10bcd",
+      "target_sha256": "02b8df130406e3c404360c8a4ced28ab643f8779a0cf51246f9f3f0b616599ab",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -6563,7 +6563,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/core/src/realtime_conversation.rs",
-      "target_sha256": "6c639beb532010be3fc4fa270bc62862baeff65bd6bd8db58f106c249be3c039",
+      "target_sha256": "313c3611c2543f2accd3d776ab7c67d91c23900bc587554614636b820f00b63d",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -6591,7 +6591,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/session/handlers.rs",
-      "target_sha256": "c154883a151a042a6ce62a7ebb3a96ea49494d2b257e23b71e084df79c14aeac",
+      "target_sha256": "192ae948ed99a7391d35106885da8a66fe2c41fc830cee9a8b1e1ab17d46645b",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -6618,7 +6618,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/session/mcp.rs",
-      "target_sha256": "4ab2cb0ff86d47e4134c19ea46d3058d7b405df6b56b7ed5d7103eb3f56e6519",
+      "target_sha256": "92dffad3394b38aaec06d6b3dbecffa62a83326bde4b51f35fffbfc16705f71b",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -6645,7 +6645,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/session/mod.rs",
-      "target_sha256": "63703c8c702e7665a402bf89c6b7f7d39e93889c792bef20a588102099ab204d",
+      "target_sha256": "fb464d6b5bff21036c46611643a22e8e2a32d8cfb28c9aeef690656823aca5d0",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -6699,7 +6699,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/session/rollout_reconstruction_tests.rs",
-      "target_sha256": "c55306747e28c62004de23c4b8648695f26504947e5c72ce174a14467071c12b",
+      "target_sha256": "8128d80443f3783bbef0025b295e14a7a89f958ed10fe9508312527d9dcab669",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -6726,7 +6726,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/session/session.rs",
-      "target_sha256": "132f03cf0a8282235b15476cf4915a6557c63a7c59204d4391ca99077f3df642",
+      "target_sha256": "9a5a881684c6c83fc68b7d6e73bfd446ca910dd5cf0824b8e6d265927105953f",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -6890,7 +6890,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/session/tests.rs",
-      "target_sha256": "4ca2d0ffbae425ec905aae868d5bec228e11213b90c581723e772a52ed7461b0",
+      "target_sha256": "149260f92a57e4330c358a7c820dff93ee2395ccb0d21bf72de88bcc7c0850cb",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -6916,7 +6916,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/session/tests/guardian_tests.rs",
-      "target_sha256": "f327569c84e1f13eb09fc863f7c1a9060f6d94e5ad152a58b49bb8eab225133d",
+      "target_sha256": "09ab8f00029b7a43ae68fd0922994a847237593b30b6ff91ecea463a624e3e51",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -6945,7 +6945,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/session/turn.rs",
-      "target_sha256": "73ed1af25d55d27d6a87d8223ccae41b0904d601eb147cbace8501bb902a3b28",
+      "target_sha256": "9363d0a9fb9dfd330405eec51ad733d324782833fd941761a2a7edc643c41fd0",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -6973,7 +6973,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/session/turn_context.rs",
-      "target_sha256": "517ed6c5bcf82c5f99dd3b6b053cde7e6465467522c5e556178010b6dc84890b",
+      "target_sha256": "3248aece4d4d05318087b676f90964b63643e1eeb9a967624fcbc76829044b72",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -7050,7 +7050,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/skills.rs",
-      "target_sha256": "35b421720d123239d590c46d2d2aa2fbc40683640c10f98ec1850a17292e88ea",
+      "target_sha256": "1c3af3c03584f01001dbd292e559940a6cf673450311536ef74440dd2ae1723e",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -7128,7 +7128,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/stream_events_utils.rs",
-      "target_sha256": "f4e59a65343b99ef4430f82968b5d5a04d0278a03ccb2154888ef928f9f80d16",
+      "target_sha256": "4d456c89855deb13e41d304d849f8ae106f069842104b200da50bcd6a463f252",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -7153,7 +7153,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/tasks/compact.rs",
-      "target_sha256": "f652eee3670c96a1a28ce38237cfab382e8d9102bff9ff5644d87bfabf2b70ec",
+      "target_sha256": "ef486426ae694d4f7af26a902ff91fdfd45d03a828da44529f9357f85d2c9829",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -7178,7 +7178,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/tasks/user_shell.rs",
-      "target_sha256": "dd86edeab7198fedc92d12a7cb7d3577dc284ffab5cba78741672fe82511a54d",
+      "target_sha256": "4eed1ae84d407119857e26f1e81cfa44e16f3f1d36e87906e121991d5ea45c76",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -7255,7 +7255,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/test_support.rs",
-      "target_sha256": "a7873e3097df6915d7fea80fbeebdf97f7ac50f5a8d8be85107d912755c0895b",
+      "target_sha256": "f0128850968b5b55b11e5477e4cd19fd0ae14864e45fb3727a3b307af8a51b14",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -7280,7 +7280,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/tools/code_mode/execute_handler.rs",
-      "target_sha256": "73e9893f5d555d156bf4609245818811a3badee1684d365fc5cfcdb44d6e5457",
+      "target_sha256": "837fcba627b6baf38ea04116743b8bc5ede2527c09159a65071f458eabad436a",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -7305,7 +7305,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/tools/code_mode/mod.rs",
-      "target_sha256": "0148da0822737ea56c0e48f57dbeaa6f66a5b3c49c943614e897b0e52fc88b5c",
+      "target_sha256": "3649bc3aaf059714186bb368ba707fecdf3d76c1bc535e63d6c8aa7b0ba04e2a",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -7333,7 +7333,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/tools/context.rs",
-      "target_sha256": "84ae66534c3d1ac747f197c699d80bf98057df8ae4cedf72a9f3b33009f9eb61",
+      "target_sha256": "d000e3529a8d9642454b6949fb84a8abf444ab31338c6eab6276607ea5bac3a6",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -7361,7 +7361,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/tools/context_tests.rs",
-      "target_sha256": "b791a4c289d87fc8f161ed7dd3469678f0425ee5ecc22ed8867737b2ba582960",
+      "target_sha256": "ba6f436761f512cc1aef1cd5e3d3edbb1a2d8894cfe1288850aa605edaaf57ff",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -7464,7 +7464,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/tools/handlers/apply_patch.rs",
-      "target_sha256": "256987794c8239cfa808415b8fcd4dd26242e92212a91111267b461d655bfa19",
+      "target_sha256": "4f0f17dca2a322268a3dcc7b75f44b31dff88844396dd80bfd87c0442088671f",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -7518,7 +7518,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/tools/handlers/mcp.rs",
-      "target_sha256": "a01c5dbd2a06c9030f077082a10e67c95585a88d2626ef2849e1b443ad3aa626",
+      "target_sha256": "9893e7e6d5f7bf1d0787f710e61c18de9c8174a8b53dbc494c0ee390494fc129",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -7544,7 +7544,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/tools/handlers/mcp_resource.rs",
-      "target_sha256": "8fc00427cab3450a7ddbc680c3eea35faa8deee220d02113ed44b8eb9e19ae27",
+      "target_sha256": "e5a199e6b83ca48f02e3808a4e77a751a3a37182eccacb9303de9538f3646266",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -7571,7 +7571,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/tools/handlers/mod.rs",
-      "target_sha256": "ef671057b4b82a2ce8deb51e9eb93ffef057bc69e1ee76e4009e73949aa7c2b8",
+      "target_sha256": "cc5a936c68e08094c7d0efd9a15877bd64725066b2b124e061da29d947e350cf",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -7598,7 +7598,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/tools/handlers/multi_agents/spawn.rs",
-      "target_sha256": "0b559e6c89cd4c00c043df94e33337cbd17ae4ba4edfda747a7fbd85c59f3bce",
+      "target_sha256": "cffeff3e7e9ff920d6a2d0e2aa929204227afc544a9a41cfb6b56941f5099c90",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -7625,7 +7625,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/tools/handlers/multi_agents_common.rs",
-      "target_sha256": "a6e36ac65f6807fa8be77d043d7197449554c18c51d1d89cb76714c48869af27",
+      "target_sha256": "376a1b8acf5b2b48fb464698ad3f54bb4e7e2413a0728daa853b319c61b89f17",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -7653,7 +7653,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/tools/handlers/multi_agents_tests.rs",
-      "target_sha256": "8265e3cd62bc515245761bfb2333aa17584b27fb043156ab78797788b9f3d1f3",
+      "target_sha256": "017c807d8ecbfe67407142dc2031e396332feaa04046a917a72971d63cbcfbb5",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -7680,7 +7680,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/tools/handlers/multi_agents_v2/spawn.rs",
-      "target_sha256": "3ed5b778b34e51360092f18f001dbeea10c9a26f556649eccf34052e35a06b9c",
+      "target_sha256": "2a8c4093f8d26a373c79b5ee9b3d326c719fb21b5de3a9351365272142b8b78c",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -7734,7 +7734,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/tools/handlers/shell.rs",
-      "target_sha256": "4934f85ee636e63c7bed4ca2167c54482763c3b301bde0abb794e41b8c6a1290",
+      "target_sha256": "a983cd4b60b10f83bd08babb570eaa487c2b6a25ef9d42c7d812d6176d8f4160",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -7977,7 +7977,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/tools/handlers/unified_exec.rs",
-      "target_sha256": "7941cffb775ff1c2dd46d7fcefdc5e3d3701a466b7fcf305161b892384070534",
+      "target_sha256": "acdd9d801500be041808a5c9fc356812512e3e1327801d37e65c0e554c962f8b",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -8002,7 +8002,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/tools/handlers/unified_exec_tests.rs",
-      "target_sha256": "31aca6b31632977b09cf17d820f56f4db8a7d548d128ac586e7890eefa74a8a4",
+      "target_sha256": "6a7aad7b69a097aaed2de57981c743c6d5e2f6432138b7f154534bec7853b71a",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -8029,7 +8029,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/tools/mod.rs",
-      "target_sha256": "70017fc7f721a4b8e9aef5996e72dc5f2f62f4f5500afc824447db557429ca20",
+      "target_sha256": "04858dbc5acd8a253ab9f52fb19445d384cda0b057946d84c1ec31e125dbfc49",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -8055,7 +8055,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/tools/network_approval.rs",
-      "target_sha256": "13ece583219353aabe75eecb8a666e4f59cdbc57eb7d438b28e060409dff61ce",
+      "target_sha256": "fe08a0fbb32833538495fd370e550ac15d003db9ce3eb993e77db8a3812c6dda",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -8080,7 +8080,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/tools/orchestrator.rs",
-      "target_sha256": "46ed86ac5ed3f25a2f3e043861847c1369401ba8232b68325643bf456a244f69",
+      "target_sha256": "07cb09967e5c31b245b511aa11554fa6d828a3a499ce50e7b42c7b354a1f2657",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -8159,7 +8159,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/tools/parallel.rs",
-      "target_sha256": "fc71a35e5056c51380c81679367eea21b9df75d86d8189922ae35a05f9b9a806",
+      "target_sha256": "2eb773163bcbc007ab42e2c9221cdc4158568da534c9c3bfe8819d80a8cb23f8",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -8214,7 +8214,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/tools/registry.rs",
-      "target_sha256": "345d4170b815f6186f2998f2695cb5a39f47d3ff9802c95efa49938427653412",
+      "target_sha256": "bf5cb173ffe783cfa5670064a37aea2e9536085c05a5a9a33b5fe72c3c57ed18",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -8239,7 +8239,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/tools/router.rs",
-      "target_sha256": "7862dd055bf4be4febc4b846cf33e04073cbdb7d1a69611115dfcf71f2203ef3",
+      "target_sha256": "ea96f7674b3d21eb547b91ab7f004e028422a4e8670427d3106aaa2f7938d8bb",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -8266,7 +8266,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/tools/router_tests.rs",
-      "target_sha256": "683dc6620fd931f61b8ecb1828c727f267fec9241f37c2fde7ff32cb8df656e0",
+      "target_sha256": "e3bb21d576703ae69504f9dd5a819adf5bbb4837d966082ee9df02c13d5eb814",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -8292,7 +8292,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/tools/runtimes/apply_patch.rs",
-      "target_sha256": "d7ebc28a8da7ca3530a1bf50f323cd8a722c004a08fc413881639e440040f2ee",
+      "target_sha256": "15fad1db66b8b5679d4e55cecdfd0abfbc8691cd7b1e9d7547bf65d741138a98",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -8342,7 +8342,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/tools/runtimes/shell.rs",
-      "target_sha256": "feca751342375420c8bccccb686b83af8d8db1ac01e6e031fce17ebb3feccd9c",
+      "target_sha256": "ddd2dc1489b0fab13fd1c99a35954b9b82d8da454e8d0553546496bd8629836b",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -8368,7 +8368,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/tools/runtimes/shell/unix_escalation.rs",
-      "target_sha256": "22185e29e14583139bf79035405e25a2ba520ab8dcdd9bb352d411527a0a48ef",
+      "target_sha256": "9a7e384294499e92e44777c2524f3a99360790041edc0d72e755fd9cd4a5c61d",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -8394,7 +8394,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/tools/runtimes/unified_exec.rs",
-      "target_sha256": "b3e299ca60d5f959c2d332f66c2f2552173aaafa845837ad91d18f1f63151106",
+      "target_sha256": "d13440c215a1deff99e68508330e192ddfca6076a4a2d0fc17e99e03a3cc451e",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -8420,7 +8420,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/tools/sandboxing.rs",
-      "target_sha256": "a0bdada42e337b79c543fc88f05384805133f971e5b09c7d72d7335b629dffd9",
+      "target_sha256": "19723d61144d3d794dd53e39f3a960d5bcbf2784b2cdf6c5ca51a5ede181a457",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -8689,7 +8689,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/unified_exec/async_watcher.rs",
-      "target_sha256": "d1c73d4d69c60d2701ded9201b77a53ba176efadeacaeeed78841871bc915acc",
+      "target_sha256": "2ef93cf7c89a92c36b2f2993c20a1cfad41d54275ea9dc767c7bf9307bb4be8c",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -8714,7 +8714,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/unified_exec/mod.rs",
-      "target_sha256": "7b1d20dfc45d177a001641c508c170a14a58faadb880d151f0da85d9efc3ca28",
+      "target_sha256": "38dbde1fd601914afa3f042bd7eb4cd28115c1fe6aafd588b62bbf3580a62106",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -8739,7 +8739,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/unified_exec/mod_tests.rs",
-      "target_sha256": "644966773ad6613145367a2e3c534b81ea77c38062c54739fcc3e63ab83429db",
+      "target_sha256": "82a6d6329435c18792cc73bb8f2caf44022274a88a43dd274ee20448a32c8326",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -8764,7 +8764,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/unified_exec/process_manager.rs",
-      "target_sha256": "7b562b43304bce5fe7f00737598e4757bb920304fdb1de1d2f952db9c542f339",
+      "target_sha256": "a5ad50d2c0d11a214e4fc51c5dedac4370e3aefaa5a5dc7544e5088bdbd0f499",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -9251,7 +9251,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/tests/suite/approvals.rs",
-      "target_sha256": "04bf9b56f9610d855eb6ce7f4edb8291719c464249c3053a8ede82935d272788",
+      "target_sha256": "85590cffba23c68b9fbf363f38b5ee7cfb034d67923e282f61243bc65ea98d60",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -9496,7 +9496,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/tests/suite/client.rs",
-      "target_sha256": "8055bbd238a25697a960ab2905f1a9b7925cafd12055c3f790c1b4da354e1ba3",
+      "target_sha256": "79ddbfaf279a747e9cc9bf75e5bdf5b33eb7dfe3c9cad2077486c66044c6a1de",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -9521,7 +9521,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/tests/suite/compact.rs",
-      "target_sha256": "ec4665bc8374ace0ae68cb838722e0a217ce40e01aa99429aa1c6f4f3214bc27",
+      "target_sha256": "0bfd7e723bf3e03f9ed45f5f499381c73f551d03f2da2770db4d301367fd19a8",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -9548,7 +9548,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/tests/suite/compact_resume_fork.rs",
-      "target_sha256": "41b063297269752229f3b74779c63a78c5c31aa6e38d2c2078bfd3cd277aee2c",
+      "target_sha256": "dd05213b30c1b30fd05694e0d1393b959e51d0c413cf514cf04eefa1bdaf5c57",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -9600,7 +9600,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/tests/suite/mod.rs",
-      "target_sha256": "2aee256be98bd46dd2c6ab4560ff57d1984eb118ff50081d1ae7ada64fa96508",
+      "target_sha256": "d126e1aa09282386676fda3bc00d0b26c57c4b60f14d2592ae44a51267e27275",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -9677,7 +9677,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/tests/suite/request_permissions_tool.rs",
-      "target_sha256": "f1167c78947b2bbde15068b99354f2d2ab5fa5f5c0647f488b1fc6a6c475f4e5",
+      "target_sha256": "24a493f1dbfe1f507aa0199f35f8b1281624b9de94c164b1c6b461f355232796",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -9702,7 +9702,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/tests/suite/rmcp_client.rs",
-      "target_sha256": "0072e0b93430273080487c4de488047786d6a4c77bc1c44f9d5bda984fb862db",
+      "target_sha256": "08c888379e86c9f66ce0decf0b590f40e44a6123475ad4dbca504b7ac655a341",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -9754,7 +9754,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/tests/suite/search_tool.rs",
-      "target_sha256": "f37cfab332935d01e6e40f94e4727de9dd217a0b7ce0eae8abbe824b6858fafd",
+      "target_sha256": "bc9c99da68b90ab4b871aa7a9aeef80579e8398d3ff28473fcaf59d1b6661de6",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -9779,7 +9779,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/tests/suite/shell_command.rs",
-      "target_sha256": "17fef36bbc4d7e9ed27852f2343bdab01717ce3fb7311d84692b2c923c0c46ef",
+      "target_sha256": "f66fa16cf4f178cc5840ac63df8cbf4998605b4409edf4ae9807148244c9ae92",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -9829,7 +9829,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/tests/suite/shell_snapshot.rs",
-      "target_sha256": "6d71144974ed937e1798b102f3c8e347b55cfc55da8ee929265f881bbacfd282",
+      "target_sha256": "1507374aa49071815c9c860710bfe9f1c7afe95aee8ffe82819985bc0bb671d2",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -9856,7 +9856,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/tests/suite/skills.rs",
-      "target_sha256": "67d919a324a53d5a16806514412ab59ff8c48737118f473d37b24666d3676175",
+      "target_sha256": "1af4287d0b656aa88c0122fec0440875f82927364e401e6e8bc1f140ac1a3e3a",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -10364,7 +10364,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/tests/suite/sqlite_state.rs",
-      "target_sha256": "6c928c3eb0dffe2651ca459370ef4306ee08b86003207df98e82e9b6c0ceea3b",
+      "target_sha256": "5926722bfecb2c6f94e0a2bee9d3cc5ce98ba9932a49e9ce541dff834dd6497f",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -10390,7 +10390,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/core/tests/suite/subagent_notifications.rs",
-      "target_sha256": "77c0ea41fa4af9de6cae817cedfa05274630594edd950eef5d3433cb9f359165",
+      "target_sha256": "cbd2e4ac57b6e33d3678a700628d7f491e6d8ccb91ea156ddbd465434b54b283",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -10467,7 +10467,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/tests/suite/tools.rs",
-      "target_sha256": "bfe6b5a4d36ae920dfa36b214a7ea904d4039e8bd2371ba86f0e52e806d1e371",
+      "target_sha256": "a912ce9388a0ea55d8518a5631947c64ebb551d706d6911ba43979e69b90e091",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -10492,7 +10492,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/tests/suite/truncation.rs",
-      "target_sha256": "b64f615c29ab1492b605303de950e1d99d4ae153b4a60ec762918056aad1796c",
+      "target_sha256": "f4384b9d708b2b1efc53444bf192952b47eb5c8c989bc3d5b8c786559d163666",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -10517,7 +10517,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/tests/suite/unified_exec.rs",
-      "target_sha256": "6b464964eaea0b9dd0738989d1b07fcf735ff62e6250abe0d06da260a65f7975",
+      "target_sha256": "9d2c4f0a8aafa395c909be5e0b08c5c9aa9ed39b3106652001853bdf4c532148",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -10642,7 +10642,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/exec-server/src/server/transport.rs",
-      "target_sha256": "29a32a1cbb779533543577d2f847a1a6e596f6a50f382c6dec0eb89bc1068168",
+      "target_sha256": "14096e40052e4dcb4e5fa361c73ede0b9f87115053a3569b496f7f79273166fc",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -10670,7 +10670,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/exec/src/cli.rs",
-      "target_sha256": "e60d93d09929b1e03f62ecc04db363faa9e791f87b2ddf030d2102a3400c6566",
+      "target_sha256": "c928cbe54c3ad12b09852b53048b5c7cdf66ca089963e029a503893cd880f1b4",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -10697,7 +10697,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/exec/src/cli_tests.rs",
-      "target_sha256": "68a2e6bd18f023b5788f698d8a88dda289ff79e4c26fa87042314d771af9713d",
+      "target_sha256": "4a2f65eb06823ceedbd499ab16bd02b206c433200b5f36386cd6af018fd6bc73",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -10770,7 +10770,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/exec/src/event_processor_with_jsonl_output_tests.rs",
-      "target_sha256": "9338379898eaa7702885a70f53ce20c1b17aeabc2f0ca12642eff95de1cb21f6",
+      "target_sha256": "f881e89b9a41bf73aa0998d2c154b13367d90c3ffae68e61bb9e15bf0974056b",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -10820,7 +10820,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/exec/src/lib.rs",
-      "target_sha256": "b549d4a699f549452cc9565e62a44167350233b2b91dc1fd32116723d7f7335d",
+      "target_sha256": "52d801c747c18524b42552e9da9080aa43e8eeb04b368570bb0bbfc601f613ae",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -10847,7 +10847,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/exec/src/lib_tests.rs",
-      "target_sha256": "54e35e195d2cc58824273e60e78acf25c2e112f8a831d1b638e5b66f664a280c",
+      "target_sha256": "f5e0ac73a5741938932157158e0821d8ec4105118b73791b93e94cdc63d7af6e",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -10870,7 +10870,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/exec/src/main.rs",
-      "target_sha256": "28c10b39d57f050de64fb4a40cc3501da2076029b2c920a9b43f5fceeccdcdb4",
+      "target_sha256": "eb0e7e5d241bc120960ee2eed44d27481c58211447acd361aaca5c092fabafd1",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -10894,7 +10894,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/exec/tests/event_processor_with_json_output.rs",
-      "target_sha256": "83f9118b68cb8886168a5dd3e50bd8c18c27a924147e60322c1b7cb7c8a2b015",
+      "target_sha256": "c20c357a77efbf5fdb0d13ef3d5b3d76127683c50be2f8d1d46269bbefc64980",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -10919,7 +10919,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/git-utils/src/info.rs",
-      "target_sha256": "7898247540ba664d33ab355a52a0bbe628da8f606d3d1cfe63773352279e8661",
+      "target_sha256": "95928934db1755991ebfa64376d4030ed353155114d043a98b4621d4087c3c27",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -10942,7 +10942,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/install-context/src/lib.rs",
-      "target_sha256": "bf763a7a4b0b123751a28110919db597c3a3a7cef27b35d736a371e9d4c810b5",
+      "target_sha256": "c897e34a308f6d6eaca653477d4692b14ce806d4ce51d6da5d0bd8d648e1514b",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -11088,7 +11088,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/login/src/auth/default_client.rs",
-      "target_sha256": "cf49b0d5d7714354f23edc5340155a5b8770fc050996ed0c4c634cdb83318cab",
+      "target_sha256": "38a88044b1ca1840f4f3514e3c278065dc1f279f736a09e5827e6ef89091ee33",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -11183,7 +11183,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/login/src/server.rs",
-      "target_sha256": "cd6028cc3228be180552ea4d7e9149fe5cb092016e26f5eab997f58fc07652c3",
+      "target_sha256": "c93e0bda0d9ed7003e3935982c2432303dcadd5714ef5721394f4aea57d83202",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -11207,7 +11207,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/mcp-server/Cargo.toml",
-      "target_sha256": "b7a1019cda1dee6cdf20890f478d5f5b53a4d7309d81346a0a5c72c0ca12fe4a",
+      "target_sha256": "0ebccada2364be3fb7003c8444b000b03911f204c637bdf52fe378c4e6bed46c",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -11232,7 +11232,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/mcp-server/src/codex_tool_runner.rs",
-      "target_sha256": "73c2d5c4c508d9eb44ea5159dda2a1856fc5483c350c42f9b0ace84784a85594",
+      "target_sha256": "2b509d0bcf652893c8d20c47010abad8164f2ca800e371933ba5ecd0d7023d39",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -11282,7 +11282,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/mcp-server/src/message_processor.rs",
-      "target_sha256": "b1987f5635ff85087f6db40b1da81e96aedcedddada251e0d2e9def8d9a44b2c",
+      "target_sha256": "3ae38582fda8baf901e6e91720fcd4c97ccb5f11c630281acf4c068bff86899e",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -11307,7 +11307,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/mcp-server/tests/common/mcp_process.rs",
-      "target_sha256": "7e7e58fc53c7de500fa811338ae9a29e573da4ee4e70a1655fa5db113c38590c",
+      "target_sha256": "e437b90dac12fda18291c79d326c7e1a41974d7b208d65bf17b1c600ba143fe9",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -11333,7 +11333,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/model-provider-info/src/lib.rs",
-      "target_sha256": "000c56aa62981de26fdbf241b1c482a10233c56ec9a7aea6d8d2165d4461cb63",
+      "target_sha256": "12ef4e32bb47b44baac517848e2e07c6ea660250fdcadfb8e37e42b8121eb53c",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -11358,7 +11358,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/model-provider-info/src/model_provider_info_tests.rs",
-      "target_sha256": "1880e7660e5303068e15429bb80f173379295bb96d6d38d29014419355985e9d",
+      "target_sha256": "65309db91ff58533bd16a622de4cd4f202e6bf15f492e324ef43880a4d8d16c0",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -11383,7 +11383,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/model-provider/src/amazon_bedrock/catalog.rs",
-      "target_sha256": "d41a64b26c8888d5fd13900993221973b7634aa39ac5e9da9b5d0761eac97079",
+      "target_sha256": "ed8bfe5631435999d04f70fc0f7dbe44f5092e6a803e57e7719beda8b923ce7e",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -11408,7 +11408,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/models-manager/models.json",
-      "target_sha256": "20c93c0e11b1fd1be7595e0f533e9928453cb5565716e2325bee438731f1befc",
+      "target_sha256": "384ff2e0ca67f65d2866e422e2ec7dfa5ed9e3fec7a84fe14005247a7087a302",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -11433,7 +11433,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/models-manager/src/lib.rs",
-      "target_sha256": "f1e1263aac68bf14fe02b2642dba92c323c7c70d63e47b5b7f6c88a0962b4e80",
+      "target_sha256": "b31b6e8fdaebedbbf07999b27c02201020e8d876ae293ac05a8fe4bf051244d3",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -11458,7 +11458,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/models-manager/src/manager.rs",
-      "target_sha256": "30a9dd8d81a3273d37b34fad0f75e05421737a5aee8715a15416599dcb656708",
+      "target_sha256": "00a120284c6b1c6549fa39ae938a72cb6cfd40f683878fabdcc22f9216799f9c",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -11484,7 +11484,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/models-manager/src/manager_tests.rs",
-      "target_sha256": "fd1af3d16e7e1dce536f7cb95a3c58f16895c2fca62a11c8ce7c1c816f857101",
+      "target_sha256": "80272301c765a86b2c11c0cb017343c7d2a699d83aa40f3b9442a505b94ba9d2",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -11509,7 +11509,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/models-manager/src/model_info.rs",
-      "target_sha256": "da02554f893b208cbf74684ba2cac5144c0921b2347b0b21b3688bd4bafe3eeb",
+      "target_sha256": "c44a7c52662a59ab208af481823669495ae4e9f70a3af0bafb734ecfdc169851",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -11534,7 +11534,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/models-manager/src/model_info_tests.rs",
-      "target_sha256": "7fdaafc640d96373eb3b97e93b60d1cc4cc5b9b812821207792558c326c172be",
+      "target_sha256": "00f9d5fd0895a7e0cc25ce8366a8e3f40493c37f8f89c7b18080c52330bb6586",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -11684,7 +11684,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/otel/src/provider.rs",
-      "target_sha256": "69ac8cb14c4f64b36076fa7f83e7f8f9336c85fa786df817dc360d343ed9973a",
+      "target_sha256": "2f76a2f62dbde7d67cb6434b687189f7c885cd44b7c08c1a857645480db4acff",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -11711,7 +11711,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/protocol/src/config_types.rs",
-      "target_sha256": "2f2e73a01ab40fcf3fc4b9a40acba2462a7116ef2a927a7defc343c8597b577e",
+      "target_sha256": "3192c9d1b433bee9c0caec20234e3a467d32d0f45c0bd6bfa0affa953e825e9a",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -11736,7 +11736,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/protocol/src/error.rs",
-      "target_sha256": "f681071d583597333261cf3c4858d96094abfc7e381841e42e8c8c4e04ed0abc",
+      "target_sha256": "5f2c8d48cdb642cbdee9c87e41040c6b59c8a2885f6debd418d67b8ff2eb46e5",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -11761,7 +11761,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/protocol/src/error_tests.rs",
-      "target_sha256": "f247ef2e3acf5daed1bb27e3d7bb5c047b3e09bf226dd566bd55866521b3b881",
+      "target_sha256": "1f552a6b7ddfd2e37a0192375edec04c3ed186d886dc778ae1983f884e3d27af",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -11812,7 +11812,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/protocol/src/lib.rs",
-      "target_sha256": "d85ee7d4ea4e45d32fac79e56349b084aefa3c343e26b68b05e70ddaf48da80f",
+      "target_sha256": "3b53e8b7bcf53f0df86dd3ebb550a07f1af24a8b6e91d5e1dece59ccea45db89",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -11839,7 +11839,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/protocol/src/models.rs",
-      "target_sha256": "0ed8dc90d55b428775b6e22c9d574852822d9e5eec7ae3d69140456d6c9e9dd9",
+      "target_sha256": "d0c9c22c8782fb58162c3560cf6e79ac6e00205d1868586e0a05417063a6df05",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -11865,7 +11865,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/protocol/src/openai_models.rs",
-      "target_sha256": "263223d3d490560e908ccc45f5fa12fa69b3edeb4122145733c11292751266e3",
+      "target_sha256": "9b3e36087f1e14929f8ced0bccb87a8a0097b686d79c953fbbec15ba17d839c2",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -11891,7 +11891,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/protocol/src/permissions.rs",
-      "target_sha256": "e033abce71662281eff5df252f08c75a8ab4a3d1f34ef291e0a5bad937883d64",
+      "target_sha256": "f80bc0ca59d2a5847c67a21ad0780fe82ed94d2bd8d1685dd4bec7dfdc022ea3",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -11973,7 +11973,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/protocol/src/protocol.rs",
-      "target_sha256": "ee77ca873f8c60af31ed93fdeef368ce9229ea940edfedbe9db9c3fe35e1488e",
+      "target_sha256": "6de87633a0a2aa55377d073917e18cda5834fa0841be6bae2c0846d8e7739cec",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -12128,7 +12128,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/rmcp-client/src/bin/test_stdio_server.rs",
-      "target_sha256": "d371dc5f84879f5e4e899d1edeb8b8cf5555b7cc4451aa4a0d7763f2b7ff3d10",
+      "target_sha256": "b5bd487e4c12851b767b0e6ec9374393c2ad356a82dada0b167a17c89b0ec1e5",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -12154,7 +12154,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/rmcp-client/src/rmcp_client.rs",
-      "target_sha256": "febcb60762aaa3e9d586fd4d2e919fa30d047540f23d11d52b71437a55fa756b",
+      "target_sha256": "5579e61692ac3beb77ae2e2cf64910b71d02a3066cc33ec02b7e6b1a8d8a3ab8",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -12180,7 +12180,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/rmcp-client/src/stdio_server_launcher.rs",
-      "target_sha256": "9e0d326a5c28b7e93f1be007a5064582db15973d60f48c70d4bec2de590671bb",
+      "target_sha256": "6fcd93f2c56650748016303f8efbc5835e2166edd701b95d26e082d8d3d40604",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -12206,7 +12206,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/rmcp-client/src/utils.rs",
-      "target_sha256": "e05bfc224cca9533920fe17ee08dad0c18c26e989edcfec7ddb19565a616ffdb",
+      "target_sha256": "f91d217fae4834d677c9242774f22866d7323ae866cf352394b7103ab6b1beee",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -12337,7 +12337,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/rollout/src/recorder.rs",
-      "target_sha256": "ca3a307a819fcaa59f72d73fee3a4f0d3023658598ec72b928a49b380cb5e3eb",
+      "target_sha256": "322b3be372aa02056ae8d6896cf112a572aaf3de4bd56a77c90d6a4b07b9c6ef",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -12364,7 +12364,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/rollout/src/recorder_tests.rs",
-      "target_sha256": "0264dcace1f3c40a7b9f600e470eaa71489127dad65511e4917badf0e2210754",
+      "target_sha256": "44a7c97e9ad21344a2b258987cca64f67e15e217eab8ab0704ebd5cccf7445e1",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -12391,7 +12391,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/rollout/src/session_index_tests.rs",
-      "target_sha256": "73b7e2645819e78d67fc939004289885adc7611b4b755f3bd03b7ae0a0ef3f27",
+      "target_sha256": "dc20f40395510e490cf42c756fab74a699ab646cde9c2ab5f49ef816112e3a34",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -12418,7 +12418,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/rollout/src/tests.rs",
-      "target_sha256": "bb7435fc80bf5acf72c41c2be60a27a1c6ca82183be9f1596955b10fa2e9ab60",
+      "target_sha256": "d1aa1608897cbe9e8f8f800222bdec7e2948a96126d23a75e2fc4504bfecc48b",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -12540,7 +12540,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/skills/Cargo.toml",
-      "target_sha256": "9638616fc79c963ef3fe7ab62d2bdec0bd5fb233c704e428f336589e7010e4a1",
+      "target_sha256": "099f2da853fa6853df18b7923ccd55b6bd1374af7741fd6156ec84b7765ae086",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -12595,7 +12595,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/skills/src/lib.rs",
-      "target_sha256": "f838c835040239ab3164de356423eb4175bfd3249b76eb377328885500fbae5b",
+      "target_sha256": "1c8537274dd60c6027b42e9798ea7492da55186cb86da8e877a1b5175f0814a2",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -12622,7 +12622,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/state/Cargo.toml",
-      "target_sha256": "ce7da1c0c8b363e501ec7900ad608f4d28baea1c7361745fc5dc7eabc8aa62e3",
+      "target_sha256": "05f5b72e1f56002e257b88f73d71c67fa411bb38332c77215f3bd5f37cd4f0dc",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -12700,7 +12700,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/state/src/extract.rs",
-      "target_sha256": "f8ebce754f570e9d243694d4d29a9ba243e29c1ba23399820e1f342e8a8efc19",
+      "target_sha256": "5a60d74da7ccb8c843c003f85713a0752fd01ae7cf03b2330335c388721930ce",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -12726,7 +12726,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/state/src/lib.rs",
-      "target_sha256": "3a2f4eec79a911cd5dd1f5ac6a7977901eabcfa51d42d0916430efe94a81535d",
+      "target_sha256": "c655e233f529d2f7e698c3217ac1a6509b86bf8ac272e06c557a7f574128b042",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -12752,7 +12752,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/state/src/model/mod.rs",
-      "target_sha256": "79921fca540beafc20546fcb2e9317497af1745f766a85ce482641914d3a849e",
+      "target_sha256": "045d73e6bdbe42ecf713194f76aa5380f10fe02b3fb341c29b5912c32945d96d",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -12804,7 +12804,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/state/src/runtime.rs",
-      "target_sha256": "dbb7ef33cc74b100df57ccf620618fd1facc9f7e7253b070f6b8ca2175611568",
+      "target_sha256": "f30b9a3c6e46e430999f06d128771f37e02c370911d0b7e384469a64058f33eb",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -12908,7 +12908,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/state/src/runtime/threads.rs",
-      "target_sha256": "e19c5d7f0098391f71b326b434e211778ef691a4247917ae07d07ac6144f834e",
+      "target_sha256": "a0d6911e1828cb79a0aa1a34172997915eff8e0074e4013c3e01c67782d50498",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -13037,7 +13037,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/thread-store/src/local/mod.rs",
-      "target_sha256": "fe28071b5b2706715393efd82a92f10edce0469a7f246fe5f796f5a21ea35723",
+      "target_sha256": "4fdab635243d0bde4e0a56d7ffcd9714490b864505f28d6a3cfcadee3a7acea3",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -13063,7 +13063,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/thread-store/src/types.rs",
-      "target_sha256": "5e803fee3ffbc84c471d8b424191d6f7e3841b21b2d3f720535728b637a074bf",
+      "target_sha256": "cbe3b42bada7b74ba793800aa73bb153cdea74a178ec7e6c3c960e5e33880a38",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -13322,7 +13322,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/tools/src/lib.rs",
-      "target_sha256": "88407686f95b731bc58a443f7f87114658ea2f9d14e7140c0c7016721ef3824a",
+      "target_sha256": "a98a849f29a7eea35691c9d310d51a3ef7401e1fefab39e23bf72d1de83bb328",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -13456,7 +13456,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tools/src/tool_config_tests.rs",
-      "target_sha256": "bfe00716323a16a0b0fbb78cb54239cdb310d5c87d3a07c1963a7ea3d35f1bb4",
+      "target_sha256": "41054b733fe13502f374d946191fb6217241be832374b929f596c389fecb5bed",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -13564,7 +13564,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tools/src/tool_spec.rs",
-      "target_sha256": "b9f8cb4d2bc0f7654aad49ad608c884c8cde5c3cd866d99a1c450250809aa903",
+      "target_sha256": "af8b5286fb6d2eb3574c484b25076f515bca2d4350ecb5059e436966ecdd519d",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -13642,7 +13642,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/tui/Cargo.toml",
-      "target_sha256": "8f44d2c3213713a77fbbed63e3d15d8ab5a7eb7dbd75e6b4ca00639546081a47",
+      "target_sha256": "b4ae4a951f0ba6ccabef89f61b75439217455532ca96dc3d5b8baef27bf51ada",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -13695,7 +13695,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/tui/src/app.rs",
-      "target_sha256": "a892514ca7b28861b11d83af13e5f36a4339bea88d26ed2efab10dbbb5eed326",
+      "target_sha256": "af56e66db061d62b9703d796f8c48e185fc6dde00d16adc20ccd36d80801f358",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -13772,7 +13772,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/app/config_persistence.rs",
-      "target_sha256": "80a2a95946f5f14a628be9f92272289e31eb9bcb1fdff31b62fb122f8e5bc08e",
+      "target_sha256": "83ad0cb11211789067e1ff9249f2243dc0bd9ef700a6a4371a72e6da2c8bfbd0",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -13797,7 +13797,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/app/event_dispatch.rs",
-      "target_sha256": "39dbb2b372a190e2401727825ce2469878b37a1e4dfb6b662578dbad12aac3c4",
+      "target_sha256": "56e141a02d98c4905670addb958dea3fcd65aa87f184baab0e5d8dfd0dfb903d",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -13822,7 +13822,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/app/history_ui.rs",
-      "target_sha256": "17dc10f547fcb5e22888e2e58b378048ae9a96d3627148cbed777798488ddae9",
+      "target_sha256": "25d3729375c0bf22655814e847ac94629636cb0a681132fdbd6626fa9d252ae2",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -13847,7 +13847,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/app/input.rs",
-      "target_sha256": "51044712a049c10bd9576f377c42981d923f3b903de1618e4ab26c1ad3324e55",
+      "target_sha256": "f8257d38e595fa97d38ea7a7a35c9b6d675c619d58c35210bd7acf732fdc740d",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -13872,7 +13872,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/app/resize_reflow.rs",
-      "target_sha256": "a428ca0825c6425f81f51d5f0f752942b4b7c7e6bba734e2d9c7305fc25d8086",
+      "target_sha256": "10e2c22e00a4af5a3e009774474619d7e9935f719383402c814774c028b4fb26",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -13929,7 +13929,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/tui/src/app/test_support.rs",
-      "target_sha256": "eeac443f15eb22e4288f9ab0fd70e1498891f5b57e831d500e23bbda4410a537",
+      "target_sha256": "abeaaba9da8475cceae7607aaea6373959a674809ba568a47c993e349f55830a",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -13956,7 +13956,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/tui/src/app/tests.rs",
-      "target_sha256": "7e7b18952fe1756473962cf6578b857fdc8b333e91888bbadec7aa1030184b2d",
+      "target_sha256": "64e01dd554053f648df0ae05485be4bd2fc4914b2a99cc8f9b14566889d3f293",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -14013,7 +14013,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/tui/src/app/thread_routing.rs",
-      "target_sha256": "ddef85a2b642b38d16d06f96d2a5711657c7ce4f57ef9cc8b9ee518e54a0ebaa",
+      "target_sha256": "022cf1ff1d8bf425b149ca01889213b8adf594145e7c4a4e3ba2aa5fc98afed9",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -14066,7 +14066,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/app_event.rs",
-      "target_sha256": "7f037daf18246ec6418ea2c5bdd629c9ac1e0543c5ebfa69567ba15d5fb9ac0b",
+      "target_sha256": "d2f771e4e64271949332743152ba8b66de3ae23419784a451582c75aff818704",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -14118,7 +14118,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/tui/src/app_server_session.rs",
-      "target_sha256": "97369b214fb1235e6b7ec6d010092a661e85221f9def659e47aa2d50c4d6a69a",
+      "target_sha256": "f1dad1ce65c43b6a48c93e12c3169fa17c26261ace86a5f8d97c9081dd1a2f0b",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -14143,7 +14143,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/bottom_pane/approval_overlay.rs",
-      "target_sha256": "efd72ad25f9729b0811dbdbd307605164b66f0376915e6c7044e6df40a51302c",
+      "target_sha256": "610224fb7e12f0480ec1e642bb5011d0021b12c88800ff511a2b9a516aa2683d",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -14168,7 +14168,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/bottom_pane/chat_composer.rs",
-      "target_sha256": "4ee12712c55e437ef50221ea4cf53d9bdaf982597ad050e69edec54c0e41f547",
+      "target_sha256": "8ff4b29c82582393f534e86a4d574ec19aa665eb98b99681afa4579c039d4c51",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -14267,7 +14267,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/bottom_pane/list_selection_view.rs",
-      "target_sha256": "d5e347ddaa6e008b8c6d42c1466f6d6191a8ee3f98cafdc4a0d902793595881e",
+      "target_sha256": "728628ec6cfc3e53b43d654176a9f9d4227e3f7b1154a2a628c8aa6549d5223f",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -14291,7 +14291,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/tui/src/bottom_pane/memories_settings_view.rs",
-      "target_sha256": "49103dd952eae7a0cc5a50cbb4a04f25f2c1527f1e335b5fa5039e35a47824e6",
+      "target_sha256": "5150a40a8c69033d078077542c808c7837f6618ce7f0cea39f3ffd213a593214",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -14316,7 +14316,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/bottom_pane/mod.rs",
-      "target_sha256": "85450cd598088eca66538706fcc08464fdc4696816e4e053b8fc20972b9c2893",
+      "target_sha256": "89f2e5294048104c6f37ec1f6b31619bffd0f5dc21f0845763dcba374b0ecc52",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -15291,7 +15291,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/bottom_pane/status_line_setup.rs",
-      "target_sha256": "02fc00f6a9df41c662f2826781add8dc0f971eee8973df913e9a9d60df3dede9",
+      "target_sha256": "a533e14a774bcfe717b4e85f846e3fb7a744df4151da266da7b543226ae4fdc1",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -15342,7 +15342,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/bottom_pane/title_setup.rs",
-      "target_sha256": "61d449894d17daa69da23351076a30308858a527cd7b9c559e574e11dd6089a8",
+      "target_sha256": "6de107bcc36fe0e2306a972fd532df3aa598e10da313f87b2a35afab0cc80b17",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -15369,7 +15369,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/tui/src/chatwidget.rs",
-      "target_sha256": "09e62b4d0d596ca35c685461dce22ea132d476fffdb214f479194821cb55c141",
+      "target_sha256": "cca45af23f35609d244b05c7e2a64fc72b0c96e3a1654dc855ca2ce817088a3b",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -15502,7 +15502,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/tui/src/chatwidget/slash_dispatch.rs",
-      "target_sha256": "2e420bc295cb74ca1a815271622582b9c4d73e5f2db82d14791c030b7a4616e1",
+      "target_sha256": "ffdb85bb40a8715f5b0d98aa2d14f0d41ad3413a50641b5691787dc4a723c0fc",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -17058,7 +17058,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/chatwidget/status_surfaces.rs",
-      "target_sha256": "017ef6b628d5a65408e4203f99ce75b9c0c8fb4e89dea980cbfed990737c02b5",
+      "target_sha256": "9c4ce25cb47ff791160ac10af373335a25cf8f42df3c432448d2d00870d91ff8",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -17137,7 +17137,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/chatwidget/tests/exec_flow.rs",
-      "target_sha256": "e03c1c6ce6b5213821407b0135b57c5c78bbed41940949e74250a6af34924c48",
+      "target_sha256": "d66769ff8121b380e5e9018aa4428b49fb9abdd17027d5dd6adc061767438c7a",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -17164,7 +17164,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/tui/src/chatwidget/tests/helpers.rs",
-      "target_sha256": "e3cb08385d080c6efc41dd3fe8700c0b06dd43e43551e3d1380cc882be7ca968",
+      "target_sha256": "181d2640612e5b8843bc067b8867e3608fdb165d5e93b85ce71a68d640fc443f",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -17190,7 +17190,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/chatwidget/tests/permissions.rs",
-      "target_sha256": "61fd55e0d513cc984589bd14dba545786539bdcc9a0e8d0f3d13e0df31e1a83e",
+      "target_sha256": "192705f24d68a73d7e3100706bd82fc945fc491c9481f94d1d546be7499a15dc",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -17216,7 +17216,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/chatwidget/tests/plan_mode.rs",
-      "target_sha256": "e99319e8062cd4d1f0393110b3ce1364920778d91d7c19ed99edf4d96b63c823",
+      "target_sha256": "7e7c834deed6d07af6a435880934e79dd9f0202b56bc62721b57afe4d4df5f38",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -17243,7 +17243,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/tui/src/chatwidget/tests/popups_and_settings.rs",
-      "target_sha256": "b285e701481ece571328c05c3b16f05bbc7d0e872ee21eb1bb76fd9eec2c6be3",
+      "target_sha256": "8088a5028e502fa5ed067adf9766c90779de4363844ebb6c268e716f452bb964",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -17297,7 +17297,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/tui/src/chatwidget/tests/slash_commands.rs",
-      "target_sha256": "c2d1a52ed82774301fbb5c352e12d87c3a3d1365ad669e64bc7df2190ae30db0",
+      "target_sha256": "f7bfeebd45aef8c8eb3e12412a73eab974bd54b46163cd173b23aa388e5d4eb5",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -17384,7 +17384,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/tui/src/chatwidget/tests/status_and_layout.rs",
-      "target_sha256": "2598b57538447bbfd7fcc68a416bd5d32169cb19d034306712d29bf4611c03f7",
+      "target_sha256": "ad4a81de714ae9f8722564c737c0436c65a900d2a7ed567e76885a796547328d",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -17436,7 +17436,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/cli.rs",
-      "target_sha256": "d49a38475674c24a21691b65d330b5f5ca35396cc12971756cf06f7640d4849f",
+      "target_sha256": "b937adc25280d93ba570aae27527ed8fa736e96fe0776a624065f4112673f417",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -17485,7 +17485,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/tui/src/debug_config.rs",
-      "target_sha256": "976c0aac864c6c0e56681f2c923e94117d00e8003277453ba0bfe465a8732bbd",
+      "target_sha256": "aa112672531d97ab7ccc2201a1ad1fd09e6a7a48baa781bba941f03fbac67cc8",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -17511,7 +17511,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/diff_render.rs",
-      "target_sha256": "4d0937956112e24dc9b49c5b1a7e7e1e8e68e851447f0fed3b530051359c3b17",
+      "target_sha256": "da5a3158917d9b6bbd24918ef25fbbd132dfb164b492440ae717da6a695426b6",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -17636,7 +17636,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/insert_history.rs",
-      "target_sha256": "d3e1b4249f919a45214890afa0046fd1c1e0abd68135f0d99853aa8cd67e80ff",
+      "target_sha256": "c33afd737734863323a6325e0249d6e7b0514261a49f8afb3d5ba91ef5ba3d0e",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -17661,7 +17661,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/lib.rs",
-      "target_sha256": "9366d3378ae09257e9211cd64990a7f8604c62a9525c262f475fb53a6ff1ebae",
+      "target_sha256": "0a1683ed434f40d3084a70fbfdeb3bc996b0616706704fe5d0f52dc78b9011bd",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -17686,7 +17686,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/markdown_render.rs",
-      "target_sha256": "fbf1b60f825baffa96f3a0cabea936d409e8ca8d37dd5aae1959d8a0913f5572",
+      "target_sha256": "8c0d0bdb8d525542758e1651a467cd59b6b2c89e082df3061cdc4362d83d7c8d",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -17712,8 +17712,8 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/tui/src/model_migration.rs",
-      "target_sha256": "d4e9303782d986f84223f5bc5bab70cdd1a95c2a1111da217508884993d4b662",
-      "upstream_status": "unchanged",
+      "target_sha256": "ead9db3fca7bdab9fb5db3579b210639c4fe806973c685dcb98a267dbb3cac62",
+      "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
         "sync metadata validator"
@@ -17765,7 +17765,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/tui/src/onboarding/auth.rs",
-      "target_sha256": "9748cf25dc5c2d5da0f64e1d5eecdb7c7fe09802f02b7f80d3409fc5d95b0f49",
+      "target_sha256": "8279ea441cf6f41e8a1190d0bf9b6ab1a79022352efeb4a8b4a1b7fdd2b37d95",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -17789,7 +17789,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/tui/src/onboarding/onboarding_screen.rs",
-      "target_sha256": "b13f2ee97c82a176f5b76168032e8220c99bbc82d45c6a005fa07b5b8c34fae7",
+      "target_sha256": "e0705f203b682d69027f7c8ff31b5651a8ef4b0f165853cad3fc41c21606d123",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -17816,7 +17816,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/tui/src/onboarding/welcome.rs",
-      "target_sha256": "5b357db355a3b7d83369e291b623307683abfb223818c9157ae8f29583fe9c59",
+      "target_sha256": "2389bbbc37b80bd01a9b27e187b012316e9851e91bc801df1f251352cc6b812a",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -17841,7 +17841,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/pager_overlay.rs",
-      "target_sha256": "e2f30c49a9cacaf8351291e4574e1017681b29b5b4ffdd92b489c11f3ce35ecd",
+      "target_sha256": "f8add11860f74f52214003996846891493db160da731f80509eac0296e6fbbdb",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -17918,7 +17918,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/tui/src/slash_command.rs",
-      "target_sha256": "7570b475e1fc63da1c23f3aa6499c1342e9c2a6faa3788ca90a239932405a3be",
+      "target_sha256": "27581fdfce391ac0fd6d49bf2b04963ecf8b559c49b7bb4e8a09d7952227e506",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -18293,7 +18293,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/tui/src/status/card.rs",
-      "target_sha256": "815a54c16519ac07f9cd6c7944f39c378ed10c955124386348f50f4533c94edb",
+      "target_sha256": "5f357b5eedb3992c15d4c8c094dd1ab977bb45a20ae5bc6c18a833dc4cdcc8f6",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -18308,21 +18308,20 @@
       "current_sha256": "49b59d8c59f5986fa49cfe8f65f168e94b8f03bd2e10fdcbddea677f5e81bccd",
       "cutover_batch": "batch-2-substrate",
       "decision_basis": [
-        "target leaves the baseline path unchanged"
+        "upstream and Whale both change the path"
       ],
       "depends_on": [
         "batch-1-brand-home"
       ],
-      "disposition": "reapply-exact",
+      "disposition": "adapt-semantically",
       "generated_kind": null,
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/status/format.rs",
-      "target_sha256": "6d475bf42b2498cdb8e3c94be8f3f2b0c80717c4243dd4b7731ade8660ac6dc4",
-      "upstream_status": "unchanged",
+      "target_sha256": "2b93be554354e17ccf45d093dc163d5a54f572875c65a8b9c3946434528cf90f",
+      "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
-        "replayed blob SHA-256 matches current Whale blob",
         "sync metadata validator"
       ],
       "whale_status": "modified"
@@ -18344,7 +18343,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/status/helpers.rs",
-      "target_sha256": "7f39b5cbcf3b9c2484725e13de0872be02445daead4456046683d97afac203b5",
+      "target_sha256": "2cc41985fc2bf5edde33a1ab3a22f60f8959c1e93dc9230de4f308f22fe204a5",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -18756,7 +18755,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/tui/src/status/tests.rs",
-      "target_sha256": "7b539a2070eaf3fdf206f301131fdfb35bb7bf137d84d4a5ecfbcd76cd84eb8b",
+      "target_sha256": "5d403b933d0baa6d11b6b14b3638f787f147ee0c91f768301fc0f9c37f7d9ce6",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -18781,7 +18780,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/style.rs",
-      "target_sha256": "c04e8f3c62320034e25335f692c5de57245434d418e69b9cd00bc4cd0485fc6f",
+      "target_sha256": "b9c46387e8edd3fa3de44657d4c0827f608ee0524d965a7fc6f26575d4a52b6a",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -18854,7 +18853,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/tui/src/tooltips.rs",
-      "target_sha256": "1540b00fda749559c0fa738668501f753f499d9dd2518a70f72a0369a03d7c2d",
+      "target_sha256": "5a41253c57123e5616e3d27e8dc38f86093bb3df35b69dbc6b2574567270ca1a",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -18879,7 +18878,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/transcript_reflow.rs",
-      "target_sha256": "cbe22f9b9c21d50e232328f4d0f6320084b861992de1dc58a29ae4af14b4924c",
+      "target_sha256": "f774869eb5e0117fc4ebee3e5fee2386a3e5cac4e17a8987d173eae191532ec7",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -18927,7 +18926,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/tui/src/update_prompt.rs",
-      "target_sha256": "0d479b30ad124c36920096c4887c0612c5a08c85ce6f02969920ac2ccc02e97d",
+      "target_sha256": "0c41032f69be81b949a711742467050e5711ee3b388646eb606d9b4ec9ac5dd3",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -18951,7 +18950,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/tui/src/updates.rs",
-      "target_sha256": "c08f157c07a3c4a2e8fabef8d5e6714d8e6cba696f2d2a247eaf9ab7d8688bae",
+      "target_sha256": "b3b68e4adf56a903d618bd583e5182e065d80648cedd8fa630bc01e0af1fa42b",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -19002,7 +19001,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/tui/src/wrapping.rs",
-      "target_sha256": "7099b51aced57fe4ac700403caa554579c59269d6cebc21e0d99dccb0ce2d7b5",
+      "target_sha256": "2a39d05e7a1e817d29dfdbb8d041f6a9959fc63ce91df127089b6f1bff5d1f2b",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -19076,7 +19075,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/utils/cli/src/shared_options.rs",
-      "target_sha256": "fdec561b127ec4502cca0883e137aa0b84815a04fe0c2e04fd73dc428d645238",
+      "target_sha256": "59e822adc01329c01a42c3b0d6f8845946f98bec80027cad3af15dee04be6fc6",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -19125,7 +19124,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/utils/pty/src/process.rs",
-      "target_sha256": "297d078096edd0de8c00ac3769da614a24aacbca91bf432805627463ff4afb9a",
+      "target_sha256": "527d36198f72a0ad7b8759a3d1dfa703deb5f08c45c454430739ac8c773738d6",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -19150,7 +19149,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/utils/pty/src/tests.rs",
-      "target_sha256": "c237ef0e767934582838032b705c7d5f990ae54c7fa6491ae1e2c90994c3d2ff",
+      "target_sha256": "1d97879e2a7ccf4e9e15360b9f5d3b8e801906fa5d78c6e36cf10eb6303ee2cf",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -19586,7 +19585,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/windows-sandbox-rs/src/unified_exec/backends/elevated.rs",
-      "target_sha256": "4a4d66a67a39a973222a41443bfd84384c65cc731656c0b9a53fb74f6fa55ac6",
+      "target_sha256": "dbaec663034a007063bf6967a10ae59e615a263378cf3f8bdb3a62a3ef660f00",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -19611,7 +19610,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/windows-sandbox-rs/src/unified_exec/backends/legacy.rs",
-      "target_sha256": "36d720972419e136da3ea56ddc192d170879663a84fbc43bf94b99808a6f9441",
+      "target_sha256": "7d55fd6e34cd00197ceb19599d5e2cee57f896583725c6404b5badff8c421f7c",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -19661,7 +19660,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/windows-sandbox-rs/src/unified_exec/tests.rs",
-      "target_sha256": "791400740c6609e2e1cac12ae2f2451ca03cc1d565cf9549297b7cd79327b1fb",
+      "target_sha256": "f1a831c376585d1410aa3867e636d45c5abfa517fbc8eaae519718eeeee67417",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -19800,10 +19799,10 @@
   "summary": {
     "path_count": 730,
     "by_disposition": {
-      "adapt-semantically": 506,
+      "adapt-semantically": 507,
       "adopt-upstream": 1,
       "defer": 127,
-      "reapply-exact": 47,
+      "reapply-exact": 46,
       "regenerate": 49
     },
     "by_cutover_batch": {

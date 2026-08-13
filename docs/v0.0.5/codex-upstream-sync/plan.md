@@ -1,6 +1,6 @@
 # Codex CLI 主线融合执行计划
 
-- 文档状态：有效，Phase A U2 verified；下一步执行 Checkpoint B
+- 文档状态：有效，Phase A U2 与 Checkpoint B verified；下一步执行 U3
 - Plan Validity：`valid-with-qualifications`
 - 计划性质：覆盖已完成里程碑与剩余工作的唯一执行计划
 - 适用版本：WhaleCode v0.0.5
@@ -34,6 +34,7 @@
 | 0.146 资格与差异证据 | 9/9 completed；U1 verified | 候选身份、4,355 条 upstream delta、730 路径索引、两轮 qualification 日志；U1 修正 3 个 runner 问题并确认完整矩阵未通过 | 仅作为历史归因和 0.147 增量比较输入；不得充当 0.147 的身份、delta 或 qualification 证据 | U1 execution=`verified`；V1 validation=`direction-rejected` |
 | 0.147 只读预检 | discovery completed | 官方 tag commit 已核验；相对 0.146 有 344 个提交、1,504 个变化路径；snapshot/Cargo.lock 仍保留开发版本 `0.0.0` | U2 checkpoint A 先复用 U1 runner 验证资格；仅 direction-supported 后由 checkpoint B 重算 target-dependent manifest、delta 和 replay 路由 | 只证明值得进入 U2，不证明候选合格或可 cutover |
 | 0.147 正式资格 | U2 verified | fmt、offline CLI、sandboxed V8 code-mode-host 与 app-server 全过；core 3,288 passed / 5 path failures / 1 MCP timeout；TUI 3,376 passed / 33 release snapshots | 执行 Checkpoint B，刷新 0.147 target-dependent 工件后进入 U3 | `direction-supported-with-known-test-risks`；生产 vendor 未变化 |
+| 0.147 target-dependent 工件 | Checkpoint B verified | overlay inventory 730 路径、upstream delta 4,666 路径、replay ledger 730 路径均固定到 0.147；app-server schema lineage 已跟随上游迁移到 Python 生成器 | 进入 U3 时按需查询路径证据，不把自动 disposition 当作产品决定 | 仅同步证据与生成脚本变化；生产 vendor tree 未变化 |
 | 计划治理 | 1/1 verified | 唯一产品权威、唯一执行计划、历史工件降级和闭环工作单元 | 约束 U1–U17 的范围和停止条件 | 已完成 |
 
 因此，U2 已按纠正后的官方构建合同完成；`U3–U17` 尚未执行，不表示整个 Codex 主线追赶从零开始。历史工作、已完成的 U1/U2 与剩余工作目标、单位和验收标准不同，不做失真的简单平均百分比。
@@ -135,7 +136,7 @@
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | U1 | 增量复核候选 no-go 原因 | compatibility | 临时 0.146 tree；既有 candidate manifest/report | 已记录的四个失败与官方 build/test entrypoints | 已修 runner 的 offline lock 处理、代理隔离、local nextest 参数和显式 helper build；候选源码未改 | 三个初始失败归入 runner，TUI 归入不可变上游 fixture；完整矩阵仍失败 | 排除假 blocker，同时保留真实 no-go | 仅 runner、契约、日志、manifest 和报告；无生产影响 | 36 个 runner/metadata 单测；6 命令矩阵；vendor diff 为零；0 模型请求 | 已按失败停止条件收口 | verified |
-| U2 | 正式验证 0.147 候选 | compatibility/evidence | `qualify_candidate.py`、`metadata_contract.py`、candidate schema/单测、0.147 candidate/evidence、临时 0.147 tree | candidate identity 与 qualification；旧 overlay target 保持 0.146 | 按候选官方 action 校验 Codex-built sandbox V8；补齐 sibling binary、HOME/TMP/umask 隔离并完成六项矩阵 | 0.147 获得可复现的 `direction-supported-with-known-test-risks` 结论；生产 vendor 未变 | 修复验证方法而不修改候选源码或生产 vendor | runner 与 evidence 复杂度增加，但未进入运行时；无生产影响 | 40 个 runner 单测；官方 checksum；六命令矩阵；vendor index tree 不变；0 模型请求 | 已停止继续追求表面全绿；已知风险进入后续归因 | verified |
+| U2 | 正式验证 0.147 候选 | compatibility/evidence | `qualify_candidate.py`、`metadata_contract.py`、candidate schema/单测、0.147 candidate/evidence、临时 0.147 tree | candidate identity 与 qualification；Checkpoint A 期间 overlay target 保持 0.146 | 按候选官方 action 校验 Codex-built sandbox V8；补齐 sibling binary、HOME/TMP/umask 隔离并完成六项矩阵；direction-supported 后由 Checkpoint B 刷新查询工件 | 0.147 获得可复现的 `direction-supported-with-known-test-risks` 结论；生产 vendor 未变 | 修复验证方法而不修改候选源码或生产 vendor | runner 与 evidence 复杂度增加，但未进入运行时；无生产影响 | 40 个 runner 单测；官方 checksum；六命令矩阵；metadata validator；vendor index tree 不变；0 模型请求 | 已停止继续追求表面全绿；已知风险进入后续归因 | verified |
 | U3 | 验证最小 Whale substrate 兼容边界 | compatibility | 一次性临时 0.147 candidate tree；CLI/config/protocol feature surfaces | brand、binary identity、`WHALE_HOME`、auth isolation；0.147 新能力默认状态 | 执行 V3 与 V4：只应用最小 identity/home patch，并审计 `--approve-for-me`、portable Agent Plugins、thread sections、MCP 2026-07-28 是否改变默认产品面 | Whale 身份与数据隔离正确；0.147 新能力不会未经决策静默改变默认权限、持久化或协议行为 | 在生产替换前同时验证最小 overlay 和用户可见兼容边界 | Complexity：临时 patch 与只读/default smoke，不建禁用框架；Reach/Cost：CLI/config/schema/protocol 定向测试，0 模型请求 | CLI build/version、home/keyring/auth tests；patch 清单；CLI help/config schema/feature defaults/protocol smoke | 需要 DeepSeek/TaskSpace stub 即停止；material 默认变化标 `conflict` 并请示；删除临时树 | not-started |
 
 退出条件：U2、U3 均 verified；否则停在当前 vendor。U2 重验完成前不执行 Checkpoint B/U3。U1 保留为历史已完成单元。执行证据见 [0.147 qualification report](../../migration/codex-sync/2026-08-13-rust-0.147-candidate-qualification.md)。
@@ -232,7 +233,7 @@
 | 已完成：基线与门禁 | 模型默认值与 Responses | Flash 默认、Pro 隐藏；Responses 按能力处理 | D1、D2 | covered | 保留为现行为证据，不作未来授权 |
 | 已完成：资格与差异证据 | 无生产语义 | 仅候选、差异和 replay 证据；vendor 未变 | none | engineering-only | 自动语义分类已降级 |
 | 已完成：U1 | 无产品语义 | 修正 qualification runner 并确认 0.146 validation direction-rejected；vendor 未变 | D2 | engineering-only | 已收口为 Phase A 历史输入 |
-| Phase A | 执行中 | U2 已完成并 direction-supported-with-known-test-risks；Checkpoint B/U3 未执行；vendor 未变 | D2 | engineering-only | 刷新 0.147 target-dependent 工件后进入 U3 |
+| Phase A | 执行中 | U2 已完成并 direction-supported-with-known-test-risks；Checkpoint B 已刷新 0.147 查询工件；U3 未执行；vendor 未变 | D2 | engineering-only | 进入 U3 最小兼容边界验证 |
 | Phase B | 待执行 | 待记录 | D2 | 待分类 | U4 后审计 |
 | Phase C | 待执行 | 待记录 | D1、D2 | 待分类 | U5–U10 后审计 |
 | Phase D | 待执行 | 待记录 | D2 | 待分类 | U11–U16 后审计 |
@@ -249,7 +250,7 @@
 
 ## 8. 执行与提交边界
 
-执行顺序仍为 `U1（历史完成） -> U2（已完成） -> Checkpoint B -> U3 -> ... -> U17`。Checkpoint B 未刷新 0.147 target-dependent 工件前不得进入 U3；不能用并行大合并绕过门禁。
+执行顺序仍为 `U1（历史完成） -> U2（已完成） -> Checkpoint B（已完成） -> U3 -> ... -> U17`。当前进入 U3；不能用并行大合并绕过门禁。
 
 - 每个 U 单元至少一个独立、可理解、已基本验证的 commit，并立即 push。
 - 单元内出现两个可独立回滚的行为主题时继续拆 commit；不得把 vendor 机械替换与产品 overlay 混为一个提交。

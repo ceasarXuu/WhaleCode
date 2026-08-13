@@ -70,7 +70,7 @@ def lineage(kind: str | None) -> dict | None:
         return {
             "command": "just write-app-server-schema",
             "generator": (
-                "codex-rs/app-server-protocol/src/bin/write_schema_fixtures.rs"
+                "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py"
             ),
             "kind": kind,
         }
