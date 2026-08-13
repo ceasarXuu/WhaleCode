@@ -756,8 +756,10 @@
       ],
       "current_sha256": "d8570a319fbe4d7c99202def09092c09cb0b3ed26a7eb283d52103f279505a3e",
       "deletions": 0,
-      "evidence_commit_count": 0,
-      "evidence_commits": [],
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "319bbe01169bd909ee580956e2a91bf3e88f8509"
+      ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "taskspace.changed_symbol",
@@ -776,8 +778,10 @@
       ],
       "current_sha256": "4e38d9d962d8b3852a38fd680eadb416b49e6468337b3da3fa3f3e66b5a65d44",
       "deletions": 0,
-      "evidence_commit_count": 0,
-      "evidence_commits": [],
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "319bbe01169bd909ee580956e2a91bf3e88f8509"
+      ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "taskspace.changed_symbol",
@@ -795,8 +799,9 @@
       ],
       "current_sha256": "b581ea6ae44cf1c3ec94db880c988ee36db38cbb0451b985301b1ddf7e3a0efa",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "319bbe01169bd909ee580956e2a91bf3e88f8509",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
       "evidence_truncated": false,
@@ -816,8 +821,9 @@
       ],
       "current_sha256": "4913970be04777ea7a230e2c10799339f72eaf61d1fc8f7812ebc88f0500ae5f",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "319bbe01169bd909ee580956e2a91bf3e88f8509",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
       "evidence_truncated": false,
@@ -837,8 +843,9 @@
       ],
       "current_sha256": "2898d2596794f06ef0789b011ccd0763861990b0c2415fa4c4fe9bb78bcd8f73",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "319bbe01169bd909ee580956e2a91bf3e88f8509",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
       "evidence_truncated": false,

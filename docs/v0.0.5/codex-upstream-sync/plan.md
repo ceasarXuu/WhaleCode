@@ -1,6 +1,6 @@
 # Codex CLI 主线融合执行计划
 
-- 文档状态：有效，Phase A、Phase B、Phase C verified；Phase D in progress，U11 verified，下一步完成 U12 精确保留/淘汰清单与代码预算审批
+- 文档状态：有效，Phase A、Phase B、Phase C verified；Phase D in progress，U11 verified；U12 清单与 1,870 行生产代码硬上限已落地，等待明确预算批准
 - Plan Validity：`valid-with-qualifications`
 - 计划性质：覆盖已完成里程碑与剩余工作的唯一执行计划
 - 适用版本：WhaleCode v0.0.5
@@ -230,7 +230,7 @@ Phase D 的 PLD-006 采用当前 0.147 源码和以下一手资料校验扩展�
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | U11 | 建立旧 Whale state DB 迁移桥 | data-compatibility | `state/src/migrations.rs`、migration tests | 已应用旧 TaskSpace `0030/0031` 的 `_sqlx_migrations` 与表数据 | 已在正常 migrator 前精确识别两条已知旧 checksum；事务补执行 0.147 的同号 schema 动作并把 migration metadata 更新为当前 checksum，保留 TaskSpace 表和数据；未知或部分匹配不改写 | 已知旧 Whale 数据库可继续由 0.147 打开并保留 TaskSpace 数据；fresh 0.147 与未知数据库行为不变 | 先解除真实升级阻塞，避免后续功能恢复建立在不可启动的旧库上 | Complexity：99 行局部生产改动，不增加新数据库/配置；Reach/Cost：仅 state 初始化与 migration tests，0 真实请求 | 3 个迁移桥测试通过；`codex-state` 173 passed；合成旧库保留 canonical JSON；fresh/current no-op；单条/未知/部分 schema fail-closed | 独立 revert；未触碰真实用户 DB；任何未知 migration 形态仍由 SQLx 阻断；证据见 U11 报告 | verified |
-| U12 | 恢复 TaskSpace canonical kernel | domain | 新 `ext/taskspace` crate 的 domain/event 模块 | canonical map v2、DAG invariant、domain transaction/event/serialization | 从切换前实现精确选择不依赖 store/session/provider/TUI 的 canonical kernel，删除兼容壳与宿主引用，按 0.147 workspace 类型编译 | TaskSpace 业务状态与转换规则可独立构建和重放 | 先固定业务语义，同时把 8K 行 `core/action_map` 宿主侵入收敛为独立扩展内核 | Complexity：新增一个产品需要的 extension crate；Reach/Cost：预计超过 500 行，执行前提交精确保留/淘汰清单和代码预算 | invariant、property、event replay、serialization fixtures；与切换前 canonical fixtures 等价 | 若需改变 canonical schema/状态语义则标 conflict；超过代码预算先请示 | not-started |
+| U12 | 恢复 TaskSpace canonical kernel | domain | 新 `ext/taskspace` crate 的 model/invariant/transition/event/transaction 模块 | canonical map v2、DAG invariant、domain transaction/event/serialization | 已完成精确保留/淘汰清单：仅迁 Rooted DAG kernel 与 strict canonical types；排除 store/session/provider/tool/RPC/TUI/projection；按 U12a–c 三个原子提交实施 | 批准后 TaskSpace 业务状态与转换规则可独立构建和重放 | 先固定业务语义，同时把 8K 行 `core/action_map` 宿主侵入收敛为独立扩展内核 | Complexity：生产代码预期 1,700–1,800 行、硬上限 1,870 行且单文件小于 500；Reach/Cost：独立 crate，测试约 1,300–1,500 行，0 真实请求 | invariant、256-case property、20-cycle event replay、serialization fixtures；与切换前 canonical fixtures 等价 | 预算未明确批准前不写生产代码；依赖 core/state/protocol 专用 TaskSpace 类型或超过 1,870 行即停止；见 U12 budget 报告 | blocked-on-code-budget-approval |
 | U13 | 恢复唯一 TaskSpace store 与 replay | persistence | `state` 的新迁移号与 TaskSpace store adapter；`ext/taskspace` runtime | canonical store、CAS commit、thread binding、replay | 复用现有 `StateRuntime` pool，以新迁移号为 fresh/current DB 创建 TaskSpace 表，并让经 U11 修复的旧表原地复用；接入 U12 kernel 的 CAS/replay | canonical TaskSpace 状态可持久化、迁移和确定性重放，旧数据不复制到第二权威 | 保持一套 TaskSpace 状态权威，同时利用上游 state 生命周期 | Complexity：一个 store adapter 和追加迁移，不建独立 DB；Reach/Cost：state/runtime、并发 CAS、升级矩阵 | fresh/legacy migration、CAS conflict、binding、replay determinism、data preservation | AgentGraphStore 不存 TaskSpace map；无法保持单一权威则停止 | not-started |
 | U14 | 通过 0.147 extension seam 接回 TaskSpace runtime | extension-integration | `ext/taskspace` contributors、app-server extension install seam | native control tools、tool/thread/turn lifecycle、WorldState projection、event sink | 注册现有 contributor 类型并以 extension-private thread state 持有 runtime；复用 tool identity/parallel dispatch 与 lifecycle；将 canonical map 仅投影进 WorldState | TaskSpace 工具和跨轮次生命周期恢复，core/session/provider 主链保持上游结构 | 避免恢复旧 handler/sequence/session/provider-wire 专用分支 | Complexity：extension contributors 与窄 host install；Reach/Cost：tools、resume/fork/compaction、parallel calls、cache-visible context | tool schema/handler、parallel identity、resume/fork/compaction、terminal、WorldState diff 和 Standard final-wire | seam 缺口先做最小 spike；未经重新批准不得侵入 core/session/provider wire | not-started |
 | U15 | 恢复 app-server TaskSpace API | API | app-server protocol/source schema、`ext/taskspace` service、app-server adapter | read/mode RPC、TaskSpace events、JSON/TS schema | app-server 通过 extension-owned service 读写 U13/U14 runtime；生成 schema 与兼容 fixtures 同单元更新，不给 `CodexThread` 增加 TaskSpace 专用方法 | 外部客户端可通过版本化 RPC 读取与启用 TaskSpace | 隔离协议兼容面，不把 RPC 再耦合进 core session | Complexity：协议类型与一个 adapter；Reach/Cost：schema 生成、app-server tests、客户端兼容 | protocol/app-server tests、schema generation clean、resume/read/mode fixtures | 独立 revert；不得增加 TUI fallback 或第二 runtime | not-started |
@@ -269,7 +269,7 @@ Phase D 的 PLD-006 采用当前 0.147 源码和以下一手资料校验扩展�
 | Phase A | 已完成 | U2 direction-supported-with-known-test-risks；Checkpoint B 已刷新 0.147 查询工件；U3 最小 identity/home/auth/default seam 验证通过；vendor 未变 | D2 | covered + engineering-only | 进入 Phase B rebase gate |
 | Phase B | 已完成 | vendor 对齐 0.147 且只保留 U3 seam；U4a 独立迁移免费缓存合同，cache index gate 通过；live baseline 仍保持失败状态 | D2 | covered + engineering-only | 进入 Phase C rebase gate |
 | Phase C | 已完成 | PLD-004/005 已批准；U5–U10 已恢复 provider、原生 Responses、开发期 guard、1M/755K 与 Flash→Pro 压缩、Standard final-wire/cache；U6 使 Flash/Pro 可见、公共列表仅保留 DeepSeek，并保持 Flash 默认；未触及 TaskSpace | D1、D2 | covered + engineering-only | Phase D rebase 与 PLD-006 审批已完成 |
-| Phase D | 执行中 | Pre-Phase gate 发现旧库 migration 冲突与 0.147 extension seam；PLD-006 已获批准；U11 已完成精确指纹 migration bridge，保留已知旧 TaskSpace 数据且未知历史 fail-closed | D2 | engineering-only（U11 data compatibility） | 完成 U12 精确保留/淘汰清单与代码预算审批后再实施 canonical kernel |
+| Phase D | 执行中 | PLD-006 已获批准；U11 migration bridge verified；U12 已完成精确保留/淘汰清单和 1,870 行硬上限预算，尚未写生产代码 | D2 | engineering-only（U11 data compatibility + U12 budget evidence） | 等待 U12 超 500 行生产代码预算明确批准 |
 | Phase E | 待执行 | 待记录 | D1、D2 | 待分类 | U17 后审计 |
 
 ## 7. Pending Product Decisions
@@ -283,7 +283,7 @@ Phase D 的 PLD-006 采用当前 0.147 源码和以下一手资料校验扩展�
 
 ## 8. 执行与提交边界
 
-执行顺序当前到达 `... -> U4（已验证） -> Phase C rebase gate（PLD-004/005 已批准） -> U5（已验证） -> U7（已验证） -> U8（已验证） -> U9（已验证） -> U10（已验证） -> U6（已验证） -> Phase D rebase gate（PLD-006 已批准） -> U11（已验证）`。下一步先完成 U12 精确保留/淘汰清单与代码预算，不得直接开始 U12 大规模移植。至今未消耗真实回归预算，也未晋升 live baseline。
+执行顺序当前到达 `... -> U4（已验证） -> Phase C rebase gate（PLD-004/005 已批准） -> U5（已验证） -> U7（已验证） -> U8（已验证） -> U9（已验证） -> U10（已验证） -> U6（已验证） -> Phase D rebase gate（PLD-006 已批准） -> U11（已验证） -> U12 精确清单/预算（已落地）`。下一步等待用户明确批准 U12 最多 1,870 行手写生产代码后，从 U12a 开始；批准前不得写 U12 生产代码。至今未消耗真实回归预算，也未晋升 live baseline。
 
 - 每个 U 单元至少一个独立、可理解、已基本验证的 commit，并立即 push。
 - 单元内出现两个可独立回滚的行为主题时继续拆 commit；不得把 vendor 机械替换与产品 overlay 混为一个提交。
