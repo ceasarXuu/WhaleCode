@@ -1775,3 +1775,21 @@
   - authorization `CBA-20260814-R8-HOSTED-PRIORITY-STAGE1-FAB1FE9484610B6D`
 - Interpretation: 第 1 点的离线机制成立且未观察到由该代码改动直接引起的行为回归，但真实单变量阶段未通过，也未命中目标复合分支，不能把它晋升为在线验证完成。按照停点约束，不进入第 2 点；后续应先决定是补确定性复合测试后重验，还是先处理 Exec 结构错误和协议使用路径。
 - Time: 2026-08-14
+
+## Evidence E-049: 确定性复合门禁锁定 Hosted 错误优先级
+- Related hypotheses:
+  - H-022
+  - H-021
+- Direction: supports
+- Type: deterministic-test
+- Source: `taskspace_exec_hosted_preflight_tests.rs`、`taskspace_exec_handler_tests.rs`
+- Prediction or plan link:
+  - 原计划第 4 点提前执行；补足 E-048 未在线命中“Hosted 漏登 + waiting client”的目标分支。
+- Matched signal:
+  - 使用真实 `exec_command` schema 和合法的 `root -> inspect(ready) -> implement(waiting) -> finish(waiting)` Map。
+  - 同一输入同时包含成功的原生 `web_search` 事实但无 `already_executed` 归属，以及绑定到 `implement` waiting 节点的 client Tool。
+  - 预检精确返回 `HostedToolSetMismatch { actual: ["web_search"], declared: [] }`，没有被 `ClientNodeNotExecutable` 覆盖。
+  - 预检后当前 Map 与执行前克隆完全相等；client Tool 未执行。现有 handler 合同测试证明该枚举映射为 Agent 可见的 Hosted 漏登事实反馈。
+  - 新复合用例与两项既有反馈合同测试全部通过。
+- Interpretation: 第 1 点的错误选择顺序、Agent 可见反馈映射和零副作用已有确定性证据；这不是 Agent 在线遵循度证据，不能关闭 I03 或把 E-048 的真实阶段改判为通过。本次没有真实 Whale Agent run，也没有 Provider token 或费用。
+- Time: 2026-08-14

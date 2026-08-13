@@ -46,12 +46,21 @@ usage。Map 保持 `complete=false`、`validate=in_flight`、`finish=waiting`，
 `run-root` 名称包含 `taskspace` 触发中性 cwd 门禁。它们均未消耗模型 token，不形成产品结论；最后一次已由账本记录为
 `WAR-20260814-040257-CACHE-REGRESSION-88C74A21`。
 
-## 5. 停点
+## 5. 第 4 点提前执行
 
-按照用户要求，本阶段未通过后暂停，不实施第 2～4 点。下一步需要先决定：
+用户决定先执行原计划第 4 点，以确定性复合门禁直接验证第 1 点的错误优先级，不等待随机在线 trace 自然生成目标输入。
+新增用例使用真实 `exec_command` schema 和合法的
+`root -> inspect(ready) -> implement(waiting) -> finish(waiting)` Map，同时构造：
 
-- 保留第 1 点，先用确定性复合错误测试直接证明优先级，再重新安排真实验证；或
-- 先处理首次 Exec 结构稳定性和协议使用路径，再恢复四阶段实验。
+1. 当前响应实际发生一次原生 `web_search`，但 Exec 漏写 `already_executed` 归属；
+2. 同一 Exec 把 client `exec_command` 绑定到依赖未满足的 `implement` 节点。
+
+预检必须首先返回 `HostedToolSetMismatch`，而不是 `ClientNodeNotExecutable`；执行后原 Map 与 client Tool 均无副作用。
+该用例已通过。现有 handler 合同测试同时证明该错误会忠实映射为“本响应已执行 Hosted Tool 但未登记归属”的
+Agent 可见反馈，waiting 反馈不会覆盖它。
+
+本门禁只证明确定性的错误选择、反馈映射和零副作用，不证明 Agent 在线上会减少漏登，也不把第 1 点晋升为在线通过。
+由于没有改变 Agent 可见行为，本次没有运行真实 Whale Agent，也没有消耗 Provider token 或已批准的 repeat 预算。
 
 ## 6. 证据
 

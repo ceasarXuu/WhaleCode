@@ -1,5 +1,9 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use codex_tools::AdditionalProperties;
+use codex_tools::JsonSchema;
+use codex_tools::ResponsesApiTool;
 use codex_tools::ToolSpec;
 use serde_json::json;
 
@@ -13,6 +17,18 @@ use crate::action_map::rooted_dag::new_map;
 fn catalog() -> Arc<TaskSpaceExecCatalog> {
     Arc::new(
         TaskSpaceExecCatalog::build(&[
+            ToolSpec::Function(ResponsesApiTool {
+                name: "exec_command".into(),
+                description: "Run a command.".into(),
+                strict: false,
+                parameters: JsonSchema::object(
+                    BTreeMap::from([("cmd".into(), JsonSchema::string(None))]),
+                    Some(vec!["cmd".into()]),
+                    Some(AdditionalProperties::Boolean(false)),
+                ),
+                output_schema: None,
+                defer_loading: None,
+            }),
             ToolSpec::WebSearch {
                 external_web_access: Some(true),
                 filters: None,
@@ -73,6 +89,36 @@ fn initialize_input() -> serde_json::Value {
         }],
         "finish": {"node_id": "finish", "goal": "close", "content": "", "parents": ["work"]}
     })
+}
+
+fn map_with_waiting_client_node() -> TaskSpaceMap {
+    new_map(
+        "map-1".into(),
+        map_node("root", "deliver", NodeState::InFlight, "", vec![]),
+        vec![
+            map_node(
+                "inspect",
+                "inspect",
+                NodeState::Ready,
+                "",
+                vec!["root".into()],
+            ),
+            map_node(
+                "implement",
+                "implement",
+                NodeState::Waiting,
+                "",
+                vec!["inspect".into()],
+            ),
+        ],
+        map_node(
+            "finish",
+            "close",
+            NodeState::Waiting,
+            "",
+            vec!["implement".into()],
+        ),
+    )
 }
 
 fn hosted(tool: &str, outcome: ActionOutcome) -> HostedToolFact {
@@ -210,6 +256,33 @@ fn hosted_tool_set_and_node_mismatches_are_rejected() {
             Err(TaskSpaceExecPreflightError::HostedNodeInvalid {reason: actual, ..}) if actual == reason
         ));
     }
+}
+
+#[test]
+fn hosted_omission_is_reported_before_waiting_client_node() {
+    let current = map_with_waiting_client_node();
+    let before = current.clone();
+    let envelope = envelope(
+        json!({
+            "type": "work",
+            "tools": [{
+                "tool": "exec_command",
+                "node_id": "implement",
+                "input": {"cmd": "true"}
+            }]
+        }),
+        Some(&current),
+    );
+    let search = [hosted("web_search", ActionOutcome::Succeeded)];
+
+    assert_eq!(
+        preflight_taskspace_exec(&envelope, Some(&current), &search),
+        Err(TaskSpaceExecPreflightError::HostedToolSetMismatch {
+            actual: vec!["web_search".into()],
+            declared: vec![],
+        })
+    );
+    assert_eq!(current, before);
 }
 
 #[test]
