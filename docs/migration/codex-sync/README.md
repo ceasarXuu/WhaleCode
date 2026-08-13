@@ -24,3 +24,4 @@ Required fields:
 - [2026-08-14：U9 恢复 DeepSeek 长上下文压缩合同](2026-08-14-u9-deepseek-compaction.md)
 - [2026-08-14：U10 锁定 DeepSeek Standard final-wire 与免费缓存合同](2026-08-14-u10-deepseek-final-wire-cache.md)
 - [2026-08-14：U6 恢复 DeepSeek 模型目录与可见性](2026-08-14-u6-deepseek-model-catalog.md)
+- [2026-08-14：U11 建立旧 Whale TaskSpace migration bridge](2026-08-14-u11-legacy-taskspace-migration-bridge.md)

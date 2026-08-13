@@ -747,6 +747,108 @@
       "status": "modified"
     },
     {
+      "additions": 40,
+      "baseline_sha256": null,
+      "binary": false,
+      "categories": [
+        "taskspace_host_hooks",
+        "test_fixture"
+      ],
+      "current_sha256": "d8570a319fbe4d7c99202def09092c09cb0b3ed26a7eb283d52103f279505a3e",
+      "deletions": 0,
+      "evidence_commit_count": 0,
+      "evidence_commits": [],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "taskspace.changed_symbol",
+        "test.path"
+      ],
+      "path": "codex-rs/state/src/fixtures/legacy_whale_0030_taskspace_maps.sql",
+      "status": "added"
+    },
+    {
+      "additions": 43,
+      "baseline_sha256": null,
+      "binary": false,
+      "categories": [
+        "taskspace_host_hooks",
+        "test_fixture"
+      ],
+      "current_sha256": "4e38d9d962d8b3852a38fd680eadb416b49e6468337b3da3fa3f3e66b5a65d44",
+      "deletions": 0,
+      "evidence_commit_count": 0,
+      "evidence_commits": [],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "taskspace.changed_symbol",
+        "test.path"
+      ],
+      "path": "codex-rs/state/src/fixtures/legacy_whale_0031_taskspace_canonical_maps.sql",
+      "status": "added"
+    },
+    {
+      "additions": 97,
+      "baseline_sha256": "ad02ea5bc976f67f9b135398330c6c371624911974907dc78c77a84a8da7419e",
+      "binary": false,
+      "categories": [
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "b581ea6ae44cf1c3ec94db880c988ee36db38cbb0451b985301b1ddf7e3a0efa",
+      "deletions": 0,
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "taskspace.changed_symbol"
+      ],
+      "path": "codex-rs/state/src/migrations.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 224,
+      "baseline_sha256": "34964fe1e309413c4712d08eb509d547463c69ac3fdb8893cbbb5f3c15e65d4e",
+      "binary": false,
+      "categories": [
+        "provider_model",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "4913970be04777ea7a230e2c10799339f72eaf61d1fc8f7812ebc88f0500ae5f",
+      "deletions": 0,
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "provider.strong_path_or_symbol",
+        "taskspace.changed_symbol"
+      ],
+      "path": "codex-rs/state/src/migrations_tests.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "baseline_sha256": "005881cb6778e0a68f565accf32d75e2e036a03a59ccf811c3a3b193bccf7f35",
+      "binary": false,
+      "categories": [
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "2898d2596794f06ef0789b011ccd0763861990b0c2415fa4c4fe9bb78bcd8f73",
+      "deletions": 0,
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "taskspace.changed_symbol"
+      ],
+      "path": "codex-rs/state/src/sqlite.rs",
+      "status": "modified"
+    },
+    {
       "additions": 1,
       "baseline_sha256": "8330eb7ea592317176de8f06f18ab945d41918fab56b01d6a6caae65c3c014c0",
       "binary": false,
@@ -835,18 +937,20 @@
       "configuration": 5,
       "developer_tooling": 3,
       "generated_artifact": 1,
-      "provider_model": 17,
+      "provider_model": 18,
       "provider_transport": 5,
       "session_context": 3,
-      "test_fixture": 3,
+      "taskspace_host_hooks": 5,
+      "test_fixture": 5,
       "tui_experience": 2,
       "wire_sse": 3
     },
     "by_status": {
+      "added": 2,
       "deleted": 3,
-      "modified": 28
+      "modified": 31
     },
-    "path_count": 31
+    "path_count": 36
   },
   "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
   "vendor_path": "third_party/codex-cli"

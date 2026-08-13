@@ -53,6 +53,103 @@ pub(crate) fn runtime_thread_history_migrator() -> Migrator {
     runtime_migrator(&THREAD_HISTORY_MIGRATOR)
 }
 
+const LEGACY_WHALE_TASKSPACE_MIGRATIONS: [(i64, &str); 2] = [
+    (
+        30,
+        "e8b7fd4f72e583f648a6eac076ae000e63b3ffc7fca86e64321b7a60293beb9c9441d8cab044fd92a298d8cb90c387eb",
+    ),
+    (
+        31,
+        "edf1e09cca8f6c1340648cba32c0dd11e2129fa6763c846304aa9c40eb8341fb1aace4b9c0b4b3b6ba6e86691c7fe7f1",
+    ),
+];
+
+pub(crate) async fn repair_legacy_whale_taskspace_migrations(
+    pool: &SqlitePool,
+    migrator: &Migrator,
+) -> anyhow::Result<()> {
+    let migrations_table_exists = sqlx::query_scalar::<_, i64>(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_sqlx_migrations'",
+    )
+    .fetch_optional(pool)
+    .await?
+    .is_some();
+    if !migrations_table_exists {
+        return Ok(());
+    }
+
+    let applied = sqlx::query_as::<_, (i64, String)>(
+        r#"
+SELECT version, lower(hex(checksum))
+FROM _sqlx_migrations
+WHERE version IN (30, 31) AND success = 1
+ORDER BY version
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+    let expected = LEGACY_WHALE_TASKSPACE_MIGRATIONS
+        .iter()
+        .map(|(version, checksum)| (*version, (*checksum).to_string()))
+        .collect::<Vec<_>>();
+    if applied != expected {
+        return Ok(());
+    }
+
+    let taskspace_table_count = sqlx::query_scalar::<_, i64>(
+        r#"
+SELECT count(*)
+FROM sqlite_master
+WHERE type = 'table'
+  AND name IN ('taskspace_maps', 'taskspace_map_bindings', 'taskspace_map_commits')
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+    let thread_source_column_count = sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM pragma_table_info('threads') WHERE name = 'thread_source'",
+    )
+    .fetch_one(pool)
+    .await?;
+    if taskspace_table_count != 3 || thread_source_column_count != 0 {
+        return Ok(());
+    }
+
+    let mut tx = pool.begin().await?;
+    sqlx::query("ALTER TABLE threads ADD COLUMN thread_source TEXT")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("DROP TABLE IF EXISTS device_key_bindings")
+        .execute(&mut *tx)
+        .await?;
+
+    for (version, legacy_checksum) in LEGACY_WHALE_TASKSPACE_MIGRATIONS {
+        let current = migrator
+            .migrations
+            .iter()
+            .find(|migration| migration.version == version)
+            .ok_or_else(|| anyhow::anyhow!("current state migration {version} is missing"))?;
+        let result = sqlx::query(
+            r#"
+UPDATE _sqlx_migrations
+SET description = ?, checksum = ?
+WHERE version = ? AND success = 1 AND lower(hex(checksum)) = ?
+            "#,
+        )
+        .bind(current.description.as_ref())
+        .bind(current.checksum.as_ref())
+        .bind(version)
+        .bind(legacy_checksum)
+        .execute(&mut *tx)
+        .await?;
+        if result.rows_affected() != 1 {
+            anyhow::bail!("legacy Whale migration {version} changed during repair");
+        }
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 pub(crate) async fn repair_legacy_recency_migration_version(
     pool: &SqlitePool,
     migrator: &Migrator,

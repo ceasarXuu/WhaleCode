@@ -2,9 +2,9 @@
 
 > 计划治理说明（2026-08-10）：本专题只保留一份工程计划：[plan.md](plan.md)。已完成工作统一记录在该计划的状态表中，详细证据由 execution report 和 ledger 承载；不存在并行或嵌套的历史计划。唯一产品决策权威源为 [decisions.md](decisions.md)。
 
-> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据均已完成；0.147 Phase A、Phase B、Phase C 已完成；Phase D Pre-Phase Plan Rebase Gate 的 PLD-006 已获批准，下一步执行旧 Whale state DB 迁移桥 U11。
+> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据均已完成；0.147 Phase A、Phase B、Phase C 已完成；Phase D 的旧 Whale state DB 迁移桥 U11 已验证，下一步先完成 U12 精确保留/淘汰清单与代码预算审批。
 
-- 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成；Phase A、Phase B、Phase C verified
+- 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成；Phase A、Phase B、Phase C verified；Phase D 执行中
 - 分析日期：2026-08-01
 - 适用版本：WhaleCode v0.0.5
 - Checkpoint B 起始提交：`5331173f158fe6352ba69d78bcaf5038971fc7f1`
@@ -27,6 +27,7 @@
 - [U9 DeepSeek 长上下文压缩报告](../../migration/codex-sync/2026-08-14-u9-deepseek-compaction.md)
 - [U10 DeepSeek Standard final-wire 与免费缓存合同报告](../../migration/codex-sync/2026-08-14-u10-deepseek-final-wire-cache.md)
 - [U6 DeepSeek 模型目录与可见性报告](../../migration/codex-sync/2026-08-14-u6-deepseek-model-catalog.md)
+- [U11 旧 Whale TaskSpace migration bridge 报告](../../migration/codex-sync/2026-08-14-u11-legacy-taskspace-migration-bridge.md)
 
 ## 当前批次状态
 
@@ -40,6 +41,7 @@
 - U4 已把 vendor 切换到 0.147，只重放 U3 的 8 个修改路径，其中 3 个删除来自官方 Git archive 的 `export-ignore`。U4a 已独立迁移免费缓存合同，U4 cache index gate 通过；accepted live baseline 未晋升。
 - U5 已恢复 DeepSeek provider、环境鉴权与 Flash 默认；U7 已通过无网络 fixture 验证 Pro 原生 `/responses` 请求和 reasoning/text/function-call SSE，未增加生产适配层。
 - U8 已恢复默认关闭、仅供获批开发回归启用的 transport-exact 请求硬门禁，并验证 provider usage 可在 completed terminal 时进入 rollout。U9 已恢复 DeepSeek Flash/Pro 运行时元数据、1M/755K 合同及 Flash→Pro compaction 请求。U10 已锁定 `standard` final-wire 并通过五组免费缓存合同；U6 已恢复 Flash/Pro 可见性、DeepSeek-only 公共列表和 Flash 默认。Phase C 已完成，TaskSpace 尚未执行。
+- U11 已在 state 初始化入口增加精确 checksum 保护的迁移桥：已知旧 Whale `0030/0031` 可保留 TaskSpace 数据并升级到 0.147 migration history；fresh/current 数据库 no-op，未知或部分历史继续由 SQLx fail-closed。没有读取或改写真实用户数据库。
 - replay ledger 和五批 DAG 已降级为非权威证据；后续不得直接按自动 disposition 或路径桶实施，应按 `plan.md` 的 U1–U17 语义闭环推进。
 
 ## 1. 执行摘要

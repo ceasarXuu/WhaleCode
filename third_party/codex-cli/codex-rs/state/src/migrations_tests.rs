@@ -2,13 +2,17 @@ use codex_utils_absolute_path::test_support::PathExt;
 use pretty_assertions::assert_eq;
 use sqlx::Connection;
 use sqlx::Row;
+use sqlx::SqlSafeStr;
+use sqlx::migrate::MigrateError;
 use sqlx::migrate::Migration;
+use sqlx::migrate::MigrationType;
 use sqlx::migrate::Migrator;
 use std::borrow::Cow;
 
 use super::STATE_MIGRATOR;
 use super::THREAD_HISTORY_MIGRATOR;
 use super::repair_legacy_recency_migration_version;
+use super::repair_legacy_whale_taskspace_migrations;
 use crate::PINNED_THREAD_SECTION_ID;
 use crate::PINNED_THREAD_SECTION_NAME;
 
@@ -30,6 +34,226 @@ fn migrator_through(version: i64) -> Migrator {
         create_schemas: STATE_MIGRATOR.create_schemas.clone(),
         no_tx: STATE_MIGRATOR.no_tx,
     }
+}
+
+fn legacy_whale_taskspace_migrator() -> Migrator {
+    let mut migrations = STATE_MIGRATOR
+        .migrations
+        .iter()
+        .filter(|migration| migration.version <= 29)
+        .cloned()
+        .collect::<Vec<_>>();
+    migrations.push(Migration::new(
+        30,
+        Cow::Borrowed("taskspace maps"),
+        MigrationType::Simple,
+        include_str!("fixtures/legacy_whale_0030_taskspace_maps.sql").into_sql_str(),
+        false,
+    ));
+    migrations.push(Migration::new(
+        31,
+        Cow::Borrowed("taskspace canonical maps"),
+        MigrationType::Simple,
+        include_str!("fixtures/legacy_whale_0031_taskspace_canonical_maps.sql").into_sql_str(),
+        false,
+    ));
+    Migrator::with_migrations(migrations)
+}
+
+async fn open_legacy_whale_taskspace_pool() -> (
+    scopeguard::ScopeGuard<std::path::PathBuf, impl FnOnce(std::path::PathBuf)>,
+    crate::SqliteConfig,
+    sqlx::SqlitePool,
+) {
+    let sqlite_home = crate::runtime::test_support::unique_temp_dir();
+    tokio::fs::create_dir_all(&sqlite_home)
+        .await
+        .expect("sqlite home should be created");
+    let cleanup = scopeguard::guard(sqlite_home.clone(), |sqlite_home| {
+        let _ = std::fs::remove_dir_all(sqlite_home);
+    });
+    let sqlite = crate::SqliteConfig::new_for_testing(sqlite_home.as_path().abs());
+    let pool = sqlite
+        .open_read_write_pool(&sqlite.state_db_path())
+        .await
+        .expect("legacy Whale state database should open");
+    legacy_whale_taskspace_migrator()
+        .run(&pool)
+        .await
+        .expect("legacy Whale migrations should apply");
+    (cleanup, sqlite, pool)
+}
+
+#[tokio::test]
+async fn repairs_legacy_whale_taskspace_migration_collision_and_preserves_data() {
+    let (_cleanup, sqlite, pool) = open_legacy_whale_taskspace_pool().await;
+    let canonical_json = r#"{"schema_version":"taskspace-canonical-map-v2","map_id":"map-1"}"#;
+    sqlx::query(
+        r#"
+INSERT INTO taskspace_maps (
+    map_id, owner_thread_id, canonical_schema_version, canonical_json,
+    canonical_sha256, store_revision, map_revision, terminal,
+    created_at_ms, updated_at_ms
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "#,
+    )
+    .bind("map-1")
+    .bind("thread-1")
+    .bind("taskspace-canonical-map-v2")
+    .bind(canonical_json)
+    .bind("sha-1")
+    .bind(1_i64)
+    .bind(0_i64)
+    .bind(0_i64)
+    .bind(1_i64)
+    .bind(1_i64)
+    .execute(&pool)
+    .await
+    .expect("legacy canonical map should be inserted");
+    pool.close().await;
+
+    let runtime = crate::StateRuntime::init(sqlite.clone(), "deepseek".to_string())
+        .await
+        .expect("0.147 state runtime should repair and open the legacy Whale database");
+    let verification_pool = sqlite
+        .open_read_write_pool(&sqlite.state_db_path())
+        .await
+        .expect("repaired state database should open");
+    let preserved = sqlx::query_scalar::<_, String>(
+        "SELECT canonical_json FROM taskspace_maps WHERE map_id = 'map-1'",
+    )
+    .fetch_one(&verification_pool)
+    .await
+    .expect("legacy TaskSpace data should remain readable");
+    assert_eq!(preserved, canonical_json);
+    let thread_source_columns = sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM pragma_table_info('threads') WHERE name = 'thread_source'",
+    )
+    .fetch_one(&verification_pool)
+    .await
+    .expect("threads schema should be readable");
+    assert_eq!(thread_source_columns, 1);
+    let device_key_tables = sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'device_key_bindings'",
+    )
+    .fetch_one(&verification_pool)
+    .await
+    .expect("device key schema should be readable");
+    assert_eq!(device_key_tables, 0);
+    let applied = sqlx::query_as::<_, (i64, Vec<u8>)>(
+        "SELECT version, checksum FROM _sqlx_migrations WHERE version IN (30, 31) ORDER BY version",
+    )
+    .fetch_all(&verification_pool)
+    .await
+    .expect("migration metadata should be readable");
+    let expected = STATE_MIGRATOR
+        .migrations
+        .iter()
+        .filter(|migration| matches!(migration.version, 30 | 31))
+        .map(|migration| (migration.version, migration.checksum.to_vec()))
+        .collect::<Vec<_>>();
+    assert_eq!(applied, expected);
+
+    verification_pool.close().await;
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn legacy_whale_taskspace_repair_is_noop_for_partial_or_unknown_history() {
+    for mutation in ["missing-31", "unknown-31", "partial-schema"] {
+        let (_cleanup, _sqlite, pool) = open_legacy_whale_taskspace_pool().await;
+        match mutation {
+            "missing-31" => {
+                sqlx::query("DELETE FROM _sqlx_migrations WHERE version = 31")
+                    .execute(&pool)
+                    .await
+                    .expect("migration row should be removed");
+            }
+            "unknown-31" => {
+                sqlx::query("UPDATE _sqlx_migrations SET checksum = X'00' WHERE version = 31")
+                    .execute(&pool)
+                    .await
+                    .expect("migration checksum should be changed");
+            }
+            "partial-schema" => {
+                sqlx::query("ALTER TABLE threads ADD COLUMN thread_source TEXT")
+                    .execute(&pool)
+                    .await
+                    .expect("partial schema should be constructed");
+            }
+            _ => unreachable!(),
+        }
+
+        repair_legacy_whale_taskspace_migrations(&pool, &STATE_MIGRATOR)
+            .await
+            .expect("unsupported history should remain untouched");
+        let version_30_checksum = sqlx::query_scalar::<_, String>(
+            "SELECT lower(hex(checksum)) FROM _sqlx_migrations WHERE version = 30",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("legacy version 30 should remain present");
+        assert_eq!(
+            version_30_checksum,
+            "e8b7fd4f72e583f648a6eac076ae000e63b3ffc7fca86e64321b7a60293beb9c9441d8cab044fd92a298d8cb90c387eb"
+        );
+        let err = STATE_MIGRATOR
+            .run(&pool)
+            .await
+            .expect_err("SQLx should reject unsupported migration history");
+        assert!(
+            matches!(
+                err,
+                MigrateError::VersionMismatch(30)
+                    | MigrateError::VersionMismatch(31)
+                    | MigrateError::VersionMissing(31)
+            ),
+            "unexpected error for {mutation}: {err}"
+        );
+        pool.close().await;
+    }
+}
+
+#[tokio::test]
+async fn legacy_whale_taskspace_repair_is_noop_for_fresh_and_current_databases() {
+    let sqlite_home = crate::runtime::test_support::unique_temp_dir();
+    tokio::fs::create_dir_all(&sqlite_home)
+        .await
+        .expect("sqlite home should be created");
+    let _cleanup = scopeguard::guard(sqlite_home.clone(), |sqlite_home| {
+        let _ = std::fs::remove_dir_all(sqlite_home);
+    });
+    let sqlite = crate::SqliteConfig::new_for_testing(sqlite_home.as_path().abs());
+    let pool = sqlite
+        .open_read_write_pool(&sqlite.state_db_path())
+        .await
+        .expect("fresh state database should open");
+
+    repair_legacy_whale_taskspace_migrations(&pool, &STATE_MIGRATOR)
+        .await
+        .expect("fresh database repair should be a no-op");
+    STATE_MIGRATOR
+        .run(&pool)
+        .await
+        .expect("current migrations should apply");
+    let before = sqlx::query_as::<_, (i64, Vec<u8>)>(
+        "SELECT version, checksum FROM _sqlx_migrations ORDER BY version",
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("current migration metadata should be readable");
+
+    repair_legacy_whale_taskspace_migrations(&pool, &STATE_MIGRATOR)
+        .await
+        .expect("current database repair should be a no-op");
+    let after = sqlx::query_as::<_, (i64, Vec<u8>)>(
+        "SELECT version, checksum FROM _sqlx_migrations ORDER BY version",
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("current migration metadata should remain readable");
+    assert_eq!(after, before);
+    pool.close().await;
 }
 
 #[tokio::test]
