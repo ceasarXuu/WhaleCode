@@ -129,8 +129,9 @@
       ],
       "current_sha256": "63d3fb8449d1c408b540170886b2cbb2e756e3a048426f0de3138d22df650b9d",
       "deletions": 0,
-      "evidence_commit_count": 3,
+      "evidence_commit_count": 4,
       "evidence_commits": [
+        "137db73720c41d3732616cbab10eb8c6c2224db9",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8",
         "27e3d51a71024b72aad426b572935906288617e2",
         "01e4cc915468077ed0f084428b79cfb84c10e017"
@@ -156,8 +157,9 @@
       ],
       "current_sha256": "7b6771fc04be4657c41b4e0db4b37a98d66e23ec9623240082bd9477d2b18fa0",
       "deletions": 0,
-      "evidence_commit_count": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "137db73720c41d3732616cbab10eb8c6c2224db9",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8",
         "343e4a32886170b382315558fa8d7dc80b4aa87f"
       ],
@@ -196,6 +198,92 @@
         "subsystem.configuration"
       ],
       "path": "codex-rs/config/src/config_toml.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 223,
+      "baseline_sha256": "ac595b26fb7cf1c222cd273b8c9048a5f4e366dc33b50088302c916a4d9563a5",
+      "binary": false,
+      "categories": [
+        "cache_observability",
+        "provider_transport",
+        "wire_sse"
+      ],
+      "current_sha256": "bd9cf21ef7f3649d158dc03d53b77cbcde90789ba71ba65d238440fb28c4e31c",
+      "deletions": 1,
+      "evidence_commit_count": 61,
+      "evidence_commits": [
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8",
+        "27e3d51a71024b72aad426b572935906288617e2",
+        "0d3af4b54250f159c4d06ea837369bbb7dcab64e",
+        "84b94ceef75f4ebc08c77cdd7f9991a555aa2975",
+        "26c5a87fdb3c0d8b84082bbab0ccd3da2db5e387",
+        "ecd1e929b89c2d3c526e577ea7af83f0a43feed3",
+        "b58f2f9c42454ffd900aa9cefa3f676f0414f940",
+        "d9224e8cdb3f11dc8dbec3366f60366f4f4a4e18",
+        "bba0b8de8bf2bef0d17499493f775a65df573e98",
+        "f8f1a21805d64f6d0c7a6771c4153aa9c1c9ef13",
+        "e5d4c3afdbc5aef623d4397edfbaf94a6b9373df",
+        "7d233aaa654b2fb90f9cffc6ac5b868b2a302c41",
+        "787070d8870c78fb146f0ee2ed05e90195a4a2db",
+        "e9d705a23558d3f777179ad8696351866e79081a",
+        "302ea5db386bf7a69b7d77c9cadf0bdaab41164b",
+        "148f1d816fa17d1917832271e6698fa7c3e64b96",
+        "e95b5e262295d78ca61be151a6ebaf3d72611ef7",
+        "4366b95ecc0ef364f7be49f545aa987e767f3a40",
+        "5f25aad60d2b52cbf528c3d2042d3b8bd260b970",
+        "e9fa52d1264b6ecf87bf41b928ed345c1946806f"
+      ],
+      "evidence_truncated": true,
+      "matched_rule_ids": [
+        "cache.exact_surface",
+        "subsystem.provider_transport",
+        "wire.exact_surface"
+      ],
+      "path": "codex-rs/core/src/client.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 126,
+      "baseline_sha256": "8c01f1bc4672d1338372d3a289fc4960963f486921b7c701c650d97dba0813c3",
+      "binary": false,
+      "categories": [
+        "cache_observability",
+        "provider_transport",
+        "wire_sse"
+      ],
+      "current_sha256": "b6b8f6985fbb0dd078f2fbbd84adffe26e0d7b0bcd13c88865effb9034e85ba2",
+      "deletions": 0,
+      "evidence_commit_count": 47,
+      "evidence_commits": [
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8",
+        "27e3d51a71024b72aad426b572935906288617e2",
+        "0d3af4b54250f159c4d06ea837369bbb7dcab64e",
+        "84b94ceef75f4ebc08c77cdd7f9991a555aa2975",
+        "26c5a87fdb3c0d8b84082bbab0ccd3da2db5e387",
+        "b58f2f9c42454ffd900aa9cefa3f676f0414f940",
+        "d9224e8cdb3f11dc8dbec3366f60366f4f4a4e18",
+        "bba0b8de8bf2bef0d17499493f775a65df573e98",
+        "e5d4c3afdbc5aef623d4397edfbaf94a6b9373df",
+        "7d233aaa654b2fb90f9cffc6ac5b868b2a302c41",
+        "302ea5db386bf7a69b7d77c9cadf0bdaab41164b",
+        "148f1d816fa17d1917832271e6698fa7c3e64b96",
+        "e95b5e262295d78ca61be151a6ebaf3d72611ef7",
+        "4366b95ecc0ef364f7be49f545aa987e767f3a40",
+        "5f25aad60d2b52cbf528c3d2042d3b8bd260b970",
+        "e9fa52d1264b6ecf87bf41b928ed345c1946806f",
+        "36a02b1ebc3dcd5615e3ca31d6663225b88828e1",
+        "781799f704661dd99202d4e34fc65d1693bbf15b",
+        "512e5e5cf53ce2e7d8d3bee4afdd4a57925d4833",
+        "fa6b6ff1885994d994fda616a3cb7a3a1b27b499"
+      ],
+      "evidence_truncated": true,
+      "matched_rule_ids": [
+        "cache.exact_surface",
+        "subsystem.provider_transport",
+        "wire.exact_surface"
+      ],
+      "path": "codex-rs/core/src/client_tests.rs",
       "status": "modified"
     },
     {
@@ -265,6 +353,30 @@
         "subsystem.configuration"
       ],
       "path": "codex-rs/core/src/config/mod.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "baseline_sha256": "313c3611c2543f2accd3d776ab7c67d91c23900bc587554614636b820f00b63d",
+      "binary": false,
+      "categories": [
+        "provider_transport"
+      ],
+      "current_sha256": "a253a9ab30a95f70cb001b506f5b0a795d11ffffdca8251975e39e1d81220e95",
+      "deletions": 0,
+      "evidence_commit_count": 5,
+      "evidence_commits": [
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8",
+        "84b94ceef75f4ebc08c77cdd7f9991a555aa2975",
+        "26c5a87fdb3c0d8b84082bbab0ccd3da2db5e387",
+        "ecd1e929b89c2d3c526e577ea7af83f0a43feed3",
+        "b58f2f9c42454ffd900aa9cefa3f676f0414f940"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "subsystem.provider_transport"
+      ],
+      "path": "codex-rs/core/src/realtime_conversation.rs",
       "status": "modified"
     },
     {
@@ -454,20 +566,20 @@
     "by_category": {
       "brand_home": 4,
       "build_release": 4,
-      "cache_observability": 1,
+      "cache_observability": 3,
       "cli_surface": 2,
       "configuration": 5,
       "developer_tooling": 3,
       "provider_model": 7,
-      "provider_transport": 2,
+      "provider_transport": 5,
       "test_fixture": 1,
-      "wire_sse": 1
+      "wire_sse": 3
     },
     "by_status": {
       "deleted": 3,
-      "modified": 15
+      "modified": 18
     },
-    "path_count": 18
+    "path_count": 21
   },
   "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
   "vendor_path": "third_party/codex-cli"
