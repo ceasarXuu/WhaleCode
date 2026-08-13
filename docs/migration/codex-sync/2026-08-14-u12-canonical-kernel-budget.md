@@ -3,7 +3,7 @@
 - 日期：2026-08-14
 - 来源边界：当前仓库 `ca7a0b505^` 中切换前 Whale TaskSpace；未访问其他工作空间
 - 目标边界：Codex 0.147 `ext/taskspace` 独立领域 crate
-- 状态：`in-progress`（预算已批准；U12a/U12b verified）
+- 状态：`verified`（U12a/U12b/U12c complete）
 - 真实模型请求：0
 
 ## 1. 最小目标
@@ -76,4 +76,17 @@ U12 只恢复 TaskSpace Rooted DAG 的事实模型、机械不变量、状态派
 | --- | --- | ---: | --- |
 | U12a：crate + canonical model + invariants | verified | 约 684 行 | 7 passed；无 `codex-core/state/protocol/tools` 依赖 |
 | U12b：transitions + events/replay | verified | 约 1,234 行 | 11 passed；event wire、deterministic replay、revision/empty rejection |
-| U12c：transactions + 完整 property/fixture | next | — | 待执行 |
+| U12c：transactions + 完整 property/fixture | verified | 1,691 行 | 34 passed；Clippy `-D warnings` passed；256-case property 与 terminal/reopen/replay fixtures passed |
+
+最终生产代码按保守口径计 1,691 行，低于 1,870 行硬上限 179 行；所有生产源文件均小于 500 行。新 crate 只依赖 `petgraph`、`serde`、`serde_json`、`sha2`，没有依赖 `codex-core`、`codex-state`、`codex-protocol` 或 `codex-tools`。
+
+## 8. 最终门禁
+
+| 验证 | 结果 |
+| --- | --- |
+| `cargo test --offline -p codex-taskspace-extension` | 34 passed |
+| `cargo clippy --offline -p codex-taskspace-extension --all-targets -- -D warnings` | passed |
+| Cargo metadata | offline/no-deps passed |
+| sync replay / metadata | 43 tests passed；inventory/replay/metadata checks passed；当前 overlay 50 路径 |
+| cache regression index gate | passed；指纹 `8febecd0917091f8d41141ff64d691b20d9530f6ace80dc7040817da46bd4920`；免费 final-wire 通过，最近一次 live 回归仍为失败且未晋升 |
+| 外部网络/真实模型请求 | 依赖索引首次解析外无产品 API 请求；真实模型请求 0 |
