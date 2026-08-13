@@ -1754,3 +1754,24 @@
 - Interpretation: TaskSpace 自建 Hosted 名称已从生产路径移除；剩余失败仍是两个独立顶层 item 的共现/归属问题，不能再从
   Web Search 内部 action 寻找根因。性能观察必须区分 Provider 原生执行与成功 TaskSpace 归属。
 - Time: 2026-08-14
+
+## Evidence E-048: Hosted 错误优先级单变量验收在首轮业务失败后停止
+- Related hypotheses:
+  - H-022
+  - H-021
+- Direction: neutral
+- Type: production-revalidation
+- Source: `WAR-20260814-040440-CACHE-REGRESSION-06CF20B8`
+- Prediction or plan link:
+  - Hosted 实际事实与 `already_executed` 登记集合应先于 client 节点可执行性校验；真实验收按用户要求在任一失败后停止。
+- Matched signal:
+  - 代码提交 `a54cae056dbcd881f9c8462df2521d757fc3f2ac` 将 Hosted 集合匹配提前，现有 Hosted 预检 5/5 通过，缓存敏感面指纹不变。
+  - 真实运行只执行 1/3 后因业务失败停止；本轮没有出现“Hosted 漏登与 waiting client 同时存在”的目标复合输入，因此在线 trace 没有直接观测错误优先级分支。
+  - Agent 先后产生 2 次 Exec 结构错误、1 次提前 Hosted 登记、1 次真实 Hosted 漏登和 2 次 Map 更新拒绝；随后成功完成 Hosted 归属、文件写入及本地验证。
+  - 收尾前 Provider 返回 `429 Too Many Requests`；Map 保持 `complete=false`、`validate=in_flight`、`finish=waiting`，所以业务文件虽然通过公开验证和隐藏 oracle，Agent 生命周期仍判失败。
+  - 实际 12 requests；已取得的部分 usage 为 496,940 input、445,952 cached input、50,988 uncached input、12,222 output，费用最低估值 USD 0.0118091456；末次 429 无完整 usage，后两次 repeat 未执行。
+- Correlation keys:
+  - proposal `CBP-FAB1FE9484610B6D`
+  - authorization `CBA-20260814-R8-HOSTED-PRIORITY-STAGE1-FAB1FE9484610B6D`
+- Interpretation: 第 1 点的离线机制成立且未观察到由该代码改动直接引起的行为回归，但真实单变量阶段未通过，也未命中目标复合分支，不能把它晋升为在线验证完成。按照停点约束，不进入第 2 点；后续应先决定是补确定性复合测试后重验，还是先处理 Exec 结构错误和协议使用路径。
+- Time: 2026-08-14

@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "run_validity": "valid",
+  "whale_bin_requested": "target/r8-taskspace-exec/hosted-priority-stage1/install/whale",
+  "whale_bin_resolved": "/home/zhangxu/whalecode-alpha/target/r8-taskspace-exec/hosted-priority-stage1/install/whale",
+  "whale_binary_exists": true,
+  "whale_binary_last_write_utc": "2026-08-13T20:02:30.0976446Z",
+  "whale_binary_sha256": "3bfa048b833ea541f7d3fd93b44961d647fdaaf4d26ce84f8cbbd2fe3320a719",
+  "whale_binary_epoch": 1786651350,
+  "current_git_head": "a54cae056dbcd881f9c8462df2521d757fc3f2ac",
+  "codex_source_latest_commit": {
+    "hash": "a54cae056dbcd881f9c8462df2521d757fc3f2ac",
+    "epoch": 1786650300,
+    "time_utc": "2026-08-13T19:45:00.0000000Z",
+    "pathspec": "third_party/codex-cli"
+  },
+  "stale_for_codex_source": false,
+  "stale_allowed": false,
+  "build_attestation_path": "/home/zhangxu/whalecode-alpha/target/r8-taskspace-exec/hosted-priority-stage1/install/whale.build-attestation.json",
+  "build_attestation_status": "pass",
+  "build_attestation_reason": "",
+  "findings": [],
+  "generated_at": "2026-08-14T04:02:39.6101094+08:00"
+}

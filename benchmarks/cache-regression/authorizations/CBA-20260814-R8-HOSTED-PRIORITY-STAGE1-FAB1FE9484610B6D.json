@@ -1,0 +1,38 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "approved_at": "2026-08-14T04:04:19+08:00",
+  "authorization_id": "CBA-20260814-R8-HOSTED-PRIORITY-STAGE1-FAB1FE9484610B6D",
+  "approval_reference": "用户于本轮明确批准四个单变量阶段各执行 provider-web-search-probe × map-request × repeat=3；前一批次在模型调用前因中性路径门禁失败且 Provider 请求为0，本授权继续覆盖原第1阶段，零重试。",
+  "proposal_id": "CBP-FAB1FE9484610B6D",
+  "proposal_sha256": "b066bbadaa4d813d0c53401482fff738793314c5a0985127dc28687c4431aa86",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "provider-web-search-probe"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 3,
+    "planned_sample_runs": 3,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 3,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "四阶段单变量验证的第1阶段基础设施更正后重发：前一批次因 run-root 名称含 taskspace 触发中性路径门禁，Provider 请求为0；本批仍仅验证 Hosted 配对错误优先级，provider-web-search-probe × map-request × repeat=3，零重试，任一失败即停止。用户已批准本阶段 repeat=3。"
+  },
+  "approved_maximums": {
+    "provider_requests": 36,
+    "input_tokens": 36000000,
+    "output_tokens": 13824000,
+    "elapsed_seconds": 900,
+    "estimated_cost": 8.91072,
+    "currency": "USD"
+  }
+}
