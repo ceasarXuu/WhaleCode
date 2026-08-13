@@ -2,7 +2,7 @@
   "schema_version": 1,
   "baseline_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
   "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
-  "overlay_tree": "2c794a28ecad6707278e19f4f4cf7747622b703a",
+  "overlay_tree": "f28d2dd4dddadce7351b04a25ba8d66b8e1807de",
   "cutover_batches": [
     {
       "id": "batch-1-brand-home",
@@ -923,7 +923,33 @@
       "categories": [
         "taskspace_domain"
       ],
-      "current_sha256": "476a98b6ff2d411758dabb346a224aa805c05a12376c7b72d39e9c85bee5c880",
+      "current_sha256": "eab55e866709b176636528fcaae4e5a326aeeb310d42130cbc750dd2ec2aa7fc",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/ext/taskspace/src/execute_manifest.rs",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "taskspace_domain"
+      ],
+      "current_sha256": "01a2dbbaa9841e580c33dd6a79d7b394e3c4cb349953d6603e78c15d9cdfeab6",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -1001,7 +1027,7 @@
       "categories": [
         "taskspace_domain"
       ],
-      "current_sha256": "83479d3599ce5e8f26fbceda3594c4df0e2ada3472035afead32592170595c42",
+      "current_sha256": "b11dbf4b7c91f2f7739d5578be3cf53d13603372696e2f0a5d175cd77cf4b81d",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -1079,7 +1105,7 @@
       "categories": [
         "taskspace_domain"
       ],
-      "current_sha256": "92661ade2576301133d288c06372677c74fde8e840bebfc8d0909e18c0ba2046",
+      "current_sha256": "05dfe7d340ec14e8f4be6d09c0b39594cd796d2aa5c6df55110d8ce2b87d4bfc",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -1157,7 +1183,7 @@
       "categories": [
         "taskspace_domain"
       ],
-      "current_sha256": "3e3823362a6fe3f00422b4dfdb09fd72807f509fecae64b02c368fb656960801",
+      "current_sha256": "3b04f7334d30287ab58b05075258072bb51372454501429fa434a01c70f9aea7",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -1183,7 +1209,7 @@
       "categories": [
         "taskspace_domain"
       ],
-      "current_sha256": "cb579cfc8e5d19b285eb62da20b93b70124f19e99f6b29f5cd665be568601bf5",
+      "current_sha256": "7b3e1b4658c505796695d4b47a8929ae3a02741f519775153df0d0bd3baffc5f",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -1209,7 +1235,7 @@
       "categories": [
         "taskspace_domain"
       ],
-      "current_sha256": "0186a27aab74d4abd09ff0aa2cb86579de8276d91a266516b1cd6018e980b52d",
+      "current_sha256": "dbb24188d33d63266453ed9d2e80e953b70af4ec1a738595b7e7382834dfc121",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -1794,7 +1820,7 @@
       "categories": [
         "taskspace_domain"
       ],
-      "current_sha256": "38732b0bffeca5186706af91ae4da14625130ad213dbc6aec210d368adeb4196",
+      "current_sha256": "afed179775c8d3a568ca327a18abe994aea856f6802d446088eb7c31a123f4d8",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -1951,9 +1977,9 @@
     }
   ],
   "summary": {
-    "path_count": 74,
+    "path_count": 75,
     "by_disposition": {
-      "adapt-semantically": 68,
+      "adapt-semantically": 69,
       "defer": 2,
       "reapply-exact": 4
     },
@@ -1961,7 +1987,7 @@
       "batch-1-brand-home": 10,
       "batch-2-substrate": 12,
       "batch-3-deepseek-wire": 19,
-      "batch-4-taskspace-multi-agent": 31,
+      "batch-4-taskspace-multi-agent": 32,
       "batch-5-generated-release": 2
     }
   }
