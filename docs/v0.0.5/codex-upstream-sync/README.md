@@ -43,7 +43,7 @@
 - U5 已恢复 DeepSeek provider、环境鉴权与 Flash 默认；U7 已通过无网络 fixture 验证 Pro 原生 `/responses` 请求和 reasoning/text/function-call SSE，未增加生产适配层。
 - U8 已恢复默认关闭、仅供获批开发回归启用的 transport-exact 请求硬门禁，并验证 provider usage 可在 completed terminal 时进入 rollout。U9 已恢复 DeepSeek Flash/Pro 运行时元数据、1M/755K 合同及 Flash→Pro compaction 请求。U10 已锁定 `standard` final-wire 并通过五组免费缓存合同；U6 已恢复 Flash/Pro 可见性、DeepSeek-only 公共列表和 Flash 默认。Phase C 已完成，TaskSpace 尚未执行。
 - U11 已在 state 初始化入口增加精确 checksum 保护的迁移桥：已知旧 Whale `0030/0031` 可保留 TaskSpace 数据并升级到 0.147 migration history；fresh/current 数据库 no-op，未知或部分历史继续由 SQLx fail-closed。没有读取或改写真实用户数据库。
-- U12 实施前清点已完成：只迁 Rooted DAG canonical kernel，生产代码硬上限 1,870 行，host/store/protocol/UI 全部排除；当前等待超 500 行代码预算明确批准。
+- U12 实施前清点已完成并获明确预算批准：只迁 Rooted DAG canonical kernel，生产代码硬上限 1,870 行，host/store/protocol/UI 全部排除；下一步执行 U12a。
 - replay ledger 和五批 DAG 已降级为非权威证据；后续不得直接按自动 disposition 或路径桶实施，应按 `plan.md` 的 U1–U17 语义闭环推进。
 
 ## 1. 执行摘要

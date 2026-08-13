@@ -3,7 +3,7 @@
 - 日期：2026-08-14
 - 来源边界：当前仓库 `ca7a0b505^` 中切换前 Whale TaskSpace；未访问其他工作空间
 - 目标边界：Codex 0.147 `ext/taskspace` 独立领域 crate
-- 状态：`blocked-on-code-budget-approval`
+- 状态：`approved`（用户明确回复“批准”）
 - 真实模型请求：0
 
 ## 1. 最小目标
@@ -66,6 +66,6 @@ U12 只恢复 TaskSpace Rooted DAG 的事实模型、机械不变量、状态派
 
 任一子提交发现需要依赖 `codex-core`、`codex-state`、`codex-protocol` 的 TaskSpace 专用类型，或需要修改 session/provider/tool router 才能让领域测试通过，立即停止并报告 seam 缺口；不以兼容层或 feature flag 绕过。
 
-## 6. 需要的明确授权
+## 6. 授权记录
 
-U12 的最小充分实现仍会超过仓库默认的单阶段 500 行生产代码门禁。开始 U12a 前需要用户明确批准：允许 U12 在上述精确范围内新增最多 1,870 行手写生产代码、测试另计，并按 3 个原子提交逐步验证和推送。
+用户已明确批准：U12 可在上述精确范围内新增最多 1,870 行手写生产代码、测试另计，并按 3 个原子提交逐步验证和推送。该授权不覆盖 U13–U16，也不允许扩大到 store、session、provider、工具路由、RPC 或 TUI。
