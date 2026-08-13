@@ -30,7 +30,7 @@
   - 已完成 provider 请求可精确离线结算，失败本地尝试仍单独可见。
   - benchmark 不再消费已淘汰的旧 Map result/ref/compaction 模型。
   - 严格 JSON 解码保持不变；剩余一次真实运行只用于观察生产形状与偶发格式错误是否重复。
-- Current conclusion: Dedicated TaskSpace base 已消除顶层 client Tool 逃逸，Source 已退役。I05 修复后的在线复验确认 syntax 反馈不再诱发 wrapper 重复。最新原生 Hosted 身份验收确认 TaskSpace 已逐字复用 `ToolSpec::name()`，且 Web Search 内部 action 未被提升成 Tool；但专项样本的两个逻辑 Hosted 使用均漏掉同响应 Exec 归属，业务完成不能替代协议验收。I03、I04、I07 继续开放，整体保持 verifying。
+- Current conclusion: Dedicated TaskSpace base 已消除普通 client Tool 的既有顶层逃逸，Source 已退役。I05 修复后的在线复验确认 syntax 反馈不再诱发 wrapper 重复。原生 Hosted 身份验收确认 TaskSpace 已逐字复用 `ToolSpec::name()`，且 Web Search 内部 action 未被提升成 Tool；但同响应归属仍不稳定。E-050 进一步证明把 Hosted 登记合并进首次 Exec 示例会诱发模型把原生 `web_search_call` 错写成顶层 client Function Call，该候选未通过且未晋升。I03、I04、I07 继续开放，整体保持 verifying。
 - Related hypotheses:
   - H-001
   - H-002
@@ -53,7 +53,7 @@
   - H-021
   - H-022
 - Resolution basis:
-  - E-001 至 E-047；H-012 确认顶层逃逸消失，H-013 的交接合同已在线走通，H-015 的反馈修复已在线验证；H-016～H-018 分别坐实正式上下文自愈接缝、waiting 事实反馈和 nested patch 观测缺口。E-047 确认原生 Hosted 身份修复在线成立，但同响应漏登仍未解决。
+  - E-001 至 E-050；H-012 确认普通 client Tool 的旧逃逸路径消失，H-013 的交接合同已在线走通，H-015 的反馈修复已在线验证；H-016～H-018 分别坐实正式上下文自愈接缝、waiting 事实反馈和 nested patch 观测缺口。E-047 确认原生 Hosted 身份修复在线成立，E-050 证明首轮合并示例不能结构性表达 Provider 原生一侧并会诱发新的顶层 Function Call 误读。
 - Close reason:
   - not closed
 
@@ -1659,6 +1659,7 @@
   - E-044
   - E-045
   - E-046
+  - E-050
 - Conclusion: confirmed。固定方向判别已在真实 Provider 路径生效并产生 8 次成功对账，但五轮均未稳定闭环；执行方向歧义是部分根因。后续源码与 trace 纠偏确认：`search/open_page/find_in_page` 是原生 `web_search` ToolSpec 的内部过程，不是独立 Tool，也不存在需要 TaskSpace 建立的名称映射。剩余缺口是两个独立顶层 item 缺少结构性耦合，以及 Hosted 归属后同批完成 owner 的合法序列缺口。H-021 的跨响应恢复仍不自动升级为当前修复方向。
 - Repair design readiness: partial / mapping hypothesis invalidated; two independent contract gaps remain
 - Next step: Tool 身份逐字复用原生 `ToolSpec::name()`，删除 TaskSpace 自建命名；随后独立复核同响应结构性耦合和 Hosted work 后完成 owner 的合法序列。没有新证据前不增加 pending、Runtime 自动绑定或默认归属。
@@ -1792,4 +1793,21 @@
   - 预检后当前 Map 与执行前克隆完全相等；client Tool 未执行。现有 handler 合同测试证明该枚举映射为 Agent 可见的 Hosted 漏登事实反馈。
   - 新复合用例与两项既有反馈合同测试全部通过。
 - Interpretation: 第 1 点的错误选择顺序、Agent 可见反馈映射和零副作用已有确定性证据；这不是 Agent 在线遵循度证据，不能关闭 I03 或把 E-048 的真实阶段改判为通过。本次没有真实 Whale Agent run，也没有 Provider token 或费用。
+- Time: 2026-08-14
+
+## Evidence E-050: 首轮合并示例诱发顶层 web_search Function Call
+- Related hypotheses:
+  - H-022
+  - H-021
+- Direction: supports
+- Type: production-revalidation
+- Source: `WAR-20260814-050215-CACHE-REGRESSION-A6B34C65`
+- Prediction or plan link:
+  - 四阶段单变量验证第 2 点：用一个首次 `initialize_and_work` 示例同时表达 client work 与 Hosted `already_executed` 归属。
+- Matched signal:
+  - 提交 `7f7a1e7b9de5c4930aa78571ef54c3d968a54d46` 删除独立 Hosted JSON，并把 `exec_command` 与 `web_search + already_executed` 合并进首次示例；Tool 区从 26,715 降为 26,589 bytes，离线 75/75 通过。
+  - 唯一真实响应同时输出 `taskspace_exec` 和顶层 `function_call(name=web_search)`；后者携带 `queries`，不是原生 `web_search_call`，故 response scope 记录 `hosted_tool_count=0`。
+  - Runtime 返回 `TaskSpace response contains forbidden top-level client Tool web_search`，Map 初始化与 client Tool 均未执行；`provider_fact.json` 未生成。
+  - 计划 repeat=3 在首轮业务失败后按用户停点停止；实际 1 request、12,761 input、3,968 cached、8,793 uncached、1,702 output，估算 USD 0.0017186904。
+- Interpretation: Exec description 内的所谓完整示例只能展示归属登记一侧，无法展示 Provider 原生 response item；模型把缺失一侧补成普通 Function Call。该结果复现 E-046/历史不可拆分措辞中的同类误读，是对第 2 点方向的负向证据，不应通过追加文字或继续 repeat 掩盖。候选不晋升缓存基线，不进入第 3 点。
 - Time: 2026-08-14

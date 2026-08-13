@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 logical Hosted aggregation verified online, cross-response ownership recovery unresolved
+- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 Hosted same-response pairing remains unresolved; first-turn combined example failed online
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -120,6 +120,11 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   `search/open_page/find_in_page` 仅为 `web_search_call` 内部 action。然而专项样本的两个逻辑 Hosted 使用均未在同响应
   生成 Exec 归属，最终虽完成业务和 Map，成功 Hosted 归属仍为 0。身份修复在线成立，I03 同响应双写缺口未关闭；详见
   [`50-native-hosted-identity-live-result.md`](50-native-hosted-identity-live-result.md)。
+- 首轮合并示例候选把 client work 与 `already_executed` 登记放入同一个 `initialize_and_work` JSON，Tool description
+  比上一阶段减少 126 bytes，离线 75/75 通过；但真实首请求把应由 Provider 产生的原生 `web_search_call` 错写成携带
+  `queries` 的顶层 client Function Call。Runtime 零副作用拒绝，计划 repeat=3 在 1/3 后停止。该候选不晋升缓存基线，
+  也不继续用文字补丁扩大协议；详见
+  [`52-hosted-first-turn-example-stage2-result.md`](52-hosted-first-turn-example-stage2-result.md)。
 
 ## 3. 文档
 
@@ -186,6 +191,9 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     协议误读和预算停点。
 51. [`50-native-hosted-identity-live-result.md`](50-native-hosted-identity-live-result.md)：原生 Hosted ToolSpec 身份修复的三次
     获批真实运行、缓存成本、Web Search 原始 trace 与剩余同响应漏登结论。
+52. [`51-hosted-error-priority-stage1-result.md`](51-hosted-error-priority-stage1-result.md)：Hosted mismatch 优先级的离线与在线阶段证据，以及确定性复合门禁。
+53. [`52-hosted-first-turn-example-stage2-result.md`](52-hosted-first-turn-example-stage2-result.md)：首轮 client/Hosted 合并示例的
+    单变量真实失败、成本和顶层 client Function Call 误读证据。
 
 ## 4. 推进规则
 

@@ -1,7 +1,122 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-14T04:07:14+08:00",
+  "updated_at": "2026-08-14T05:03:01+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260814-050215-CACHE-REGRESSION-A6B34C65",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-14T05:02:22+08:00",
+      "ended_at": "2026-08-14T05:03:01+08:00",
+      "elapsed_calendar_seconds": 38.364,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "四阶段单变量验证第2阶段：仅验证首轮完整 initialize_and_work 示例同时表达 client work 与原生 provider-hosted already_executed 归属，provider-web-search-probe × map-request × repeat=3，零重试，任一运行、业务、usage 或预算异常即停止。用户已提前批准本阶段 repeat=3。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260814-R8-HOSTED-FIRST-TURN-STAGE2-AC6660557AB7E186",
+        "reference": "用户明确批准四项协议变更逐项实施并各执行 provider-web-search-probe × map-request × repeat=3；本授权仅覆盖第2点首轮完整示例，零重试，任一失败即停止。",
+        "budget_summary": {
+          "provider_requests": 36,
+          "input_tokens": 36000000,
+          "output_tokens": 13824000,
+          "elapsed_seconds": 900,
+          "estimated_cost": 8.91072,
+          "currency": "USD"
+        },
+        "note": "严格绑定预算提案 CBP-AC6660557AB7E186。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "582313406df29d300dc43832b1cd77e43eabf49f99c1fb470e06dff8ebadc445",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "provider-web-search-probe"
+        ],
+        "arm_ids": [
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 3,
+        "planned_sample_runs": 3,
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 12761,
+        "cached_input": 3968,
+        "uncached_input": 8793,
+        "output": 1702
+      },
+      "monetary_cost": {
+        "status": "estimated_partial",
+        "currency": "USD",
+        "amount": 0.0017186904,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 1.11104e-05,
+          "uncached_input": 0.0012310200000000002,
+          "output": 0.00047656000000000006
+        },
+        "pricing_snapshot": {
+          "currency": "USD",
+          "captured_at": "2026-07-31",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "按已取得的部分 provider token 遥测估算；金额是已知最低值。"
+      },
+      "evidence": {
+        "planned_run_root": "target/r8-hft-s2/run",
+        "subject_commit": "7f7a1e7b9de5c4930aa78571ef54c3d968a54d46",
+        "surface_sha256": "188b6bc3637ef8d6e6ec1384adbd5b98406c06d66561fd050f2db4a85c65386c",
+        "proposal_id": "CBP-AC6660557AB7E186",
+        "proposal_contract_sha256": "03590d984d147950b845aca49430a19adc715382e9822985057426f14fa737dd",
+        "proposal_path": "benchmarks/cache-regression/proposals/CBP-AC6660557AB7E186.json",
+        "proposal_sha256": "50ecaa937417a0984c0efbda04eb0433b9d5d5bff9a778b8a21dc80fbda5a9e0",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260814-R8-HOSTED-FIRST-TURN-STAGE2-AC6660557AB7E186.json",
+        "authorization_sha256": "a35c107d8e005125ea029226d223256eb9777d2a81afee9372edf821625b3d06",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "provider-web-search-probe"
+          ],
+          "arms": [
+            "map-request"
+          ],
+          "repeat": 3,
+          "planned_sample_runs": 3,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 3,
+          "stop_conditions": [
+            "after_any_run_failure",
+            "after_any_business_failure",
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "四阶段单变量验证第2阶段：仅验证首轮完整 initialize_and_work 示例同时表达 client work 与原生 provider-hosted already_executed 归属，provider-web-search-probe × map-request × repeat=3，零重试，任一运行、业务、usage 或预算异常即停止。用户已提前批准本阶段 repeat=3。"
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_run_failure",
+          "after_any_business_failure",
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "partial",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260814-050215-CACHE-REGRESSION-A6B34C65/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "4dd6805ccb991087ffcef72df850fa17ca7d2e12a125eab2f9c9b4777357a736",
+        "actual_run_root": "target/r8-hft-s2/run",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260814-050215-CACHE-REGRESSION-A6B34C65.json",
+        "runner_exit_code": 3,
+        "outcome": "partial"
+      }
+    },
     {
       "record_id": "WAR-20260814-040440-CACHE-REGRESSION-06CF20B8",
       "record_type": "run_batch",
