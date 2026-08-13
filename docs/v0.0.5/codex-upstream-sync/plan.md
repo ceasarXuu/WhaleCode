@@ -1,6 +1,6 @@
 # Codex CLI 主线融合执行计划
 
-- 文档状态：有效，Phase A、Phase B、Phase C verified；下一步执行 Phase D Pre-Phase Plan Rebase Gate
+- 文档状态：有效，Phase A、Phase B、Phase C verified；Phase D Pre-Phase Plan Rebase Gate 已完成审查，因 PLD-006 待批准而阻塞
 - Plan Validity：`valid-with-qualifications`
 - 计划性质：覆盖已完成里程碑与剩余工作的唯一执行计划
 - 适用版本：WhaleCode v0.0.5
@@ -113,6 +113,13 @@ Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依�
 - [DeepSeek Responses API 兼容性明细](https://api-docs.deepseek.com/zh-cn/guides/responses_api)
 - [DeepSeek 模型与能力规格](https://api-docs.deepseek.com/zh-cn/quick_start/pricing)
 
+Phase D 的 PLD-006 采用当前 0.147 源码和以下一手资料校验扩展与迁移边界：
+
+- [Codex 0.147 Extension Registry](https://github.com/openai/codex/blob/rust-v0.147.0/codex-rs/ext/extension-api/src/registry.rs)
+- [Codex 0.147 Goal Extension](https://github.com/openai/codex/blob/rust-v0.147.0/codex-rs/ext/goal/src/extension.rs)
+- [SQLx 0.9 `MigrateError`](https://docs.rs/sqlx/0.9.0/sqlx/migrate/enum.MigrateError.html)
+- [SQLite ALTER TABLE 与安全 schema 迁移步骤](https://www.sqlite.org/lang_altertable.html)
+
 | ID | Before Phase | Previous Plan | Current Fact | Proposed Change | Impact | User Approval | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | PLD-001 | Phase A | 继续以 0.146 为候选；U2 验证 overlay；U3 替换 vendor | 0.147 已于 2026-08-07 发布，固定 commit 为 `be6e8eac029b183056b7e4402879f15d2c85f61b`；0.146 工件不能证明 0.147 | 当前候选改为 0.147；新增候选资格单元 U2；原后续单元顺延 | target-dependent 工件和资格证据必须重算；生产替换推迟到 U4 | `user-approved-plan-direct: “根据147正式更新计划”` | approved-applied |
@@ -120,6 +127,7 @@ Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依�
 | PLD-003 | Phase B | U4 作为只含上游 substrate + U3 seam 的独立提交，随后才进入 DeepSeek/TaskSpace | cache gate 把旧 Whale final-wire/policy 的同批删除与 0.147 缓存敏感源码替换识别为硬冲突；当前无 DeepSeek/TaskSpace 的 U4 也不是有效真实回归主体 | 增加独立 U4a：在不改产品源码和 accepted baseline 的前提下治理 vendor-cutover 的 cache contract/提交边界；U4 重新通过免费门禁后再提交；真实 2-sample 回归推迟到 DeepSeek/TaskSpace 被测闭环恢复后 | 增加一个测试治理单元，但避免巨型 U4–U16 合并提交、无效付费运行或绕过门禁 | `user-approved-plan-direct: “批准”` | approved-applied |
 | PLD-004 | Phase C | U6 保持 Pro 隐藏；U7 重放旧 Chat Completions 转换和 SSE 适配，再按原顺序完成 U8–U10 | DeepSeek 于 2026-08-13 发布 V4 Pro 正式版并原生支持 Responses API；官方兼容表明确 Flash/Pro 均支持 Responses；Codex 0.147 已移除 Chat Completions wire 分支并采用 Responses-only 主链 | 不恢复旧 Chat Completions 转换层；U5 基于当前 provider seam 恢复 DeepSeek 身份、鉴权与 Flash 默认；U7 只按官方兼容表补足确有测试证据的 Responses 请求/SSE 差异；U8–U10 完成后再执行 U6，使 Flash 继续默认、Pro 在 provider/final-wire 与 TUI 验证通过后恢复可见 | 执行顺序调整为 U5→U7→U8→U9→U10→U6；减少废弃兼容代码和上游侵入；D1 的官方发布条件已满足，本地验证条件仍保留；0 模型请求不变 | `user-approved-plan-direct: “批准”` | approved-applied |
 | PLD-005 | Phase C / U9 | 恢复“Flash compact request”，模型目录整体留到 U6 | 历史 Whale compaction 实现实际由 Flash 主任务切到 Pro 生成 checkpoint；V4 Pro 现已正式发布且原生支持 Responses；0.147 必须先能解析 Pro 元数据，才能构造该压缩请求 | U9 恢复隐藏的 Flash/Pro 运行时元数据及 1M/755K 合同，Flash 主任务压缩时只替换采样模型为 Pro；目录选择器可见性仍留到 U6 | 修正旧计划中与历史实现不符的措辞；不提前暴露模型、不增加 TaskSpace 提示词/状态、不发送真实请求 | `user-approved-plan-direct after V4 Pro release reminder: “批准”` | approved-applied |
+| PLD-006 | Phase D | U11–U14 把旧 `core/action_map`、state store、tool handler 和 session hooks 依次直接重放到 0.147，未单列旧数据库升级兼容 | 旧 TaskSpace 跨 177 个引用路径，直接回放会重新侵入 core/session/provider；0.147 已提供 tool、tool lifecycle、thread/turn lifecycle、world-state 和 event sink 扩展 seam；旧 Whale 与 0.147 对 `state/migrations/0030`、`0031` 使用了不同 SQL/checksum，现有旧库会先触发 SQLx `VersionMismatch` 并使 state runtime 不可用；上游 Goal extension 已证明 state-backed extension 模式可行 | U11 改为精确指纹保护的旧库 migration bridge；U12 只迁 canonical TaskSpace domain/event kernel 到独立 `ext/taskspace` crate；U13 在现有 `StateRuntime` 上恢复同一 TaskSpace store/CAS/replay，并以新迁移号兼容新旧库，不新增第二状态库；U14 通过现有 extension contributors 接入 tools、lifecycle 和 WorldState，除非 seam spike 证明缺口，否则禁止恢复旧 core/session/provider-wire 侵入；U15 通过 extension service 暴露 RPC/schema；U16 恢复 TUI/viewer 并完成 TaskSpace final-wire/cache 合同 | 增加一个必须先完成的数据兼容单元；把 tool/session 两个宿主侵入单元合并为 extension 集成边界；保持 TaskSpace canonical store 为唯一任务状态权威，AgentGraphStore 只管理 thread spawn topology，WorldState 只承载模型可见 projection；预计 Phase D 总生产改动明显超过 500 行，批准方向后仍按 U 单元控制范围，U12 开始前需给出精确移植清单与代码预算 | `required-pending` | proposed-blocking |
 
 ## 4. 最低成本预投资验证
 
@@ -130,6 +138,7 @@ Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依�
 | V3 | 0.147 substrate 能以很薄的 identity/home overlay 支撑 Whale CLI | 是否替换生产 vendor | 一次性临时候选树只应用品牌、二进制身份、`WHALE_HOME`、auth 隔离 patch | CLI build/version、home、direct keyring 与 encrypted secrets keyring 隔离均通过；不需要 DeepSeek/TaskSpace stub | 未提交第二份 vendor；0 模型请求 | 临时树已删除；证据落入 U3 report | validated |
 | V4 | 0.147 新增用户可见能力不会在整仓替换时静默改变 Whale 默认权限、持久化或协议行为 | 是否执行 U4 | 在临时 0.147 tree 检查 `--approve-for-me`、portable Agent Plugins、thread sections、MCP 2026-07-28 的 CLI help、配置 schema、feature/default、protocol 和持久化入口 | approve flag 与 thread RPC 为显式动作；MCP 2026 默认 false；remote plugin/sharing 的上游默认 true 已通过现有 feature seam 锁回 false | 只读源码 + 本地无模型 smoke；不改生产候选 | 未新增禁用框架；临时树已删除；证据落入 U3 report | validated |
 | V5 | Phase C 是否仍需旧 DeepSeek Chat Completions 转换层，Pro 是否仍应隐藏 | 是否按原 U6/U7 方案执行 | 核验 DeepSeek 官方正式版公告、Responses 兼容表、模型规格，并对照 Codex 0.147 provider/endpoint 源码 | 官方确认 V4 Pro 正式版与 Flash/Pro 原生 Responses 支持；0.147 为 Responses-only；足以否定旧转换层方向，但不能替代本地 provider/final-wire/TUI 回归 | 只读官方资料与本地源码；0 模型请求 | PLD-004 已批准；保留 D1 的 Flash 默认和本地验证门槛 | direction-supported |
+| V6 | 旧 TaskSpace 是否能按原 U11–U14 直接重放，且旧 Whale state DB 能直接由 0.147 打开 | 是否保持 Phase D 模块边界和顺序 | 只读比较切换前 TaskSpace 引用面、旧/新 migration SQL+checksum、0.147 extension/state/AgentGraph/WorldState 源码与 SQLx 0.9 校验语义 | 旧实现跨 177 个引用路径；extension API 已覆盖主要宿主 seam；旧/新 0030、0031 checksum 不同，SQLx 对已应用但内容变化的同版本返回 `VersionMismatch`；足以否定直接重放顺序，但尚未证明 migration bridge 的最终 SQL 和 canonical kernel 精确移植清单 | 只读 Git 对象、当前源码和官方文档；0 模型请求；未读取任何其他工作空间或用户数据库 | PLD-006 待批；实施时先用合成旧库 fixture 验证，未知 checksum 必须 fail-closed | direction-supported |
 
 ## 5. 可执行工作单元
 
@@ -161,7 +170,7 @@ Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依�
 - Material plan delta：`material`（U4 执行后由 cache gate 新证据触发）
 - Plan delta record：PLD-003
 - User approval：`user-approved-plan-direct: “批准”`
-- Gate status：`verified`
+- Gate status：`ready`
 
 进入条件：Phase A verified，用户已看到 0.147 资格结论。适用决策：D2。
 
@@ -180,7 +189,7 @@ Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依�
 - Material plan delta：`material`
 - Plan delta record：PLD-004、PLD-005
 - User approval：`user-approved-plan-direct: “批准”`
-- Gate status：`verified`
+- Gate status：`ready`
 
 进入条件：U4 verified。适用决策：D1、D2。
 
@@ -200,10 +209,21 @@ Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依�
 #### Pre-Phase Plan Rebase Gate
 
 - Rebase scope：U4 substrate 与 U5–U10 DeepSeek 实现、TaskSpace 实际编译/测试状态、上游 domain/data/tool/session/client seam + Phase D–E 剩余计划。
-- Material plan delta：`pending`
-- Plan delta record：`pending`
-- User approval：`pending-if-material`
-- Gate status：`pending`
+- Material plan delta：`material`
+- Plan delta record：PLD-006
+- User approval：`required-pending`
+- Gate status：`blocked-on-plan-approval`
+
+重基结论：原 U11–U16 暂时冻结，不得按下表直接执行。待批准的替换映射是：
+
+1. U11 先解决旧 Whale `0030/0031` 与 0.147 migration 的同号 checksum 冲突；只识别已知旧 checksum，保留 TaskSpace 表与数据，未知历史 fail-closed。
+2. U12 只恢复 canonical map v2、DAG invariant、domain event/transaction/serialization 到独立 `ext/taskspace`，不搬运旧兼容层、provider trace 或宿主路由。
+3. U13 复用现有 `StateRuntime` 恢复 TaskSpace store、CAS 与 replay；用新的迁移号覆盖 fresh 0.147 和经 U11 修复的旧 Whale 库，不创建第二 TaskSpace 状态库。
+4. U14 复用 0.147 extension registry 接入 native tools、tool lifecycle、thread/turn lifecycle、WorldState projection 和 extension event sink；AgentGraphStore 只作为 thread spawn topology，不成为 TaskSpace 状态权威。
+5. U15 通过 extension-owned service 恢复 app-server RPC、事件与生成 schema，避免给 `CodexThread` 重新增加 TaskSpace 专用方法。
+6. U16 恢复 `/taskspace`、`/task-show` 与 viewer，并在同单元锁定 TaskSpace final-wire/cache；不恢复强耦合旧 `provider_wire_trace`。
+
+规模门禁：PLD-006 的方向批准不等于无限制代码授权。U11 目标控制在 500 行手写生产代码以内；U12 开始前必须先落精确保留/淘汰清单与预估生产代码量，若超过 500 行须取得用户对该工作单元的明确批准。
 
 进入条件：Phase C verified。适用决策：D2。
 
@@ -248,8 +268,8 @@ Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依�
 | 已完成：U1 | 无产品语义 | 修正 qualification runner 并确认 0.146 validation direction-rejected；vendor 未变 | D2 | engineering-only | 已收口为 Phase A 历史输入 |
 | Phase A | 已完成 | U2 direction-supported-with-known-test-risks；Checkpoint B 已刷新 0.147 查询工件；U3 最小 identity/home/auth/default seam 验证通过；vendor 未变 | D2 | covered + engineering-only | 进入 Phase B rebase gate |
 | Phase B | 已完成 | vendor 对齐 0.147 且只保留 U3 seam；U4a 独立迁移免费缓存合同，cache index gate 通过；live baseline 仍保持失败状态 | D2 | covered + engineering-only | 进入 Phase C rebase gate |
-| Phase C | 已完成 | PLD-004/005 已批准；U5–U10 已恢复 provider、原生 Responses、开发期 guard、1M/755K 与 Flash→Pro 压缩、Standard final-wire/cache；U6 使 Flash/Pro 可见、公共列表仅保留 DeepSeek，并保持 Flash 默认；未触及 TaskSpace | D1、D2 | covered + engineering-only | 进入 Phase D Pre-Phase Plan Rebase Gate |
-| Phase D | 待执行 | 待记录 | D2 | 待分类 | U11–U16 后审计 |
+| Phase C | 已完成 | PLD-004/005 已批准；U5–U10 已恢复 provider、原生 Responses、开发期 guard、1M/755K 与 Flash→Pro 压缩、Standard final-wire/cache；U6 使 Flash/Pro 可见、公共列表仅保留 DeepSeek，并保持 Flash 默认；未触及 TaskSpace | D1、D2 | covered + engineering-only | Phase D rebase 已完成，PLD-006 待批 |
+| Phase D | 待执行 | Pre-Phase gate 发现旧库 migration 冲突与 0.147 extension seam，PLD-006 尚未批准，未产生运行时变更 | D2 | engineering-only（gate evidence） | 批准或否决 PLD-006 后更新唯一计划；当前禁止执行 U11–U16 |
 | Phase E | 待执行 | 待记录 | D1、D2 | 待分类 | U17 后审计 |
 
 ## 7. Pending Product Decisions
@@ -263,7 +283,7 @@ Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依�
 
 ## 8. 执行与提交边界
 
-执行顺序当前到达 `... -> U4（已验证） -> Phase C rebase gate（PLD-004/005 已批准） -> U5（已验证） -> U7（已验证） -> U8（已验证） -> U9（已验证） -> U10（已验证） -> U6（已验证）`。Phase C 已收口；下一步只执行 Phase D Pre-Phase Plan Rebase Gate，在重基结论写回本计划并满足其审批规则前不开始 U11。Phase C 未消耗真实回归预算，也未晋升 live baseline。
+执行顺序当前到达 `... -> U4（已验证） -> Phase C rebase gate（PLD-004/005 已批准） -> U5（已验证） -> U7（已验证） -> U8（已验证） -> U9（已验证） -> U10（已验证） -> U6（已验证） -> Phase D rebase gate（PLD-006 待批准）`。Phase C 已收口；Phase D 当前阻塞，未获得 PLD-006 的直接批准前不得执行 U11–U16。Phase C 未消耗真实回归预算，也未晋升 live baseline。
 
 - 每个 U 单元至少一个独立、可理解、已基本验证的 commit，并立即 push。
 - 单元内出现两个可独立回滚的行为主题时继续拆 commit；不得把 vendor 机械替换与产品 overlay 混为一个提交。

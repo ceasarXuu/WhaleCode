@@ -2,7 +2,7 @@
 
 > 计划治理说明（2026-08-10）：本专题只保留一份工程计划：[plan.md](plan.md)。已完成工作统一记录在该计划的状态表中，详细证据由 execution report 和 ledger 承载；不存在并行或嵌套的历史计划。唯一产品决策权威源为 [decisions.md](decisions.md)。
 
-> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据均已完成；0.147 Phase A、Phase B、Phase C 已完成，下一步执行 Phase D Pre-Phase Plan Rebase Gate。
+> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据均已完成；0.147 Phase A、Phase B、Phase C 已完成；Phase D Pre-Phase Plan Rebase Gate 已发现 material delta PLD-006，当前等待用户批准，尚未开始 TaskSpace 实现。
 
 - 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成；Phase A、Phase B、Phase C verified
 - 分析日期：2026-08-01
