@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 logical Hosted repair implemented offline, provider revalidation pending
+- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 logical Hosted aggregation verified online, cross-response ownership recovery unresolved
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -19,8 +19,9 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
    `ToolSpec` 派生；Map 操作从 canonical Action Map transaction 原语直接定义并作为平级内部 variant 暴露。
 3. Agent 在 `taskspace_exec` 内选择一个明确合法的 Map/Tool 顺序形状，并在统一 `tools[]` 中声明 client 或 Provider Tool、
    原生调用内容和节点归属；纯 `update_map` 继续作为受限 Map 动作合法存在。
-4. Runtime 对 client Tool 执行机械预检、解析和原生 Tool dispatch；对 Provider Tool 只在执行适配时不重执行。Runtime 直接复用
-   provider 原始结果中的 `id/item_id`，但节点归属必须由 Agent 逐项声明并完整核对。
+4. Runtime 对 client Tool 执行机械预检、解析和原生 Tool dispatch；对 Provider Tool 不重执行，也不拆分
+   `search/open_page/find_in_page` 等 Provider 内部步骤。每种实际发生的 Hosted capability 在同一响应内只形成一个逻辑
+   action；Agent 声明节点归属，Runtime 只核对 capability 集合和节点合法性。
 5. `taskspace_exec` 只增加两个 TaskSpace 职责：合法序列和节点绑定。它不规划任务、不选择节点、不解释 Tool 结果，
    也不根据 Tool 成败推进节点状态。
 6. `taskspace_exec` schema 是静态能力合同，只提供一组带稳定判别值、有场景证据的合法顺序形状。Agent 不再自由拼装任意
@@ -46,8 +47,9 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   和零副作用预检，但尚未接入原 Router 或生产 Provider response lifecycle。
 - 2026-08-06 决策取消“旧协议保持运行直到原子切换”的迁移方案。Phase B 先删除旧 sibling/control/response-gate
   影响，再从 Standard 与 canonical Action Map 原语零基础建设新入口。
-- Phase A 已证明完整 typed plan、零副作用 preflight、Runtime 可直接读取 Provider `id/item_id`，以及逐项多节点
-  Hosted 归属可机械核对。`source:string` 只保留为被淘汰候选的历史证据；Phase A 已完成，Phase B1 从结构化 Function
+- Phase A 已证明完整 typed plan、零副作用 preflight 和 Provider response envelope 的可行性。当时的
+  Provider `id/item_id` 逐项对账结论已被 LS-09 在线证据取代；现行模型仅按逻辑 Hosted capability 对账。`source:string`
+  只保留为被淘汰候选的历史证据；Phase A 已完成，Phase B1 从结构化 Function
   schema 开始实施。
 - Phase B0 后确认 `taskspace-canonical-map-v3` 的顶层 edges、action/result/evidence/completion/block/terminal ledger、
   间接状态推导和 Map 专属 ref 均不属于目标模型。最简 Map 已冻结为 Node goal/state/content/parents/children/actions；Agent
@@ -70,7 +72,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   Runtime 语义。VA-03 仍未启动，VA-02 真实复验需重新申请预算。同期发现的 wire v11 consumer 漂移已由
   `cca76e921` 修复，运行 usage 已从原始 trace 完整恢复。
 - Phase B5 CP-01～CP-13 已完成当前依赖顺序中的离线建设和总验收：Catalog、原生 Tool identity、deferred 生命周期、输入/输出合同、
-  中性 nested result、内层请求来源和 Hosted 逐项对账已统一到生产事实源。由于 Provider Function Tool 不发送 output
+  中性 nested result 和内层请求来源已统一到生产事实源。CP-11 当时的 Hosted 逐项对账已被 LS-09 逻辑 capability
+  模型取代。由于 Provider Function Tool 不发送 output
   schema，返回合同按最新 Codex 做法由同一 schema 渲染进唯一 outer Tool description；当前 TaskSpace Tool final-wire 已进入
   免费门禁，Standard 与普通 Tool 不变。冻结的 Core、State、CLI、Viewer、App Server Protocol、workspace、zero-base 和缓存
   合同已整体通过。两轮 VA-02 都证明合法的第二响应可完成 Map 初始化和原生 client dispatch，但首个响应都在空
@@ -168,6 +171,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     Map 中断状态和 Hosted action 操作合同缺口。
 46. [`45-ls09-hosted-contract-revalidation-result.md`](45-ls09-hosted-contract-revalidation-result.md)：Hosted 最小操作合同修复后的
     真实复验、逐请求失败链、成本和统一 Tool action 表达冲突。
+47. [`46-ls09-logical-hosted-revalidation-result.md`](46-ls09-logical-hosted-revalidation-result.md)：逻辑 Hosted Tool 聚合的真实
+    通过证据、同响应归属遗漏后的不可恢复断层、成本与产品决策停点。
 
 ## 4. 推进规则
 

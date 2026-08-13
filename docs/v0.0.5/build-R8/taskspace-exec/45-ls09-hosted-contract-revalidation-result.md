@@ -75,7 +75,8 @@ Runtime 的 schema、Map 初始化和 Hosted 同响应核对均在副作用前�
 
 后续用户已明确产品边界：`web_search` 是一个不可拆分的逻辑 Tool，`search/open_page` 等均为 Provider 内部过程，Agent
 和 Runtime 都不得把它们拆成多个 TaskSpace action。逐 output item 模型因此被废弃，不再作为候选。修复按逻辑 capability
-一次声明、一次绑定、一次结果推进；本文件仍保留为旧模型失败证据。I03 保持 `verifying`，LS-09 保持未通过，等待修复复验。
+一次声明、一次绑定、一次结果推进；本文件仍保留为旧模型失败证据。逻辑模型的真实复验见
+[`46-ls09-logical-hosted-revalidation-result.md`](46-ls09-logical-hosted-revalidation-result.md)。
 
 ## 6. 证据
 

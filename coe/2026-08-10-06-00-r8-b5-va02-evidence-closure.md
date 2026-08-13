@@ -1579,3 +1579,61 @@
   - `WAR-20260811-061935-R8-SELFHEAL-PKG-R04`
 - Interpretation: WF-01 的反馈缺口已在线闭合；Agent 仍可能误选 waiting 节点，属于 I04 行为观察，不应通过 Runtime 自动完成、选点或放宽 DAG 来掩盖。
 - Time: 2026-08-11
+
+## Hypothesis H-021: response-local Hosted 对账在 Agent 当轮漏声明后没有合法恢复路径
+- Status: confirmed
+- Parent: P-001
+- Claim: Runtime 只允许 `taskspace_exec` 认领同一 Provider 响应内已经发生的 Hosted capability；如果 Agent 在该响应漏写归属，当轮会被正确拒绝，但下一响应再声明时旧事实已经离开 response scope，因此同样会被拒绝。反馈准确但合同不可恢复，诱发 Agent 把时序差异误判为能力注册变化。
+- Layer: agent-protocol-behavior
+- Factor relation: single
+- Depends on:
+  - H-013 verified
+- Rationale:
+  - Hosted 原始结果已经忠实进入自然上下文；缺口不是结果丢失，而是 Agent 无法在后续合法表达对前一响应事实的节点归属。
+- Falsifiable predictions:
+  - If true: 有 Hosted output 但漏声明的响应返回 `actual=[web_search], declared=[]`；紧接着只补声明的响应返回 `actual=[], declared=[web_search]`，且 capability identity 不变。
+  - If false: 下一响应仍可认领前一事实，或请求间实际 capability schema/identity 发生变化。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-040
+  - E-041
+- Conclusion: confirmed。Runtime 的单次拒绝语义均准确，但 response-local 生命周期使第一次遗漏不可纠正。不能用额外同义提示、自动绑定或默认 Root 归属掩盖；跨响应待归属事实是否进入产品模型需用户决策。
+- Repair design readiness: blocked on product decision
+- Next step: 在“严格同响应”与“Agent 后续显式认领待归属事实”之间确认产品边界，再制定最小工程方案。
+- Blocker:
+  - product lifecycle decision required
+- Close reason:
+  - not closed
+
+## Evidence E-040: 多个 web search 内部输出在生产路径只形成一个逻辑 capability
+- Related hypotheses:
+  - H-021
+- Direction: neutral
+- Type: production-revalidation
+- Source: `WAR-20260813-085518-CACHE-REGRESSION-CC73D9BE` request 5 and request 9
+- Prediction or plan link:
+  - LS-09 logical Hosted Tool aggregation。
+- Matched signal:
+  - Request 5 同一响应包含成功 `search` 和失败 `open_page`，preflight 只报告 `actual=[web_search]`，没有按内部项拆成两个动作。
+  - Request 9 的失败 `find_in_page` 加一次 Agent `web_search` 声明通过，只返回一个 `hosted_results[0]`，且没有 Provider ID、output index 或 action subtype。
+- Correlation keys:
+  - `WAR-20260813-085518-CACHE-REGRESSION-CC73D9BE`
+- Interpretation: 用户指定的“web_search 内部过程不可拆分”修复在线成立；端到端失败必须从剩余时序合同解释，不能回退逐 output 模型。
+- Time: 2026-08-13
+
+## Evidence E-041: 同一 Hosted 事实的漏声明与下一轮补声明形成互逆拒绝
+- Related hypotheses:
+  - H-021
+- Direction: supports
+- Type: production-trace-analysis
+- Source: `WAR-20260813-085518-CACHE-REGRESSION-CC73D9BE` requests 5/6 and 10/11
+- Prediction or plan link:
+  - response-local ownership recovery boundary。
+- Matched signal:
+  - Requests 5、10 在真实搜索已发生但 Exec 漏声明时均返回 `actual=[web_search], declared=[]`。
+  - Requests 6、11 在下一响应补声明时均返回 `actual=[], declared=[web_search]`。
+  - 12 个请求的 capability identity 固定为 `18d7af7230501496c3a4011605f80ff00d8fb6e0cd32d73cc959174fb6665cf7`，`tool_choice` 无变化。
+- Correlation keys:
+  - `WAR-20260813-085518-CACHE-REGRESSION-CC73D9BE`
+- Interpretation: Agent 所称“工具集状态切换”是对 response-local 事实的错误解释；实际能力面稳定。当前合同只报告错误，没有给 Agent 一个合法的后续认领动作。
+- Time: 2026-08-13

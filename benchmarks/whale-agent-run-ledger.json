@@ -1,7 +1,122 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-13T06:21:57+08:00",
+  "updated_at": "2026-08-13T08:57:34+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260813-085518-CACHE-REGRESSION-CC73D9BE",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-13T08:55:25+08:00",
+      "ended_at": "2026-08-13T08:57:34+08:00",
+      "elapsed_calendar_seconds": 129.167,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "LS-09 logical Hosted Tool revalidation: verify one web_search declaration aggregates all provider-internal search/open outputs, binds to Agent-declared nodes, completes the business artifact and closes the Map without schema retries.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260813-R8-LS09-LOGICAL-4A4CF466B06FBDA6",
+        "reference": "用户于 2026-08-13 明确要求修复并批准一次修复测试；本授权只认领 provider-web-search-probe × map-request × repeat=1，最多 12 Provider requests、500,000 input 与 20,000 output 观测阈值、720 秒，零自动重试。",
+        "budget_summary": {
+          "provider_requests": 12,
+          "input_tokens": 12000000,
+          "output_tokens": 4608000,
+          "elapsed_seconds": 840,
+          "estimated_cost": 2.97024,
+          "currency": "USD"
+        },
+        "note": "严格绑定预算提案 CBP-4A4CF466B06FBDA6。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "28bd96a5911f869a4030fe89995d42fdfceae7e6ae952599dd7c4119df5cf711",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "provider-web-search-probe"
+        ],
+        "arm_ids": [
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 12,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 301975,
+        "cached_input": 264064,
+        "uncached_input": 37911,
+        "output": 10772
+      },
+      "monetary_cost": {
+        "status": "estimated_partial",
+        "currency": "USD",
+        "amount": 0.0090630792,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.0007393792,
+          "uncached_input": 0.00530754,
+          "output": 0.0030161600000000004
+        },
+        "pricing_snapshot": {
+          "currency": "USD",
+          "captured_at": "2026-07-31",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "按已取得的部分 provider token 遥测估算；金额是已知最低值。"
+      },
+      "evidence": {
+        "planned_run_root": "target/r8-ls09/run-e",
+        "subject_commit": "a73d73dc8ab6db49255e517307fbcf6cbe81efb6",
+        "surface_sha256": "1d87cba464704cfd9fa1f463b9b9031fb25bb6f09373a293f8cbcd3b55165a02",
+        "proposal_id": "CBP-4A4CF466B06FBDA6",
+        "proposal_contract_sha256": "60a85dd963999db60b4d37276494104e70d217ad9462f9facf7c5f719a7c6a44",
+        "proposal_path": "benchmarks/cache-regression/proposals/CBP-4A4CF466B06FBDA6.json",
+        "proposal_sha256": "d1ccb09bf635ececfd313dbfae4d18e56f4feaef44e15352952b6658dcae9563",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260813-R8-LS09-LOGICAL-4A4CF466B06FBDA6.json",
+        "authorization_sha256": "76a14644a55e05143cb1e0ed0c83bf68a4b78e8719640539441dd8aaf4880d89",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "provider-web-search-probe"
+          ],
+          "arms": [
+            "map-request"
+          ],
+          "repeat": 1,
+          "planned_sample_runs": 1,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 1,
+          "stop_conditions": [
+            "after_any_run_failure",
+            "after_any_business_failure",
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "LS-09 logical Hosted Tool revalidation: verify one web_search declaration aggregates all provider-internal search/open outputs, binds to Agent-declared nodes, completes the business artifact and closes the Map without schema retries."
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_run_failure",
+          "after_any_business_failure",
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "partial",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260813-085518-CACHE-REGRESSION-CC73D9BE/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "f0ec8880cd83e5b2e3308beea33b2a7b5df7b096f160654a7a3354dfb5dda463",
+        "actual_run_root": "target/r8-ls09/run-e",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260813-085518-CACHE-REGRESSION-CC73D9BE.json",
+        "runner_exit_code": 3,
+        "outcome": "partial"
+      }
+    },
     {
       "record_id": "WAR-20260813-061928-CACHE-REGRESSION-04087B3B",
       "record_type": "run_batch",

@@ -124,7 +124,7 @@ Map 修改捆绑 Tool。七个核心产品场景、每个顺序形状的证据�
 - `taskspace_exec` 调用自身或递归嵌套；
 - client Tool 绕过 `taskspace_exec` 顶层调用；
 - Tool action 缺少节点归属、绑定未知节点、绑定 Root/Finish，或把节点写入原生 Tool 参数；
-- Hosted 事实缺少节点声明、Provider ID 缺失或同一真实 ID 重复；
+- Hosted 逻辑 capability 缺少节点声明、声明了未发生的 capability，或同一 capability 重复声明；
 - 未选择已声明的合法顺序形状，或在该形状中提交不允许的 Map/Tool 字段；
 - `read_map` 与任何其他 Tool 或 Map operation 混合；
 - 一个 exec 实际提交多个 `apply_patch`；
@@ -219,6 +219,10 @@ Agent 不得回显、复制或另造 Provider 传输身份。逻辑 Hosted actio
 Hosted action 也只能归属于 Work node。其执行已经发生，因此 Tool outcome 不决定节点生命周期；Runtime 仍必须拒绝将
 Hosted action 记到 Root、Finish、未知节点或空归属中。
 
+当前合同只接受同一 response scope 内的 Hosted 事实与 Agent 归属声明。LS-09 在线证据已确认：如果 Agent
+当轮漏写声明，下一轮没有合法的补录路径。这是当前尚未决策的产品边界，不得由 Runtime 自动绑定、默认归根
+或隐式跨轮接受。证据见 [`46-ls09-logical-hosted-revalidation-result.md`](46-ls09-logical-hosted-revalidation-result.md)。
+
 ### 5.3 失败与结算矩阵
 
 | 响应事实 | Hosted 事实 | 尚未发生的 client/map | 原因 |
@@ -226,8 +230,8 @@ Hosted action 记到 Root、Finish、未知节点或空归属中。
 | 缺少 outer exec，或 outer plan 在 5.0.1 唯一候选检查后仍无法解码 | 保留在 provider 原始响应和诊断日志中，不写 Map | 整批拒绝，零执行、Map 零提交 | 没有可信的 Agent 节点与动作声明 |
 | outer plan 仅缺一个可唯一恢复的闭合符号 | 原始 wire 留在 transport 诊断，修正版成为唯一正式 ResponseItem | 修正版继续通过完整 preflight；通过后正常执行，不通过则按具体硬规则拒绝 | 只恢复序列化闭合，不改变 Agent 声明的动作语义 |
 | plan 可解码但违反 Agent 合同或 canonical Map 硬规则 | 保留在 provider 原始响应和诊断日志中，不写 Map | 整批拒绝，零执行、Map 零提交 | 不从被拒绝的计划中选择性接受状态或归属声明 |
-| plan 合法，全部 Provider Tool 声明一一对应，节点存在或由合法 prelude 创建 | 用真实 Provider ID 逐项记录为各自节点事件 | 按预检计划执行 | Agent 逐项决定节点，Runtime 机械核验落账 |
-| 声明漏项、多项、歧义、节点非法，或 Provider fact 缺失/重复 ID | 保留在 provider 原始响应和诊断日志中，不默认写 Root 或未绑定池 | 整批拒绝，零执行、Map 零提交 | 未完整归属的响应不是可接受的 TaskSpace 事务 |
+| plan 合法，全部 Hosted capability 声明与同响应逻辑事实一一对应，节点存在或由合法 prelude 创建 | 每种 Hosted capability 记录一个逻辑 action，可归属 Agent 声明的多个节点 | 按预检计划执行 | Agent 决定节点，Runtime 只核对 capability 集合和节点合法性 |
+| Hosted capability 声明缺失、多出、重复或节点非法 | 保留在 provider 原始响应和诊断日志中，不默认写 Root 或未绑定池 | 整批拒绝，零执行、Map 零提交 | 未完整归属的响应不是可接受的 TaskSpace 事务 |
 | Provider fact 状态为 failed/cancelled | 仍按声明节点保存原状态 | 其他合法 client/map 正常执行 | Tool outcome 与节点生命周期正交 |
 | client Tool 执行失败 | 已结算 Hosted 事实不回滚 | 原结果按内部调用身份返回，Map 节点状态不自动改变 | 不把已发生的 Provider 事实伪装成同一事务可回滚动作 |
 
@@ -319,15 +323,15 @@ fallback 或兼容读取。
 | Function Call 外层 | 已确认 | DeepSeek 不使用 Codex Freeform wire，TaskSpace 采用 Function Call 外层 |
 | 内部 ToolSpec 派生 | 已确认 | 复用 Codex 主线机制，不手写第二份 Tool 合同 |
 | Client 原 Router 执行 | 已确认 | 复用现有 ToolRouter/registry/handler/hook |
-| 闭集合法序列 + node binding | 产品决策已确认 / 待实施 | Agent 只能选择有证据的顺序形状；不再自由拼装任意 `calls[]` |
-| 统一 Tool action | 产品决策已确认 / 待实施 | client 与 Provider Tool 位于同一 `tools[]`；仅 Runtime 执行适配不同 |
-| Node lifecycle 收敛 | 产品决策已确认 / 待实施 | 移除无正向运行证据的 blocked 状态与相关规则 |
-| Hosted 原生执行 + 双写核对 | 已确认 | provider 事实不可回滚；Runtime 只核对绑定 |
-| 静态 schema + Agent 动态实例 | 旧 `calls[]` 证据不再代表目标合同 | schema 固定序列类型；Agent 决定序列内的节点、Tool、参数和归属 |
+| 闭集合法序列 + node binding | 已实施 / 在线部分验证 | Agent 只能选择有证据的顺序形状；不再自由拼装任意 `calls[]` |
+| 统一 Tool action | 已实施 / 在线部分验证 | client 与 Provider Tool 位于同一 `tools[]`；仅 Runtime 执行适配不同 |
+| Node lifecycle 收敛 | 已实施 / 在线部分验证 | 已移除无正向运行证据的 blocked 状态与相关规则 |
+| Hosted 原生执行 + 逻辑 capability 核对 | 已确认 | provider 事实不可回滚；Runtime 不拆分内部步骤，只核对 capability 集合与 Agent 归属 |
+| 静态 schema + Agent 动态实例 | 已实施 | schema 固定序列类型；Agent 决定序列内的节点、Tool、参数和归属 |
 | 完整批次预检边界 | EX-04 离线通过 | 结构、能力、node 声明、Map/DAG 边界和单 Patch 在 dispatch 前判定；失败只返回机械错误且零副作用 |
 | Hosted 内部传输身份 | 明确排除 | Provider `id/item_id/output_index` 只属于原生响应处理，不进入 TaskSpace 协议、Map 或反馈 |
-| Hosted 逻辑 Tool 多节点归属 | 已确认 / 离线实现 | 同一种 Hosted capability 每个 response scope 只形成一个 action，可绑定 Agent 声明的多个 Work node |
-| Hosted 多节点持久化 | 已确认 / 离线实现 | 逻辑 action identity 可出现在 Agent 声明的多个节点 `actions[]`；Provider 原始结果不进入 Map，也不创建 ref |
+| Hosted 逻辑 Tool 多节点归属 | 已确认 / 在线验证 | 同一种 Hosted capability 每个 response scope 只形成一个 action，可绑定 Agent 声明的多个 Work node |
+| Hosted 多节点持久化 | 已确认 / 在线验证 | 逻辑 action identity 可出现在 Agent 声明的多个节点 `actions[]`；Provider 原始结果不进入 Map，也不创建 ref |
 | 最简 canonical Map | Phase B1 已完成 | Node 直接包含 goal/state/content/parents/actions；children 始终可见但机械派生；无顶层 edges、平行 ledger 或 Map 自建 ref |
 
 ## 9. 验收标准
@@ -338,8 +342,8 @@ fallback 或兼容读取。
    任意 Map/Tool 排列或通用逃生分支。
 3. 每个 client call 的 `node_id` 由 Agent 声明，但原 Tool schema 和 handler 完全不知道 TaskSpace。
 4. 非法 client/map 序列在明确边界内零执行、Map 零提交；边界由 TX-04 的可证伪结果冻结。
-5. provider 原始 output 的真实 ID 与 Agent 逐项节点声明一一核对；同响应可绑定多个节点，任何缺失、歧义、错配、
-   非法节点或身份冲突均整批拒绝且不使用默认 Root/未绑定池降级。
+5. 同响应的 Hosted capability 逻辑事实与 Agent 声明的 capability 集合一一核对；一个逻辑 action 可绑定多个节点，
+   任何缺失、多出、重复或非法节点均整批拒绝，不使用内部 output 身份、默认 Root 或未绑定池降级。
 6. Tool 结果完整进入 Agent context 一次；失败语义、节点状态和 provider reconciliation 不互相伪装。
 7. 旧入侵、旧容器和 sibling 生产路径已在 Phase B0 删除，后续源码不得恢复兼容分支。
 8. 确定性测试、日志、缓存门禁和获批真实样本共同证明正确性；真实样本不以一次成功宣称稳定。

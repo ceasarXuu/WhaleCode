@@ -163,6 +163,12 @@
 > 身份的 action，Agent 声明一次 `node_ids`。成功 search 加失败 open_page 的 fixture 只产生一个成功 action，TaskSpace Exec
 > 73/73 通过。I03 继续 verifying，等待已批准的单次真实复验，不以离线测试宣称关闭。
 
+> **Hosted 逻辑 Tool 在线复验（2026-08-13）**：`provider-web-search-probe × map-request × repeat=1` 证明逻辑聚合已进入
+> 生产路径：同响应 `search succeeded + open_page failed` 只形成一个 `actual=[web_search]`，`find_in_page failed` 加一次
+> Agent 声明只返回一个逻辑 Hosted result，Provider 内部 ID/index/subtype 均未进入 outer result。端到端仍失败：Agent 在
+> 两次真实搜索响应中漏写归属，Runtime 当轮准确拒绝；下一请求补声明时当前响应已无 Hosted 事实，合同没有合法恢复路径，Agent
+> 误判为能力注册反复变化。该不可恢复时序断层继续归入 I03，不新增问题编号；在产品边界确认前暂停 Runtime 改动和新预算。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。
@@ -212,7 +218,7 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 旧 carrier 与专属 Event Store 已由 zero-base 删除；Exec 源码不存在额外 developer 注入。静态关闭候选，待 final-wire trace 复核 | verifying | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 快照机械生成 Runtime-only SHA-256，并由 dispatch、request scope、Provider/Exec trace 和性能报告共用；缺失或冲突时报告不可比较。离线实现已验证，待当前生产 trace 验收 | [verifying](I10/00-i10-capability-identity-repair-plan.md) | GI-010 |
 | 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | 最新三轮 request/usage/cache/Exec/client/Patch/Map 均可复算；第三轮正确计为 2 次 patch 声明、1 次 preflight reject、1 次执行结果。完整跨模式验收仍未执行 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | Run D 证明逐 output Hosted 模型造成协议试错；该模型已按用户决策改为一个逻辑 Hosted Tool action并通过 73 项离线测试，真实复验待执行 | [verifying](taskspace-exec/45-ls09-hosted-contract-revalidation-result.md) | GI-003 |
+| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与工作动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束等合法组合 | 逻辑 Hosted 聚合已在线通过；剩余阻塞是 Agent 当轮漏声明后，严格 response-local 对账没有任何后续显式恢复路径 | [verifying](taskspace-exec/46-ls09-logical-hosted-revalidation-result.md) | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | Run C 未复现 Waiting 误选，支持分支适用合同已生效；单次未闭环样本不足以关闭问题 | verifying | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 最新三次 TaskSpace-only 有效运行共 21 requests、344,635 input、93.78% 全量 cache、62.093s Agent wall；没有 Standard 臂，不形成相对成本结论 | queued | GI-008 |
 
