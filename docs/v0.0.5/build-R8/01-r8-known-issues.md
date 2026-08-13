@@ -201,7 +201,8 @@
 > **Hosted 错误优先级第 1 阶段复验（2026-08-14）**：提交 `a54cae056` 只将 Hosted 实际事实与归属登记的集合核对
 > 提前到 client 节点可执行性校验之前。离线合同通过且缓存敏感面不变；真实 `repeat=3` 在首轮业务失败后按停点停止。
 > 本轮没有命中“Hosted 漏登 + waiting client”的目标复合分支；Agent 最终完成文件和本地校验，但前序 2 次 Exec 结构错误、
-> 1 次提前登记、1 次漏登和 2 次 Map 拒绝耗尽请求空间，收尾前 Provider 返回 429，Map 未闭合。第 1 点不能晋升为在线通过，
+> 1 次提前登记、1 次漏登和 2 次 Map 拒绝耗尽每-run 12 requests 硬上限；前 12 个 Provider 请求均返回 200，第 13 个收尾
+> 请求被本地预算代理以 429 拒绝，Map 未闭合。第 1 点不能晋升为在线通过，
 > 第 2～4 点暂停，I03 继续 verifying。详见
 > [`taskspace-exec/51-hosted-error-priority-stage1-result.md`](taskspace-exec/51-hosted-error-priority-stage1-result.md)。
 

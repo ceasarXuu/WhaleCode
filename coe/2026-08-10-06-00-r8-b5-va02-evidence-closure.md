@@ -1768,8 +1768,8 @@
   - 代码提交 `a54cae056dbcd881f9c8462df2521d757fc3f2ac` 将 Hosted 集合匹配提前，现有 Hosted 预检 5/5 通过，缓存敏感面指纹不变。
   - 真实运行只执行 1/3 后因业务失败停止；本轮没有出现“Hosted 漏登与 waiting client 同时存在”的目标复合输入，因此在线 trace 没有直接观测错误优先级分支。
   - Agent 先后产生 2 次 Exec 结构错误、1 次提前 Hosted 登记、1 次真实 Hosted 漏登和 2 次 Map 更新拒绝；随后成功完成 Hosted 归属、文件写入及本地验证。
-  - 收尾前 Provider 返回 `429 Too Many Requests`；Map 保持 `complete=false`、`validate=in_flight`、`finish=waiting`，所以业务文件虽然通过公开验证和隐藏 oracle，Agent 生命周期仍判失败。
-  - 实际 12 requests；已取得的部分 usage 为 496,940 input、445,952 cached input、50,988 uncached input、12,222 output，费用最低估值 USD 0.0118091456；末次 429 无完整 usage，后两次 repeat 未执行。
+  - 前 12 个 Provider 请求均返回 200；Agent 在本地校验成功后发起第 13 个收尾请求时，被本次预算代理的每-run 12 requests 硬上限以 429 拒绝。Map 保持 `complete=false`、`validate=in_flight`、`finish=waiting`，所以业务文件虽然通过公开验证和隐藏 oracle，Agent 生命周期仍判失败。
+  - 已执行 12 requests，usage 为 496,940 input、445,952 cached input、50,988 uncached input、12,222 output，估算费用 USD 0.0118091456；被本地硬门禁拒绝的第 13 个请求未转发到 DeepSeek、没有模型 usage，后两次 repeat 未执行。
 - Correlation keys:
   - proposal `CBP-FAB1FE9484610B6D`
   - authorization `CBA-20260814-R8-HOSTED-PRIORITY-STAGE1-FAB1FE9484610B6D`

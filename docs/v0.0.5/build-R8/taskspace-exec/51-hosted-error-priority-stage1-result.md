@@ -19,11 +19,11 @@ client Tool 所属节点是否可执行。该改动只调整错误反馈优先�
 
 | Runs | Requests | Input | Cached | Uncached | Output | Req 2+ cache | 耗时 | 估算费用 | 结果 |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| 1/3 | 12 | 496,940 | 445,952 | 50,988 | 12,222 | 89.49% | 146.550 s | >= USD 0.0118091456 | FAIL |
+| 1/3 | 12 | 496,940 | 445,952 | 50,988 | 12,222 | 89.49% | 146.550 s | USD 0.0118091456 | FAIL |
 
-后两次 repeat 未执行。实际文件通过公开验证和隐藏 oracle，但 Agent 在收尾前收到 Provider `429 Too Many Requests`；
-Map 保持 `complete=false`、`validate=in_flight`、`finish=waiting`，因此不能把业务文件正确扩大为 TaskSpace 生命周期通过。
-末次 429 没有完整 usage，账本将 token 与费用标为 partial；表中费用是已有 Provider 遥测可证明的最低值。
+后两次 repeat 未执行。前 12 个 Provider 请求均返回 200；实际文件通过公开验证和隐藏 oracle，但 Agent 在本地校验成功后
+发起第 13 个收尾请求时，被本次预算代理的每-run 12 requests 硬上限以 429 拒绝。该请求没有转发到 DeepSeek，也没有模型
+usage。Map 保持 `complete=false`、`validate=in_flight`、`finish=waiting`，因此不能把业务文件正确扩大为 TaskSpace 生命周期通过。
 
 ## 3. Trace 结论
 
@@ -35,7 +35,7 @@ Map 保持 `complete=false`、`validate=in_flight`、`finish=waiting`，因此�
 3. 下一响应真实执行 `web_search`，但 Exec 只包含两个 client Tool，漏掉 Hosted 归属；Runtime 准确报告漏登。
 4. 再下一响应中，Agent 成功把原生 `web_search` 与 `already_executed` 归属放在同一响应，Hosted 归属成立。
 5. 两次 Map 扩展因 DAG 不合法被拒绝；随后 Agent 修正 Map，写入文件并完成本地校验。
-6. 最终还需要一次 Map 收尾请求，但 Provider 返回 429，任务被中断。
+6. 最终还需要一次 Map 收尾请求，但它是第 13 个请求，被本地预算硬门禁拒绝，任务被中断。
 
 第 1 点的代码改动没有证据表明引入了上述结构错误或 429；它不改变 Agent 可见 schema/prompt，并且本轮目标复合分支没有被调用。
 但真实验收既未完成生命周期，也未直接验证目标分支，因此不能判通过。
