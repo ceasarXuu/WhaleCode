@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use super::TaskSpaceExecPlan;
 use super::TaskSpaceExecPlanDecodeError;
-use super::hosted::HostedToolKind;
+use super::hosted::HostedToolIdentity;
 use super::map_operation_capabilities;
 use super::protocol::build_description;
 use super::result::result_schema;
@@ -35,7 +35,7 @@ pub(crate) struct TaskSpaceExecCatalog {
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum TaskSpaceToolCapability {
     Client(TaskSpaceClientCapability),
-    Hosted(HostedToolKind),
+    Hosted(HostedToolIdentity),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -91,10 +91,10 @@ impl TaskSpaceExecCatalog {
         let mut tool_capabilities = BTreeMap::new();
         let mut hosted_specs = Vec::new();
         for spec in specs {
-            if let Some(kind) = HostedToolKind::from_spec(spec) {
-                let tool_name = codex_tools::ToolName::plain(kind.name());
+            if let Some(identity) = HostedToolIdentity::from_spec(spec) {
+                let tool_name = codex_tools::ToolName::plain(identity.native_name.clone());
                 if tool_capabilities
-                    .insert(tool_name.clone(), TaskSpaceToolCapability::Hosted(kind))
+                    .insert(tool_name.clone(), TaskSpaceToolCapability::Hosted(identity))
                     .is_some()
                 {
                     return Err(TaskSpaceExecCatalogError::DuplicateCapability { tool_name });
@@ -233,6 +233,16 @@ impl TaskSpaceExecCatalog {
     pub(super) fn input_schema(&self) -> &JsonSchema {
         &self.declaration.parameters
     }
+
+    pub(crate) fn hosted_tool_identities(&self) -> Vec<HostedToolIdentity> {
+        self.tool_capabilities
+            .values()
+            .filter_map(|capability| match capability {
+                TaskSpaceToolCapability::Hosted(identity) => Some(identity.clone()),
+                TaskSpaceToolCapability::Client(_) => None,
+            })
+            .collect()
+    }
 }
 
 fn is_excluded_client_capability(capability: &ToolSpecCapability) -> bool {
@@ -299,7 +309,7 @@ fn build_declaration<'a>(
     let hosted_tools = tool_capabilities
         .values()
         .filter_map(|capability| match capability {
-            TaskSpaceToolCapability::Hosted(kind) => Some(kind.name().to_string()),
+            TaskSpaceToolCapability::Hosted(identity) => Some(identity.native_name.clone()),
             TaskSpaceToolCapability::Client(_) => None,
         })
         .collect::<BTreeSet<_>>();

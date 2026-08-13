@@ -129,17 +129,17 @@ fn map_definition_name(operation: &str) -> String {
 fn tool_action_schema(capability: &TaskSpaceToolCapability) -> JsonSchema {
     match capability {
         TaskSpaceToolCapability::Client(client) => client_action_schema(client),
-        TaskSpaceToolCapability::Hosted(kind) => {
+        TaskSpaceToolCapability::Hosted(identity) => {
             let mut schema = strict_object(
                 [
-                    ("tool", exact_name(kind.name())),
+                    ("tool", exact_name(&identity.native_name)),
                     ("execution", exact_name("already_executed")),
                     (
                         "node_ids",
                         JsonSchema::array(
                             JsonSchema::string(None),
                             Some(
-                                "One or more Agent-declared owner work nodes for this logical Tool action."
+                                "One or more Agent-declared owner work nodes for this native Provider ToolSpec action."
                                     .into(),
                             ),
                         )
@@ -149,9 +149,8 @@ fn tool_action_schema(capability: &TaskSpaceToolCapability) -> JsonSchema {
                 &["tool", "execution", "node_ids"],
             );
             schema.description = Some(format!(
-                "The TaskSpace half of one indivisible `{}` pair. If this assistant response contains the native top-level Provider Tool item, include exactly one matching entry here with `execution` set to `already_executed` and every Agent-declared owner in `node_ids`. If the response contains no matching native item, include no entry. The native item performs the work; this entry only records node ownership. Never emit either side alone, emit this entry early, or defer it to a later response. Do not include native Tool input. Always use the public Tool name `{}`.",
-                kind.name(),
-                kind.name()
+                "The TaskSpace half of one indivisible `{}` pair. If this assistant response contains the native top-level Provider Tool item, include exactly one matching entry here with `execution` set to `already_executed` and every Agent-declared owner in `node_ids`. If the response contains no matching native item, include no entry. The native item performs the work; this entry only records node ownership. Never emit either side alone, emit this entry early, or defer it to a later response. Do not include native Tool input. Use the Provider ToolSpec name exactly as exposed: `{}`.",
+                identity.native_name, identity.native_name
             ));
             schema
         }

@@ -229,6 +229,7 @@ async fn harness(include_hosted: bool) -> Harness {
     let catalog = Arc::new(TaskSpaceExecCatalog::build(&client_router.specs()).unwrap());
     let response_scope = Arc::new(TaskSpaceExecResponseScope::new(
         catalog.capability_identity_arc(),
+        catalog.hosted_tool_identities(),
     ));
     let handler = TaskSpaceExecHandler::new(
         Arc::clone(&catalog),
@@ -712,7 +713,7 @@ async fn response_uses_request_time_revision_and_rejects_a_stale_plan() {
 }
 
 #[tokio::test]
-async fn hosted_internal_steps_are_one_logical_action_without_changing_node_state() {
+async fn hosted_internal_steps_are_one_native_tool_action_without_changing_node_state() {
     let harness = harness(true).await;
     begin_scope(&harness).await;
     harness

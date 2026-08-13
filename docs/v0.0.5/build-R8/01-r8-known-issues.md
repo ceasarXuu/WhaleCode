@@ -147,8 +147,8 @@
 > 详见 [`taskspace-exec/44-ls09-run-c-result.md`](taskspace-exec/44-ls09-run-c-result.md)。
 
 > **Hosted action 合同针对性修复（2026-08-13）**：统一 `tools[]` 的 Hosted schema 已补回旧结构迁移时丢失的操作合同：
-> 每项只归属同响应已经执行的一个 Provider output，不携带原生 Tool input；全部 output 按序逐项声明，失败项和 action
-> subtype 也不例外，并始终使用公开 Tool 名。修复直接落在最终 Provider-visible variant，未增加提示层、Runtime 推断、
+> 每项只归属同响应已经执行的一个 Provider ToolSpec，不携带原生 Tool input；Provider 内部 output/action subtype 不单独
+> 声明，名称逐字使用原生 ToolSpec 名。修复直接落在最终 Provider-visible variant，未增加提示层、Runtime 推断、
 > 对账分支或状态语义。TaskSpace Exec 72/72 通过；该段只记录离线实现，后续真实复验未通过。
 
 > **Hosted action 合同复验（2026-08-13）**：`provider-web-search-probe × map-request × repeat=1` 在 12 个 Provider
@@ -157,21 +157,21 @@
 > `tools[]` 同时承载执行前 client 请求和执行后 Hosted 归属凭据，两者外观相近而生命周期相反。I03 保持 verifying。详见
 > [`taskspace-exec/45-ls09-hosted-contract-revalidation-result.md`](taskspace-exec/45-ls09-hosted-contract-revalidation-result.md)。
 
-> **Hosted 逻辑 Tool 产品纠偏与离线修复（2026-08-13）**：用户明确一次 `web_search` 是不可拆分的一个 Tool action；
+> **Hosted 原生 ToolSpec 产品纠偏与离线修复（2026-08-13）**：用户明确一次 `web_search` 是不可拆分的一个 Tool action；
 > `search/open_page`、内部失败和重试都不得进入 TaskSpace 协议、Map 或节点绑定。active code 已删除逐 output 数量、顺序、
 > Provider ID 和 output index 对账；同一 response scope 的同种 Hosted capability 只形成一个使用 outer call + Tool index
 > 身份的 action，Agent 声明一次 `node_ids`。成功 search 加失败 open_page 的 fixture 只产生一个成功 action，TaskSpace Exec
 > 73/73 通过。I03 继续 verifying，等待已批准的单次真实复验，不以离线测试宣称关闭。
 
-> **Hosted 逻辑 Tool 在线复验（2026-08-13）**：`provider-web-search-probe × map-request × repeat=1` 证明逻辑聚合已进入
+> **Hosted 原生 ToolSpec 在线复验（2026-08-13）**：`provider-web-search-probe × map-request × repeat=1` 证明内部过程聚合已进入
 > 生产路径：同响应 `search succeeded + open_page failed` 只形成一个 `actual=[web_search]`，`find_in_page failed` 加一次
-> Agent 声明只返回一个逻辑 Hosted result，Provider 内部 ID/index/subtype 均未进入 outer result。端到端仍失败：Agent 在
+> Agent 声明只返回一个 Hosted result，Provider 内部 ID/index/subtype 均未进入 outer result。端到端仍失败：Agent 在
 > 两次真实搜索响应中漏写归属，Runtime 当轮准确拒绝；下一请求补声明时当前响应已无 Hosted 事实，合同没有合法恢复路径，Agent
 > 误判为能力注册反复变化。后续原始 reasoning 复核证明 Agent 曾把 Hosted 归属结构直接当成搜索执行入口，因此跨响应恢复被降级为后续候选。当前先验证 Hosted-only 必填 `execution: "already_executed"`、禁止 `input`、正向示例和事实型错误反馈的单变量修复；离线 TaskSpace Exec 74/74 已通过，真实 Provider 行为未复验。
 
 > **Hosted 执行方向在线复验（2026-08-13）**：`provider-web-search-probe × map-request × repeat=1` 业务、公开验证、
 > 隐藏 oracle 和 Map 闭合全部通过。Agent 能准确解释 `already_executed` 不调用 Tool，并最终在同一响应中完成真实搜索和
-> 一次逻辑归属；未再携带 Hosted `input`，也未拆分 Provider 内部步骤。但首次仍提前登记一次，第一次真实搜索后仍漏登并在
+> 一次原生 ToolSpec 归属；未再携带 Hosted `input`，也未拆分 Provider 内部步骤。但首次仍提前登记一次，第一次真实搜索后仍漏登并在
 > 下一响应补登失败。该结构从失败闭环改善为成功闭环，但 12 requests 和约 303K input 未下降，故 I03 保持 verifying；不把
 > 单次成功扩大为跨响应恢复、自动绑定或默认 Root 的依据。详见
 > [`taskspace-exec/47-ls09-hosted-execution-direction-result.md`](taskspace-exec/47-ls09-hosted-execution-direction-result.md)。

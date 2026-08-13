@@ -154,6 +154,7 @@ impl ToolRouter {
         )?);
         let response_scope = Arc::new(TaskSpaceExecResponseScope::new(
             catalog.capability_identity_arc(),
+            catalog.hosted_tool_identities(),
         ));
         let mut builder = ToolRegistryBuilder::new();
         builder.push_spec(ToolSpec::Function(catalog.declaration().clone()));

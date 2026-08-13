@@ -3,15 +3,19 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use codex_protocol::models::ResponseItem;
+#[cfg(test)]
+use codex_tools::ToolSpec;
 
 use super::HostedToolFact;
 use super::TASKSPACE_EXEC_TOOL_NAME;
-use super::hosted::hosted_tool_fact;
+use super::hosted::HostedToolIdentity;
+use super::hosted::hosted_response_fact;
 use super::hosted::merge_hosted_outcome;
 
 #[derive(Debug)]
 pub(crate) struct TaskSpaceExecResponseScope {
     capability_identity: Arc<str>,
+    hosted_tool_identities: Vec<HostedToolIdentity>,
     state: Mutex<ResponseScopeState>,
 }
 
@@ -51,9 +55,13 @@ pub(crate) struct TaskSpaceExecResponseIdentity {
 }
 
 impl TaskSpaceExecResponseScope {
-    pub(crate) fn new(capability_identity: Arc<str>) -> Self {
+    pub(crate) fn new(
+        capability_identity: Arc<str>,
+        hosted_tool_identities: Vec<HostedToolIdentity>,
+    ) -> Self {
         Self {
             capability_identity,
+            hosted_tool_identities,
             state: Mutex::new(ResponseScopeState::default()),
         }
     }
@@ -122,7 +130,7 @@ impl TaskSpaceExecResponseScope {
             }
             return;
         }
-        let observed = hosted_tool_fact(item);
+        let observed = hosted_response_fact(item);
         if matches!(observed, Ok(None)) {
             return;
         }
@@ -135,7 +143,22 @@ impl TaskSpaceExecResponseScope {
             return;
         }
         match observed {
-            Ok(Some(fact)) => {
+            Ok(Some(response_fact)) => {
+                let Some(identity) = self
+                    .hosted_tool_identities
+                    .iter()
+                    .find(|identity| identity.kind == response_fact.kind)
+                else {
+                    state.error = Some(
+                        "provider returned a Hosted Tool response absent from the native ToolSpec catalog"
+                            .to_string(),
+                    );
+                    return;
+                };
+                let fact = HostedToolFact {
+                    tool: identity.native_name.clone(),
+                    outcome: response_fact.outcome,
+                };
                 state
                     .hosted_tools
                     .entry(fact.tool.clone())
@@ -228,7 +251,25 @@ impl TaskSpaceExecResponseScope {
 #[cfg(test)]
 impl Default for TaskSpaceExecResponseScope {
     fn default() -> Self {
-        Self::new(Arc::from("test-capability-identity"))
+        let specs = [
+            ToolSpec::WebSearch {
+                external_web_access: Some(true),
+                filters: None,
+                user_location: None,
+                search_context_size: None,
+                search_content_types: None,
+            },
+            ToolSpec::ImageGeneration {
+                output_format: "png".into(),
+            },
+        ];
+        Self::new(
+            Arc::from("test-capability-identity"),
+            specs
+                .iter()
+                .filter_map(HostedToolIdentity::from_spec)
+                .collect(),
+        )
     }
 }
 
@@ -294,7 +335,7 @@ mod tests {
 
     #[test]
     #[traced_test]
-    fn scope_preserves_response_identity_and_logical_hosted_outcome() {
+    fn scope_preserves_response_identity_and_native_hosted_outcome() {
         let scope = TaskSpaceExecResponseScope::default();
         scope.begin_request("map-1", Some(7)).unwrap();
         scope.record_completed_item(&ResponseItem::WebSearchCall {

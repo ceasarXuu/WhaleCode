@@ -62,7 +62,7 @@ pub(super) fn build_description<'a>(
             .first()
             .expect("non-empty Hosted Tool set has a first item");
         sections.push(format!(
-            "Available provider-hosted Tool actions: {}.\n\nIndivisible same-response pair: if you emit the native top-level Provider Tool item, emit the `taskspace_exec` attribution below in that same assistant response. If you do not emit the native item, do not emit its attribution. The native item performs the work; the attribution only records node ownership. Never emit either side alone or defer attribution to another response:\n```json\n{}\n```",
+            "Provider-hosted ToolSpec names, exposed unchanged: {}.\n\nIndivisible same-response pair: if you emit the native top-level Provider Tool item, emit the `taskspace_exec` attribution below in that same assistant response. If you do not emit the native item, do not emit its attribution. The native item performs the work; the attribution only records node ownership. Never emit either side alone or defer attribution to another response:\n```json\n{}\n```",
             hosted_tools.iter().cloned().collect::<Vec<_>>().join(", "),
             canonical_hosted_result_example(first_hosted),
         ));

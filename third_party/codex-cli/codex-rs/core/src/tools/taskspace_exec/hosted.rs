@@ -9,20 +9,23 @@ pub(super) enum HostedToolKind {
     ImageGeneration,
 }
 
-impl HostedToolKind {
-    pub(super) fn from_spec(spec: &ToolSpec) -> Option<Self> {
-        match spec {
-            ToolSpec::WebSearch { .. } => Some(Self::WebSearch),
-            ToolSpec::ImageGeneration { .. } => Some(Self::ImageGeneration),
-            _ => None,
-        }
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HostedToolIdentity {
+    pub(super) kind: HostedToolKind,
+    pub(super) native_name: String,
+}
 
-    pub(super) fn name(self) -> &'static str {
-        match self {
-            Self::WebSearch => "web_search",
-            Self::ImageGeneration => "image_generation",
-        }
+impl HostedToolIdentity {
+    pub(super) fn from_spec(spec: &ToolSpec) -> Option<Self> {
+        let kind = match spec {
+            ToolSpec::WebSearch { .. } => HostedToolKind::WebSearch,
+            ToolSpec::ImageGeneration { .. } => HostedToolKind::ImageGeneration,
+            _ => return None,
+        };
+        Some(Self {
+            kind,
+            native_name: spec.name().to_string(),
+        })
     }
 }
 
@@ -32,7 +35,15 @@ pub(crate) struct HostedToolFact {
     pub(crate) outcome: ActionOutcome,
 }
 
-pub(super) fn hosted_tool_fact(item: &ResponseItem) -> Result<Option<HostedToolFact>, String> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct HostedResponseFact {
+    pub(super) kind: HostedToolKind,
+    pub(super) outcome: ActionOutcome,
+}
+
+pub(super) fn hosted_response_fact(
+    item: &ResponseItem,
+) -> Result<Option<HostedResponseFact>, String> {
     let observed = match item {
         ResponseItem::WebSearchCall { status, .. } => {
             Some((HostedToolKind::WebSearch, status.as_deref()))
@@ -50,16 +61,10 @@ pub(super) fn hosted_tool_fact(item: &ResponseItem) -> Result<Option<HostedToolF
         Some("failed") => ActionOutcome::Failed,
         Some("cancelled" | "canceled") => ActionOutcome::Cancelled,
         _ => {
-            return Err(format!(
-                "provider-hosted Tool `{}` has non-terminal status",
-                kind.name()
-            ));
+            return Err("provider-hosted response item has non-terminal status".to_string());
         }
     };
-    Ok(Some(HostedToolFact {
-        tool: kind.name().to_string(),
-        outcome,
-    }))
+    Ok(Some(HostedResponseFact { kind, outcome }))
 }
 
 pub(super) fn merge_hosted_outcome(current: ActionOutcome, next: ActionOutcome) -> ActionOutcome {
@@ -96,16 +101,12 @@ mod tests {
         let image_spec = ToolSpec::ImageGeneration {
             output_format: "png".into(),
         };
-        assert_eq!(
-            HostedToolKind::from_spec(&web_spec).map(HostedToolKind::name),
-            Some("web_search")
-        );
-        assert_eq!(
-            HostedToolKind::from_spec(&image_spec).map(HostedToolKind::name),
-            Some("image_generation")
-        );
+        let web_identity = HostedToolIdentity::from_spec(&web_spec).unwrap();
+        let image_identity = HostedToolIdentity::from_spec(&image_spec).unwrap();
+        assert_eq!(web_identity.native_name, web_spec.name());
+        assert_eq!(image_identity.native_name, image_spec.name());
 
-        let web = hosted_tool_fact(&ResponseItem::WebSearchCall {
+        let web = hosted_response_fact(&ResponseItem::WebSearchCall {
             id: Some("ws-1".into()),
             status: Some("failed".into()),
             action: Some(WebSearchAction::Search {
@@ -115,7 +116,7 @@ mod tests {
         })
         .unwrap()
         .unwrap();
-        let image = hosted_tool_fact(&ResponseItem::ImageGenerationCall {
+        let image = hosted_response_fact(&ResponseItem::ImageGenerationCall {
             id: "ig-1".into(),
             status: "cancelled".into(),
             revised_prompt: None,
@@ -124,17 +125,17 @@ mod tests {
         .unwrap()
         .unwrap();
         assert_eq!(
-            (web.tool.as_str(), web.outcome),
-            ("web_search", ActionOutcome::Failed)
+            (web.kind, web.outcome),
+            (web_identity.kind, ActionOutcome::Failed)
         );
         assert_eq!(
-            (image.tool.as_str(), image.outcome),
-            ("image_generation", ActionOutcome::Cancelled)
+            (image.kind, image.outcome),
+            (image_identity.kind, ActionOutcome::Cancelled)
         );
     }
 
     #[test]
-    fn logical_hosted_outcome_ignores_failed_internal_steps_after_success() {
+    fn hosted_outcome_ignores_failed_internal_steps_after_success() {
         assert_eq!(
             merge_hosted_outcome(ActionOutcome::Succeeded, ActionOutcome::Failed),
             ActionOutcome::Succeeded

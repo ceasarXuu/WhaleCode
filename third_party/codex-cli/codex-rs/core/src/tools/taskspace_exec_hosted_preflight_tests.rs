@@ -83,7 +83,7 @@ fn hosted(tool: &str, outcome: ActionOutcome) -> HostedToolFact {
 }
 
 #[test]
-fn logical_hosted_tools_bind_by_capability_not_internal_output_order() {
+fn native_hosted_tools_bind_by_toolspec_not_internal_output_order() {
     let current = open_map();
     let envelope = envelope(
         json!({
@@ -116,7 +116,7 @@ fn logical_hosted_tools_bind_by_capability_not_internal_output_order() {
 }
 
 #[test]
-fn initialization_can_record_one_logical_hosted_tool_on_new_nodes() {
+fn initialization_can_record_one_native_hosted_tool_on_new_nodes() {
     let envelope = envelope(
         json!({
             "type": "initialize_and_work",
@@ -213,7 +213,7 @@ fn hosted_tool_set_and_node_mismatches_are_rejected() {
 }
 
 #[test]
-fn duplicate_logical_hosted_tools_are_rejected() {
+fn duplicate_native_hosted_tools_are_rejected() {
     let current = open_map();
     let duplicate_declaration = envelope(
         json!({

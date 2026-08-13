@@ -150,16 +150,15 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
     let hosted_contract = web_search["description"].as_str().unwrap();
     for required in [
         "one indivisible `web_search` pair",
-        "native top-level Provider Tool interface",
         "this assistant response contains the native",
         "include exactly one matching entry",
         "response contains no matching native item",
         "native item performs the work",
-        "only records ownership",
+        "only records node ownership",
         "Never emit either side alone",
         "defer it to a later response",
         "include native Tool input",
-        "public Tool name `web_search`",
+        "Provider ToolSpec name exactly as exposed: `web_search`",
     ] {
         assert!(hosted_contract.contains(required), "missing {required}");
     }
@@ -204,11 +203,11 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
             .contains("do not also patch that owner to `in_flight`")
     );
     let description = declaration["description"].as_str().unwrap();
-    assert!(description.contains("Same-response provider-hosted pairing"));
+    assert!(description.contains("Provider-hosted ToolSpec names, exposed unchanged"));
     assert!(description.contains("Provider-hosted Tools are the only exception"));
-    assert!(description.contains("native top-level Provider Tool interface"));
+    assert!(description.contains("native top-level Provider Tool item"));
     assert!(description.contains("in that same assistant response"));
-    assert!(description.contains("must not be emitted alone, early, or in a later response"));
+    assert!(description.contains("Never emit either side alone or defer attribution"));
     assert!(description.contains("\"execution\":\"already_executed\""));
     assert!(!description.contains("single top-level entry point"));
 }

@@ -16,7 +16,7 @@
 | Provider Hosted facts | 6 | 有效 |
 | outer `taskspace_exec` | 1，位于 output index 16 | 通过 |
 | `version` / `capability_id` | v3 / 正确能力 ID | 通过 |
-| binding Tool / `node_ids[]` | canonical `web_search` / 非空且覆盖双节点 | 通过 |
+| binding Tool / `node_ids[]` | 原生 ToolSpec 名 `web_search` / 非空且覆盖双节点 | 通过 |
 | Hosted bindings | 2 | 失败：比 6 个真实 facts 少 4 项 |
 | `calls` | 2 个 Provider 搜索日志对象 | 失败：不是 client Tool call |
 

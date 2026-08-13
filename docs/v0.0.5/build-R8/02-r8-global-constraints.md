@@ -1,7 +1,7 @@
 # R8 TaskSpace 全局约束
 
 - Created: 2026-07-31
-- Updated: 2026-08-12
+- Updated: 2026-08-14
 - Status: Active
 - Scope: 产品、设计、实现、测试和评测
 
@@ -52,6 +52,9 @@
    地位不高于普通 Tool。`update_map` 是受限 Map 动作，可作为纯 Map 更新单独提交，不能执行 Tool 或关闭 Map。
 8. 普通 Tool 的 schema、参数、handler、权限、sandbox、hook 和原生结果对 TaskSpace 完全无感；内部 Tool 合同必须
    从同一原生 ToolSpec 机械派生，不手写第二套协议。
+   TaskSpace 不得为 client 或 Provider-hosted Tool 创建别名、公共名、逻辑名或名称映射；Agent 可见 schema、
+   Runtime 对账和 Map action 记录必须逐字使用本次原生 ToolSpec 暴露的名称。Provider response 的内部 action subtype
+   只属于该原生 Tool，不得升级成独立 Tool 名或绑定单位。
 9. Client Tool 能力合同在一次请求中只能向 Agent 暴露一次：Standard 在顶层暴露原生 Tool schema；TaskSpace
    必须移除顶层普通 client Tool 和独立 Map Tool，改由 `taskspace_exec` 从同一 ToolSpec 快照在内部暴露。禁止
    顶层与内部双重暴露。`taskspace_exec` 自身的 description 是外层调用方式、序列规则和节点归属规则的唯一模型可见

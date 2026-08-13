@@ -456,7 +456,7 @@ pub(super) fn render_preflight_rejection(error: &TaskSpaceExecPreflightError) ->
             )
         }
         TaskSpaceExecPreflightError::HostedToolSetMismatch { actual, declared } => format!(
-            "Provider-hosted Tool pairing does not match within this assistant response: native Provider Tool item(s) {actual:?}; taskspace_exec attribution(s) {declared:?}. Emit both sides together in one response and record each logical Tool exactly once with `execution: \"already_executed\"` and `node_ids`. No Map or client Tool actions were executed."
+            "Provider-hosted Tool pairing does not match within this assistant response: native Provider Tool item(s) {actual:?}; taskspace_exec attribution(s) {declared:?}. Emit both sides together in one response and record each native Provider ToolSpec exactly once with `execution: \"already_executed\"` and `node_ids`. No Map or client Tool actions were executed."
         ),
         _ => format!("preflight: {error:?}. No Map or Tool actions were executed."),
     }

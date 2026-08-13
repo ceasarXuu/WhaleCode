@@ -37,7 +37,7 @@ base instructions profile 测试通过，缓存敏感面门禁正确识别 Tool 
 3. 第三轮既出现 Hosted 与归属同响应成功，也出现漏登和无 Hosted 时提前登记。Trace 记录 10 次漏登反馈、3 次提前登记
    反馈；模型随后反复搜索并用满 12 requests，单轮 input 达 947,691。
 
-以上计数只判断每个 Provider response scope 是否同时存在逻辑 `web_search` 和一个 Exec 归属。`search`、`open_page`、
+以上计数只判断每个 Provider response scope 是否同时存在原生 ToolSpec `web_search` 和一个 Exec 归属。`search`、`open_page`、
 `find_in_page` 仅用于核对原始 Provider 轨迹，不形成独立 TaskSpace Tool、独立绑定或独立双写。
 
 ## 4. 判定

@@ -20,7 +20,7 @@ DeepSeek Responses 请求成功，Provider Hosted Web Search 与唯一 `taskspac
 | outer `taskspace_exec` | 1，位于 output index 18 | 通过 |
 | Hosted bindings | 4 | 失败：数量不完整 |
 | capability 字段 | `capability` | 失败：应为 `capability_id` |
-| binding Tool 名 | `search` | 失败：应为 canonical `web_search` |
+| binding Tool 名 | `search` | 失败：应逐字使用原生 ToolSpec 名 `web_search` |
 | 两个节点均出现 | 是 | 通过，但不足以抵消完整性失败 |
 
 Runtime 必须按合同整批拒绝该响应；不得保留四项部分绑定、默认落 Root 或记为 unbound 后继续。因此 A2-V4 未通过，
@@ -34,7 +34,7 @@ Runtime 必须按合同整批拒绝该响应；不得保留四项部分绑定、
    `web_search_call`，而 Agent 恰好声明 4 项。固定数量提示可能把 Agent 锚定在四项，不能把 7/4 偏差全部解释为模型
    无法逐项绑定。
 2. 候选 Tool 描述只写了“capability identity”和“Hosted Tool name”，没有明确字段必须叫 `capability_id`，也没有明确
-   `web_search_call` 的 search/open_page/find_in_page 等 action subtype 均映射为 canonical Tool 名 `web_search`。Agent
+   `web_search_call` 的 search/open_page/find_in_page 等 action subtype 均属于原生 ToolSpec `web_search` 的内部过程。Agent
    生成 `capability` 和 `search` 与这两个暴露缺口直接一致。
 3. v2 候选把每项 Hosted fact 限制为单个 `node_id`。真实 output index 1 的一次 search 同时查询 DeepSeek 和 OpenAI，
    说明一个 Provider fact 确实可能同时服务多个节点；单 owner 合同本身不满足已确认的产品语义。
@@ -48,7 +48,7 @@ DeepSeek 稳定执行。**
 2. 计划升级为 `taskspace_exec_plan_v3`，每项 binding 使用非空、无重复的 `node_ids[]`，允许一个事实服务多个节点；
 3. Tool 合同明确 source 的四个唯一字段：`version`、`capability_id`、`calls`、`hosted_bindings`；
 4. 明确每个实际 `web_search_call` 都必须有一项 binding，包括失败状态和所有 action subtype；
-5. 明确 binding 的 Tool 始终为 `web_search`，不得写 `search`、`open_page` 等 action subtype；
+5. 明确 binding 的 Tool 名逐字使用原生 ToolSpec 名 `web_search`，不得写 `search`、`open_page` 等内部 action subtype；
 6. Docker probe 新增 repo owner 前置门禁，要求以宿主 UID/GID 运行，防止原子写把账本和证据变为 root `0600` 文件。
 7. 修正后的系统 instructions 只描述 TaskSpace 工作目标和调用时机；字段名、完整性和 Tool 映射只由
    `taskspace_exec` Tool contract 暴露，避免多层重复提示掩盖 Tool 合同是否有效。

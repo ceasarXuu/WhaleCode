@@ -39,8 +39,8 @@
 > 2026-08-14 纠偏：`search`、`open_page`、`find_in_page` 是同一个 Hosted Web Search 调用中的内部 action，
 > 不是三个 TaskSpace Tool，也不分别产生三份归属。此前把 subtype 映射列为主根因的结论无效。
 
-五轮 trace 中 Runtime 始终把同一 Provider response scope 内的 Web Search 内部 output 聚合为一个逻辑
-`web_search`，没有把内部步骤拆成 Map action。Agent 共生成 16 次 Hosted 归属声明，其中 8 次完成同响应逻辑对账；
+五轮 trace 中 Runtime 始终把同一 Provider response scope 内的 Web Search 内部 output 归于原生 ToolSpec
+`web_search`，没有自建名称，也没有把内部步骤拆成 Map action。Agent 共生成 16 次 Hosted 归属声明，其中 8 次完成同响应对账；
 另外出现 6 次漏登拒绝、3 次提前登记拒绝和 2 次 owner 节点状态拒绝。每轮至少出现一种协议或序列错误。
 
 有效正向证据仅能说明 Agent 偶尔可以在同一个响应中同时生成 Hosted Web Search 和 Exec 归属；它不能证明内部 action
