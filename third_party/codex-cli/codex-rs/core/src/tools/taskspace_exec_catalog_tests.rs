@@ -149,9 +149,12 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
         .unwrap();
     let hosted_contract = web_search["description"].as_str().unwrap();
     for required in [
-        "One logical `web_search` Tool action",
-        "already executed natively",
-        "does not invoke the Tool",
+        "one logical `web_search` Tool action",
+        "native top-level Provider Tool interface",
+        "same assistant response",
+        "native Provider Tool item performs the work",
+        "only records ownership",
+        "must not appear without that matching item",
         "declare it exactly once",
         "all of its internal steps and results",
         "Do not repeat declarations for internal actions",
@@ -201,9 +204,13 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
             .contains("do not also patch that owner to `in_flight`")
     );
     let description = declaration["description"].as_str().unwrap();
-    assert!(description.contains("Provider-hosted result attribution example"));
+    assert!(description.contains("Same-response provider-hosted pairing"));
+    assert!(description.contains("Provider-hosted Tools are the only exception"));
+    assert!(description.contains("native top-level Provider Tool interface"));
+    assert!(description.contains("in that same assistant response"));
+    assert!(description.contains("must not be emitted alone, early, or in a later response"));
     assert!(description.contains("\"execution\":\"already_executed\""));
-    assert!(description.contains("this does not invoke it"));
+    assert!(!description.contains("single top-level entry point"));
 }
 
 #[test]

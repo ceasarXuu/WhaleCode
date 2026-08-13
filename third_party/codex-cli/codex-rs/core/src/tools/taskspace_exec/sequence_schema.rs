@@ -149,7 +149,7 @@ fn tool_action_schema(capability: &TaskSpaceToolCapability) -> JsonSchema {
                 &["tool", "execution", "node_ids"],
             );
             schema.description = Some(format!(
-                "One logical `{}` Tool action already executed natively by the Provider in this response. Set `execution` to `already_executed`, declare it exactly once, and bind all of its internal steps and results to `node_ids`. This records an existing Provider result; it does not invoke the Tool. Do not repeat declarations for internal actions or include native Tool input. Always use the public Tool name `{}`.",
+                "Node attribution for one logical `{}` Tool action invoked through the native top-level Provider Tool interface in this same assistant response. Set `execution` to `already_executed`, declare it exactly once, and bind all of its internal steps and results to `node_ids`. The matching native Provider Tool item performs the work; this entry only records ownership and must not appear without that matching item in the same response or in a later response. Do not repeat declarations for internal actions or include native Tool input. Always use the public Tool name `{}`.",
                 kind.name(),
                 kind.name()
             ));

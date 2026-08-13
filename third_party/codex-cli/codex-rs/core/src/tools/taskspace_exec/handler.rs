@@ -445,18 +445,18 @@ pub(super) fn render_preflight_rejection(error: &TaskSpaceExecPreflightError) ->
             if !actual.is_empty() && declared.is_empty() =>
         {
             format!(
-                "This Provider response already executed hosted Tool(s) {actual:?}, but this taskspace_exec did not attribute them to Work nodes. Record each logical Tool once in `tools` with `execution: \"already_executed\"` and `node_ids`. No Map or Tool actions were executed."
+                "This assistant response invoked native provider-hosted Tool(s) {actual:?}, but its taskspace_exec call did not record their Work-node ownership. In one assistant response, emit each native Provider Tool item together with exactly one matching `tools` entry using `execution: \"already_executed\"` and `node_ids`. Do not defer the entry to a later response. No Map or client Tool actions were executed."
             )
         }
         TaskSpaceExecPreflightError::HostedToolSetMismatch { actual, declared }
             if actual.is_empty() && !declared.is_empty() =>
         {
             format!(
-                "This taskspace_exec attributed hosted Tool(s) {declared:?}, but this Provider response contains no newly executed hosted Tool result. `execution: \"already_executed\"` records a result from this same response; it does not invoke the Tool. No Map or Tool actions were executed."
+                "This taskspace_exec recorded provider-hosted Tool(s) {declared:?}, but this assistant response did not invoke matching native Provider Tool items. `execution: \"already_executed\"` only records node ownership for a native Provider Tool item emitted in this same response; it does not invoke the Tool and cannot be sent early or later. No Map or client Tool actions were executed."
             )
         }
         TaskSpaceExecPreflightError::HostedToolSetMismatch { actual, declared } => format!(
-            "Hosted Tool attribution does not match this Provider response: response Tool(s) {actual:?}; taskspace_exec attribution(s) {declared:?}. Record each logical Tool from this response exactly once with `execution: \"already_executed\"` and `node_ids`. No Map or Tool actions were executed."
+            "Provider-hosted Tool pairing does not match within this assistant response: native Provider Tool item(s) {actual:?}; taskspace_exec attribution(s) {declared:?}. Emit both sides together in one response and record each logical Tool exactly once with `execution: \"already_executed\"` and `node_ids`. No Map or client Tool actions were executed."
         ),
         _ => format!("preflight: {error:?}. No Map or Tool actions were executed."),
     }

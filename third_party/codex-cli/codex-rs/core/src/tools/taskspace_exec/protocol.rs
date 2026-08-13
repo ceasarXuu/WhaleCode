@@ -14,12 +14,12 @@ use super::map_operations::NodePatchArgs;
 use super::map_operations::UpdateMapArgs;
 use super::map_operations::WorkNodeArgs;
 
-const PROTOCOL: &str = r#"Use `taskspace_exec` as the single top-level entry point for TaskSpace Map and Tool actions. Choose exactly one sequence `type` allowed by the schema.
+const PROTOCOL: &str = r#"Use `taskspace_exec` as the sole top-level Function Tool for TaskSpace Map operations and client Tool actions. Provider-hosted Tools are the only exception: invoke them through their native top-level Provider Tool interface and, in that same assistant response, include exactly one `taskspace_exec` call that records each logical hosted action. Choose exactly one sequence `type` allowed by the schema.
 
 Tool contract:
 - Put client and provider-hosted Tool actions in the sequence's single `tools` array.
 - Each client action keeps its native Tool input in `input` and declares one owner `node_id`; namespaced Tools also declare `namespace`.
-- Each provider-hosted Tool is one logical action already executed by the Provider in this response. Record it with `execution: "already_executed"` and all owner `node_ids`; this does not invoke the Tool. Provider-internal steps and results never become separate TaskSpace actions.
+- For every provider-hosted Tool invoked in an assistant response, that same response must also contain one matching entry with `execution: "already_executed"` and all owner `node_ids`. The native Provider Tool item performs the work; the `taskspace_exec` entry only records its node ownership. Never emit this entry without the matching native Tool item in the same response, omit it, or defer it to a later response. Provider-internal steps and results never become separate TaskSpace actions.
 - Tool array order supplies stable action identity. It does not create Tool dependencies; result-dependent work belongs in a later request.
 
 Map contract:
@@ -62,7 +62,7 @@ pub(super) fn build_description<'a>(
             .first()
             .expect("non-empty Hosted Tool set has a first item");
         sections.push(format!(
-            "Available provider-hosted Tool actions: {}.\n\nProvider-hosted result attribution example (emit after the Provider has already returned this Tool in the same response; this does not invoke it):\n```json\n{}\n```",
+            "Available provider-hosted Tool actions: {}.\n\nSame-response provider-hosted pairing: emit the native top-level Provider Tool item and this `taskspace_exec` attribution together in one assistant response. The Provider Tool item performs the work; the attribution below only records node ownership and must not be emitted alone, early, or in a later response:\n```json\n{}\n```",
             hosted_tools.iter().cloned().collect::<Vec<_>>().join(", "),
             canonical_hosted_result_example(first_hosted),
         ));

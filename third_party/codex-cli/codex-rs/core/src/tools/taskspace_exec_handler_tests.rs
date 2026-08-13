@@ -55,8 +55,9 @@ fn hosted_mismatch_feedback_states_response_facts_and_execution_direction() {
             declared: Vec::new(),
         },
     );
-    assert!(missing_attribution.contains("response already executed"));
-    assert!(missing_attribution.contains("did not attribute"));
+    assert!(missing_attribution.contains("assistant response invoked"));
+    assert!(missing_attribution.contains("did not record their Work-node ownership"));
+    assert!(missing_attribution.contains("emit each native Provider Tool item together"));
     assert!(missing_attribution.contains("`execution: \"already_executed\"`"));
 
     let unsupported_attribution = super::handler::render_preflight_rejection(
@@ -65,8 +66,9 @@ fn hosted_mismatch_feedback_states_response_facts_and_execution_direction() {
             declared: vec!["web_search".into()],
         },
     );
-    assert!(unsupported_attribution.contains("contains no newly executed"));
+    assert!(unsupported_attribution.contains("did not invoke matching native Provider Tool items"));
     assert!(unsupported_attribution.contains("does not invoke the Tool"));
+    assert!(unsupported_attribution.contains("cannot be sent early or later"));
     assert!(!unsupported_attribution.contains("actual:"));
     assert!(!unsupported_attribution.contains("declared:"));
 }
