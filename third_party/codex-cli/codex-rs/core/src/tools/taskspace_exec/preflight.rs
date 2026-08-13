@@ -131,7 +131,18 @@ pub(crate) fn preflight_taskspace_exec(
         )?;
     }
 
-    let mut provider_actions = Vec::new();
+    let provider_actions = envelope
+        .plan()
+        .tools
+        .iter()
+        .enumerate()
+        .filter_map(|(index, action)| match action {
+            ToolAction::Hosted(action) => Some((index, action.clone())),
+            ToolAction::Client(_) => None,
+        })
+        .collect::<Vec<_>>();
+    let hosted_facts_by_tool = match_provider_actions(&provider_actions, hosted_facts)?;
+
     for (index, action) in envelope.plan().tools.iter().enumerate() {
         match action {
             ToolAction::Client(call) => {
@@ -146,7 +157,7 @@ pub(crate) fn preflight_taskspace_exec(
                     call: call.clone(),
                 });
             }
-            ToolAction::Hosted(action) => provider_actions.push((index, action.clone())),
+            ToolAction::Hosted(_) => {}
         }
     }
     if patch_indices.len() > 1 {
@@ -157,7 +168,7 @@ pub(crate) fn preflight_taskspace_exec(
     let provider_actions = reconcile_provider_actions(
         &provider_actions,
         candidate_map.as_ref(),
-        hosted_facts,
+        &hosted_facts_by_tool,
         envelope,
     )?;
     candidate_map = activate_ready_tool_nodes(candidate_map, &client_calls, &provider_actions)?;
@@ -287,12 +298,10 @@ fn is_apply_patch(call: &ClientCall) -> bool {
     call.tool_name.namespace.is_none() && call.tool_name.name == "apply_patch"
 }
 
-fn reconcile_provider_actions(
+fn match_provider_actions<'a>(
     actions: &[(usize, super::plan::ProviderAction)],
-    candidate_map: Option<&TaskSpaceMap>,
-    hosted_facts: &[HostedToolFact],
-    envelope: &TaskSpaceExecEnvelope,
-) -> Result<Vec<PreparedProviderAction>, TaskSpaceExecPreflightError> {
+    hosted_facts: &'a [HostedToolFact],
+) -> Result<BTreeMap<&'a str, &'a HostedToolFact>, TaskSpaceExecPreflightError> {
     let mut facts_by_tool = BTreeMap::new();
     for fact in hosted_facts {
         if facts_by_tool.insert(fact.tool.as_str(), fact).is_some() {
@@ -325,6 +334,15 @@ fn reconcile_provider_actions(
         return Err(TaskSpaceExecPreflightError::HostedToolSetMismatch { actual, declared });
     }
 
+    Ok(facts_by_tool)
+}
+
+fn reconcile_provider_actions(
+    actions: &[(usize, super::plan::ProviderAction)],
+    candidate_map: Option<&TaskSpaceMap>,
+    facts_by_tool: &BTreeMap<&str, &HostedToolFact>,
+    envelope: &TaskSpaceExecEnvelope,
+) -> Result<Vec<PreparedProviderAction>, TaskSpaceExecPreflightError> {
     actions
         .iter()
         .map(|(tool_index, action)| {
