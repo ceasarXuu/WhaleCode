@@ -1,6 +1,6 @@
 # Codex CLI 主线融合执行计划
 
-- 文档状态：有效，Phase A U2 与 Checkpoint B verified；下一步执行 U3
+- 文档状态：有效，Phase A verified；下一步执行 Phase B Pre-Phase Plan Rebase Gate
 - Plan Validity：`valid-with-qualifications`
 - 计划性质：覆盖已完成里程碑与剩余工作的唯一执行计划
 - 适用版本：WhaleCode v0.0.5
@@ -35,6 +35,7 @@
 | 0.147 只读预检 | discovery completed | 官方 tag commit 已核验；相对 0.146 有 344 个提交、1,504 个变化路径；snapshot/Cargo.lock 仍保留开发版本 `0.0.0` | U2 checkpoint A 先复用 U1 runner 验证资格；仅 direction-supported 后由 checkpoint B 重算 target-dependent manifest、delta 和 replay 路由 | 只证明值得进入 U2，不证明候选合格或可 cutover |
 | 0.147 正式资格 | U2 verified | fmt、offline CLI、sandboxed V8 code-mode-host 与 app-server 全过；core 3,288 passed / 5 path failures / 1 MCP timeout；TUI 3,376 passed / 33 release snapshots | 执行 Checkpoint B，刷新 0.147 target-dependent 工件后进入 U3 | `direction-supported-with-known-test-risks`；生产 vendor 未变化 |
 | 0.147 target-dependent 工件 | Checkpoint B verified | overlay inventory 730 路径、upstream delta 4,666 路径、replay ledger 730 路径均固定到 0.147；app-server schema lineage 已跟随上游迁移到 Python 生成器 | 进入 U3 时按需查询路径证据，不把自动 disposition 当作产品决定 | 仅同步证据与生成脚本变化；生产 vendor tree 未变化 |
+| 0.147 最小 Whale 兼容边界 | U3 verified | 6 个生产文件 + 1 个测试文件的临时 overlay 可构建 `whale 0.147.0`；home/auth/keyring 隔离通过；remote plugin/sharing 默认值锁回 false | Phase B 只重放声明的 substrate patch；DeepSeek、TaskSpace 仍留在各自单元 | 无生产 vendor 变化；0 模型请求 |
 | 计划治理 | 1/1 verified | 唯一产品权威、唯一执行计划、历史工件降级和闭环工作单元 | 约束 U1–U17 的范围和停止条件 | 已完成 |
 
 因此，U2 已按纠正后的官方构建合同完成；`U3–U17` 尚未执行，不表示整个 Codex 主线追赶从零开始。历史工作、已完成的 U1/U2 与剩余工作目标、单位和验收标准不同，不做失真的简单平均百分比。
@@ -116,8 +117,8 @@
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | V1 | 0.146 的四项失败是否主要来自错误命令、ambient proxy 或过严 `--locked` | 是否继续以 0.146 为候选 | 在临时官方树读取该 tag 自带 README/justfile/CI，清空非必要代理和 Whale 环境，执行官方入口 | 三个 runner 问题已证实并修正；完整 core/app-server/TUI 入口未全部完成 | 独立临时树和 target；0 模型请求 | 日志已保留；0.146 不再作为当前候选 | direction-rejected |
 | V2 | 0.147 是否在复用 U1 runner 修正后具备进入 overlay 验证的资格 | 是否执行 U2 checkpoint B 和 U3 | 固定官方 commit；探测宿主能力；按候选自带 `setup-rusty-v8` 合同从 OpenAI 专用 release 下载并校验 archive/binding；再执行六项矩阵 | 官方资产、helper、CLI、app-server 已通过；core/TUI 剩余失败已归为硬编码 `/tmp`、MCP 时序与 release snapshot 风险 | 独立临时树和 target；0 模型请求；不写生产 vendor | 保留历次 evidence；风险进入后续回归归因，不修改候选规避 | direction-supported-with-known-test-risks |
-| V3 | 0.147 substrate 能以很薄的 identity/home overlay 支撑 Whale CLI | 是否替换生产 vendor | 一次性临时候选树只应用品牌、二进制身份、`WHALE_HOME`、auth 隔离 patch | Enough：CLI build、version、home/keyring/auth 隔离测试通过；Not proven：需要 DeepSeek/TaskSpace stub | 不提交第二份 vendor；0 模型请求 | 删除临时树；失败则回到 seam 识别 | planned |
-| V4 | 0.147 新增用户可见能力不会在整仓替换时静默改变 Whale 默认权限、持久化或协议行为 | 是否执行 U4 | 在临时 0.147 tree 检查 `--approve-for-me`、portable Agent Plugins、thread sections、MCP 2026-07-28 的 CLI help、配置 schema、feature/default、protocol 和持久化入口 | Enough：能力仅显式 opt-in、默认关闭或与现有语义等价；Not proven：默认开启、改变权限/持久化/模型可见性，或依赖 Whale 专用禁用框架 | 只读源码/生成 schema 和本地无模型 smoke；不改候选 | material 默认行为变化标 `conflict` 并请用户决定；不得用专用兼容层掩盖 | planned |
+| V3 | 0.147 substrate 能以很薄的 identity/home overlay 支撑 Whale CLI | 是否替换生产 vendor | 一次性临时候选树只应用品牌、二进制身份、`WHALE_HOME`、auth 隔离 patch | CLI build/version、home、direct keyring 与 encrypted secrets keyring 隔离均通过；不需要 DeepSeek/TaskSpace stub | 未提交第二份 vendor；0 模型请求 | 临时树已删除；证据落入 U3 report | validated |
+| V4 | 0.147 新增用户可见能力不会在整仓替换时静默改变 Whale 默认权限、持久化或协议行为 | 是否执行 U4 | 在临时 0.147 tree 检查 `--approve-for-me`、portable Agent Plugins、thread sections、MCP 2026-07-28 的 CLI help、配置 schema、feature/default、protocol 和持久化入口 | approve flag 与 thread RPC 为显式动作；MCP 2026 默认 false；remote plugin/sharing 的上游默认 true 已通过现有 feature seam 锁回 false | 只读源码 + 本地无模型 smoke；不改生产候选 | 未新增禁用框架；临时树已删除；证据落入 U3 report | validated |
 
 ## 5. 可执行工作单元
 
@@ -137,9 +138,9 @@
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | U1 | 增量复核候选 no-go 原因 | compatibility | 临时 0.146 tree；既有 candidate manifest/report | 已记录的四个失败与官方 build/test entrypoints | 已修 runner 的 offline lock 处理、代理隔离、local nextest 参数和显式 helper build；候选源码未改 | 三个初始失败归入 runner，TUI 归入不可变上游 fixture；完整矩阵仍失败 | 排除假 blocker，同时保留真实 no-go | 仅 runner、契约、日志、manifest 和报告；无生产影响 | 36 个 runner/metadata 单测；6 命令矩阵；vendor diff 为零；0 模型请求 | 已按失败停止条件收口 | verified |
 | U2 | 正式验证 0.147 候选 | compatibility/evidence | `qualify_candidate.py`、`metadata_contract.py`、candidate schema/单测、0.147 candidate/evidence、临时 0.147 tree | candidate identity 与 qualification；Checkpoint A 期间 overlay target 保持 0.146 | 按候选官方 action 校验 Codex-built sandbox V8；补齐 sibling binary、HOME/TMP/umask 隔离并完成六项矩阵；direction-supported 后由 Checkpoint B 刷新查询工件 | 0.147 获得可复现的 `direction-supported-with-known-test-risks` 结论；生产 vendor 未变 | 修复验证方法而不修改候选源码或生产 vendor | runner 与 evidence 复杂度增加，但未进入运行时；无生产影响 | 40 个 runner 单测；官方 checksum；六命令矩阵；metadata validator；vendor index tree 不变；0 模型请求 | 已停止继续追求表面全绿；已知风险进入后续归因 | verified |
-| U3 | 验证最小 Whale substrate 兼容边界 | compatibility | 一次性临时 0.147 candidate tree；CLI/config/protocol feature surfaces | brand、binary identity、`WHALE_HOME`、auth isolation；0.147 新能力默认状态 | 执行 V3 与 V4：只应用最小 identity/home patch，并审计 `--approve-for-me`、portable Agent Plugins、thread sections、MCP 2026-07-28 是否改变默认产品面 | Whale 身份与数据隔离正确；0.147 新能力不会未经决策静默改变默认权限、持久化或协议行为 | 在生产替换前同时验证最小 overlay 和用户可见兼容边界 | Complexity：临时 patch 与只读/default smoke，不建禁用框架；Reach/Cost：CLI/config/schema/protocol 定向测试，0 模型请求 | CLI build/version、home/keyring/auth tests；patch 清单；CLI help/config schema/feature defaults/protocol smoke | 需要 DeepSeek/TaskSpace stub 即停止；material 默认变化标 `conflict` 并请示；删除临时树 | not-started |
+| U3 | 验证最小 Whale substrate 兼容边界 | compatibility | 一次性临时 0.147 candidate tree；CLI/config/protocol feature surfaces | brand、binary identity、`WHALE_HOME`、auth isolation；0.147 新能力默认状态 | 已执行 V3/V4；最小 patch 覆盖 CLI identity、home、两种 keyring service 和 remote plugin/sharing defaults | Whale 身份与数据隔离正确；新增 remote/sharing 不默认开启；无需 DeepSeek/TaskSpace stub | 在生产替换前同时验证最小 overlay 和用户可见兼容边界 | Complexity：6 个生产文件 + 1 个测试文件，无新框架；Reach/Cost：定向测试和 CLI smoke，0 模型请求 | fmt；home 6、login 24、secrets 8 及 3 个定向测试；CLI build/version/help/login smoke | 临时树已删除；生产 vendor 未变；证据见 U3 report | verified |
 
-退出条件：U2、U3 均 verified；否则停在当前 vendor。U2 重验完成前不执行 Checkpoint B/U3。U1 保留为历史已完成单元。执行证据见 [0.147 qualification report](../../migration/codex-sync/2026-08-13-rust-0.147-candidate-qualification.md)。
+退出条件：已满足，U2、U3 均 verified；生产 vendor 仍保持当前版本。U1 保留为历史已完成单元。执行证据见 [0.147 qualification report](../../migration/codex-sync/2026-08-13-rust-0.147-candidate-qualification.md) 与 [U3 compatibility report](../../migration/codex-sync/2026-08-13-u3-minimal-substrate-compatibility.md)。
 
 ### Phase B：上游 substrate 落地
 
@@ -233,7 +234,7 @@
 | 已完成：基线与门禁 | 模型默认值与 Responses | Flash 默认、Pro 隐藏；Responses 按能力处理 | D1、D2 | covered | 保留为现行为证据，不作未来授权 |
 | 已完成：资格与差异证据 | 无生产语义 | 仅候选、差异和 replay 证据；vendor 未变 | none | engineering-only | 自动语义分类已降级 |
 | 已完成：U1 | 无产品语义 | 修正 qualification runner 并确认 0.146 validation direction-rejected；vendor 未变 | D2 | engineering-only | 已收口为 Phase A 历史输入 |
-| Phase A | 执行中 | U2 已完成并 direction-supported-with-known-test-risks；Checkpoint B 已刷新 0.147 查询工件；U3 未执行；vendor 未变 | D2 | engineering-only | 进入 U3 最小兼容边界验证 |
+| Phase A | 已完成 | U2 direction-supported-with-known-test-risks；Checkpoint B 已刷新 0.147 查询工件；U3 最小 identity/home/auth/default seam 验证通过；vendor 未变 | D2 | covered + engineering-only | 进入 Phase B rebase gate |
 | Phase B | 待执行 | 待记录 | D2 | 待分类 | U4 后审计 |
 | Phase C | 待执行 | 待记录 | D1、D2 | 待分类 | U5–U10 后审计 |
 | Phase D | 待执行 | 待记录 | D2 | 待分类 | U11–U16 后审计 |
@@ -250,7 +251,7 @@
 
 ## 8. 执行与提交边界
 
-执行顺序仍为 `U1（历史完成） -> U2（已完成） -> Checkpoint B（已完成） -> U3 -> ... -> U17`。当前进入 U3；不能用并行大合并绕过门禁。
+执行顺序仍为 `U1（历史完成） -> U2（已完成） -> Checkpoint B（已完成） -> U3（已完成） -> Phase B rebase gate -> U4 -> ... -> U17`。当前先完成 Phase B rebase gate；不能用并行大合并绕过门禁。
 
 - 每个 U 单元至少一个独立、可理解、已基本验证的 commit，并立即 push。
 - 单元内出现两个可独立回滚的行为主题时继续拆 commit；不得把 vendor 机械替换与产品 overlay 混为一个提交。
