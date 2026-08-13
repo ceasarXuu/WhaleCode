@@ -1,6 +1,6 @@
 # Codex CLI 主线融合执行计划
 
-- 文档状态：有效，Phase A、Phase B verified；下一步执行 Phase C rebase gate
+- 文档状态：有效，Phase A、Phase B verified；Phase C rebase gate 因 PLD-004 等待用户批准
 - Plan Validity：`valid-with-qualifications`
 - 计划性质：覆盖已完成里程碑与剩余工作的唯一执行计划
 - 适用版本：WhaleCode v0.0.5
@@ -107,11 +107,18 @@
 
 ### 3.4 Plan Delta 历史
 
+Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依据：
+
+- [DeepSeek-V4-Pro 正式版上线（2026-08-13）](https://api-docs.deepseek.com/zh-cn/news/news260813)
+- [DeepSeek Responses API 兼容性明细](https://api-docs.deepseek.com/zh-cn/guides/responses_api)
+- [DeepSeek 模型与能力规格](https://api-docs.deepseek.com/zh-cn/quick_start/pricing)
+
 | ID | Before Phase | Previous Plan | Current Fact | Proposed Change | Impact | User Approval | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | PLD-001 | Phase A | 继续以 0.146 为候选；U2 验证 overlay；U3 替换 vendor | 0.147 已于 2026-08-07 发布，固定 commit 为 `be6e8eac029b183056b7e4402879f15d2c85f61b`；0.146 工件不能证明 0.147 | 当前候选改为 0.147；新增候选资格单元 U2；原后续单元顺延 | target-dependent 工件和资格证据必须重算；生产替换推迟到 U4 | `user-approved-plan-direct: “根据147正式更新计划”` | approved-applied |
 | PLD-002 | Phase A | 无 phase rebase gate；U2 同时执行资格与全部工件重算；完整包测试未做环境能力预检 | 新版 `se-good-plan` 要求每个 material Phase 先重基；U1 已证明本机 sandbox/network 能力会制造同源噪声；0.147 新能力可能随整仓替换进入默认产品面 | 补齐五个 phase gate；U2 增加资格优先 checkpoint 和 sandbox preflight；U3 增加新能力默认暴露审计；校正 execution/validation 状态 | 不增加运行时架构；候选失败可更早停止；U4 前新增明确的权限/持久化/协议冲突门禁 | `user-approved-plan-direct: “根据审查结果先治理方案”` | approved-applied |
 | PLD-003 | Phase B | U4 作为只含上游 substrate + U3 seam 的独立提交，随后才进入 DeepSeek/TaskSpace | cache gate 把旧 Whale final-wire/policy 的同批删除与 0.147 缓存敏感源码替换识别为硬冲突；当前无 DeepSeek/TaskSpace 的 U4 也不是有效真实回归主体 | 增加独立 U4a：在不改产品源码和 accepted baseline 的前提下治理 vendor-cutover 的 cache contract/提交边界；U4 重新通过免费门禁后再提交；真实 2-sample 回归推迟到 DeepSeek/TaskSpace 被测闭环恢复后 | 增加一个测试治理单元，但避免巨型 U4–U16 合并提交、无效付费运行或绕过门禁 | `user-approved-plan-direct: “批准”` | approved-applied |
+| PLD-004 | Phase C | U6 保持 Pro 隐藏；U7 重放旧 Chat Completions 转换和 SSE 适配，再按原顺序完成 U8–U10 | DeepSeek 于 2026-08-13 发布 V4 Pro 正式版并原生支持 Responses API；官方兼容表明确 Flash/Pro 均支持 Responses；Codex 0.147 已移除 Chat Completions wire 分支并采用 Responses-only 主链 | 不恢复旧 Chat Completions 转换层；U5 基于当前 provider seam 恢复 DeepSeek 身份、鉴权与 Flash 默认；U7 只按官方兼容表补足确有测试证据的 Responses 请求/SSE 差异；U8–U10 完成后再执行 U6，使 Flash 继续默认、Pro 在 provider/final-wire 与 TUI 验证通过后恢复可见 | 执行顺序调整为 U5→U7→U8→U9→U10→U6；减少废弃兼容代码和上游侵入；D1 的官方发布条件已满足，本地验证条件仍保留；0 模型请求不变 | required-pending | proposed-pending-approval |
 
 ## 4. 最低成本预投资验证
 
@@ -121,6 +128,7 @@
 | V2 | 0.147 是否在复用 U1 runner 修正后具备进入 overlay 验证的资格 | 是否执行 U2 checkpoint B 和 U3 | 固定官方 commit；探测宿主能力；按候选自带 `setup-rusty-v8` 合同从 OpenAI 专用 release 下载并校验 archive/binding；再执行六项矩阵 | 官方资产、helper、CLI、app-server 已通过；core/TUI 剩余失败已归为硬编码 `/tmp`、MCP 时序与 release snapshot 风险 | 独立临时树和 target；0 模型请求；不写生产 vendor | 保留历次 evidence；风险进入后续回归归因，不修改候选规避 | direction-supported-with-known-test-risks |
 | V3 | 0.147 substrate 能以很薄的 identity/home overlay 支撑 Whale CLI | 是否替换生产 vendor | 一次性临时候选树只应用品牌、二进制身份、`WHALE_HOME`、auth 隔离 patch | CLI build/version、home、direct keyring 与 encrypted secrets keyring 隔离均通过；不需要 DeepSeek/TaskSpace stub | 未提交第二份 vendor；0 模型请求 | 临时树已删除；证据落入 U3 report | validated |
 | V4 | 0.147 新增用户可见能力不会在整仓替换时静默改变 Whale 默认权限、持久化或协议行为 | 是否执行 U4 | 在临时 0.147 tree 检查 `--approve-for-me`、portable Agent Plugins、thread sections、MCP 2026-07-28 的 CLI help、配置 schema、feature/default、protocol 和持久化入口 | approve flag 与 thread RPC 为显式动作；MCP 2026 默认 false；remote plugin/sharing 的上游默认 true 已通过现有 feature seam 锁回 false | 只读源码 + 本地无模型 smoke；不改生产候选 | 未新增禁用框架；临时树已删除；证据落入 U3 report | validated |
+| V5 | Phase C 是否仍需旧 DeepSeek Chat Completions 转换层，Pro 是否仍应隐藏 | 是否按原 U6/U7 方案执行 | 核验 DeepSeek 官方正式版公告、Responses 兼容表、模型规格，并对照 Codex 0.147 provider/endpoint 源码 | 官方确认 V4 Pro 正式版与 Flash/Pro 原生 Responses 支持；0.147 为 Responses-only；足以否定旧转换层方向，但不能替代本地 provider/final-wire/TUI 回归 | 只读官方资料与本地源码；0 模型请求 | 保留 D1 的 Flash 默认和本地验证门槛；PLD-004 未批准前不改产品代码 | direction-supported |
 
 ## 5. 可执行工作单元
 
@@ -168,10 +176,10 @@
 #### Pre-Phase Plan Rebase Gate
 
 - Rebase scope：U4 实际 vendor substrate、编译缺口、上游 provider/catalog/Responses/cache seam + Phase C–E 剩余计划。
-- Material plan delta：`pending`
-- Plan delta record：`pending`
-- User approval：`pending-if-material`
-- Gate status：`pending`
+- Material plan delta：`material`
+- Plan delta record：PLD-004
+- User approval：`required-pending`
+- Gate status：`blocked-on-plan-approval`
 
 进入条件：U4 verified。适用决策：D1、D2。
 
