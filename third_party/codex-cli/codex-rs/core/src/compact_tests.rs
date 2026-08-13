@@ -264,6 +264,20 @@ fn build_compacted_history_preserves_user_message_passthrough_metadata() {
     assert_eq!(history[1].turn_id(), None);
 }
 
+#[test]
+fn deepseek_compact_sampling_uses_pro_model() {
+    let provider = codex_model_provider_info::ModelProviderInfo::create_deepseek_provider();
+
+    assert_eq!(
+        compact_sampling_model(&provider, "deepseek-v4-flash"),
+        Some(DEEPSEEK_COMPACT_MODEL)
+    );
+    assert_eq!(
+        compact_sampling_model(&provider, DEEPSEEK_COMPACT_MODEL),
+        None
+    );
+}
+
 #[tokio::test]
 async fn process_compacted_history_replaces_developer_messages() {
     let compacted_history = vec![

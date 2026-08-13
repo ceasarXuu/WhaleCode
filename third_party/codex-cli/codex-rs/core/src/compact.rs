@@ -42,7 +42,7 @@ use codex_model_provider_info::ModelProviderInfo;
 
 pub const SUMMARIZATION_PROMPT: &str = include_str!("../templates/compact/prompt.md");
 pub const SUMMARY_PREFIX: &str = include_str!("../templates/compact/summary_prefix.md");
-pub(crate) const DEEPSEEK_COMPACT_MODEL: &str = "deepseek-v4-flash";
+pub(crate) const DEEPSEEK_COMPACT_MODEL: &str = "deepseek-v4-pro";
 const COMPACT_USER_MESSAGE_MAX_TOKENS: usize = 20_000;
 const WHALE_COMPACT_PROMPT_APPENDIX: &str = r#"
 

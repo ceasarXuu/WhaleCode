@@ -2,7 +2,7 @@
 
 > 计划治理说明（2026-08-10）：本专题只保留一份工程计划：[plan.md](plan.md)。已完成工作统一记录在该计划的状态表中，详细证据由 execution report 和 ledger 承载；不存在并行或嵌套的历史计划。唯一产品决策权威源为 [decisions.md](decisions.md)。
 
-> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据均已完成；0.147 Phase A、Phase B 已完成，Phase C 的 U5、U7、U8 已验证，下一步执行 U9。
+> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据均已完成；0.147 Phase A、Phase B 已完成，Phase C 的 U5、U7、U8、U9 已验证，下一步执行 U10。
 
 - 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成；Phase A、Phase B verified
 - 分析日期：2026-08-01
@@ -24,6 +24,7 @@
 - [U5 DeepSeek provider 恢复报告](../../migration/codex-sync/2026-08-14-u5-deepseek-provider.md)
 - [U7 DeepSeek 原生 Responses 验证报告](../../migration/codex-sync/2026-08-14-u7-deepseek-native-responses.md)
 - [U8 provider accounting 与请求硬门禁报告](../../migration/codex-sync/2026-08-14-u8-provider-accounting-guard.md)
+- [U9 DeepSeek 长上下文压缩报告](../../migration/codex-sync/2026-08-14-u9-deepseek-compaction.md)
 
 ## 当前批次状态
 
@@ -36,7 +37,7 @@
 - 0.147 U2 首轮 no-go 已撤回并完成重验：官方 sandbox V8、CLI、code-mode-host、app-server 均通过；core 剩余 5 个 `/tmp` 路径用例和 1 个 MCP 时序超时，TUI 剩余 33 个 release snapshot，结论为 `direction-supported-with-known-test-risks`。Checkpoint B 已把 delta/replay 查询工件刷新到 0.147；U3 已证明 6 个生产文件的最小 identity/home/auth/default overlay 可构建，且无需 DeepSeek/TaskSpace stub。
 - U4 已把 vendor 切换到 0.147，只重放 U3 的 8 个修改路径，其中 3 个删除来自官方 Git archive 的 `export-ignore`。U4a 已独立迁移免费缓存合同，U4 cache index gate 通过；accepted live baseline 未晋升。
 - U5 已恢复 DeepSeek provider、环境鉴权与 Flash 默认；U7 已通过无网络 fixture 验证 Pro 原生 `/responses` 请求和 reasoning/text/function-call SSE，未增加生产适配层。
-- U8 已恢复默认关闭、仅供获批开发回归启用的 transport-exact 请求硬门禁，并验证 provider usage 可在 completed terminal 时进入 rollout；当前 overlay inventory 为 21 路径。U9–U10/U6 与 TaskSpace 尚未执行。
+- U8 已恢复默认关闭、仅供获批开发回归启用的 transport-exact 请求硬门禁，并验证 provider usage 可在 completed terminal 时进入 rollout。U9 已恢复隐藏的 DeepSeek Flash/Pro 运行时元数据、1M/755K 合同及 Flash→Pro compaction 请求，同时复用上游 checkpoint 状态生命周期；U10/U6 与 TaskSpace 尚未执行。
 - replay ledger 和五批 DAG 已降级为非权威证据；后续不得直接按自动 disposition 或路径桶实施，应按 `plan.md` 的 U1–U17 语义闭环推进。
 
 ## 1. 执行摘要

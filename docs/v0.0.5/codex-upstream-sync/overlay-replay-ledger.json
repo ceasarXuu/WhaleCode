@@ -2,7 +2,7 @@
   "schema_version": 1,
   "baseline_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
   "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
-  "overlay_tree": "13f6d83b470d3ca78609bc4f6f458d9d895cfef1",
+  "overlay_tree": "971164d14f260cc8000b766abd5a86a480357627",
   "cutover_batches": [
     {
       "id": "batch-1-brand-home",
@@ -300,6 +300,58 @@
     },
     {
       "categories": [
+        "provider_model",
+        "session_context"
+      ],
+      "current_sha256": "890c6ba6a8e5e9ae4bc4382e3348c23c68af5b3db822978d7eabf26c15269e9f",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/core/src/compact.rs",
+      "target_sha256": "b6144028b74a97127de7e4728ffc7e909667ca18f873e2b28f96c0a3a3075f51",
+      "upstream_status": "modified",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "provider_model",
+        "session_context"
+      ],
+      "current_sha256": "bf32f3fc15b4ac3e0fbae07fb34df0670bbd75b5d0628d5cc8836863a5b3c92d",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/core/src/compact_tests.rs",
+      "target_sha256": "1c2fe9317e75b35d55bc22dea5f1d77dab1738740e0ab1807097145de417d764",
+      "upstream_status": "modified",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
         "configuration",
         "provider_model"
       ],
@@ -368,6 +420,58 @@
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/core/src/realtime_conversation.rs",
       "target_sha256": "313c3611c2543f2accd3d776ab7c67d91c23900bc587554614636b820f00b63d",
+      "upstream_status": "modified",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "provider_model",
+        "session_context"
+      ],
+      "current_sha256": "b68baab91b92a60eaf982f78481fb7c332c5abf19598b98e77ec69fae98fdec2",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/core/src/session/context_window.rs",
+      "target_sha256": "fc24cf69a77b9fe1f0e615c11ad81d35e8b698dd5d717ddfd245be053d8becef",
+      "upstream_status": "added",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "provider_model",
+        "test_fixture"
+      ],
+      "current_sha256": "ac59fe1afd42c8fffc3f91bd0831282244bf1f7e0b260f8a320f9f083b5f17fc",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/core/tests/suite/compact.rs",
+      "target_sha256": "0bfd7e723bf3e03f9ed45f5f499381c73f551d03f2da2770db4d301367fd19a8",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -523,6 +627,56 @@
     },
     {
       "categories": [
+        "provider_model"
+      ],
+      "current_sha256": "5e5241e62f23d2d9ddac1f6f957e5d987c43bf80a780dc6689c250c9cfce5ddb",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/models-manager/models.json",
+      "target_sha256": "384ff2e0ca67f65d2866e422e2ec7dfa5ed9e3fec7a84fe14005247a7087a302",
+      "upstream_status": "modified",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "provider_model"
+      ],
+      "current_sha256": "da6429d7a28232b3f50c74eff3e69153aa4375584034e6ef00cd2dd77065508f",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/models-manager/src/manager_tests.rs",
+      "target_sha256": "80272301c765a86b2c11c0cb017343c7d2a699d83aa40f3b9442a505b94ba9d2",
+      "upstream_status": "modified",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
         "brand_home"
       ],
       "current_sha256": "ba7d78a74fec5d0e8e14d507539d22b00240b99d8e8cb82e4211b1c6a34feb1e",
@@ -570,15 +724,15 @@
     }
   ],
   "summary": {
-    "path_count": 21,
+    "path_count": 27,
     "by_disposition": {
-      "adapt-semantically": 19,
+      "adapt-semantically": 25,
       "reapply-exact": 2
     },
     "by_cutover_batch": {
       "batch-1-brand-home": 9,
       "batch-2-substrate": 2,
-      "batch-3-deepseek-wire": 10
+      "batch-3-deepseek-wire": 16
     }
   }
 }

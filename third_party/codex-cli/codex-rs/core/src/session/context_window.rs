@@ -20,6 +20,10 @@ fn tokens_remaining(limit: Option<i64>, used: i64) -> Option<i64> {
     limit.map(|limit| limit.saturating_sub(used).max(0))
 }
 
+fn limit_reached(limit: Option<i64>, used: i64) -> bool {
+    limit.is_some_and(|limit| used >= limit)
+}
+
 pub(crate) async fn context_window_token_status(
     sess: &Session,
     turn_context: &TurnContext,
@@ -73,9 +77,8 @@ pub(crate) async fn context_window_token_status(
 
     // Force compaction once the buffered window or the model's full context window is reached.
     let full_context_window_limit_reached =
-        full_context_window_limit.is_some_and(|limit| active_context_tokens >= limit);
-    let token_limit_reached = buffered_auto_compact_limit
-        .is_some_and(|limit| auto_compact_scope_tokens >= limit)
+        limit_reached(full_context_window_limit, active_context_tokens);
+    let token_limit_reached = limit_reached(buffered_auto_compact_limit, auto_compact_scope_tokens)
         || full_context_window_limit_reached;
 
     ContextWindowTokenStatus {
@@ -87,5 +90,19 @@ pub(crate) async fn context_window_token_status(
         auto_compact_window_prefill_tokens,
         full_context_window_limit_reached,
         token_limit_reached,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::limit_reached;
+
+    #[test]
+    fn deepseek_auto_compact_boundary_and_short_job() {
+        let deepseek_limit = Some(755_000);
+
+        assert!(!limit_reached(deepseek_limit, 0));
+        assert!(!limit_reached(deepseek_limit, 754_999));
+        assert!(limit_reached(deepseek_limit, 755_000));
     }
 }

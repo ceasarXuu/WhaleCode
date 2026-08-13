@@ -1481,3 +1481,23 @@ fn bundled_models_json_roundtrips() {
         "bundled models.json should contain at least one model"
     );
 }
+
+#[test]
+fn bundled_deepseek_models_preserve_long_context_contract() {
+    let response = crate::bundled_models_response()
+        .unwrap_or_else(|err| panic!("bundled models.json should parse: {err}"));
+
+    for slug in ["deepseek-v4-flash", "deepseek-v4-pro"] {
+        let model = response
+            .models
+            .iter()
+            .find(|model| model.slug == slug)
+            .unwrap_or_else(|| panic!("bundled catalog should contain {slug}"));
+
+        assert_eq!(model.context_window, Some(1_000_000));
+        assert_eq!(model.max_context_window, Some(1_000_000));
+        assert_eq!(model.auto_compact_token_limit, Some(755_000));
+        assert!(!model.supports_reasoning_summary_parameter);
+        assert_eq!(model.visibility, ModelVisibility::Hide);
+    }
+}

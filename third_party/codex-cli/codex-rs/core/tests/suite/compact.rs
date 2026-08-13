@@ -386,6 +386,13 @@ fn local_compaction_provider(server: &wiremock::MockServer) -> ModelProviderInfo
     provider
 }
 
+fn deepseek_compaction_provider(server: &wiremock::MockServer) -> ModelProviderInfo {
+    let mut provider = ModelProviderInfo::create_deepseek_provider();
+    provider.base_url = Some(format!("{}/v1", server.uri()));
+    provider.env_key = None;
+    provider
+}
+
 fn model_info_with_context_window(slug: &str, context_window: i64) -> ModelInfo {
     let models_response = bundled_models_response().expect("bundled models.json should parse");
     let mut model_info = models_response
@@ -694,6 +701,64 @@ async fn summarize_context_three_requests_and_instructions() {
         saw_compacted_summary,
         "expected a Compacted entry containing the summarizer output"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deepseek_flash_compaction_request_uses_pro_model() {
+    skip_if_no_network!();
+
+    let server = start_mock_server().await;
+    let first_turn = sse(vec![
+        ev_assistant_message("m1", FIRST_REPLY),
+        ev_completed("r1"),
+    ]);
+    let compact_turn = sse(vec![
+        ev_assistant_message("m2", SUMMARY_TEXT),
+        ev_completed("r2"),
+    ]);
+    let request_log = mount_sse_sequence(&server, vec![first_turn, compact_turn]).await;
+
+    let model_provider = deepseek_compaction_provider(&server);
+    let mut builder = test_codex().with_config(move |config| {
+        config.model = Some("deepseek-v4-flash".to_string());
+        config.model_provider = model_provider;
+        set_test_compact_prompt(config);
+    });
+    let test = builder.build(&server).await.expect("create conversation");
+    let codex = test.codex.clone();
+
+    codex
+        .submit(Op::UserInput {
+            items: vec![UserInput::Text {
+                text: "hello before DeepSeek compaction".to_string(),
+                text_elements: Vec::new(),
+            }],
+            final_output_json_schema: None,
+            responsesapi_client_metadata: None,
+            additional_context: Default::default(),
+            thread_settings: Default::default(),
+        })
+        .await
+        .expect("submit first turn");
+    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
+
+    codex.submit(Op::Compact).await.expect("trigger compact");
+    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
+
+    let requests = request_log.requests();
+    assert_eq!(requests.len(), 2, "expected one turn and one compaction");
+    assert_eq!(
+        requests[0].body_json()["model"].as_str(),
+        Some("deepseek-v4-flash")
+    );
+    assert_eq!(
+        requests[1].body_json()["model"].as_str(),
+        Some("deepseek-v4-pro")
+    );
+    assert!(body_contains_text(
+        &requests[1].body_json().to_string(),
+        SUMMARIZATION_PROMPT
+    ));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
