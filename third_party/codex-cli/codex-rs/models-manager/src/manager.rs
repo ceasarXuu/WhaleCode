@@ -4,6 +4,8 @@ use crate::cache::ModelsCacheEntry;
 use crate::collaboration_mode_presets::builtin_collaboration_mode_presets;
 use crate::config::ModelsManagerConfig;
 use crate::model_info;
+use crate::model_presets::mark_whale_default_model;
+use crate::model_presets::retain_whale_models_for_listing;
 use chrono::Utc;
 use codex_http_client::HttpClientFactory;
 use codex_login::AuthManager;
@@ -131,8 +133,10 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
             .auth_manager()
             .is_some_and(AuthManager::current_auth_uses_codex_backend);
         presets = ModelPreset::filter_by_auth(presets, uses_codex_backend);
+        retain_whale_models_for_listing(&mut presets);
 
         ModelPreset::mark_default_by_picker_visibility(&mut presets);
+        mark_whale_default_model(&mut presets);
 
         presets
     }

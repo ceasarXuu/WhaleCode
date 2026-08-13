@@ -17,6 +17,7 @@ use codex_login::ExternalAuthRefreshContext;
 use codex_login::TokenData;
 use codex_protocol::auth::AuthMode;
 use codex_protocol::openai_models::ModelsResponse;
+use codex_protocol::openai_models::ReasoningEffort;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use std::collections::VecDeque;
@@ -601,11 +602,15 @@ c2ln",
 async fn static_manager_preserves_supported_requested_model_when_fallback_is_allowed() {
     let manager = static_manager_for_tests(ModelsResponse {
         models: vec![
-            remote_model("provider-default", "Default", /*priority*/ 0),
-            remote_model("provider-supported", "Supported", /*priority*/ 1),
+            remote_model("deepseek-provider-default", "Default", /*priority*/ 0),
+            remote_model(
+                "deepseek-provider-supported",
+                "Supported",
+                /*priority*/ 1,
+            ),
         ],
     });
-    let requested_model = Some("provider-supported".to_string());
+    let requested_model = Some("deepseek-provider-supported".to_string());
 
     let model = manager
         .get_default_model(
@@ -616,15 +621,19 @@ async fn static_manager_preserves_supported_requested_model_when_fallback_is_all
         )
         .await;
 
-    assert_eq!(model, "provider-supported");
+    assert_eq!(model, "deepseek-provider-supported");
 }
 
 #[tokio::test]
 async fn static_manager_falls_back_from_unsupported_requested_model_when_allowed() {
     let manager = static_manager_for_tests(ModelsResponse {
         models: vec![
-            remote_model("provider-default", "Default", /*priority*/ 0),
-            remote_model("provider-supported", "Supported", /*priority*/ 1),
+            remote_model("deepseek-provider-default", "Default", /*priority*/ 0),
+            remote_model(
+                "deepseek-provider-supported",
+                "Supported",
+                /*priority*/ 1,
+            ),
         ],
     });
     let requested_model = Some("unsupported".to_string());
@@ -638,7 +647,7 @@ async fn static_manager_falls_back_from_unsupported_requested_model_when_allowed
         )
         .await;
 
-    assert_eq!(model, "provider-default");
+    assert_eq!(model, "deepseek-provider-default");
 }
 
 #[tokio::test]
@@ -808,8 +817,8 @@ async fn get_model_info_rejects_multi_segment_namespace_suffix_matching() {
 #[tokio::test]
 async fn refresh_available_models_sorts_by_priority() {
     let remote_models = vec![
-        remote_model("priority-low", "Low", /*priority*/ 1),
-        remote_model("priority-high", "High", /*priority*/ 0),
+        remote_model("deepseek-priority-low", "Low", /*priority*/ 1),
+        remote_model("deepseek-priority-high", "High", /*priority*/ 0),
     ];
     let codex_home = tempdir().expect("temp dir");
     let endpoint = TestModelsEndpoint::new(vec![remote_models.clone()]);
@@ -828,12 +837,12 @@ async fn refresh_available_models_sorts_by_priority() {
     );
     let high_idx = available
         .iter()
-        .position(|model| model.model == "priority-high")
-        .expect("priority-high should be listed");
+        .position(|model| model.model == "deepseek-priority-high")
+        .expect("deepseek-priority-high should be listed");
     let low_idx = available
         .iter()
-        .position(|model| model.model == "priority-low")
-        .expect("priority-low should be listed");
+        .position(|model| model.model == "deepseek-priority-low")
+        .expect("deepseek-priority-low should be listed");
     assert!(
         high_idx < low_idx,
         "higher priority should be listed before lower priority"
@@ -1126,13 +1135,13 @@ async fn refresh_available_models_refetches_when_version_mismatch() {
 #[tokio::test]
 async fn refresh_available_models_drops_removed_remote_models() {
     let initial_models = vec![remote_model(
-        "remote-old",
+        "deepseek-remote-old",
         "Remote Old",
         /*priority*/ 1,
     )];
     let codex_home = tempdir().expect("temp dir");
     let refreshed_models = vec![remote_model(
-        "remote-new",
+        "deepseek-remote-new",
         "Remote New",
         /*priority*/ 1,
     )];
@@ -1168,11 +1177,15 @@ async fn refresh_available_models_drops_removed_remote_models() {
         .try_list_models()
         .expect("models should be available");
     assert!(
-        available.iter().any(|preset| preset.model == "remote-new"),
+        available
+            .iter()
+            .any(|preset| preset.model == "deepseek-remote-new"),
         "new remote model should be listed"
     );
     assert!(
-        !available.iter().any(|preset| preset.model == "remote-old"),
+        !available
+            .iter()
+            .any(|preset| preset.model == "deepseek-remote-old"),
         "removed remote model should not be listed"
     );
     assert_eq!(
@@ -1404,9 +1417,9 @@ fn build_available_models_picks_default_after_hiding_hidden_models() {
     let manager = static_manager_for_tests(ModelsResponse { models: Vec::new() });
 
     let hidden_model =
-        remote_model_with_visibility("hidden", "Hidden", /*priority*/ 0, "hide");
+        remote_model_with_visibility("deepseek-hidden", "Hidden", /*priority*/ 0, "hide");
     let visible_model =
-        remote_model_with_visibility("visible", "Visible", /*priority*/ 1, "list");
+        remote_model_with_visibility("deepseek-visible", "Visible", /*priority*/ 1, "list");
 
     let expected_hidden = ModelPreset::from(hidden_model.clone());
     let mut expected_visible = ModelPreset::from(visible_model.clone());
@@ -1417,16 +1430,43 @@ fn build_available_models_picks_default_after_hiding_hidden_models() {
     assert_eq!(available, vec![expected_hidden, expected_visible]);
 }
 
+#[test]
+fn build_available_models_keeps_whale_listing_deepseek_only_and_flash_default() {
+    let manager = static_manager_for_tests(ModelsResponse { models: Vec::new() });
+    let external = remote_model("external-model", "External", /*priority*/ -10);
+    let pro = remote_model("deepseek-v4-pro", "DeepSeek V4 Pro", /*priority*/ 0);
+    let flash = remote_model(
+        "deepseek-v4-flash",
+        "DeepSeek V4 Flash",
+        /*priority*/ 10,
+    );
+
+    let available = manager.build_available_models(vec![external, pro, flash]);
+
+    assert_eq!(
+        available
+            .iter()
+            .map(|preset| preset.model.as_str())
+            .collect::<Vec<_>>(),
+        vec!["deepseek-v4-pro", "deepseek-v4-flash"]
+    );
+    assert!(available[0].show_in_picker);
+    assert!(available[1].show_in_picker);
+    assert!(!available[0].is_default);
+    assert!(available[1].is_default);
+    assert_eq!(default_model_from_available(available), "deepseek-v4-flash");
+}
+
 #[tokio::test]
 async fn static_manager_reads_latest_auth_mode() {
     let auth_manager =
         AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
     let chatgpt_only_model = {
-        let mut model = remote_model("chatgpt-only", "ChatGPT Only", /*priority*/ 0);
+        let mut model = remote_model("deepseek-chatgpt-only", "ChatGPT Only", /*priority*/ 0);
         model.supported_in_api = false;
         model
     };
-    let api_model = remote_model("api-model", "API Model", /*priority*/ 1);
+    let api_model = remote_model("deepseek-api-model", "API Model", /*priority*/ 1);
     let manager = StaticModelsManager::new(
         Some(Arc::clone(&auth_manager)),
         ModelsResponse {
@@ -1442,7 +1482,7 @@ async fn static_manager_reads_latest_auth_mode() {
             .iter()
             .map(|model| model.model.as_str())
             .collect::<Vec<_>>(),
-        vec!["chatgpt-only", "api-model"]
+        vec!["deepseek-chatgpt-only", "deepseek-api-model"]
     );
 
     auth_manager
@@ -1458,7 +1498,7 @@ async fn static_manager_reads_latest_auth_mode() {
             .iter()
             .map(|model| model.model.as_str())
             .collect::<Vec<_>>(),
-        vec!["api-model"]
+        vec!["deepseek-api-model"]
     );
 }
 
@@ -1498,6 +1538,46 @@ fn bundled_deepseek_models_preserve_long_context_contract() {
         assert_eq!(model.max_context_window, Some(1_000_000));
         assert_eq!(model.auto_compact_token_limit, Some(755_000));
         assert!(!model.supports_reasoning_summary_parameter);
-        assert_eq!(model.visibility, ModelVisibility::Hide);
+        assert_eq!(model.visibility, ModelVisibility::List);
+    }
+}
+
+#[tokio::test]
+async fn bundled_deepseek_models_are_visible_with_flash_default() {
+    let manager = static_manager_for_tests(
+        crate::bundled_models_response().expect("bundled models.json should parse"),
+    );
+
+    let models = manager
+        .list_models(RefreshStrategy::Offline, DEFAULT_HTTP_CLIENT_FACTORY)
+        .await;
+
+    assert_eq!(
+        models
+            .iter()
+            .map(|preset| preset.model.as_str())
+            .collect::<Vec<_>>(),
+        vec!["deepseek-v4-flash", "deepseek-v4-pro"]
+    );
+    assert!(models[0].is_default);
+    assert!(!models[1].is_default);
+    for model in models {
+        assert!(model.show_in_picker);
+        assert_eq!(
+            model.default_reasoning_effort,
+            ReasoningEffort::Custom("standard".into())
+        );
+        assert_eq!(
+            model
+                .supported_reasoning_efforts
+                .iter()
+                .map(|preset| preset.effort.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                ReasoningEffort::Custom("standard".into()),
+                ReasoningEffort::High,
+                ReasoningEffort::Max,
+            ]
+        );
     }
 }

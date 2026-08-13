@@ -3133,7 +3133,7 @@ async fn skills_menu_default_mentions_shortcut_snapshot() {
 }
 
 #[tokio::test]
-async fn model_picker_hides_show_in_picker_false_models_from_cache() {
+async fn model_picker_shows_visible_models_and_hides_filtered_models() {
     let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("test-visible-model")).await;
     chat.thread_id = Some(ThreadId::new());
     let preset = |slug: &str, show_in_picker: bool| ModelPreset {
@@ -3162,6 +3162,7 @@ async fn model_picker_hides_show_in_picker_false_models_from_cache() {
 
     chat.open_model_popup_with_presets(vec![
         preset("test-visible-model", true),
+        preset("deepseek-v4-pro", true),
         preset("test-hidden-model", false),
     ]);
     let popup = render_bottom_popup(&chat, /*width*/ 80);
@@ -3169,6 +3170,10 @@ async fn model_picker_hides_show_in_picker_false_models_from_cache() {
     assert!(
         popup.contains("test-visible-model"),
         "expected visible model to appear in picker:\n{popup}"
+    );
+    assert!(
+        popup.contains("deepseek-v4-pro"),
+        "expected visible Pro model to appear in picker:\n{popup}"
     );
     assert!(
         !popup.contains("test-hidden-model"),

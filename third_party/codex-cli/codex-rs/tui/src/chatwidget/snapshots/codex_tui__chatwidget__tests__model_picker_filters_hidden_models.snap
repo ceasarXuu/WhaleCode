@@ -6,5 +6,6 @@ expression: popup
   Access legacy models by running codex -m <model_name> or in your config.toml
 
 › 1. test-visible-model (current)  test-visible-model description
+  2. deepseek-v4-pro               deepseek-v4-pro description
 
   Press enter to confirm or esc to go back

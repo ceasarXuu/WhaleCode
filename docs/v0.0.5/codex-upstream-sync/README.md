@@ -2,9 +2,9 @@
 
 > 计划治理说明（2026-08-10）：本专题只保留一份工程计划：[plan.md](plan.md)。已完成工作统一记录在该计划的状态表中，详细证据由 execution report 和 ledger 承载；不存在并行或嵌套的历史计划。唯一产品决策权威源为 [decisions.md](decisions.md)。
 
-> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据均已完成；0.147 Phase A、Phase B 已完成，Phase C 的 U5、U7、U8、U9、U10 已验证，下一步执行 U6。
+> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据均已完成；0.147 Phase A、Phase B、Phase C 已完成，下一步执行 Phase D Pre-Phase Plan Rebase Gate。
 
-- 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成；Phase A、Phase B verified
+- 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成；Phase A、Phase B、Phase C verified
 - 分析日期：2026-08-01
 - 适用版本：WhaleCode v0.0.5
 - Checkpoint B 起始提交：`5331173f158fe6352ba69d78bcaf5038971fc7f1`
@@ -26,6 +26,7 @@
 - [U8 provider accounting 与请求硬门禁报告](../../migration/codex-sync/2026-08-14-u8-provider-accounting-guard.md)
 - [U9 DeepSeek 长上下文压缩报告](../../migration/codex-sync/2026-08-14-u9-deepseek-compaction.md)
 - [U10 DeepSeek Standard final-wire 与免费缓存合同报告](../../migration/codex-sync/2026-08-14-u10-deepseek-final-wire-cache.md)
+- [U6 DeepSeek 模型目录与可见性报告](../../migration/codex-sync/2026-08-14-u6-deepseek-model-catalog.md)
 
 ## 当前批次状态
 
@@ -38,7 +39,7 @@
 - 0.147 U2 首轮 no-go 已撤回并完成重验：官方 sandbox V8、CLI、code-mode-host、app-server 均通过；core 剩余 5 个 `/tmp` 路径用例和 1 个 MCP 时序超时，TUI 剩余 33 个 release snapshot，结论为 `direction-supported-with-known-test-risks`。Checkpoint B 已把 delta/replay 查询工件刷新到 0.147；U3 已证明 6 个生产文件的最小 identity/home/auth/default overlay 可构建，且无需 DeepSeek/TaskSpace stub。
 - U4 已把 vendor 切换到 0.147，只重放 U3 的 8 个修改路径，其中 3 个删除来自官方 Git archive 的 `export-ignore`。U4a 已独立迁移免费缓存合同，U4 cache index gate 通过；accepted live baseline 未晋升。
 - U5 已恢复 DeepSeek provider、环境鉴权与 Flash 默认；U7 已通过无网络 fixture 验证 Pro 原生 `/responses` 请求和 reasoning/text/function-call SSE，未增加生产适配层。
-- U8 已恢复默认关闭、仅供获批开发回归启用的 transport-exact 请求硬门禁，并验证 provider usage 可在 completed terminal 时进入 rollout。U9 已恢复隐藏的 DeepSeek Flash/Pro 运行时元数据、1M/755K 合同及 Flash→Pro compaction 请求。U10 已锁定 `standard` final-wire 并通过五组免费缓存合同；U6 与 TaskSpace 尚未执行。
+- U8 已恢复默认关闭、仅供获批开发回归启用的 transport-exact 请求硬门禁，并验证 provider usage 可在 completed terminal 时进入 rollout。U9 已恢复 DeepSeek Flash/Pro 运行时元数据、1M/755K 合同及 Flash→Pro compaction 请求。U10 已锁定 `standard` final-wire 并通过五组免费缓存合同；U6 已恢复 Flash/Pro 可见性、DeepSeek-only 公共列表和 Flash 默认。Phase C 已完成，TaskSpace 尚未执行。
 - replay ledger 和五批 DAG 已降级为非权威证据；后续不得直接按自动 disposition 或路径桶实施，应按 `plan.md` 的 U1–U17 语义闭环推进。
 
 ## 1. 执行摘要
@@ -55,7 +56,7 @@
 - 当前 vendor 基线到 0.147 候选相差 3,133 个提交、4,511 个 Git diff 文件；
 - 切换前 Whale 相对初始基线修改了 730 个路径，官方和 Whale 同时修改 505 个路径，其中 504 个最终内容仍然不同；切换后当前 overlay 已收敛到 11 个路径；
 - Codex 是通过 codeload tarball 导入子目录，仓库根历史与官方 Git 历史没有 merge-base，普通 merge/cherry-pick 不是可靠同步机制；
-- DeepSeek 官方 Codex 接入当前要求 Responses API；Whale 现阶段只向用户展示 `deepseek-v4-flash`，`deepseek-v4-pro` 的官方 Responses API 适配完成后再恢复；provider 方向已经对齐，但 substrate 基线仍停留在约 0.125 时代；
+- DeepSeek 官方 Codex 接入当前要求 Responses API；Whale 当前向用户展示 `deepseek-v4-flash` 与 `deepseek-v4-pro`，并保持 Flash 默认；provider、catalog 与 0.147 substrate 已对齐；
 - TaskSpace 目前不是薄插件，而是贯穿协议、状态、session、provider payload、tool sequence、app-server 和 TUI 的纵向改造，必须进行语义级重放。
 
 ## 2. 审计范围与方法
@@ -179,11 +180,11 @@ Whale 当前内置 DeepSeek provider 已经：
 - 使用 `https://api.deepseek.com`；
 - 使用 Responses API；
 - 默认选择 `deepseek-v4-flash`；
-- 暂时隐藏仍在进行官方 Responses API 适配的 `deepseek-v4-pro`，适配完成后恢复；
+- 展示已正式发布并支持 Responses API 的 `deepseek-v4-pro`；
 - 禁用 Responses WebSocket；
 - 保留 1M context、755K auto compact、parallel tool calls 和 reasoning 能力。
 
-这是当前阶段的显式产品门禁：Codex 使用 DeepSeek 原生 Responses API，Flash 作为默认且唯一可见模型；Pro 并非永久移除，其恢复条件是官方 Responses API 适配完成并通过 Whale provider/TUI 回归。
+这是当前阶段的显式产品合同：Codex 使用 DeepSeek 原生 Responses API，公共列表只展示 DeepSeek 系列，Flash 为默认模型；Pro 已满足正式发布、Responses 支持及 Whale provider/final-wire/TUI 回归条件，因此恢复可见。
 
 ### 7.2 必须保留的 Whale 产品合同
 
@@ -191,7 +192,7 @@ Whale 当前内置 DeepSeek provider 已经：
 | --- | --- | --- |
 | provider identity/auth | `model-provider-info/src/lib.rs` | 保留 `deepseek`、`DEEPSEEK_API_KEY`、非 OpenAI auth |
 | Whale home 隔离 | `utils/home-dir/src/lib.rs` | 保留 `WHALE_HOME`、`~/.whale`，禁止与 `.codex` 共址 |
-| model catalog | `models-manager/models.json`、`models-manager/src` | 保留 Flash 默认、Pro 隐藏和 Whale 能力值 |
+| model catalog | `models-manager/models.json`、`models-manager/src` | 保留 DeepSeek-only 公共列表、Flash 默认、Flash/Pro 可见和 Whale 能力值 |
 | Chat Completions 兼容层 | `codex-api/src/endpoint/chat_completions.rs`、`sse/chat_completions.rs` | 内置 DeepSeek 不再依赖，但自定义 Chat provider 仍可能需要 |
 | reasoning/tool-call stream | `codex-api` | 不得丢失 `reasoning_content` 和 streamed tool call 组装 |
 | compaction | `core/src/compact*.rs` | 保留 Flash compact 与 Whale 状态保留合同 |
@@ -422,4 +423,4 @@ Upstream AgentGraphStore + WorldState + ThreadManager
 | 是否启用 upstream network proxy | 先核实现有 runtime 使用情况 | network proxy backport 前 |
 | AgentGraphStore 与 TaskSpace 的权威关系 | TaskSpace 为任务状态权威，上游 graph 作为 projection/adapter | Wave 4 ADR |
 | 是否继续保留通用 Chat Completions provider | 保留，但不作为内置 DeepSeek 主路径 | DeepSeek overlay 重放时 |
-| Pro 何时重新开放 | 以 DeepSeek 官方 Codex 支持声明和 provider probe 为准 | 每次模型目录更新时 |
+| Pro 何时重新开放 | 已满足官方正式发布、Responses 支持与本地 provider/final-wire/TUI 验证条件，U6 已恢复 | 已执行 |

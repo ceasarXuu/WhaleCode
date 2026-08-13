@@ -468,8 +468,9 @@
       ],
       "current_sha256": "199a7895bd72446bb28330080ccae5a50759091622cdb0d8cd4d9eb2461d81d0",
       "deletions": 0,
-      "evidence_commit_count": 3,
+      "evidence_commit_count": 4,
       "evidence_commits": [
+        "e476a7f58a87f800fe6f0b4d349f5ec7b2739da4",
         "5c93929884891d93c62e4b873dc1e8523efc141e",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8",
         "a7a935935dc502304152207556bad7a42e653655"
@@ -623,7 +624,7 @@
       "categories": [
         "provider_model"
       ],
-      "current_sha256": "5e5241e62f23d2d9ddac1f6f957e5d987c43bf80a780dc6689c250c9cfce5ddb",
+      "current_sha256": "c268a423c9a0deae4be51f93ba88ac9010f59503037484350bd6a885eedd20a9",
       "deletions": 0,
       "evidence_commit_count": 9,
       "evidence_commits": [
@@ -645,14 +646,40 @@
       "status": "modified"
     },
     {
-      "additions": 20,
+      "additions": 4,
+      "baseline_sha256": "00a120284c6b1c6549fa39ae938a72cb6cfd40f683878fabdcc22f9216799f9c",
+      "binary": false,
+      "categories": [
+        "provider_model"
+      ],
+      "current_sha256": "f0caa8101e86c0a7fc73f4c666a196b5a807ba186d8a0359d04b3106e03b80e3",
+      "deletions": 0,
+      "evidence_commit_count": 7,
+      "evidence_commits": [
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8",
+        "3e0a36abadfe8e835beaede340db60c559837974",
+        "05616679e03a15bc245710131b28148901ef0d8a",
+        "78101e19c86286e000901a6447540130b9e3ce2f",
+        "928c637106b0d6257f3be93b6858fc0ca31ba5f6",
+        "be86242e54a62dc1c4b225d129545fb60c7533b0",
+        "b2fca84f93b027675b45ec648182b930d333cf40"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "provider.strong_path_or_symbol"
+      ],
+      "path": "codex-rs/models-manager/src/manager.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 123,
       "baseline_sha256": "80272301c765a86b2c11c0cb017343c7d2a699d83aa40f3b9442a505b94ba9d2",
       "binary": false,
       "categories": [
         "provider_model"
       ],
-      "current_sha256": "da6429d7a28232b3f50c74eff3e69153aa4375584034e6ef00cd2dd77065508f",
-      "deletions": 0,
+      "current_sha256": "b81d0973d552a2e184aeab38e0d2404c80bf22ee79091d34681203765cec7305",
+      "deletions": 23,
       "evidence_commit_count": 9,
       "evidence_commits": [
         "5c93929884891d93c62e4b873dc1e8523efc141e",
@@ -670,6 +697,28 @@
         "provider.strong_path_or_symbol"
       ],
       "path": "codex-rs/models-manager/src/manager_tests.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 20,
+      "baseline_sha256": "5c633e7bb89320a674c2f14f65ca9e076c34711daeba2a87efc5bab026d88ac3",
+      "binary": false,
+      "categories": [
+        "provider_model"
+      ],
+      "current_sha256": "83021a72dad7cd570bc37d292992d86f6d9abfbe5e253e6f612510e78c0653f0",
+      "deletions": 0,
+      "evidence_commit_count": 3,
+      "evidence_commits": [
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8",
+        "3e0a36abadfe8e835beaede340db60c559837974",
+        "be86242e54a62dc1c4b225d129545fb60c7533b0"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "provider.strong_path_or_symbol"
+      ],
+      "path": "codex-rs/models-manager/src/model_presets.rs",
       "status": "modified"
     },
     {
@@ -691,6 +740,56 @@
         "brand.strong_path_or_symbol"
       ],
       "path": "codex-rs/secrets/src/lib.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "baseline_sha256": "8330eb7ea592317176de8f06f18ab945d41918fab56b01d6a6caae65c3c014c0",
+      "binary": false,
+      "categories": [
+        "generated_artifact",
+        "provider_model",
+        "tui_experience"
+      ],
+      "current_sha256": "25828c0d84981fe5dbf97298a6b0f1bdbc563f2a7e974e33ddb0acc75f3e1a1f",
+      "deletions": 0,
+      "evidence_commit_count": 2,
+      "evidence_commits": [
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8",
+        "be86242e54a62dc1c4b225d129545fb60c7533b0"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "generated.path",
+        "provider.strong_path_or_symbol",
+        "subsystem.tui"
+      ],
+      "path": "codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__model_picker_filters_hidden_models.snap",
+      "status": "modified"
+    },
+    {
+      "additions": 6,
+      "baseline_sha256": "8088a5028e502fa5ed067adf9766c90779de4363844ebb6c268e716f452bb964",
+      "binary": false,
+      "categories": [
+        "provider_model",
+        "test_fixture",
+        "tui_experience"
+      ],
+      "current_sha256": "454d7ac31921259e834ddf53bfd8936d493c3ba8a679377aee2acba4ba56fde8",
+      "deletions": 1,
+      "evidence_commit_count": 2,
+      "evidence_commits": [
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8",
+        "92c7449203a57dd9fce162bab5badec008a8a3fa"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "provider.strong_path_or_symbol",
+        "subsystem.tui",
+        "test.path"
+      ],
+      "path": "codex-rs/tui/src/chatwidget/tests/popups_and_settings.rs",
       "status": "modified"
     },
     {
@@ -729,17 +828,19 @@
       "cli_surface": 2,
       "configuration": 5,
       "developer_tooling": 3,
-      "provider_model": 13,
+      "generated_artifact": 1,
+      "provider_model": 17,
       "provider_transport": 5,
       "session_context": 3,
-      "test_fixture": 2,
+      "test_fixture": 3,
+      "tui_experience": 2,
       "wire_sse": 3
     },
     "by_status": {
       "deleted": 3,
-      "modified": 24
+      "modified": 28
     },
-    "path_count": 27
+    "path_count": 31
   },
   "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
   "vendor_path": "third_party/codex-cli"

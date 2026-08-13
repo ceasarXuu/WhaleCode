@@ -1,6 +1,6 @@
 # Codex CLI 主线融合执行计划
 
-- 文档状态：有效，Phase A、Phase B verified；Phase C rebase gate ready，U5、U7、U8、U9、U10 verified，下一步执行 U6
+- 文档状态：有效，Phase A、Phase B、Phase C verified；下一步执行 Phase D Pre-Phase Plan Rebase Gate
 - Plan Validity：`valid-with-qualifications`
 - 计划性质：覆盖已完成里程碑与剩余工作的唯一执行计划
 - 适用版本：WhaleCode v0.0.5
@@ -48,7 +48,7 @@
 - 0.146 候选初次资格审查：已完成，结论 no-go；
 - no-go 原因的最小增量复核：已完成（U1）；
 - 0.147 候选正式资格：已完成（U2）；结论为 `direction-supported-with-known-test-risks`；
-- 生产 vendor cutover：实现与门禁验证均已完成（U4）；DeepSeek provider 与原生 Responses 合同已恢复/验证（U5、U7），U8–U10/U6 与 TaskSpace 尚未执行。
+- 生产 vendor cutover：实现与门禁验证均已完成（U4）；DeepSeek provider、原生 Responses、长上下文、final-wire/cache 与模型目录闭环均已恢复/验证（U5–U10）；TaskSpace 尚未执行。
 
 ### 2.2 治理后的权威关系
 
@@ -180,7 +180,7 @@ Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依�
 - Material plan delta：`material`
 - Plan delta record：PLD-004、PLD-005
 - User approval：`user-approved-plan-direct: “批准”`
-- Gate status：`ready`
+- Gate status：`verified`
 
 进入条件：U4 verified。适用决策：D1、D2。
 
@@ -191,9 +191,9 @@ Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依�
 | U8 | 恢复用量与开发期请求保护 | accounting | `core/src/client.rs` 现有 transport/accounting seam；Realtime start seam | provider usage、开发期 hard request limit、terminal reconciliation | 已将显式环境变量触发的 transport-exact guard 接到 HTTP/WS/compact/memory/realtime dispatch；跨 client 共享计数、关闭隐藏重试并对无法精确计数的 Realtime fail-closed；completed usage 继续由上游事件链写入 rollout terminal | 普通产品运行不变；获批真实回归可获得机械请求上限；provider usage 与终止记录一致 | 防止主线融合丢失成本保护，同时不恢复 TaskSpace budget 状态或产品授权协议 | Complexity：一个默认关闭的局部 guard，无第二 accounting 状态；Reach/Cost：client/realtime tests，0 网络请求 | fmt；5 个 hard-limit、20 个 client、15 个 realtime tests；usage terminal fixture；sync/cache gate | 独立 revert；不修改 compaction threshold、TaskSpace 或 ledger 规则 | verified |
 | U9 | 恢复 DeepSeek compaction | context-lifecycle | `core/src/compact.rs`、context-window 与隐藏模型元数据 | Flash 主任务的 Pro compact request、1M/755K threshold、上游 checkpoint 状态保留 | 已按 PLD-005 在既有 local compaction 路径只替换 DeepSeek 压缩采样模型；恢复 Flash/Pro 隐藏运行时元数据；复用上游 checkpoint prompt/history replacement，不引入 TaskSpace projection | 短作业不压缩；到 755K 触发；Flash 压缩请求使用 Pro；模型仍不在选择器显示 | 将上下文生命周期风险从 wire/cache 中隔离，并避免恢复旧专用状态提示词 | Complexity：一个局部采样模型选择和目录数据；Reach/Cost：context/session/mock tests，0 真实请求 | model catalog、sampling、threshold/zero-short-job、mock final request、compact regression；sync/cache gate | 独立 revert；未修改 TaskSpace retention，选择器可见性仍由 U6 控制 | verified |
 | U10 | 恢复缓存与 final-wire 证据 | cache/observability | DeepSeek mock final-wire、既有 cache contract/gate | Standard 最终 payload 与敏感面 | 已在 U9 mock 链补齐 Standard final-wire 精确断言，并运行现有五组免费缓存合同和 index gate；旧 `provider_wire_trace` 强耦合 TaskSpace，未在本单元恢复 | 零模型请求即可锁定 Standard 请求字段与通用前缀/cache-key/MCP/API 合同 | 付费回归前提供确定性保护，不提前引入 TaskSpace 观测代码 | Complexity：只增加测试断言和证据文档，0 runtime state；Reach/Cost：cache-sensitive test gate，0 真实请求 | Standard final-wire；5 组 free contracts；sync/metadata；cache index gate | 独立 revert；live baseline 保持失败且未晋升；TaskSpace trace 留给 Phase D | verified |
-| U6 | 恢复模型目录与可见性 | catalog/defaults | `models-manager` 及 model selector | Flash/Pro catalog entries、default/visibility | 在 U5、U7–U10 验证后迁移模型元数据，使 Flash 默认可见、Pro 恢复可见；同单元更新目录生成物和 TUI 快照 | 模型选择行为符合 D1，正式版 Pro 可供用户选择 | 将用户可见开关放在 provider/final-wire 验证之后 | Complexity：目录数据和现有 selector 条件；Reach/Cost：生成物和 TUI 快照 | model manager tests；默认/可见性快照；provider/final-wire 前置证据；D1 检查 | 独立 revert U6 可重新隐藏 Pro，不回滚已验证 provider 主链 | not-started |
+| U6 | 恢复模型目录与可见性 | catalog/defaults | `models-manager` 及 model selector | Flash/Pro catalog entries、default/visibility | 已在 U5、U7–U10 验证后把 Flash/Pro 目录项恢复为可见；复用上游 `show_in_picker` 选择器，只增加 DeepSeek-only 公共列表和 Flash 默认规则，并更新 TUI 快照 | 公共模型列表只展示 DeepSeek；Flash 无论远端优先级如何仍为默认，正式版 Pro 可供用户选择 | 在 provider/final-wire 已验证后开放 Pro，不建立 Whale 专用 UI 分支 | Complexity：两个局部目录策略函数和现有 selector；Reach/Cost：model manager tests 与 1 个 TUI 快照，0 真实请求 | model manager 50 项；TUI picker 定向测试；sync/metadata/cache index gate；D1 检查 | 独立 revert U6 可重新隐藏 Pro，不回滚已验证 provider 主链 | verified |
 
-退出条件：U5–U10 verified；D1 语义 covered；没有 TaskSpace 产品语义变化。
+退出条件：已满足。U5–U10 全部 verified；D1 的 Flash 默认和正式版 Pro 可见语义 covered；没有 TaskSpace 产品语义变化。证据见 U5–U10 各单元报告，U6 收口报告为 [DeepSeek 模型目录与可见性](../../migration/codex-sync/2026-08-14-u6-deepseek-model-catalog.md)。
 
 ### Phase D：TaskSpace 闭环
 
@@ -248,7 +248,7 @@ Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依�
 | 已完成：U1 | 无产品语义 | 修正 qualification runner 并确认 0.146 validation direction-rejected；vendor 未变 | D2 | engineering-only | 已收口为 Phase A 历史输入 |
 | Phase A | 已完成 | U2 direction-supported-with-known-test-risks；Checkpoint B 已刷新 0.147 查询工件；U3 最小 identity/home/auth/default seam 验证通过；vendor 未变 | D2 | covered + engineering-only | 进入 Phase B rebase gate |
 | Phase B | 已完成 | vendor 对齐 0.147 且只保留 U3 seam；U4a 独立迁移免费缓存合同，cache index gate 通过；live baseline 仍保持失败状态 | D2 | covered + engineering-only | 进入 Phase C rebase gate |
-| Phase C | 执行中 | PLD-004/005 已批准；U5/U7/U8 已恢复 provider、原生 Responses 与开发期 guard；U9 已恢复隐藏运行时元数据、1M/755K 与 Flash→Pro 压缩；U10 已锁定 Standard final-wire 并通过免费缓存门禁；未触及 TaskSpace 或模型选择器可见性 | D1、D2 | 当前增量 covered + engineering-only；待阶段完成后终审 | 执行 U6 后完成 Phase C 审计 |
+| Phase C | 已完成 | PLD-004/005 已批准；U5–U10 已恢复 provider、原生 Responses、开发期 guard、1M/755K 与 Flash→Pro 压缩、Standard final-wire/cache；U6 使 Flash/Pro 可见、公共列表仅保留 DeepSeek，并保持 Flash 默认；未触及 TaskSpace | D1、D2 | covered + engineering-only | 进入 Phase D Pre-Phase Plan Rebase Gate |
 | Phase D | 待执行 | 待记录 | D2 | 待分类 | U11–U16 后审计 |
 | Phase E | 待执行 | 待记录 | D1、D2 | 待分类 | U17 后审计 |
 
@@ -258,12 +258,12 @@ Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依�
 
 - upstream AgentGraph/WorldState 与 TaskSpace Event Store 无法保持单一任务状态权威；
 - 后续拟偏离候选自带的官方 release/CI 构建合同，以本地源码构建或替换依赖规避真实发布缺口；
-- DeepSeek 官方 Pro Responses 支持状态变化，可能触发 D1 恢复条件；
+- DeepSeek 官方 Pro Responses 支持未来若发生回退或兼容性变化，需要重新审查 D1；
 - 新上游能力会改变默认权限、持久化、模型可见性或用户控制方式。
 
 ## 8. 执行与提交边界
 
-执行顺序当前到达 `... -> U4（已验证） -> Phase C rebase gate（PLD-004/005 已批准） -> U5（已验证） -> U7（已验证） -> U8（已验证） -> U9（已验证） -> U10（已验证）`。下一步执行 U6；完成模型默认值/可见性与 TUI 验证后收口 Phase C，不消耗真实回归预算，也不晋升 live baseline。
+执行顺序当前到达 `... -> U4（已验证） -> Phase C rebase gate（PLD-004/005 已批准） -> U5（已验证） -> U7（已验证） -> U8（已验证） -> U9（已验证） -> U10（已验证） -> U6（已验证）`。Phase C 已收口；下一步只执行 Phase D Pre-Phase Plan Rebase Gate，在重基结论写回本计划并满足其审批规则前不开始 U11。Phase C 未消耗真实回归预算，也未晋升 live baseline。
 
 - 每个 U 单元至少一个独立、可理解、已基本验证的 commit，并立即 push。
 - 单元内出现两个可独立回滚的行为主题时继续拆 commit；不得把 vendor 机械替换与产品 overlay 混为一个提交。
