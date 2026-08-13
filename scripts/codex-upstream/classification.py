@@ -49,6 +49,7 @@ class Classification:
 
 
 TASKSPACE_DOMAIN_GLOBS = (
+    "codex-rs/ext/taskspace/**",
     "codex-rs/core/src/action_map/**",
     "codex-rs/core/src/context/prompts/taskspace_*",
     "codex-rs/core/src/context/taskspace_contract.rs",

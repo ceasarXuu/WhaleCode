@@ -43,6 +43,17 @@ class ClassificationTests(unittest.TestCase):
         self.assertIn("taskspace_domain", result.categories)
         self.assertNotIn("taskspace_host_hooks", result.categories)
 
+    def test_taskspace_extension_tests_are_domain_paths(self) -> None:
+        result = classify(
+            "codex-rs/ext/taskspace/src/event_tests.rs",
+            None,
+            b"assert_eq!(actual, expected);",
+            set(),
+        )
+
+        self.assertIn("taskspace_domain", result.categories)
+        self.assertNotIn("unclassified", result.categories)
+
     def test_backport_is_multi_label(self) -> None:
         path = "codex-rs/tui/src/wrapping.rs"
         result = classify(path, b"old\n", b"new\n", {path})

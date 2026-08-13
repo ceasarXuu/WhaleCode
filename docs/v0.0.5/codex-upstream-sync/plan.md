@@ -1,6 +1,6 @@
 # Codex CLI 主线融合执行计划
 
-- 文档状态：有效，Phase A、Phase B、Phase C verified；Phase D in progress，U11、U12a verified；下一步执行 U12b events/replay
+- 文档状态：有效，Phase A、Phase B、Phase C verified；Phase D in progress，U11、U12a/U12b verified；下一步执行 U12c transactions 与完整回归
 - Plan Validity：`valid-with-qualifications`
 - 计划性质：覆盖已完成里程碑与剩余工作的唯一执行计划
 - 适用版本：WhaleCode v0.0.5
@@ -269,7 +269,7 @@ Phase D 的 PLD-006 采用当前 0.147 源码和以下一手资料校验扩展�
 | Phase A | 已完成 | U2 direction-supported-with-known-test-risks；Checkpoint B 已刷新 0.147 查询工件；U3 最小 identity/home/auth/default seam 验证通过；vendor 未变 | D2 | covered + engineering-only | 进入 Phase B rebase gate |
 | Phase B | 已完成 | vendor 对齐 0.147 且只保留 U3 seam；U4a 独立迁移免费缓存合同，cache index gate 通过；live baseline 仍保持失败状态 | D2 | covered + engineering-only | 进入 Phase C rebase gate |
 | Phase C | 已完成 | PLD-004/005 已批准；U5–U10 已恢复 provider、原生 Responses、开发期 guard、1M/755K 与 Flash→Pro 压缩、Standard final-wire/cache；U6 使 Flash/Pro 可见、公共列表仅保留 DeepSeek，并保持 Flash 默认；未触及 TaskSpace | D1、D2 | covered + engineering-only | Phase D rebase 与 PLD-006 审批已完成 |
-| Phase D | 执行中 | PLD-006 已获批准；U11 verified；U12 的 1,870 行硬上限已获批准，U12a canonical model/invariants verified，累计约 684 行生产代码 | D2 | covered + engineering-only（U11 compatibility + U12 domain） | 执行 U12b transitions/events/replay |
+| Phase D | 执行中 | PLD-006 已获批准；U11 verified；U12 的 1,870 行硬上限已获批准，U12a/U12b canonical model/invariants/transitions/events/replay verified，累计约 1,234 行生产代码 | D2 | covered + engineering-only（U11 compatibility + U12 domain） | 执行 U12c transactions 与完整 property/fixture 回归 |
 | Phase E | 待执行 | 待记录 | D1、D2 | 待分类 | U17 后审计 |
 
 ## 7. Pending Product Decisions
@@ -283,7 +283,7 @@ Phase D 的 PLD-006 采用当前 0.147 源码和以下一手资料校验扩展�
 
 ## 8. 执行与提交边界
 
-执行顺序当前到达 `... -> U6（已验证） -> Phase D rebase gate（PLD-006 已批准） -> U11（已验证） -> U12 精确清单/预算（已批准） -> U12a（已验证）`。下一步执行 U12b；U12 总手写生产代码不得超过 1,870 行。至今未消耗真实回归预算，也未晋升 live baseline。
+执行顺序当前到达 `... -> U6（已验证） -> Phase D rebase gate（PLD-006 已批准） -> U11（已验证） -> U12 精确清单/预算（已批准） -> U12a（已验证） -> U12b（已验证）`。下一步执行 U12c；U12 总手写生产代码不得超过 1,870 行。至今未消耗真实回归预算，也未晋升 live baseline。
 
 - 每个 U 单元至少一个独立、可理解、已基本验证的 commit，并立即 push。
 - 单元内出现两个可独立回滚的行为主题时继续拆 commit；不得把 vendor 机械替换与产品 overlay 混为一个提交。
