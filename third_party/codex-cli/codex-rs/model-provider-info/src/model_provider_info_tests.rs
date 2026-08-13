@@ -262,6 +262,35 @@ fn test_create_amazon_bedrock_provider() {
     );
 }
 
+#[test]
+fn test_create_deepseek_provider() {
+    assert_eq!(
+        ModelProviderInfo::create_deepseek_provider(),
+        ModelProviderInfo {
+            name: "DeepSeek".to_string(),
+            base_url: Some(DEEPSEEK_DEFAULT_BASE_URL.to_string()),
+            env_key: Some("DEEPSEEK_API_KEY".to_string()),
+            env_key_instructions: Some(
+                "Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale.".to_string(),
+            ),
+            experimental_bearer_token: None,
+            auth: None,
+            aws: None,
+            wire_api: WireApi::Responses,
+            query_params: None,
+            http_headers: None,
+            env_http_headers: None,
+            request_max_retries: None,
+            stream_max_retries: None,
+            stream_idle_timeout_ms: None,
+            websocket_connect_timeout_ms: None,
+            requires_openai_auth: false,
+            supports_websockets: false,
+            supports_standalone_web_search: false,
+        }
+    );
+}
+
 fn provider_auth_for_test() -> ModelProviderAuthInfo {
     ModelProviderAuthInfo {
         command: "token-fetcher".to_string(),
@@ -300,6 +329,23 @@ fn test_built_in_model_providers_include_amazon_bedrock() {
             .map(ModelProviderInfo::is_amazon_bedrock),
         Some(true)
     );
+}
+
+#[test]
+fn test_built_in_model_providers_include_deepseek() {
+    let providers = built_in_model_providers(/*openai_base_url*/ None);
+    let deepseek = providers
+        .get(DEEPSEEK_PROVIDER_ID)
+        .expect("DeepSeek provider should be built in");
+
+    assert!(deepseek.is_deepseek());
+    assert_eq!(
+        deepseek.base_url.as_deref(),
+        Some(DEEPSEEK_DEFAULT_BASE_URL)
+    );
+    assert_eq!(deepseek.env_key.as_deref(), Some("DEEPSEEK_API_KEY"));
+    assert_eq!(deepseek.wire_api, WireApi::Responses);
+    assert!(!deepseek.requires_openai_auth);
 }
 
 #[test]

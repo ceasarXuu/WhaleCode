@@ -1,6 +1,6 @@
 # Codex CLI 主线融合执行计划
 
-- 文档状态：有效，Phase A、Phase B verified；Phase C rebase gate ready，执行 U5
+- 文档状态：有效，Phase A、Phase B verified；Phase C rebase gate ready，U5 verified，下一步执行 U7
 - Plan Validity：`valid-with-qualifications`
 - 计划性质：覆盖已完成里程碑与剩余工作的唯一执行计划
 - 适用版本：WhaleCode v0.0.5
@@ -185,7 +185,7 @@ Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依�
 
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| U5 | 恢复 provider 身份与鉴权 | provider | `model-provider-info` 及配置调用点 | DeepSeek provider identity、base URL、API key auth、Flash 默认 | 按 0.147 provider 接口恢复内置 DeepSeek provider、保留 `DEEPSEEK_API_KEY` 环境鉴权，并把无显式配置时的 provider/model 恢复为 DeepSeek/Flash；不引入模型目录与请求 payload | CLI 能识别、配置并默认选择 DeepSeek provider 与 Flash | 先恢复最小接入点，隔离目录和 wire 问题 | Complexity：一个局部 provider 分支和配置默认值；Reach/Cost：配置解析和 auth tests | provider/config/auth 定向测试；0 真实请求 | 独立 revert；模型目录与能力留给 U6 | in-progress |
+| U5 | 恢复 provider 身份与鉴权 | provider | `model-provider-info` 及配置调用点 | DeepSeek provider identity、base URL、API key auth、Flash 默认 | 已按 0.147 provider 接口恢复内置 DeepSeek provider、保留 `DEEPSEEK_API_KEY` 环境鉴权，并把无显式配置时的 provider/model 恢复为 DeepSeek/Flash；未引入模型目录与请求 payload | CLI 能识别、配置并默认选择 DeepSeek provider 与 Flash | 先恢复最小接入点，隔离目录和 wire 问题 | Complexity：一个局部 provider 分支和配置默认值；Reach/Cost：配置解析和 auth tests | provider 23、config 235、core config 307 项通过；cache index gate 通过；0 真实请求 | 独立 revert；模型目录与能力留给 U6 | verified |
 | U7 | 恢复原生 Responses 请求与流式事件 | provider-wire | `codex-api`、`core` 的 Responses/SSE seam | DeepSeek Responses request、reasoning stream、tool-call assembly | 复用 0.147 Responses-only 主链；只对官方兼容表和失败 fixture 证明必要的字段或事件做局部适配，不恢复 Chat Completions 转换层 | reasoning 与 streamed tool calls 通过 DeepSeek 原生 Responses 工作 | 恢复主请求链，同时删除已失效的兼容假设 | Complexity：优先零分支复用，必要时仅局部 provider 条件；Reach/Cost：API/core fixtures | 无网络 request contracts、SSE reasoning/tool-call fixtures；官方兼容表逐项核对 | 出现 TaskSpace 数据需求即停止并留给 U13/U14；需要通用转换层时重新审查 | not-started |
 | U8 | 恢复用量与请求预算 | accounting | `core/src/client.rs` 现有 accounting seam | provider usage、hard request limit、terminal reconciliation | 将现有计数与限额接到上游响应/事件类型 | 请求用量和终止对账保持一致 | 防止主线融合丢失成本与请求保护 | Complexity：局部计数状态；Reach/Cost：client/session accounting tests | usage fixtures、hard-limit、terminal reconciliation tests | 独立 revert；不修改 compaction threshold | not-started |
 | U9 | 恢复 DeepSeek compaction | context-lifecycle | `core/src/compact*.rs` 及现有调用点 | Flash compact request、1M/755K threshold、保留状态 | 按新上游 context API 迁移现有 compaction 合同，不引入 TaskSpace projection 改动 | 长上下文收缩保持现有阈值和状态保留 | 将上下文生命周期风险从 wire/cache 中隔离 | Complexity：复用现 compaction 分支；Reach/Cost：context/session tests | compact request、threshold、retention、zero-short-job tests | 若必须修改 TaskSpace retention，停下留给 U14 | not-started |
@@ -247,7 +247,7 @@ Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依�
 | 已完成：U1 | 无产品语义 | 修正 qualification runner 并确认 0.146 validation direction-rejected；vendor 未变 | D2 | engineering-only | 已收口为 Phase A 历史输入 |
 | Phase A | 已完成 | U2 direction-supported-with-known-test-risks；Checkpoint B 已刷新 0.147 查询工件；U3 最小 identity/home/auth/default seam 验证通过；vendor 未变 | D2 | covered + engineering-only | 进入 Phase B rebase gate |
 | Phase B | 已完成 | vendor 对齐 0.147 且只保留 U3 seam；U4a 独立迁移免费缓存合同，cache index gate 通过；live baseline 仍保持失败状态 | D2 | covered + engineering-only | 进入 Phase C rebase gate |
-| Phase C | 执行中 | PLD-004 已批准；原生 Responses 方向和 Pro 恢复顺序已重基，当前执行 U5 | D1、D2 | 待阶段完成后分类 | U5→U7→U8→U9→U10→U6 后审计 |
+| Phase C | 执行中 | PLD-004 已批准；U5 已恢复 DeepSeek provider、环境鉴权与 Flash 默认，未触及目录/wire/TaskSpace | D1、D2 | 当前增量 covered + engineering-only；待阶段完成后终审 | 执行 U7，完成 U5→U7→U8→U9→U10→U6 后审计 |
 | Phase D | 待执行 | 待记录 | D2 | 待分类 | U11–U16 后审计 |
 | Phase E | 待执行 | 待记录 | D1、D2 | 待分类 | U17 后审计 |
 
@@ -262,7 +262,7 @@ Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依�
 
 ## 8. 执行与提交边界
 
-执行顺序当前到达 `... -> U4（已验证） -> Phase C rebase gate（PLD-004 已批准） -> U5（执行中）`。Phase C 按 `U5→U7→U8→U9→U10→U6` 推进；在 DeepSeek/TaskSpace 被测路径恢复前不消耗真实回归预算，也不晋升 live baseline。
+执行顺序当前到达 `... -> U4（已验证） -> Phase C rebase gate（PLD-004 已批准） -> U5（已验证）`。下一步执行 U7；Phase C 按 `U5→U7→U8→U9→U10→U6` 推进，在 DeepSeek/TaskSpace 被测路径恢复前不消耗真实回归预算，也不晋升 live baseline。
 
 - 每个 U 单元至少一个独立、可理解、已基本验证的 commit，并立即 push。
 - 单元内出现两个可独立回滚的行为主题时继续拆 commit；不得把 vendor 机械替换与产品 overlay 混为一个提交。

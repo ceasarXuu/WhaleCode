@@ -6027,7 +6027,7 @@ model = "gpt-project-local"
         .build()
         .await?;
 
-    assert_eq!(config.model, None);
+    assert_eq!(config.model.as_deref(), Some("deepseek-v4-flash"));
     assert!(
         config.startup_warnings.iter().any(|warning| {
             warning.contains("profile")
@@ -6107,6 +6107,32 @@ async fn responses_websocket_features_do_not_change_wire_api() -> std::io::Resul
 
         assert_eq!(config.model_provider.wire_api, WireApi::Responses);
     }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn defaults_to_deepseek_flash_responses_provider() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    let config = Config::load_from_base_config_with_overrides(
+        ConfigToml::default(),
+        ConfigOverrides::default(),
+        codex_home.abs(),
+    )
+    .await?;
+
+    assert_eq!(config.model_provider_id, "deepseek");
+    assert_eq!(config.model.as_deref(), Some("deepseek-v4-flash"));
+    assert_eq!(config.model_provider.wire_api, WireApi::Responses);
+    assert_eq!(
+        config.model_provider.base_url.as_deref(),
+        Some("https://api.deepseek.com")
+    );
+    assert_eq!(
+        config.model_provider.env_key.as_deref(),
+        Some("DEEPSEEK_API_KEY")
+    );
+    assert!(!config.model_provider.requires_openai_auth);
 
     Ok(())
 }
