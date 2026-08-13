@@ -11,8 +11,6 @@ use std::collections::HashSet;
 use std::ffi::c_void;
 use std::path::Path;
 use std::path::PathBuf;
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
 
 const DENY_READ_ACL_STATE_FILE: &str = "deny_read_acl_state.json";
 
@@ -71,96 +69,19 @@ pub unsafe fn sync_persistent_deny_read_acls(
 
 fn load_state(path: &Path) -> Result<PersistentDenyReadAclState> {
     match std::fs::read(path) {
-        Ok(bytes) => match serde_json::from_slice(&bytes) {
-            Ok(state) => Ok(state),
-            Err(err) => recover_corrupt_state(path, &bytes)
-                .with_context(|| {
-                    format!(
-                        "recover corrupt deny-read ACL state {} after parse error: {err}",
-                        path.display()
-                    )
-                }),
-        },
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .with_context(|| format!("parse deny-read ACL state {}", path.display())),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             Ok(PersistentDenyReadAclState::default())
         }
-        Err(err) => Err(err).with_context(|| format!("read deny-read ACL state {}", path.display())),
+        Err(err) => {
+            Err(err).with_context(|| format!("read deny-read ACL state {}", path.display()))
+        }
     }
-}
-
-fn recover_corrupt_state(path: &Path, bytes: &[u8]) -> Result<PersistentDenyReadAclState> {
-    let backup_path = corrupt_state_backup_path(path);
-    std::fs::write(&backup_path, bytes)
-        .with_context(|| format!("backup corrupt deny-read ACL state {}", backup_path.display()))?;
-    Ok(PersistentDenyReadAclState::default())
-}
-
-fn corrupt_state_backup_path(path: &Path) -> PathBuf {
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis())
-        .unwrap_or(0);
-    let file_name = path
-        .file_name()
-        .map(|value| value.to_string_lossy())
-        .unwrap_or_else(|| "deny_read_acl_state.json".into());
-    path.with_file_name(format!("{file_name}.corrupt-{millis}"))
 }
 
 fn store_state(path: &Path, state: &PersistentDenyReadAclState) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(state).context("serialize deny-read ACL state")?;
     std::fs::write(path, bytes)
         .with_context(|| format!("write deny-read ACL state {}", path.display()))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn load_state_recovers_corrupt_json_with_backup() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let state_path = temp.path().join(DENY_READ_ACL_STATE_FILE);
-        std::fs::write(&state_path, b"{not-json").expect("write corrupt state");
-
-        let state = load_state(&state_path).expect("corrupt state recovers");
-
-        assert!(state.principals.is_empty());
-        let backups = std::fs::read_dir(temp.path())
-            .expect("read tempdir")
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| {
-                entry
-                    .file_name()
-                    .to_string_lossy()
-                    .starts_with("deny_read_acl_state.json.corrupt-")
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(backups.len(), 1);
-        assert_eq!(
-            std::fs::read(backups[0].path()).expect("read backup"),
-            b"{not-json"
-        );
-    }
-
-    #[test]
-    fn store_state_replaces_corrupt_state_after_recovery() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let state_path = temp.path().join(DENY_READ_ACL_STATE_FILE);
-        std::fs::write(&state_path, b"{not-json").expect("write corrupt state");
-
-        let mut state = load_state(&state_path).expect("corrupt state recovers");
-        state.principals.insert(
-            "principal".to_string(),
-            vec![PathBuf::from(r"C:\secret.txt")],
-        );
-        store_state(&state_path, &state).expect("store state");
-        let restored = load_state(&state_path).expect("reload stored state");
-
-        assert_eq!(restored.principals.len(), 1);
-        assert_eq!(
-            restored.principals.get("principal"),
-            Some(&vec![PathBuf::from(r"C:\secret.txt")])
-        );
-    }
 }

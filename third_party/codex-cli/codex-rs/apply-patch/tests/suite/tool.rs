@@ -258,7 +258,7 @@ fn test_apply_patch_cli_updates_file_appends_trailing_newline() -> anyhow::Resul
 }
 
 #[test]
-fn test_apply_patch_cli_validation_failure_has_zero_side_effects() -> anyhow::Result<()> {
+fn test_apply_patch_cli_failure_after_partial_success_leaves_changes() -> anyhow::Result<()> {
     let tmp = tempdir()?;
     let new_file = tmp.path().join("created.txt");
     let missing_file = resolved_under(tmp.path(), "missing.txt")?;
@@ -273,110 +273,7 @@ fn test_apply_patch_cli_validation_failure_has_zero_side_effects() -> anyhow::Re
             missing_file.display()
         ));
 
-    assert!(!new_file.exists());
+    assert_eq!(fs::read_to_string(&new_file)?, "hello\n");
 
-    Ok(())
-}
-
-#[test]
-fn test_apply_patch_cli_late_delete_validation_preserves_earlier_update() -> anyhow::Result<()> {
-    let tmp = tempdir()?;
-    let existing_file = tmp.path().join("existing.txt");
-    let missing_file = resolved_under(tmp.path(), "missing.txt")?;
-    fs::write(&existing_file, "before\n")?;
-
-    apply_patch_command(tmp.path())?
-        .arg("*** Begin Patch\n*** Update File: existing.txt\n@@\n-before\n+after\n*** Delete File: missing.txt\n*** End Patch")
-        .assert()
-        .failure()
-        .stdout("")
-        .stderr(format!("Failed to delete file {}\n", missing_file.display()));
-
-    assert_eq!(fs::read_to_string(existing_file)?, "before\n");
-    Ok(())
-}
-
-#[test]
-fn test_apply_patch_cli_rejects_conflicting_paths_before_writing() -> anyhow::Result<()> {
-    let tmp = tempdir()?;
-    let path = resolved_under(tmp.path(), "same.txt")?;
-
-    apply_patch_command(tmp.path())?
-        .arg("*** Begin Patch\n*** Add File: same.txt\n+first\n*** Add File: same.txt\n+second\n*** End Patch")
-        .assert()
-        .failure()
-        .stdout("")
-        .stderr(format!(
-            "Patch contains conflicting operations for {}\n",
-            path.display()
-        ));
-
-    assert!(!path.exists());
-    Ok(())
-}
-
-#[test]
-fn test_apply_patch_cli_rejects_move_to_same_path_without_writing() -> anyhow::Result<()> {
-    let tmp = tempdir()?;
-    let path = resolved_under(tmp.path(), "same.txt")?;
-    fs::write(&path, "before\n")?;
-
-    apply_patch_command(tmp.path())?
-        .arg("*** Begin Patch\n*** Update File: same.txt\n*** Move to: same.txt\n@@\n-before\n+after\n*** End Patch")
-        .assert()
-        .failure()
-        .stdout("")
-        .stderr(format!(
-            "Patch move source and destination are identical: {}\n",
-            path.display()
-        ));
-
-    assert_eq!(fs::read_to_string(path)?, "before\n");
-    Ok(())
-}
-
-#[test]
-fn test_apply_patch_cli_rejects_non_directory_parent_before_writing() -> anyhow::Result<()> {
-    let tmp = tempdir()?;
-    let parent = resolved_under(tmp.path(), "parent")?;
-    fs::write(&parent, "not a directory\n")?;
-
-    apply_patch_command(tmp.path())?
-        .arg("*** Begin Patch\n*** Add File: parent/child.txt\n+child\n*** End Patch")
-        .assert()
-        .failure()
-        .stdout("")
-        .stderr(format!(
-            "Patch parent path is not a directory: {}\n",
-            parent.display()
-        ));
-
-    assert_eq!(fs::read_to_string(parent)?, "not a directory\n");
-    Ok(())
-}
-
-#[cfg(unix)]
-#[test]
-fn test_apply_patch_cli_rejects_symlink_before_writing() -> anyhow::Result<()> {
-    use std::os::unix::fs::symlink;
-
-    let tmp = tempdir()?;
-    let target = resolved_under(tmp.path(), "target.txt")?;
-    let link = resolved_under(tmp.path(), "link.txt")?;
-    fs::write(&target, "before\n")?;
-    symlink(&target, &link)?;
-
-    apply_patch_command(tmp.path())?
-        .arg("*** Begin Patch\n*** Update File: link.txt\n@@\n-before\n+after\n*** End Patch")
-        .assert()
-        .failure()
-        .stdout("")
-        .stderr(format!(
-            "Patch path is a symbolic link and cannot be rolled back safely: {}\n",
-            link.display()
-        ));
-
-    assert_eq!(fs::read_to_string(target)?, "before\n");
-    assert!(fs::symlink_metadata(link)?.file_type().is_symlink());
     Ok(())
 }

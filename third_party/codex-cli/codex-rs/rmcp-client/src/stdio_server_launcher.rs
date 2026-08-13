@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::future::Future;
 use std::io;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -30,15 +31,21 @@ use std::time::Duration;
 use anyhow::Result;
 use anyhow::anyhow;
 use codex_config::types::McpServerEnvVar;
-use codex_config::types::ShellEnvironmentPolicyInherit;
 use codex_exec_server::ExecBackend;
 use codex_exec_server::ExecEnvPolicy;
 use codex_exec_server::ExecParams;
 use codex_exec_server::ExecProcess;
-#[cfg(unix)]
+use codex_protocol::config_types::ShellEnvironmentPolicyInherit;
+use codex_utils_path_uri::LegacyAppPathString;
+use codex_utils_path_uri::PathUri;
+#[cfg(all(unix, not(target_os = "macos")))]
 use codex_utils_pty::process_group::kill_process_group;
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
+use codex_utils_pty::process_group::kill_process_group_with_member_fallback as kill_process_group;
+#[cfg(all(unix, not(target_os = "macos")))]
 use codex_utils_pty::process_group::terminate_process_group;
+#[cfg(target_os = "macos")]
+use codex_utils_pty::process_group::terminate_process_group_with_member_fallback as terminate_process_group;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use rmcp::service::RoleClient;
@@ -53,7 +60,9 @@ use tracing::info;
 use tracing::warn;
 
 use crate::executor_process_transport::ExecutorProcessTransport;
+use crate::local_stdio_transport::LocalStdioTransport;
 use crate::program_resolver;
+use crate::protocol_mode::McpProtocolMode;
 use crate::utils::create_env_for_mcp_server;
 use crate::utils::create_env_overlay_for_remote_mcp_server;
 use crate::utils::remote_mcp_env_var_names;
@@ -81,7 +90,8 @@ pub struct StdioServerCommand {
     args: Vec<OsString>,
     env: Option<HashMap<OsString, OsString>>,
     env_vars: Vec<McpServerEnvVar>,
-    cwd: Option<PathBuf>,
+    cwd: Option<String>,
+    protocol_mode: McpProtocolMode,
 }
 
 /// Client-side rmcp transport for a launched MCP stdio server.
@@ -95,7 +105,8 @@ pub struct StdioServerTransport {
 }
 
 enum StdioServerTransportInner {
-    Local(TokioChildProcess),
+    LocalLegacy(TokioChildProcess),
+    LocalModern(LocalStdioTransport),
     Executor(ExecutorProcessTransport),
 }
 
@@ -110,7 +121,8 @@ impl Transport<RoleClient> for StdioServerTransport {
         // wrapper keeps process placement private while leaving rmcp's send
         // semantics unchanged.
         match &mut self.inner {
-            StdioServerTransportInner::Local(transport) => transport.send(item).boxed(),
+            StdioServerTransportInner::LocalLegacy(transport) => transport.send(item).boxed(),
+            StdioServerTransportInner::LocalModern(transport) => transport.send(item).boxed(),
             StdioServerTransportInner::Executor(transport) => transport.send(item).boxed(),
         }
     }
@@ -120,7 +132,8 @@ impl Transport<RoleClient> for StdioServerTransport {
         // executor variant turns pushed process-output events back into the
         // line-delimited JSON stream expected by rmcp.
         match &mut self.inner {
-            StdioServerTransportInner::Local(transport) => transport.receive().boxed(),
+            StdioServerTransportInner::LocalLegacy(transport) => transport.receive().boxed(),
+            StdioServerTransportInner::LocalModern(transport) => transport.receive().boxed(),
             StdioServerTransportInner::Executor(transport) => transport.receive().boxed(),
         }
     }
@@ -128,7 +141,8 @@ impl Transport<RoleClient> for StdioServerTransport {
     async fn close(&mut self) -> std::result::Result<(), Self::Error> {
         self.process.terminate().await?;
         match &mut self.inner {
-            StdioServerTransportInner::Local(transport) => transport.close().await,
+            StdioServerTransportInner::LocalLegacy(transport) => transport.close().await,
+            StdioServerTransportInner::LocalModern(transport) => transport.close().await,
             StdioServerTransportInner::Executor(transport) => transport.close().await,
         }
     }
@@ -148,7 +162,8 @@ impl StdioServerCommand {
         args: Vec<OsString>,
         env: Option<HashMap<OsString, OsString>>,
         env_vars: Vec<McpServerEnvVar>,
-        cwd: Option<PathBuf>,
+        cwd: Option<String>,
+        protocol_mode: McpProtocolMode,
     ) -> Self {
         Self {
             program,
@@ -156,6 +171,7 @@ impl StdioServerCommand {
             env,
             env_vars,
             cwd,
+            protocol_mode,
         }
     }
 }
@@ -188,7 +204,14 @@ impl StdioServerLauncher for LocalStdioServerLauncher {
         command: StdioServerCommand,
     ) -> BoxFuture<'static, io::Result<StdioServerTransport>> {
         let fallback_cwd = self.fallback_cwd.clone();
-        async move { Self::launch_server(command, fallback_cwd) }.boxed()
+        async move {
+            // Keep synchronous program resolution and process creation from blocking the
+            // caller's startup deadline.
+            tokio::task::spawn_blocking(move || Self::launch_server(command, fallback_cwd))
+                .await
+                .map_err(io::Error::other)?
+        }
+        .boxed()
     }
 }
 
@@ -243,10 +266,11 @@ impl LocalStdioServerLauncher {
             env,
             env_vars,
             cwd,
+            protocol_mode,
         } = command;
         let program_name = program.to_string_lossy().into_owned();
         let envs = create_env_for_mcp_server(env, &env_vars).map_err(io::Error::other)?;
-        let cwd = cwd.unwrap_or(fallback_cwd);
+        let cwd = cwd.map(PathBuf::from).unwrap_or(fallback_cwd);
         let resolved_program =
             program_resolver::resolve(program, &envs, &cwd).map_err(io::Error::other)?;
 
@@ -262,12 +286,32 @@ impl LocalStdioServerLauncher {
         #[cfg(unix)]
         command.process_group(0);
 
-        let (transport, stderr) = TokioChildProcess::builder(command)
-            .stderr(Stdio::piped())
-            .spawn()?;
+        let (transport, stderr, process_id) = match protocol_mode {
+            McpProtocolMode::Legacy => {
+                let (transport, stderr) = TokioChildProcess::builder(command)
+                    .stderr(Stdio::piped())
+                    .spawn()?;
+                let process_id = transport.id();
+                (
+                    StdioServerTransportInner::LocalLegacy(transport),
+                    stderr,
+                    process_id,
+                )
+            }
+            McpProtocolMode::V20260728 => {
+                let (transport, stderr) =
+                    LocalStdioTransport::spawn(command, program_name.clone())?;
+                let process_id = transport.id();
+                (
+                    StdioServerTransportInner::LocalModern(transport),
+                    stderr,
+                    process_id,
+                )
+            }
+        };
         let process = StdioServerProcessHandle::local(
             program_name.clone(),
-            transport.id().map(LocalProcessTerminator::new),
+            process_id.map(LocalProcessTerminator::new),
         );
 
         if let Some(stderr) = stderr {
@@ -289,7 +333,7 @@ impl LocalStdioServerLauncher {
         }
 
         Ok(StdioServerTransport {
-            inner: StdioServerTransportInner::Local(transport),
+            inner: transport,
             process,
         })
     }
@@ -341,6 +385,9 @@ impl LocalProcessTerminator {
             .arg(self.pid.to_string())
             .arg("/T")
             .arg("/F")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .status();
     }
 
@@ -435,20 +482,12 @@ impl Drop for StdioServerProcessHandleInner {
 #[derive(Clone)]
 pub struct ExecutorStdioServerLauncher {
     exec_backend: Arc<dyn ExecBackend>,
-    fallback_cwd: PathBuf,
 }
 
 impl ExecutorStdioServerLauncher {
     /// Creates a stdio server launcher backed by the executor process API.
-    ///
-    /// `fallback_cwd` is used only when the MCP server config omits `cwd`.
-    /// Executor `process/start` requires an explicit working directory, unlike
-    /// local `tokio::process::Command`, which can inherit the orchestrator cwd.
-    pub fn new(exec_backend: Arc<dyn ExecBackend>, fallback_cwd: PathBuf) -> Self {
-        Self {
-            exec_backend,
-            fallback_cwd,
-        }
+    pub fn new(exec_backend: Arc<dyn ExecBackend>) -> Self {
+        Self { exec_backend }
     }
 }
 
@@ -458,8 +497,7 @@ impl StdioServerLauncher for ExecutorStdioServerLauncher {
         command: StdioServerCommand,
     ) -> BoxFuture<'static, io::Result<StdioServerTransport>> {
         let exec_backend = Arc::clone(&self.exec_backend);
-        let fallback_cwd = self.fallback_cwd.clone();
-        async move { Self::launch_server(command, exec_backend, fallback_cwd).await }.boxed()
+        async move { Self::launch_server(command, exec_backend).await }.boxed()
     }
 }
 
@@ -471,7 +509,6 @@ impl ExecutorStdioServerLauncher {
     async fn launch_server(
         command: StdioServerCommand,
         exec_backend: Arc<dyn ExecBackend>,
-        fallback_cwd: PathBuf,
     ) -> io::Result<StdioServerTransport> {
         let StdioServerCommand {
             program,
@@ -479,7 +516,16 @@ impl ExecutorStdioServerLauncher {
             env,
             env_vars,
             cwd,
+            protocol_mode: _,
         } = command;
+        let Some(cwd) = cwd else {
+            return Err(io::Error::other(
+                "executor stdio server requires an explicit cwd",
+            ));
+        };
+        let cwd: PathUri = LegacyAppPathString::from_path(Path::new(&cwd))
+            .try_into()
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
         let program_name = program.to_string_lossy().into_owned();
         let envs = create_env_overlay_for_remote_mcp_server(env, &env_vars);
         let remote_env_vars = remote_mcp_env_var_names(&env_vars);
@@ -497,12 +543,16 @@ impl ExecutorStdioServerLauncher {
             .start(ExecParams {
                 process_id,
                 argv,
-                cwd: cwd.unwrap_or(fallback_cwd),
+                cwd,
                 env_policy: Some(Self::remote_env_policy(&remote_env_vars)),
                 env,
                 tty: false,
                 pipe_stdin: true,
                 arg0: None,
+                sandbox: None,
+                enforce_managed_network: false,
+                managed_network: None,
+                network_proxy: None,
             })
             .await
             .map_err(io::Error::other)?;
@@ -581,9 +631,9 @@ impl ExecutorStdioServerLauncher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codex_config::shell_environment;
-    use codex_config::types::EnvironmentVariablePattern;
-    use codex_config::types::ShellEnvironmentPolicy;
+    use codex_protocol::config_types::EnvironmentVariablePattern;
+    use codex_protocol::config_types::ShellEnvironmentPolicy;
+    use codex_protocol::shell_environment;
 
     #[test]
     fn remote_env_policy_uses_core_env_without_remote_source_vars() {

@@ -187,7 +187,9 @@ class ContractTests(unittest.TestCase):
 
     def test_duplicate_active_upstream_is_rejected(self) -> None:
         document = copy.deepcopy(self.ledger)
-        document["entries"].append(copy.deepcopy(document["entries"][0]))
+        active = copy.deepcopy(document["entries"][0])
+        active["status"] = "applied"
+        document["entries"] = [active, copy.deepcopy(active)]
         errors = validate_ledger(document)
         self.assertTrue(any("duplicate active" in error for error in errors))
 
@@ -221,6 +223,26 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(2, len(errors))
         self.assertTrue(any("upstream commit tree" in error for error in errors))
         self.assertTrue(any("baseline and current tree" in error for error in errors))
+
+    def test_superseded_vendor_entry_allows_retired_local_path(self) -> None:
+        entry = {
+            "upstream_commit": "a" * 40,
+            "paths": ["retired_local.rs"],
+            "upstream_paths": ["upstream.rs"],
+            "status": "superseded_by_vendor",
+        }
+        errors = validate_ledger_paths(entry, set(), set(), {"upstream.rs"})
+        self.assertEqual([], errors)
+
+    def test_feature_defaults_are_configuration(self) -> None:
+        for path in (
+            "codex-rs/features/src/lib.rs",
+            "codex-rs/features/src/tests.rs",
+        ):
+            with self.subTest(path=path):
+                result = classify(path, b"old\n", b"new\n", set())
+                self.assertIn("configuration", result.categories)
+                self.assertNotIn("unclassified", result.categories)
 
     def test_tui_summary_tamper_is_rejected(self) -> None:
         document = copy.deepcopy(self.tui_baseline)

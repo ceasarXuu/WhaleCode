@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use codex_protocol::models::ResponseItem;
+use codex_protocol::models::plaintext_agent_message_content;
 use codex_protocol::protocol::GuardianRiskLevel;
 use codex_protocol::protocol::GuardianUserAuthorization;
 use codex_protocol::user_input::UserInput;
@@ -10,10 +11,16 @@ use serde_json::Value;
 use crate::compact::content_items_to_text;
 use crate::event_mapping::is_contextual_user_message_content;
 use crate::session::session::Session;
+use crate::session::turn_context::TurnContext;
+use crate::session::turn_context::TurnEnvironment;
+use codex_utils_output_truncation::TruncationPolicy;
 use codex_utils_output_truncation::approx_bytes_for_tokens;
 use codex_utils_output_truncation::approx_token_count;
 use codex_utils_output_truncation::approx_tokens_from_byte_count;
+use codex_utils_output_truncation::truncate_text;
 
+use super::AUTO_REVIEW_DENIED_ACTION_APPROVAL_DEVELOPER_PREFIX;
+use super::ApprovalRequestReasons;
 use super::GUARDIAN_MAX_MESSAGE_ENTRY_TOKENS;
 use super::GUARDIAN_MAX_MESSAGE_TRANSCRIPT_TOKENS;
 use super::GUARDIAN_MAX_TOOL_ENTRY_TOKENS;
@@ -24,6 +31,8 @@ use super::GuardianAssessment;
 use super::TRUNCATION_TAG;
 use super::approval_request::format_guardian_action_pretty;
 
+const GUARDIAN_MAX_APPROVAL_REASON_TOKENS: usize = 512;
+
 /// Transcript entry retained for guardian review after filtering.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct GuardianTranscriptEntry {
@@ -33,6 +42,7 @@ pub(crate) struct GuardianTranscriptEntry {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum GuardianTranscriptEntryKind {
+    Developer,
     User,
     Assistant,
     Tool(String),
@@ -41,6 +51,7 @@ pub(crate) enum GuardianTranscriptEntryKind {
 impl GuardianTranscriptEntryKind {
     fn role(&self) -> &str {
         match self {
+            Self::Developer => "developer",
             Self::User => "user",
             Self::Assistant => "assistant",
             Self::Tool(role) => role.as_str(),
@@ -83,9 +94,30 @@ pub(crate) enum GuardianPromptMode {
 /// Split the variable request into separate user content items so the
 /// Responses request snapshot shows clear boundaries while preserving exact
 /// prompt text through trailing newlines.
+#[cfg(test)]
 pub(crate) async fn build_guardian_prompt_items(
     session: &Session,
     retry_reason: Option<String>,
+    request: GuardianApprovalRequest,
+    mode: GuardianPromptMode,
+) -> serde_json::Result<GuardianPromptItems> {
+    build_guardian_prompt_items_with_parent_turn(
+        session,
+        /*parent_turn*/ None,
+        ApprovalRequestReasons {
+            approval: None,
+            retry: retry_reason,
+        },
+        request,
+        mode,
+    )
+    .await
+}
+
+pub(crate) async fn build_guardian_prompt_items_with_parent_turn(
+    session: &Session,
+    parent_turn: Option<&TurnContext>,
+    reasons: ApprovalRequestReasons,
     request: GuardianApprovalRequest,
     mode: GuardianPromptMode,
 ) -> serde_json::Result<GuardianPromptItems> {
@@ -164,22 +196,55 @@ pub(crate) async fn build_guardian_prompt_items(
     push_text(headings.transcript_end.to_string());
     push_text(format!(
         "Reviewed Codex session id: {}\n",
-        session.conversation_id
+        session.thread_id
     ));
     if let Some(note) = omission_note {
         push_text(format!("\n{note}\n"));
     }
-    push_text(headings.action_intro.to_string());
-    push_text(">>> APPROVAL REQUEST START\n".to_string());
-    if let Some(reason) = retry_reason {
-        push_text("Retry reason:\n".to_string());
-        push_text(format!("{reason}\n\n"));
+    if let Some(denied_reads_context) = parent_turn.and_then(parent_turn_denied_reads_context) {
+        push_text("\n>>> PARENT TURN PERMISSION CONTEXT START\n".to_string());
+        push_text(denied_reads_context);
+        push_text(">>> PARENT TURN PERMISSION CONTEXT END\n".to_string());
     }
-    push_text(
-        "Assess the exact planned action below. Use read-only tool checks when local state matters.\n"
-            .to_string(),
-    );
-    push_text("Planned action JSON:\n".to_string());
+    match &request {
+        GuardianApprovalRequest::NetworkAccess { trigger, .. } => {
+            push_text(">>> APPROVAL REQUEST START\n".to_string());
+            push_text("Below is a proposed network access request under review.\n".to_string());
+            if trigger.is_some() {
+                push_text(
+                    "The network access was triggered by the action in the `trigger` entry. When assessing this request, focus primarily on whether the triggering command is authorised by the user and whether it is within the rules. The user does not need to have explicitly authorised this exact network connection, as long as the network access is a reasonable consequence of the triggering command.\n\n"
+                        .to_string(),
+                );
+            } else {
+                push_text(
+                    "No trigger action was captured for this network access request. When performing the assessment, use the retained transcript and network access JSON to evaluate user authorization and risk.\n\n"
+                        .to_string(),
+                );
+            }
+            push_text(
+                "Assess the exact network access below. Use read-only tool checks when local state matters.\n"
+                    .to_string(),
+            );
+            push_text("Network access JSON:\n".to_string());
+        }
+        _ => {
+            push_text(headings.action_intro.to_string());
+            push_text(">>> APPROVAL REQUEST START\n".to_string());
+            if let Some(reason) = reasons.retry.or(reasons.approval) {
+                let reason = truncate_text(
+                    &reason,
+                    TruncationPolicy::Tokens(GUARDIAN_MAX_APPROVAL_REASON_TOKENS),
+                );
+                push_text("Retry reason:\n".to_string());
+                push_text(format!("{reason}\n\n"));
+            }
+            push_text(
+                "Assess the exact planned action below. Use read-only tool checks when local state matters.\n"
+                    .to_string(),
+            );
+            push_text("Planned action JSON:\n".to_string());
+        }
+    }
     push_text(format!("{}\n", planned_action_json.text));
     push_text(">>> APPROVAL REQUEST END\n".to_string());
     Ok(GuardianPromptItems {
@@ -187,6 +252,38 @@ pub(crate) async fn build_guardian_prompt_items(
         transcript_cursor,
         reviewed_action_truncated: planned_action_json.truncated,
     })
+}
+
+fn parent_turn_denied_reads_context(turn: &TurnContext) -> Option<String> {
+    // TODO(sayan): Pass StepContext through Guardian so it sees environments that become ready mid-turn.
+    let environment = turn.environments.primary();
+    #[allow(deprecated)]
+    let cwd = environment
+        .and_then(|environment| environment.cwd().to_abs_path().ok())
+        .unwrap_or_else(|| turn.cwd.clone());
+    let permission_profile = environment
+        .map(TurnEnvironment::permission_profile_with_workspace_roots)
+        .unwrap_or_else(|| turn.permission_profile());
+    let file_system_policy = permission_profile.file_system_sandbox_policy();
+    let mut entries = file_system_policy
+        .get_unreadable_roots_with_cwd(&cwd)
+        .into_iter()
+        .map(|root| format!("- path `{}`", root.to_string_lossy()))
+        .collect::<Vec<_>>();
+    entries.extend(
+        file_system_policy
+            .get_unreadable_globs_with_cwd(&cwd)
+            .into_iter()
+            .map(|glob| format!("- glob `{glob}`")),
+    );
+    if entries.is_empty() {
+        return None;
+    }
+
+    Some(format!(
+        "The parent turn's active permission profile denies reading these paths/globs. These are policy restrictions; do not approve escalation whose purpose is to read them.\n{}\n",
+        entries.join("\n")
+    ))
 }
 
 enum GuardianPromptShape {
@@ -361,9 +458,27 @@ pub(crate) fn collect_guardian_transcript_entries(
                     content_entry(GuardianTranscriptEntryKind::User, content)
                 }
             }
+            ResponseItem::Message { role, content, .. } if role == "developer" => {
+                content_items_to_text(content).and_then(|text| {
+                    // Preserve only the explicit auto-review approval marker for
+                    // Guardian context; other developer messages are intentionally
+                    // excluded from the review transcript.
+                    text.starts_with(AUTO_REVIEW_DENIED_ACTION_APPROVAL_DEVELOPER_PREFIX)
+                        .then_some(GuardianTranscriptEntry {
+                            kind: GuardianTranscriptEntryKind::Developer,
+                            text,
+                        })
+                })
+            }
             ResponseItem::Message { role, content, .. } if role == "assistant" => {
                 content_entry(GuardianTranscriptEntryKind::Assistant, content)
             }
+            ResponseItem::AgentMessage {
+                author, content, ..
+            } => plaintext_agent_message_content(content).map(|text| GuardianTranscriptEntry {
+                kind: GuardianTranscriptEntryKind::Assistant,
+                text: format!("Agent message from {author}:\n{text}"),
+            }),
             ResponseItem::LocalShellCall { action, .. } => serialized_entry(
                 GuardianTranscriptEntryKind::Tool("tool shell call".to_string()),
                 serde_json::to_string(action).ok(),
@@ -588,21 +703,27 @@ For anything else, use this JSON schema:
 }"#
 }
 
+pub(super) const BUNDLED_GUARDIAN_POLICY: &str = include_str!("policy.md");
+pub(super) const BUNDLED_GUARDIAN_POLICY_TEMPLATE: &str = include_str!("policy_template.md");
+const TENANT_POLICY_CONFIG_PLACEHOLDER: &str = "{{ tenant_policy_config }}";
+
 /// Guardian policy prompt.
 ///
-/// Keep the prompt in a dedicated markdown file so reviewers can audit prompt
-/// changes directly without diffing through code. The output contract is
-/// appended from code so it stays near `guardian_output_schema()`.
+/// Keep the bundled fallback in a dedicated markdown file so reviewers can
+/// audit prompt changes directly without diffing through code. The output
+/// contract is appended from code so it stays near `guardian_output_schema()`.
 ///
 /// The template is intentionally separated from the default tenant policy
 /// configuration so workspace-managed overrides can keep the configurable
 /// section narrower than the full policy.
-pub(crate) fn guardian_policy_prompt() -> String {
-    guardian_policy_prompt_with_config(include_str!("policy.md"))
-}
-
-pub(crate) fn guardian_policy_prompt_with_config(tenant_policy_config: &str) -> String {
-    let template = include_str!("policy_template.md").trim_end();
-    let prompt = template.replace("{tenant_policy_config}", tenant_policy_config.trim());
+pub(super) fn guardian_policy_prompt_with_config_and_template(
+    tenant_policy_config: &str,
+    policy_template: &str,
+) -> String {
+    let template = policy_template.trim_end();
+    let prompt = template.replace(
+        TENANT_POLICY_CONFIG_PLACEHOLDER,
+        tenant_policy_config.trim(),
+    );
     format!("{prompt}\n\n{}\n", guardian_output_contract_prompt())
 }

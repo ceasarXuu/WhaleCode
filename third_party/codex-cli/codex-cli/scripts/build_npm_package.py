@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Stage and optionally package the Whale npm module."""
+"""Stage and optionally package the @openai/codex npm module."""
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -14,48 +15,49 @@ CODEX_CLI_ROOT = SCRIPT_DIR.parent
 REPO_ROOT = CODEX_CLI_ROOT.parent
 RESPONSES_API_PROXY_NPM_ROOT = REPO_ROOT / "codex-rs" / "responses-api-proxy" / "npm"
 CODEX_SDK_ROOT = REPO_ROOT / "sdk" / "typescript"
-WHALE_NPM_NAME = "@ceasarxuu/whalecode"
+CODEX_NPM_NAME = "@openai/codex"
+CODEX_PACKAGE_COMPONENT = "codex-package"
 
-# `npm_name` is the local optional-dependency alias consumed by `bin/whale.js`.
-# The underlying package published to npm is always `@ceasarxuu/whalecode`.
-WHALE_PLATFORM_PACKAGES: dict[str, dict[str, str]] = {
-    "whalecode-linux-x64": {
-        "npm_name": "whalecode-linux-x64",
+# `npm_name` is the local optional-dependency alias consumed by `bin/codex.js`.
+# The underlying package published to npm is always `@openai/codex`.
+CODEX_PLATFORM_PACKAGES: dict[str, dict[str, str]] = {
+    "codex-linux-x64": {
+        "npm_name": "@openai/codex-linux-x64",
         "npm_tag": "linux-x64",
         "target_triple": "x86_64-unknown-linux-musl",
         "os": "linux",
         "cpu": "x64",
     },
-    "whalecode-linux-arm64": {
-        "npm_name": "whalecode-linux-arm64",
+    "codex-linux-arm64": {
+        "npm_name": "@openai/codex-linux-arm64",
         "npm_tag": "linux-arm64",
         "target_triple": "aarch64-unknown-linux-musl",
         "os": "linux",
         "cpu": "arm64",
     },
-    "whalecode-darwin-x64": {
-        "npm_name": "whalecode-darwin-x64",
+    "codex-darwin-x64": {
+        "npm_name": "@openai/codex-darwin-x64",
         "npm_tag": "darwin-x64",
         "target_triple": "x86_64-apple-darwin",
         "os": "darwin",
         "cpu": "x64",
     },
-    "whalecode-darwin-arm64": {
-        "npm_name": "whalecode-darwin-arm64",
+    "codex-darwin-arm64": {
+        "npm_name": "@openai/codex-darwin-arm64",
         "npm_tag": "darwin-arm64",
         "target_triple": "aarch64-apple-darwin",
         "os": "darwin",
         "cpu": "arm64",
     },
-    "whalecode-win32-x64": {
-        "npm_name": "whalecode-win32-x64",
+    "codex-win32-x64": {
+        "npm_name": "@openai/codex-win32-x64",
         "npm_tag": "win32-x64",
         "target_triple": "x86_64-pc-windows-msvc",
         "os": "win32",
         "cpu": "x64",
     },
-    "whalecode-win32-arm64": {
-        "npm_name": "whalecode-win32-arm64",
+    "codex-win32-arm64": {
+        "npm_name": "@openai/codex-win32-arm64",
         "npm_tag": "win32-arm64",
         "target_triple": "aarch64-pc-windows-msvc",
         "os": "win32",
@@ -64,87 +66,35 @@ WHALE_PLATFORM_PACKAGES: dict[str, dict[str, str]] = {
 }
 
 PACKAGE_EXPANSIONS: dict[str, list[str]] = {
-    "whalecode": ["whalecode", *WHALE_PLATFORM_PACKAGES],
+    "codex": ["codex", *CODEX_PLATFORM_PACKAGES],
 }
 
-WHALE_HELPER_COMPONENTS = [
-    "whale-app-server",
-    "whale-app-server-test-client",
-    "whale-cloud-tasks",
-    "whale-exec-server",
-    "whale-mcp-server",
-    "whale-responses-api-proxy",
-    "whale-stdio-to-uds",
-]
-WHALE_WINDOWS_COMPONENTS = ["codex-windows-sandbox-setup", "codex-command-runner"]
-
 PACKAGE_NATIVE_COMPONENTS: dict[str, list[str]] = {
-    "whalecode": [],
-    "whalecode-linux-x64": ["whale", *WHALE_HELPER_COMPONENTS, "rg"],
-    "whalecode-linux-arm64": ["whale", *WHALE_HELPER_COMPONENTS, "rg"],
-    "whalecode-darwin-x64": ["whale", *WHALE_HELPER_COMPONENTS, "rg"],
-    "whalecode-darwin-arm64": ["whale", *WHALE_HELPER_COMPONENTS, "rg"],
-    "whalecode-win32-x64": [
-        "whale",
-        *WHALE_HELPER_COMPONENTS,
-        *WHALE_WINDOWS_COMPONENTS,
-        "rg",
-    ],
-    "whalecode-win32-arm64": [
-        "whale",
-        *WHALE_HELPER_COMPONENTS,
-        *WHALE_WINDOWS_COMPONENTS,
-        "rg",
-    ],
+    "codex": [],
+    "codex-linux-x64": [CODEX_PACKAGE_COMPONENT],
+    "codex-linux-arm64": [CODEX_PACKAGE_COMPONENT],
+    "codex-darwin-x64": [CODEX_PACKAGE_COMPONENT],
+    "codex-darwin-arm64": [CODEX_PACKAGE_COMPONENT],
+    "codex-win32-x64": [CODEX_PACKAGE_COMPONENT],
+    "codex-win32-arm64": [CODEX_PACKAGE_COMPONENT],
     "codex-responses-api-proxy": ["codex-responses-api-proxy"],
     "codex-sdk": [],
 }
 
 PACKAGE_TARGET_FILTERS: dict[str, str] = {
     package_name: package_config["target_triple"]
-    for package_name, package_config in WHALE_PLATFORM_PACKAGES.items()
+    for package_name, package_config in CODEX_PLATFORM_PACKAGES.items()
 }
 
 PACKAGE_CHOICES = tuple(PACKAGE_NATIVE_COMPONENTS)
 
-COMPONENT_DEST_DIR: dict[str, str] = {
-    "whale": "whale",
-    "whale-app-server": "whale",
-    "whale-app-server-test-client": "whale",
-    "whale-cloud-tasks": "whale",
-    "whale-exec-server": "whale",
-    "whale-mcp-server": "whale",
-    "whale-responses-api-proxy": "whale",
-    "codex-responses-api-proxy": "codex-responses-api-proxy",
-    "whale-stdio-to-uds": "whale",
-    "codex-windows-sandbox-setup": "whale",
-    "codex-command-runner": "whale",
-    "rg": "path",
-}
-
-COMPONENT_BINARY_BASENAME: dict[str, str] = {
-    "whale": "whale",
-    "whale-app-server": "whale-app-server",
-    "whale-app-server-test-client": "whale-app-server-test-client",
-    "whale-cloud-tasks": "whale-cloud-tasks",
-    "whale-exec-server": "whale-exec-server",
-    "whale-mcp-server": "whale-mcp-server",
-    "whale-responses-api-proxy": "whale-responses-api-proxy",
-    "codex-responses-api-proxy": "codex-responses-api-proxy",
-    "whale-stdio-to-uds": "whale-stdio-to-uds",
-    "codex-windows-sandbox-setup": "codex-windows-sandbox-setup",
-    "codex-command-runner": "codex-command-runner",
-    "rg": "rg",
-}
-
-
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build or stage the Whale CLI npm package.")
+    parser = argparse.ArgumentParser(description="Build or stage the Codex CLI npm package.")
     parser.add_argument(
         "--package",
         choices=PACKAGE_CHOICES,
-        default="whalecode",
-        help="Which npm package to stage (default: whalecode).",
+        default="codex",
+        help="Which npm package to stage (default: codex).",
     )
     parser.add_argument(
         "--version",
@@ -224,12 +174,12 @@ def main() -> int:
 
         if release_version:
             staging_dir_str = str(staging_dir)
-            if package == "whalecode":
+            if package == "codex":
                 print(
                     f"Staged version {version} for release in {staging_dir_str}\n\n"
                     "Verify the CLI:\n"
-                    f"    node {staging_dir_str}/bin/whale.js --version\n"
-                    f"    node {staging_dir_str}/bin/whale.js --help\n\n"
+                    f"    node {staging_dir_str}/bin/codex.js --version\n"
+                    f"    node {staging_dir_str}/bin/codex.js --help\n\n"
                 )
             elif package == "codex-responses-api-proxy":
                 print(
@@ -237,7 +187,7 @@ def main() -> int:
                     "Verify the responses API proxy:\n"
                     f"    node {staging_dir_str}/bin/codex-responses-api-proxy.js --help\n\n"
                 )
-            elif package in WHALE_PLATFORM_PACKAGES:
+            elif package in CODEX_PLATFORM_PACKAGES:
                 print(
                     f"Staged version {version} for release in {staging_dir_str}\n\n"
                     "Verify native payload contents:\n"
@@ -272,7 +222,7 @@ def prepare_staging_dir(staging_dir: Path | None) -> tuple[Path, bool]:
             raise RuntimeError(f"Staging directory {staging_dir} is not empty.")
         return staging_dir, False
 
-    temp_dir = Path(tempfile.mkdtemp(prefix="whale-npm-stage-"))
+    temp_dir = Path(tempfile.mkdtemp(prefix="codex-npm-stage-"))
     return temp_dir, True
 
 
@@ -280,25 +230,22 @@ def stage_sources(staging_dir: Path, version: str, package: str) -> None:
     package_json: dict
     package_json_path: Path | None = None
 
-    if package == "whalecode":
+    if package == "codex":
         bin_dir = staging_dir / "bin"
         bin_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(CODEX_CLI_ROOT / "bin" / "whale.js", bin_dir / "whale.js")
-        rg_manifest = CODEX_CLI_ROOT / "bin" / "rg"
-        if rg_manifest.exists():
-            shutil.copy2(rg_manifest, bin_dir / "rg")
+        shutil.copy2(CODEX_CLI_ROOT / "bin" / "codex.js", bin_dir / "codex.js")
 
-        readme_src = CODEX_CLI_ROOT / "README.md"
+        readme_src = REPO_ROOT / "README.md"
         if readme_src.exists():
             shutil.copy2(readme_src, staging_dir / "README.md")
 
         package_json_path = CODEX_CLI_ROOT / "package.json"
-    elif package in WHALE_PLATFORM_PACKAGES:
-        platform_package = WHALE_PLATFORM_PACKAGES[package]
+    elif package in CODEX_PLATFORM_PACKAGES:
+        platform_package = CODEX_PLATFORM_PACKAGES[package]
         platform_npm_tag = platform_package["npm_tag"]
         platform_version = compute_platform_package_version(version, platform_npm_tag)
 
-        readme_src = CODEX_CLI_ROOT / "README.md"
+        readme_src = REPO_ROOT / "README.md"
         if readme_src.exists():
             shutil.copy2(readme_src, staging_dir / "README.md")
 
@@ -306,7 +253,7 @@ def stage_sources(staging_dir: Path, version: str, package: str) -> None:
             codex_package_json = json.load(fh)
 
         package_json = {
-            "name": WHALE_NPM_NAME,
+            "name": CODEX_NPM_NAME,
             "version": platform_version,
             "license": codex_package_json.get("license", "Apache-2.0"),
             "os": [platform_package["os"]],
@@ -344,15 +291,15 @@ def stage_sources(staging_dir: Path, version: str, package: str) -> None:
             package_json = json.load(fh)
         package_json["version"] = version
 
-    if package == "whalecode":
-        package_json["files"] = ["bin"]
+    if package == "codex":
+        package_json["files"] = ["bin/codex.js"]
         package_json["optionalDependencies"] = {
-            WHALE_PLATFORM_PACKAGES[platform_package]["npm_name"]: (
-                f"npm:{WHALE_NPM_NAME}@"
-                f"{compute_platform_package_version(version, WHALE_PLATFORM_PACKAGES[platform_package]['npm_tag'])}"
+            CODEX_PLATFORM_PACKAGES[platform_package]["npm_name"]: (
+                f"npm:{CODEX_NPM_NAME}@"
+                f"{compute_platform_package_version(version, CODEX_PLATFORM_PACKAGES[platform_package]['npm_tag'])}"
             )
-            for platform_package in PACKAGE_EXPANSIONS["whalecode"]
-            if platform_package != "whalecode"
+            for platform_package in PACKAGE_EXPANSIONS["codex"]
+            if platform_package != "codex"
         }
 
     elif package == "codex-sdk":
@@ -363,7 +310,7 @@ def stage_sources(staging_dir: Path, version: str, package: str) -> None:
         dependencies = package_json.get("dependencies")
         if not isinstance(dependencies, dict):
             dependencies = {}
-        dependencies[WHALE_NPM_NAME] = version
+        dependencies[CODEX_NPM_NAME] = version
         package_json["dependencies"] = dependencies
 
     with open(staging_dir / "package.json", "w", encoding="utf-8") as out:
@@ -378,7 +325,7 @@ def compute_platform_package_version(version: str, platform_tag: str) -> str:
 
 
 def run_command(cmd: list[str], cwd: Path | None = None) -> None:
-    print("+", " ".join(cmd))
+    print("+", " ".join(cmd), flush=True)
     subprocess.run(cmd, cwd=cwd, check=True)
 
 
@@ -413,7 +360,7 @@ def copy_native_binaries(
     if not vendor_src.exists():
         raise RuntimeError(f"Vendor source directory not found: {vendor_src}")
 
-    components_set = {component for component in components if component in COMPONENT_DEST_DIR}
+    components_set = set(components)
     if not components_set:
         return
 
@@ -431,31 +378,25 @@ def copy_native_binaries(
         if target_filter is not None and target_dir.name not in target_filter:
             continue
 
-        dest_target_dir = vendor_dest / target_dir.name
-        dest_target_dir.mkdir(parents=True, exist_ok=True)
         copied_targets.add(target_dir.name)
 
-        for component in components_set:
-            dest_dir_name = COMPONENT_DEST_DIR.get(component)
-            if dest_dir_name is None:
-                continue
+        dest_target_dir = vendor_dest / target_dir.name
 
-            src_component_dir = target_dir / dest_dir_name
+        if CODEX_PACKAGE_COMPONENT in components_set:
+            if dest_target_dir.exists():
+                shutil.rmtree(dest_target_dir)
+            shutil.copytree(target_dir, dest_target_dir)
+        else:
+            dest_target_dir.mkdir(parents=True, exist_ok=True)
+
+        for component in sorted(components_set - {CODEX_PACKAGE_COMPONENT}):
+            src_component_dir = target_dir / component
             if not src_component_dir.exists():
                 raise RuntimeError(
                     f"Missing native component '{component}' in vendor source: {src_component_dir}"
                 )
-            binary_basename = COMPONENT_BINARY_BASENAME.get(component)
-            if binary_basename is not None:
-                expected_binary = src_component_dir / native_binary_name(
-                    target_dir.name, binary_basename
-                )
-                if not expected_binary.is_file():
-                    raise RuntimeError(
-                        f"Missing native binary for component '{component}': {expected_binary}"
-                    )
 
-            dest_component_dir = dest_target_dir / dest_dir_name
+            dest_component_dir = dest_target_dir / component
             if dest_component_dir.exists():
                 shutil.rmtree(dest_component_dir)
             shutil.copytree(src_component_dir, dest_component_dir)
@@ -466,22 +407,23 @@ def copy_native_binaries(
             missing_list = ", ".join(missing_targets)
             raise RuntimeError(f"Missing target directories in vendor source: {missing_list}")
 
-
-def native_binary_name(target: str, binary_basename: str) -> str:
-    if "windows" in target:
-        return f"{binary_basename}.exe"
-    return binary_basename
-
-
 def run_npm_pack(staging_dir: Path, output_path: Path) -> Path:
     output_path = output_path.resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.TemporaryDirectory(prefix="whale-npm-pack-") as pack_dir_str:
+    with tempfile.TemporaryDirectory(prefix="codex-npm-pack-") as pack_dir_str:
         pack_dir = Path(pack_dir_str)
+        npm_cache_dir = pack_dir / "npm-cache"
+        npm_logs_dir = pack_dir / "npm-logs"
+        npm_cache_dir.mkdir()
+        npm_logs_dir.mkdir()
+        env = os.environ.copy()
+        env["NPM_CONFIG_CACHE"] = str(npm_cache_dir)
+        env["NPM_CONFIG_LOGS_DIR"] = str(npm_logs_dir)
         stdout = subprocess.check_output(
-            [npm_command(), "pack", "--json", "--pack-destination", str(pack_dir)],
+            ["npm", "pack", "--json", "--pack-destination", str(pack_dir)],
             cwd=staging_dir,
+            env=env,
             text=True,
         )
         try:
@@ -503,12 +445,6 @@ def run_npm_pack(staging_dir: Path, output_path: Path) -> Path:
         shutil.move(str(tarball_path), output_path)
 
     return output_path
-
-
-def npm_command() -> str:
-    if sys.platform == "win32":
-        return shutil.which("npm.cmd") or shutil.which("npm") or "npm.cmd"
-    return shutil.which("npm") or "npm"
 
 
 if __name__ == "__main__":

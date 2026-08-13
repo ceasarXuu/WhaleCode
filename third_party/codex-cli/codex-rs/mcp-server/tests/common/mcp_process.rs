@@ -57,15 +57,14 @@ impl McpProcess {
         codex_home: &Path,
         env_overrides: &[(&str, Option<&str>)],
     ) -> anyhow::Result<Self> {
-        let program = codex_utils_cargo_bin::cargo_bin("whale-mcp-server")
-            .context("should find binary for whale-mcp-server")?;
+        let program = codex_utils_cargo_bin::cargo_bin("codex-mcp-server")
+            .context("should find binary for codex-mcp-server")?;
         let mut cmd = Command::new(program);
 
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
-        cmd.env("WHALE_HOME", codex_home);
-        cmd.env_remove("CODEX_HOME");
+        cmd.env("CODEX_HOME", codex_home);
         cmd.env("RUST_LOG", "debug");
 
         for (k, v) in env_overrides {
@@ -82,7 +81,7 @@ impl McpProcess {
         let mut process = cmd
             .kill_on_drop(true)
             .spawn()
-            .context("whale-mcp-server proc should start")?;
+            .context("codex-mcp-server proc should start")?;
         let stdin = process
             .stdin
             .take()
@@ -115,31 +114,14 @@ impl McpProcess {
     pub async fn initialize(&mut self) -> anyhow::Result<()> {
         let request_id = self.next_request_id.fetch_add(1, Ordering::Relaxed);
 
-        let params = InitializeRequestParams {
-            meta: None,
-            capabilities: ClientCapabilities {
-                elicitation: Some(ElicitationCapability {
-                    form: Some(FormElicitationCapability {
-                        schema_validation: None,
-                    }),
-                    url: None,
-                }),
-                experimental: None,
-                extensions: None,
-                roots: None,
-                sampling: None,
-                tasks: None,
-            },
-            client_info: Implementation {
-                name: "elicitation test".into(),
-                title: Some("Elicitation Test".into()),
-                version: "0.0.0".into(),
-                description: None,
-                icons: None,
-                website_url: None,
-            },
-            protocol_version: ProtocolVersion::V_2025_03_26,
-        };
+        let mut capabilities = ClientCapabilities::default();
+        capabilities.elicitation =
+            Some(ElicitationCapability::new().with_form(FormElicitationCapability::new()));
+        let params = InitializeRequestParams::new(
+            capabilities,
+            Implementation::new("elicitation test", "0.0.0").with_title("Elicitation Test"),
+        )
+        .with_protocol_version(ProtocolVersion::V_2025_03_26);
         let params_value = serde_json::to_value(params)?;
 
         self.send_jsonrpc_message(JsonRpcMessage::Request(JsonRpcRequest {
@@ -179,9 +161,9 @@ impl McpProcess {
                     },
                 },
                 "serverInfo": {
-                    "name": "whale-mcp-server",
+                    "name": "codex-mcp-server",
                     "title": "Codex",
-                    "version": build_version,
+                    "version": "0.0.0",
                     "user_agent": user_agent
                 },
                 "protocolVersion": ProtocolVersion::V_2025_03_26
@@ -204,15 +186,12 @@ impl McpProcess {
         &mut self,
         params: CodexToolCallParam,
     ) -> anyhow::Result<i64> {
-        let codex_tool_call_params = CallToolRequestParams {
-            meta: None,
-            name: "codex".into(),
-            arguments: Some(match serde_json::to_value(params)? {
+        let codex_tool_call_params = CallToolRequestParams::new("codex").with_arguments(
+            match serde_json::to_value(params)? {
                 serde_json::Value::Object(map) => map,
                 _ => unreachable!("params serialize to object"),
-            }),
-            task: None,
-        };
+            },
+        );
         self.send_request(
             "tools/call",
             Some(serde_json::to_value(codex_tool_call_params)?),
@@ -332,23 +311,41 @@ impl McpProcess {
     ) -> anyhow::Result<JsonRpcNotification<CustomNotification>> {
         eprintln!("in read_stream_until_legacy_task_complete_notification()");
 
+        self.read_stream_until_codex_event("task_complete").await
+    }
+
+    pub async fn read_stream_until_codex_event(
+        &mut self,
+        event_type: &str,
+    ) -> anyhow::Result<JsonRpcNotification<CustomNotification>> {
+        self.read_stream_until_codex_event_matching(event_type, |_| true)
+            .await
+    }
+
+    pub async fn read_stream_until_codex_event_matching(
+        &mut self,
+        event_type: &str,
+        predicate: impl Fn(&serde_json::Value) -> bool,
+    ) -> anyhow::Result<JsonRpcNotification<CustomNotification>> {
+        eprintln!("in read_stream_until_codex_event({event_type})");
+
         loop {
             let message = self.read_jsonrpc_message().await?;
             match message {
                 JsonRpcMessage::Notification(notification) => {
-                    let is_match = if notification.notification.method == "codex/event" {
-                        if let Some(params) = &notification.notification.params {
-                            params
-                                .get("msg")
-                                .and_then(|m| m.get("type"))
-                                .and_then(|t| t.as_str())
-                                == Some("task_complete")
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    };
+                    let is_match = notification.notification.method == "codex/event"
+                        && notification
+                            .notification
+                            .params
+                            .as_ref()
+                            .is_some_and(|params| {
+                                params
+                                    .get("msg")
+                                    .and_then(|m| m.get("type"))
+                                    .and_then(|t| t.as_str())
+                                    == Some(event_type)
+                                    && predicate(params)
+                            });
 
                     if is_match {
                         return Ok(notification);
@@ -372,7 +369,7 @@ impl McpProcess {
 
 impl Drop for McpProcess {
     fn drop(&mut self) {
-        // These tests spawn a `whale-mcp-server` child process.
+        // These tests spawn a `codex-mcp-server` child process.
         //
         // We keep that child alive for the test and rely on Tokio's `kill_on_drop(true)` when this
         // helper is dropped. Tokio documents kill-on-drop as best-effort: dropping requests

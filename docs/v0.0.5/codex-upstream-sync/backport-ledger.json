@@ -6,7 +6,7 @@
       "local_commit": "00b9d9006b4c5ff10a9659d9b50f30cfb56f9207",
       "patch_sha256": "93e3d717b9e72929d03c37a582bc18f487886d6f3e5b807656e41fc439eea4db",
       "paths": ["codex-rs/tui/src/bottom_pane/paste_burst.rs"],
-      "status": "applied",
+      "status": "superseded_by_vendor",
       "trailer_required": true,
       "upstream_commit": "36912ce3de1c039f7faaddd509d0465ff644e6c1",
       "verification": {
@@ -29,7 +29,7 @@
         "codex-rs/core/src/tools/registry.rs",
         "codex-rs/core/tests/suite/apply_patch_cli.rs"
       ],
-      "status": "applied",
+      "status": "superseded_by_vendor",
       "trailer_required": false,
       "upstream_commit": "8426edf71e4a5b754467749ce16090515e2c13c9",
       "verification": {
@@ -52,7 +52,7 @@
         "codex-rs/core/src/tools/context_tests.rs",
         "codex-rs/core/src/tools/handlers/mcp.rs"
       ],
-      "status": "applied",
+      "status": "superseded_by_vendor",
       "trailer_required": false,
       "upstream_commit": "3516cb975142cc979eb33a6e132792d672552963",
       "verification": {
@@ -69,7 +69,7 @@
         "codex-rs/shell-command/src/command_safety/is_dangerous_command.rs",
         "codex-rs/shell-command/src/command_safety/is_safe_command.rs"
       ],
-      "status": "applied",
+      "status": "superseded_by_vendor",
       "trailer_required": true,
       "upstream_commit": "2e598df6fcd30717cfdcd2a898746a84d365ca23",
       "verification": {
@@ -83,7 +83,7 @@
       "local_commit": "4162a91c9369efb4a05b9bd97f205c9ec6becffd",
       "patch_sha256": "0f9a74b890a4a92105884cd6e8a656ca0d4b9390f1837f280271e1d2ac75f2a1",
       "paths": ["codex-rs/shell-command/src/command_safety/windows_dangerous_commands.rs"],
-      "status": "applied",
+      "status": "superseded_by_vendor",
       "trailer_required": true,
       "upstream_commit": "9deb4f9c86426c40ba1e189831d7bc3634dd7b94",
       "verification": {
@@ -107,7 +107,7 @@
         "codex-rs/rmcp-client/src/stdio_server_launcher.rs",
         "codex-rs/rmcp-client/tests/process_group_cleanup.rs"
       ],
-      "status": "applied",
+      "status": "superseded_by_vendor",
       "trailer_required": false,
       "upstream_paths": [
         "codex-rs/codex-mcp/src/connection_manager.rs",
@@ -133,7 +133,7 @@
       "local_commit": "7d1d409ac9af8d967029987b060fa463ed5b4c5f",
       "patch_sha256": "2bd5bcacb0bbc0afb99609c84d80fac659cdafad80528166074d36dda875e842",
       "paths": ["codex-rs/windows-sandbox-rs/src/proc_thread_attr.rs"],
-      "status": "applied",
+      "status": "superseded_by_vendor",
       "trailer_required": false,
       "upstream_commit": "5cac3f896d74c5738e252bb3672e03565a30c815",
       "verification": {
@@ -147,7 +147,7 @@
       "local_commit": "595ff6d371366986966e290f94c9ea563b8fb232",
       "patch_sha256": "a2aa6e1517fac5702b8a9ed5e96b3d28df1fce2394e0ecd84182b9646de3dbb8",
       "paths": ["codex-rs/tui/src/wrapping.rs"],
-      "status": "applied",
+      "status": "superseded_by_vendor",
       "trailer_required": true,
       "upstream_commit": "5d7e6a2503fc71f09cea71bfca9e193e0c3fd215",
       "verification": {
@@ -164,7 +164,7 @@
         "codex-rs/core/src/git_info_tests.rs",
         "codex-rs/git-utils/src/info.rs"
       ],
-      "status": "applied",
+      "status": "superseded_by_vendor",
       "trailer_required": true,
       "upstream_commit": "6ec8c4a6ecb17bc3ab10d0c5edf75494b50cab7e",
       "verification": {
@@ -191,7 +191,7 @@
         "codex-rs/windows-sandbox-rs/src/wfp_filter_specs.rs",
         "codex-rs/windows-sandbox-rs/src/wfp_setup.rs"
       ],
-      "status": "applied",
+      "status": "superseded_by_vendor",
       "trailer_required": false,
       "upstream_commit": "8121710ffe20d586e32dd3d4e957e5a242c5831e",
       "verification": {
@@ -208,7 +208,7 @@
         "codex-rs/config/src/shell_environment.rs",
         "codex-rs/rmcp-client/src/utils.rs"
       ],
-      "status": "applied",
+      "status": "superseded_by_vendor",
       "trailer_required": false,
       "upstream_paths": [
         "codex-rs/protocol/src/shell_environment.rs",
@@ -226,7 +226,7 @@
       "local_commit": "2c81aca140be5d97985d41933f0b0a9710c65910",
       "patch_sha256": "ce04a70932ffde4ed5af4687a20570325a6857859e1830154f878f5d754c29c3",
       "paths": ["codex-rs/tui/src/diff_render.rs"],
-      "status": "applied",
+      "status": "superseded_by_vendor",
       "trailer_required": true,
       "upstream_commit": "c86b1be3cdbe12307843bcc9e7a44c1904ddcdf1",
       "verification": {
@@ -249,7 +249,7 @@
         "codex-rs/windows-sandbox-rs/src/spawn_prep.rs",
         "codex-rs/windows-sandbox-rs/src/unified_exec/backends/elevated.rs"
       ],
-      "status": "applied",
+      "status": "superseded_by_vendor",
       "trailer_required": false,
       "upstream_commit": "cecca5ae067a02aa9a9238854eac599da8c993b8",
       "verification": {
@@ -267,7 +267,7 @@
         "codex-rs/tools/src/tool_config.rs",
         "codex-rs/tools/src/tool_config_tests.rs"
       ],
-      "status": "applied",
+      "status": "superseded_by_vendor",
       "trailer_required": false,
       "upstream_commit": "13dbcda28fba739ea7aeafca9251c2162df53cf5",
       "verification": {
@@ -285,7 +285,7 @@
         "codex-rs/windows-sandbox-rs/src/lib.rs",
         "codex-rs/windows-sandbox-rs/src/token.rs"
       ],
-      "status": "applied",
+      "status": "superseded_by_vendor",
       "trailer_required": false,
       "upstream_commit": "06f3b4836ac6e4fecc1d75a09b8a9fa369b16635",
       "verification": {

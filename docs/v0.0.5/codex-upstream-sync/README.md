@@ -2,15 +2,16 @@
 
 > 计划治理说明（2026-08-10）：本专题只保留一份工程计划：[plan.md](plan.md)。已完成工作统一记录在该计划的状态表中，详细证据由 execution report 和 ledger 承载；不存在并行或嵌套的历史计划。唯一产品决策权威源为 [decisions.md](decisions.md)。
 
-> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据均已完成；0.147 Phase A 已完成，生产 vendor cutover 尚未执行。
+> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据均已完成；0.147 Phase A、Phase B 已完成，下一步进入 Phase C rebase gate。
 
-- 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成；Phase A verified
+- 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成；Phase A、Phase B verified
 - 分析日期：2026-08-01
 - 适用版本：WhaleCode v0.0.5
 - Checkpoint B 起始提交：`5331173f158fe6352ba69d78bcaf5038971fc7f1`
-- 当前 Codex vendor 基线：`fed0a8f4faa58db3138488cca77628c1d54a2cd8`
+- 初始 Codex vendor 导入基线：`fed0a8f4faa58db3138488cca77628c1d54a2cd8`
+- 当前 Codex vendor substrate：`rust-v0.147.0` / `be6e8eac029b183056b7e4402879f15d2c85f61b`
 - 当前正式验证目标：Codex CLI `rust-v0.147.0` / `be6e8eac029b183056b7e4402879f15d2c85f61b`（U2 与 Checkpoint B verified）
-- 范围：只读差异审计、合并风险分类和追赶顺序；不代表已经实施上游同步
+- 范围：差异审计、合并风险分类、追赶顺序和已完成切换证据
 
 ## 专题文档
 
@@ -19,6 +20,7 @@
 - [安全 backport 执行报告](../../migration/codex-sync/2026-08-01-conflict-free-fast-backports.md)
 - [基线与门禁最终实施报告](../../migration/codex-sync/2026-08-02-upstream-baseline-and-test-gates-closeout.md)
 - [0.146 candidate qualification no-go 执行报告](../../migration/codex-sync/2026-08-02-rust-0.146-candidate-qualification.md)
+- [0.147 vendor substrate 切换报告](../../migration/codex-sync/2026-08-13-u4-vendor-substrate-cutover.md)
 
 ## 当前批次状态
 
@@ -29,7 +31,8 @@
 - 第二批以 12/15 verified、3/15 deferred 收口，不把延期项表述为通过。
 - 0.146 资格与差异证据已完成：候选身份、4,355 条无 rename 推断的 upstream delta、730 路径 replay ledger 和五批 DAG 已落地；纯上游资格矩阵为 1 passed / 4 failed，因此 0.146 当前 no-go，未替换当前 vendor。
 - 0.147 U2 首轮 no-go 已撤回并完成重验：官方 sandbox V8、CLI、code-mode-host、app-server 均通过；core 剩余 5 个 `/tmp` 路径用例和 1 个 MCP 时序超时，TUI 剩余 33 个 release snapshot，结论为 `direction-supported-with-known-test-risks`。Checkpoint B 已把 delta/replay 查询工件刷新到 0.147；U3 已证明 6 个生产文件的最小 identity/home/auth/default overlay 可构建，且无需 DeepSeek/TaskSpace stub。
-- replay ledger 和五批 DAG 已降级为非权威证据；后续不得直接按自动 disposition 或路径桶实施，应按 `plan.md` 的 U1–U16 语义闭环推进。
+- U4 已把 vendor 切换到 0.147，只重放 U3 的 8 个修改路径；当前 overlay inventory 为 11 路径，其中 3 个删除来自官方 Git archive 的 `export-ignore`。U4a 已独立迁移免费缓存合同，U4 cache index gate 通过；accepted live baseline 未晋升，DeepSeek 与 TaskSpace 尚未重放。
+- replay ledger 和五批 DAG 已降级为非权威证据；后续不得直接按自动 disposition 或路径桶实施，应按 `plan.md` 的 U1–U17 语义闭环推进。
 
 ## 1. 执行摘要
 
@@ -43,7 +46,7 @@
 主要依据：
 
 - 当前 vendor 基线到 0.147 候选相差 3,133 个提交、4,511 个 Git diff 文件；
-- Whale 相对基线修改了 730 个路径，官方和 Whale 同时修改 505 个路径，其中 504 个最终内容仍然不同；
+- 切换前 Whale 相对初始基线修改了 730 个路径，官方和 Whale 同时修改 505 个路径，其中 504 个最终内容仍然不同；切换后当前 overlay 已收敛到 11 个路径；
 - Codex 是通过 codeload tarball 导入子目录，仓库根历史与官方 Git 历史没有 merge-base，普通 merge/cherry-pick 不是可靠同步机制；
 - DeepSeek 官方 Codex 接入当前要求 Responses API；Whale 现阶段只向用户展示 `deepseek-v4-flash`，`deepseek-v4-pro` 的官方 Responses API 适配完成后再恢复；provider 方向已经对齐，但 substrate 基线仍停留在约 0.125 时代；
 - TaskSpace 目前不是薄插件，而是贯穿协议、状态、session、provider payload、tool sequence、app-server 和 TUI 的纵向改造，必须进行语义级重放。
@@ -98,7 +101,8 @@
 
 | 路径集合 | 数量 | 含义 |
 | --- | ---: | --- |
-| Whale 相对基线变化 | 730 | Whale vendor overlay 的实际表面 |
+| Whale 相对初始基线变化（切换前） | 730 | 历史 replay 输入 |
+| Whale 相对 0.147 变化（切换后） | 11 | 当前 vendor overlay；8 个 U3 修改 + 3 个 archive 排除删除 |
 | 官方相对基线变化 | 4,666 | 含新增、修改和删除路径 |
 | 双方同时修改 | 505 | 潜在合并热点 |
 | 双方最终内容相同 | 1 | 已自然收敛 |
@@ -407,7 +411,7 @@ Upstream AgentGraphStore + WorldState + ThreadManager
 | 决策 | 当前建议 | 决策时点 |
 | --- | --- | --- |
 | 是否先落快速 backport | 是，先落 P0 和低风险 P1 | 开始实施前 |
-| 是否以 0.147.0 替换 vendor | 待 U3 最小兼容边界验证 | Phase B rebase gate |
+| 是否以 0.147.0 替换 vendor | 是；U4 已验证并完成 Phase B | 已执行 |
 | 是否启用 upstream network proxy | 先核实现有 runtime 使用情况 | network proxy backport 前 |
 | AgentGraphStore 与 TaskSpace 的权威关系 | TaskSpace 为任务状态权威，上游 graph 作为 projection/adapter | Wave 4 ADR |
 | 是否继续保留通用 Chat Completions provider | 保留，但不作为内置 DeepSeek 主路径 | DeepSeek overlay 重放时 |

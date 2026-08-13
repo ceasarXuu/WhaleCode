@@ -20,7 +20,7 @@
 
 ## 2. 一次性 overlay
 
-临时树中修改 6 个生产文件，并增加 1 个定向测试文件：
+临时树中修改 6 个生产文件和 2 个专用测试文件：
 
 | 路径 | 最小变化 |
 | --- | --- |
@@ -28,6 +28,7 @@
 | `codex-rs/cli/src/main.rs` | 顶层 CLI identity、bin name 和 usage 改为 Whale |
 | `codex-rs/utils/home-dir/src/lib.rs` | 读取 `WHALE_HOME`，默认 `~/.whale`；拒绝 `.codex` 和与 `CODEX_HOME` 相同的目录 |
 | `codex-rs/login/src/auth/storage.rs` | direct auth keyring service 改为 `Whale Auth` |
+| `codex-rs/login/src/auth/storage_tests.rs` | 锁定 direct auth keyring service 的 Whale namespace |
 | `codex-rs/secrets/src/lib.rs` | encrypted secrets keyring service 改为 `whale` |
 | `codex-rs/features/src/lib.rs` | `remote_plugin`、`plugin_sharing` 默认值改为 false |
 | `codex-rs/features/src/tests.rs` | 锁定上述两个默认值 |

@@ -10,7 +10,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from generate_overlay_inventory import BASELINE, TARGET
+from generate_overlay_inventory import IMPORT_BASELINE as BASELINE
+from generate_overlay_inventory import TARGET
 from git_snapshot import diff_stats, list_tree, read_blobs, resolve_tree, sha256
 from metadata_contract import validate_upstream_delta
 

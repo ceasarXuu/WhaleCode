@@ -4,9 +4,8 @@ use std::time::Duration;
 
 use anyhow::Context;
 use anyhow::Result;
-use app_test_support::McpProcess;
-use app_test_support::to_response;
-use codex_app_server_protocol::JSONRPCResponse;
+use app_test_support::TestAppServer;
+use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::MarketplaceUpgradeParams;
 use codex_app_server_protocol::MarketplaceUpgradeResponse;
 use codex_app_server_protocol::RequestId;
@@ -17,6 +16,9 @@ use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use tokio::time::timeout;
 
+#[cfg(windows)]
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(25);
+#[cfg(not(windows))]
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 const INSTALLED_MARKETPLACES_DIR: &str = ".tmp/marketplaces";
 
@@ -63,13 +65,14 @@ fn commit_marketplace_marker(root: &Path, marker: &str) -> Result<String> {
 fn configured_git_marketplace_update<'a>(
     source: &'a str,
     last_revision: Option<&'a str>,
+    ref_name: Option<&'a str>,
 ) -> MarketplaceConfigUpdate<'a> {
     MarketplaceConfigUpdate {
         last_updated: "2026-04-13T00:00:00Z",
         last_revision,
         source_type: "git",
         source,
-        ref_name: None,
+        ref_name,
         sparse_paths: &[],
     }
 }
@@ -90,12 +93,13 @@ fn record_git_marketplace(
     marketplace_name: &str,
     source: &Path,
     last_revision: &str,
+    ref_name: Option<&str>,
 ) -> Result<()> {
     let source = source.display().to_string();
     record_user_marketplace(
         codex_home,
         marketplace_name,
-        &configured_git_marketplace_update(&source, Some(last_revision)),
+        &configured_git_marketplace_update(&source, Some(last_revision), ref_name),
     )?;
     Ok(())
 }
@@ -122,21 +126,16 @@ fn expected_installed_root(codex_home: &Path, marketplace_name: &str) -> Result<
 }
 
 async fn send_marketplace_upgrade(
-    mcp: &mut McpProcess,
+    mcp: &mut TestAppServer,
     marketplace_name: Option<&str>,
 ) -> Result<MarketplaceUpgradeResponse> {
-    let request_id = mcp
-        .send_marketplace_upgrade_request(MarketplaceUpgradeParams {
+    mcp.request(|request_id| ClientRequest::MarketplaceUpgrade {
+        request_id,
+        params: MarketplaceUpgradeParams {
             marketplace_name: marketplace_name.map(str::to_string),
-        })
-        .await?;
-
-    let response: JSONRPCResponse = timeout(
-        DEFAULT_TIMEOUT,
-        mcp.read_stream_until_response_message(RequestId::Integer(request_id)),
-    )
-    .await??;
-    to_response(response)
+        },
+    })
+    .await
 }
 
 #[tokio::test]
@@ -153,17 +152,22 @@ async fn marketplace_upgrade_all_configured_git_marketplaces() -> Result<()> {
         "debug",
         debug_source.path(),
         &debug_old_revision,
+        Some(&debug_new_revision),
     )?;
     record_git_marketplace(
         codex_home.path(),
         "tools",
         tools_source.path(),
         &tools_old_revision,
+        Some(&tools_new_revision),
     )?;
     disable_plugin_startup_tasks(codex_home.path())?;
 
-    let mut mcp = McpProcess::new(codex_home.path()).await?;
-    timeout(DEFAULT_TIMEOUT, mcp.initialize()).await??;
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .without_auto_env()
+        .build_initialized()
+        .await?;
 
     let debug_root = expected_installed_root(codex_home.path(), "debug")?;
     let tools_root = expected_installed_root(codex_home.path(), "tools")?;
@@ -205,17 +209,22 @@ async fn marketplace_upgrade_named_marketplace_only() -> Result<()> {
         "debug",
         debug_source.path(),
         &debug_old_revision,
+        /*ref_name*/ None,
     )?;
     record_git_marketplace(
         codex_home.path(),
         "tools",
         tools_source.path(),
         &tools_old_revision,
+        /*ref_name*/ None,
     )?;
     disable_plugin_startup_tasks(codex_home.path())?;
 
-    let mut mcp = McpProcess::new(codex_home.path()).await?;
-    timeout(DEFAULT_TIMEOUT, mcp.initialize()).await??;
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .without_auto_env()
+        .build_initialized()
+        .await?;
 
     let tools_root = expected_installed_root(codex_home.path(), "tools")?;
     let response = send_marketplace_upgrade(&mut mcp, Some("tools")).await?;
@@ -246,11 +255,20 @@ async fn marketplace_upgrade_returns_empty_roots_when_already_up_to_date() -> Re
     let source = TempDir::new()?;
     let old_revision = init_marketplace_repo(source.path(), "debug", "debug old")?;
     commit_marketplace_marker(source.path(), "debug new")?;
-    record_git_marketplace(codex_home.path(), "debug", source.path(), &old_revision)?;
+    record_git_marketplace(
+        codex_home.path(),
+        "debug",
+        source.path(),
+        &old_revision,
+        /*ref_name*/ None,
+    )?;
     disable_plugin_startup_tasks(codex_home.path())?;
 
-    let mut mcp = McpProcess::new(codex_home.path()).await?;
-    timeout(DEFAULT_TIMEOUT, mcp.initialize()).await??;
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .without_auto_env()
+        .build_initialized()
+        .await?;
     let first_response = send_marketplace_upgrade(&mut mcp, Some("debug")).await?;
     assert!(first_response.errors.is_empty());
 
@@ -277,8 +295,11 @@ async fn marketplace_upgrade_rejects_unknown_or_non_git_marketplace() -> Result<
         &configured_local_marketplace_update(&local_source.path().display().to_string()),
     )?;
 
-    let mut mcp = McpProcess::new(codex_home.path()).await?;
-    timeout(DEFAULT_TIMEOUT, mcp.initialize()).await??;
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .without_auto_env()
+        .build_initialized()
+        .await?;
 
     for marketplace_name in ["missing", "local-only"] {
         let request_id = mcp

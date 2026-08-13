@@ -23,7 +23,8 @@ from git_snapshot import (
     sha256,
 )
 
-BASELINE = "fed0a8f4faa58db3138488cca77628c1d54a2cd8"
+IMPORT_BASELINE = "fed0a8f4faa58db3138488cca77628c1d54a2cd8"
+BASELINE = "be6e8eac029b183056b7e4402879f15d2c85f61b"
 TARGET = "be6e8eac029b183056b7e4402879f15d2c85f61b"
 IMPORT_COMMIT = "8991de2843679e0bbdbb6dc243e632e445cf109d"
 VENDOR_PATH = "third_party/codex-cli"

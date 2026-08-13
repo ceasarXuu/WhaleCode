@@ -9,17 +9,25 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(
     version,
-    override_usage = "whale exec [OPTIONS] [PROMPT]\n       whale exec [OPTIONS] <COMMAND> [ARGS]"
+    override_usage = "codex exec [OPTIONS] [PROMPT]\n       codex exec [OPTIONS] <COMMAND> [ARGS]"
 )]
 pub struct Cli {
+    /// Process-only PSP routing selected by the parent Codex CLI.
+    #[clap(skip)]
+    pub psp: bool,
+
     /// Action to perform. If omitted, runs a new non-interactive session.
     #[command(subcommand)]
     pub command: Option<Command>,
 
+    /// Error out when config.toml contains fields that are not recognized by this version of Codex.
+    #[arg(long = "strict-config", global = true, default_value_t = false)]
+    pub strict_config: bool,
+
     #[clap(flatten)]
     pub shared: ExecSharedCliOptions,
 
-    /// Allow running Whale outside a Git repository.
+    /// Allow running Codex outside a Git repository.
     #[arg(long = "skip-git-repo-check", global = true, default_value_t = false)]
     pub skip_git_repo_check: bool,
 
@@ -27,7 +35,7 @@ pub struct Cli {
     #[arg(long = "ephemeral", global = true, default_value_t = false)]
     pub ephemeral: bool,
 
-    /// Do not load `$WHALE_HOME/config.toml`; auth still uses `WHALE_HOME`.
+    /// Do not load `$CODEX_HOME/config.toml`; auth still uses `CODEX_HOME`.
     #[arg(long = "ignore-user-config", global = true, default_value_t = false)]
     pub ignore_user_config: bool,
 
@@ -36,7 +44,7 @@ pub struct Cli {
     pub ignore_rules: bool,
 
     /// Path to a JSON Schema file describing the model's final response shape.
-    #[arg(long = "output-schema", value_name = "FILE")]
+    #[arg(long = "output-schema", value_name = "FILE", global = true)]
     pub output_schema: Option<PathBuf>,
 
     #[clap(skip)]
@@ -63,10 +71,6 @@ pub struct Cli {
         global = true
     )]
     pub last_message_file: Option<PathBuf>,
-
-    /// Enable TaskSpace mode for this exec session.
-    #[arg(long = "taskspace", global = true, default_value_t = false)]
-    pub taskspace: bool,
 
     /// Initial instructions for the agent. If not provided as an argument (or
     /// if `-` is used), instructions are read from stdin. If stdin is piped and
@@ -134,10 +138,10 @@ impl FromArgMatches for ExecSharedCliOptions {
 
 fn mark_exec_global_args(cmd: clap::Command) -> clap::Command {
     cmd.mut_arg("model", |arg| arg.global(true))
-        .mut_arg("full_auto", |arg| arg.global(true))
         .mut_arg("dangerously_bypass_approvals_and_sandbox", |arg| {
             arg.global(true)
         })
+        .mut_arg("bypass_hook_trust", |arg| arg.global(true))
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -152,7 +156,7 @@ pub enum Command {
 #[derive(Args, Debug)]
 struct ResumeArgsRaw {
     // Note: This is the direct clap shape. We reinterpret the positional when --last is set
-    // so "whale resume --last <prompt>" treats the positional as a prompt, not a session id.
+    // so "codex resume --last <prompt>" treats the positional as a prompt, not a session id.
     /// Conversation/session id (UUID) or thread name. UUIDs take precedence if it parses.
     /// If omitted, use --last to pick the most recent recorded session.
     #[arg(value_name = "SESSION_ID")]
@@ -240,7 +244,7 @@ impl FromArgMatches for ResumeArgs {
     }
 }
 
-#[derive(Parser, Debug)]
+#[derive(Args, Debug)]
 pub struct ReviewArgs {
     /// Review staged, unstaged, and untracked changes.
     #[arg(

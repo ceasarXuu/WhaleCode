@@ -4,10 +4,6 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-[[bin]]
-name = "whale-app-server-test-client"
-path = "src/main.rs"
-
 [lints]
 workspace = true
 
@@ -27,3 +23,9 @@ tracing-subscriber = { workspace = true }
 tungstenite = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
+
+[lib]
+doctest = false
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

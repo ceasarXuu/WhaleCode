@@ -58,9 +58,10 @@ pub(crate) fn parse_marketplace_source(
         });
     }
 
-    Err(MarketplaceAddError::InvalidRequest(format!(
-        "invalid marketplace source format: {source}"
-    )))
+    Err(MarketplaceAddError::InvalidRequest(
+        "invalid marketplace source format; expected owner/repo, a git URL, or a local marketplace path"
+            .to_string(),
+    ))
 }
 
 pub(super) fn stage_marketplace_source<F>(
@@ -100,7 +101,8 @@ fn split_source_ref(source: &str) -> (String, Option<String>) {
     if let Some((base, ref_name)) = source.rsplit_once('#') {
         return (base.to_string(), non_empty_ref(ref_name));
     }
-    if !source.contains("://")
+    if !looks_like_local_path(source)
+        && !source.contains("://")
         && !is_ssh_git_url(source)
         && let Some((base, ref_name)) = source.rsplit_once('@')
     {
@@ -160,8 +162,7 @@ fn resolve_local_source_path(source: &str) -> Result<PathBuf, MarketplaceAddErro
 
     path.canonicalize().map_err(|err| {
         MarketplaceAddError::InvalidRequest(format!(
-            "failed to resolve local marketplace source {}: {err}",
-            path.display()
+            "failed to resolve local marketplace source path: {err}"
         ))
     })
 }
@@ -202,7 +203,7 @@ fn is_github_shorthand_segment(segment: &str) -> bool {
 }
 
 impl MarketplaceSource {
-    pub(super) fn display(&self) -> String {
+    pub(crate) fn display(&self) -> String {
         match self {
             Self::Git { url, ref_name } => match ref_name {
                 Some(ref_name) => format!("{url}#{ref_name}"),

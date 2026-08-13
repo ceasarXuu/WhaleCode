@@ -16,12 +16,16 @@ use crate::engine::ConfiguredHandler;
 use crate::engine::command_runner::CommandRunResult;
 use crate::engine::dispatcher;
 use crate::engine::output_parser;
+use crate::output_spill::AdditionalContext;
+use crate::output_spill::HookOutputSpiller;
 use crate::schema::PreToolUseCommandInput;
+use crate::schema::SubagentCommandInputFields;
 
 #[derive(Debug, Clone)]
 pub struct PreToolUseRequest {
     pub session_id: ThreadId,
     pub turn_id: String,
+    pub subagent: Option<common::SubagentHookContext>,
     pub cwd: AbsolutePathBuf,
     pub transcript_path: Option<PathBuf>,
     pub model: String,
@@ -37,12 +41,16 @@ pub struct PreToolUseOutcome {
     pub hook_events: Vec<HookCompletedEvent>,
     pub should_block: bool,
     pub block_reason: Option<String>,
+    pub additional_contexts: Vec<String>,
+    pub updated_input: Option<Value>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
 struct PreToolUseHandlerData {
     should_block: bool,
     block_reason: Option<String>,
+    additional_contexts_for_model: Vec<AdditionalContext>,
+    updated_input: Option<Value>,
 }
 
 pub(crate) fn preview(
@@ -65,8 +73,10 @@ pub(crate) fn preview(
 pub(crate) async fn run(
     handlers: &[ConfiguredHandler],
     shell: &CommandShell,
+    output_spiller: &HookOutputSpiller,
     request: PreToolUseRequest,
 ) -> PreToolUseOutcome {
+    let session_id = request.session_id;
     let matcher_inputs = common::matcher_inputs(&request.tool_name, &request.matcher_aliases);
     let matched = dispatcher::select_handlers_for_matcher_inputs(
         handlers,
@@ -78,6 +88,8 @@ pub(crate) async fn run(
             hook_events: Vec::new(),
             should_block: false,
             block_reason: None,
+            additional_contexts: Vec::new(),
+            updated_input: None,
         };
     }
 
@@ -108,6 +120,19 @@ pub(crate) async fn run(
     let block_reason = results
         .iter()
         .find_map(|result| result.data.block_reason.clone());
+    let additional_contexts = common::flatten_additional_contexts(
+        results
+            .iter()
+            .map(|result| result.data.additional_contexts_for_model.as_slice()),
+    );
+    let additional_contexts = output_spiller
+        .maybe_spill_additional_contexts(session_id, additional_contexts)
+        .await;
+    let updated_input = if should_block {
+        None
+    } else {
+        latest_updated_input(&results)
+    };
 
     PreToolUseOutcome {
         hook_events: results
@@ -118,7 +143,29 @@ pub(crate) async fn run(
             .collect(),
         should_block,
         block_reason,
+        additional_contexts,
+        updated_input,
     }
+}
+
+/// Chooses the rewrite from the hook that actually finished last.
+///
+/// Hook results stay in configured order for stable reporting, but the
+/// `PreToolUse` contract resolves competing rewrites by completion order.
+fn latest_updated_input(
+    results: &[dispatcher::ParsedHandler<PreToolUseHandlerData>],
+) -> Option<Value> {
+    results
+        .iter()
+        .filter_map(|result| {
+            result
+                .data
+                .updated_input
+                .clone()
+                .map(|updated_input| (result.completion_order, updated_input))
+        })
+        .max_by_key(|(completion_order, _)| *completion_order)
+        .map(|(_, updated_input)| updated_input)
 }
 
 /// Serializes command stdin for a selected `PreToolUse` hook.
@@ -128,9 +175,12 @@ pub(crate) async fn run(
 /// stable. Shell-like tools pass `{ "command": ... }` as `tool_input`; MCP
 /// tools pass their resolved JSON arguments.
 fn command_input_json(request: &PreToolUseRequest) -> Result<String, serde_json::Error> {
+    let subagent = SubagentCommandInputFields::from(request.subagent.as_ref());
     serde_json::to_string(&PreToolUseCommandInput {
         session_id: request.session_id.to_string(),
         turn_id: request.turn_id.clone(),
+        agent_id: subagent.agent_id,
+        agent_type: subagent.agent_type,
         transcript_path: crate::schema::NullableString::from_path(request.transcript_path.clone()),
         cwd: request.cwd.display().to_string(),
         hook_event_name: "PreToolUse".to_string(),
@@ -151,6 +201,8 @@ fn parse_completed(
     let mut status = HookRunStatus::Completed;
     let mut should_block = false;
     let mut block_reason = None;
+    let mut additional_contexts_for_model = Vec::new();
+    let mut updated_input = None;
 
     match run_result.error.as_deref() {
         Some(error) => {
@@ -177,16 +229,29 @@ fn parse_completed(
                             kind: HookOutputEntryKind::Error,
                             text: invalid_reason,
                         });
-                    } else if let Some(reason) = parsed.block_reason {
-                        status = HookRunStatus::Blocked;
-                        should_block = true;
-                        block_reason = Some(reason.clone());
-                        entries.push(HookOutputEntry {
-                            kind: HookOutputEntryKind::Feedback,
-                            text: reason,
-                        });
+                    } else {
+                        if let Some(additional_context) = parsed.additional_context {
+                            common::append_additional_context(
+                                &mut entries,
+                                &mut additional_contexts_for_model,
+                                handler,
+                                additional_context,
+                            );
+                        }
+                        if let Some(reason) = parsed.block_reason {
+                            status = HookRunStatus::Blocked;
+                            should_block = true;
+                            block_reason = Some(reason.clone());
+                            entries.push(HookOutputEntry {
+                                kind: HookOutputEntryKind::Feedback,
+                                text: reason,
+                            });
+                        }
+                        if !should_block {
+                            updated_input = parsed.updated_input;
+                        }
                     }
-                } else if trimmed_stdout.starts_with('{') || trimmed_stdout.starts_with('[') {
+                } else if output_parser::looks_like_json(&run_result.stdout) {
                     status = HookRunStatus::Failed;
                     entries.push(HookOutputEntry {
                         kind: HookOutputEntryKind::Error,
@@ -238,7 +303,10 @@ fn parse_completed(
         data: PreToolUseHandlerData {
             should_block,
             block_reason,
+            additional_contexts_for_model,
+            updated_input,
         },
+        completion_order: 0,
     }
 }
 
@@ -247,6 +315,8 @@ fn serialization_failure_outcome(hook_events: Vec<HookCompletedEvent>) -> PreToo
         hook_events,
         should_block: false,
         block_reason: None,
+        additional_contexts: Vec::new(),
+        updated_input: None,
     }
 }
 
@@ -263,11 +333,14 @@ mod tests {
 
     use super::PreToolUseHandlerData;
     use super::command_input_json;
+    use super::latest_updated_input;
     use super::parse_completed;
     use super::preview;
     use crate::engine::ConfiguredHandler;
     use crate::engine::command_runner::CommandRunResult;
     use crate::events::common;
+    use crate::output_spill::AdditionalContext;
+    use crate::output_spill::AdditionalContextLimit;
 
     #[test]
     fn command_input_uses_request_tool_name() {
@@ -298,6 +371,8 @@ mod tests {
             PreToolUseHandlerData {
                 should_block: true,
                 block_reason: Some("do not run that".to_string()),
+                additional_contexts_for_model: Vec::new(),
+                updated_input: None,
             }
         );
         assert_eq!(parsed.completed.run.status, HookRunStatus::Blocked);
@@ -306,6 +381,91 @@ mod tests {
             vec![HookOutputEntry {
                 kind: HookOutputEntryKind::Feedback,
                 text: "do not run that".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn permission_decision_allow_can_update_input() {
+        let parsed = parse_completed(
+            &handler(),
+            run_result(
+                Some(0),
+                r#"{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","updatedInput":{"command":"echo rewritten"}}}"#,
+                "",
+            ),
+            Some("turn-1".to_string()),
+        );
+
+        assert_eq!(
+            parsed.data,
+            PreToolUseHandlerData {
+                should_block: false,
+                block_reason: None,
+                additional_contexts_for_model: Vec::new(),
+                updated_input: Some(serde_json::json!({ "command": "echo rewritten" })),
+            }
+        );
+        assert_eq!(parsed.completed.run.status, HookRunStatus::Completed);
+        assert_eq!(parsed.completed.run.entries, vec![]);
+    }
+
+    #[test]
+    fn last_completed_updated_input_wins() {
+        let mut later_configured = parse_completed(
+            &handler(),
+            run_result(
+                Some(0),
+                r#"{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","updatedInput":{"command":"echo configured later"}}}"#,
+                "",
+            ),
+            Some("turn-1".to_string()),
+        );
+        later_configured.completion_order = 0;
+        let mut earlier_configured = parse_completed(
+            &handler(),
+            run_result(
+                Some(0),
+                r#"{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","updatedInput":{"command":"echo finished later"}}}"#,
+                "",
+            ),
+            Some("turn-1".to_string()),
+        );
+        earlier_configured.completion_order = 1;
+
+        assert_eq!(
+            latest_updated_input(&[later_configured, earlier_configured]),
+            Some(serde_json::json!({ "command": "echo finished later" }))
+        );
+    }
+
+    #[test]
+    fn permission_decision_allow_without_updated_input_fails_open() {
+        let parsed = parse_completed(
+            &handler(),
+            run_result(
+                Some(0),
+                r#"{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}"#,
+                "",
+            ),
+            Some("turn-1".to_string()),
+        );
+
+        assert_eq!(
+            parsed.data,
+            PreToolUseHandlerData {
+                should_block: false,
+                block_reason: None,
+                additional_contexts_for_model: Vec::new(),
+                updated_input: None,
+            }
+        );
+        assert_eq!(parsed.completed.run.status, HookRunStatus::Failed);
+        assert_eq!(
+            parsed.completed.run.entries,
+            vec![HookOutputEntry {
+                kind: HookOutputEntryKind::Error,
+                text: "PreToolUse hook returned unsupported permissionDecision:allow".to_string(),
             }]
         );
     }
@@ -327,6 +487,8 @@ mod tests {
             PreToolUseHandlerData {
                 should_block: true,
                 block_reason: Some("do not run that".to_string()),
+                additional_contexts_for_model: Vec::new(),
+                updated_input: None,
             }
         );
         assert_eq!(parsed.completed.run.status, HookRunStatus::Blocked);
@@ -336,6 +498,46 @@ mod tests {
                 kind: HookOutputEntryKind::Feedback,
                 text: "do not run that".to_string(),
             }]
+        );
+    }
+
+    #[test]
+    fn deprecated_block_decision_with_additional_context_blocks_processing() {
+        let parsed = parse_completed(
+            &handler(),
+            run_result(
+                Some(0),
+                r#"{"decision":"block","reason":"do not run that","hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"remember this"}}"#,
+                "",
+            ),
+            Some("turn-1".to_string()),
+        );
+
+        assert_eq!(
+            parsed.data,
+            PreToolUseHandlerData {
+                should_block: true,
+                block_reason: Some("do not run that".to_string()),
+                additional_contexts_for_model: vec![AdditionalContext {
+                    text: "remember this".to_string(),
+                    limit: Default::default(),
+                }],
+                updated_input: None,
+            }
+        );
+        assert_eq!(parsed.completed.run.status, HookRunStatus::Blocked);
+        assert_eq!(
+            parsed.completed.run.entries,
+            vec![
+                HookOutputEntry {
+                    kind: HookOutputEntryKind::Context,
+                    text: "remember this".to_string(),
+                },
+                HookOutputEntry {
+                    kind: HookOutputEntryKind::Feedback,
+                    text: "do not run that".to_string(),
+                },
+            ]
         );
     }
 
@@ -356,6 +558,8 @@ mod tests {
             PreToolUseHandlerData {
                 should_block: false,
                 block_reason: None,
+                additional_contexts_for_model: Vec::new(),
+                updated_input: None,
             }
         );
         assert_eq!(parsed.completed.run.status, HookRunStatus::Failed);
@@ -381,6 +585,8 @@ mod tests {
             PreToolUseHandlerData {
                 should_block: false,
                 block_reason: None,
+                additional_contexts_for_model: Vec::new(),
+                updated_input: None,
             }
         );
         assert_eq!(parsed.completed.run.status, HookRunStatus::Failed);
@@ -394,9 +600,11 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_additional_context_fails_open() {
+    fn additional_context_is_recorded() {
+        let mut handler = handler();
+        handler.additional_context_limit = AdditionalContextLimit::from_config(Some(13));
         let parsed = parse_completed(
-            &handler(),
+            &handler,
             run_result(
                 Some(0),
                 r#"{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"do not run that","additionalContext":"nope"}}"#,
@@ -408,17 +616,28 @@ mod tests {
         assert_eq!(
             parsed.data,
             PreToolUseHandlerData {
-                should_block: false,
-                block_reason: None,
+                should_block: true,
+                block_reason: Some("do not run that".to_string()),
+                additional_contexts_for_model: vec![AdditionalContext {
+                    text: "nope".to_string(),
+                    limit: AdditionalContextLimit::from_config(Some(13)),
+                }],
+                updated_input: None,
             }
         );
-        assert_eq!(parsed.completed.run.status, HookRunStatus::Failed);
+        assert_eq!(parsed.completed.run.status, HookRunStatus::Blocked);
         assert_eq!(
             parsed.completed.run.entries,
-            vec![HookOutputEntry {
-                kind: HookOutputEntryKind::Error,
-                text: "PreToolUse hook returned unsupported additionalContext".to_string(),
-            }]
+            vec![
+                HookOutputEntry {
+                    kind: HookOutputEntryKind::Context,
+                    text: "nope".to_string(),
+                },
+                HookOutputEntry {
+                    kind: HookOutputEntryKind::Feedback,
+                    text: "do not run that".to_string(),
+                },
+            ]
         );
     }
 
@@ -435,6 +654,8 @@ mod tests {
             PreToolUseHandlerData {
                 should_block: false,
                 block_reason: None,
+                additional_contexts_for_model: Vec::new(),
+                updated_input: None,
             }
         );
         assert_eq!(parsed.completed.run.status, HookRunStatus::Completed);
@@ -454,6 +675,8 @@ mod tests {
             PreToolUseHandlerData {
                 should_block: false,
                 block_reason: None,
+                additional_contexts_for_model: Vec::new(),
+                updated_input: None,
             }
         );
         assert_eq!(parsed.completed.run.status, HookRunStatus::Failed);
@@ -479,6 +702,8 @@ mod tests {
             PreToolUseHandlerData {
                 should_block: true,
                 block_reason: Some("blocked by policy".to_string()),
+                additional_contexts_for_model: Vec::new(),
+                updated_input: None,
             }
         );
         assert_eq!(parsed.completed.run.status, HookRunStatus::Blocked);
@@ -534,14 +759,15 @@ mod tests {
     fn handler() -> ConfiguredHandler {
         ConfiguredHandler {
             event_name: HookEventName::PreToolUse,
-            is_managed: false,
             matcher: Some("^Bash$".to_string()),
             command: "echo hook".to_string(),
             timeout_sec: 5,
             status_message: None,
+            additional_context_limit: Default::default(),
             source_path: test_path_buf("/tmp/hooks.json").abs(),
             source: codex_protocol::protocol::HookSource::User,
             display_order: 0,
+            env: std::collections::HashMap::new(),
         }
     }
 
@@ -561,6 +787,7 @@ mod tests {
         super::PreToolUseRequest {
             session_id: ThreadId::new(),
             turn_id: "turn-1".to_string(),
+            subagent: None,
             cwd: test_path_buf("/tmp").abs(),
             transcript_path: None,
             model: "gpt-test".to_string(),

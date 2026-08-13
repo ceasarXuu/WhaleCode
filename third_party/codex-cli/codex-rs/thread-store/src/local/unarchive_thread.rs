@@ -1,25 +1,26 @@
-use codex_rollout::find_archived_thread_path_by_id_str;
-use codex_rollout::read_thread_item_from_rollout;
-use codex_rollout::rollout_date_parts;
-
 use super::LocalThreadStore;
 use super::helpers::matching_rollout_file_name;
 use super::helpers::scoped_rollout_path;
-use super::helpers::stored_thread_from_rollout_item;
 use super::helpers::touch_modified_time;
 use crate::ArchiveThreadParams;
+use crate::ReadThreadParams;
 use crate::StoredThread;
 use crate::ThreadStoreError;
 use crate::ThreadStoreResult;
+use codex_rollout::find_archived_thread_path_by_id_str;
+use codex_rollout::rollout_date_parts;
 
 pub(super) async fn unarchive_thread(
     store: &LocalThreadStore,
     params: ArchiveThreadParams,
 ) -> ThreadStoreResult<StoredThread> {
     let thread_id = params.thread_id;
+    let _lifecycle_guard = store.live_writer_locks.lock_lifecycle(thread_id).await;
+    let state_db_ctx = store.state_db().await;
     let archived_path = find_archived_thread_path_by_id_str(
         store.config.codex_home.as_path(),
         &thread_id.to_string(),
+        state_db_ctx.as_deref(),
     )
     .await
     .map_err(|err| ThreadStoreError::InvalidRequest {
@@ -71,31 +72,21 @@ pub(super) async fn unarchive_thread(
         message: format!("failed to update unarchived thread timestamp: {err}"),
     })?;
 
-    if let Some(ctx) = codex_rollout::state_db::get_state_db(&store.config).await {
+    if let Some(ctx) = state_db_ctx {
         let _ = ctx
             .mark_unarchived(thread_id, restored_path.as_path())
             .await;
     }
 
-    let item = read_thread_item_from_rollout(restored_path.clone())
-        .await
-        .ok_or_else(|| ThreadStoreError::Internal {
-            message: format!(
-                "failed to read unarchived thread {}",
-                restored_path.display()
-            ),
-        })?;
-    stored_thread_from_rollout_item(
-        item,
-        /*archived*/ false,
-        store.config.model_provider_id.as_str(),
+    super::read_thread::read_thread(
+        store,
+        ReadThreadParams {
+            thread_id,
+            include_archived: false,
+            include_history: false,
+        },
     )
-    .ok_or_else(|| ThreadStoreError::Internal {
-        message: format!(
-            "failed to read unarchived thread id from {}",
-            restored_path.display()
-        ),
-    })
+    .await
 }
 
 #[cfg(test)]
@@ -103,6 +94,7 @@ mod tests {
     use chrono::Utc;
     use codex_protocol::ThreadId;
     use codex_protocol::protocol::SessionSource;
+    use codex_utils_absolute_path::test_support::PathExt;
     use pretty_assertions::assert_eq;
     use tempfile::TempDir;
     use uuid::Uuid;
@@ -116,7 +108,7 @@ mod tests {
     #[tokio::test]
     async fn unarchive_thread_restores_rollout_and_returns_updated_thread() {
         let home = TempDir::new().expect("temp dir");
-        let store = LocalThreadStore::new(test_config(home.path()));
+        let store = LocalThreadStore::new(test_config(home.path()), /*state_db*/ None);
         let uuid = Uuid::from_u128(203);
         let thread_id = ThreadId::from_string(&uuid.to_string()).expect("valid thread id");
         let archived_path = write_archived_session_file(home.path(), "2025-01-03T13-00-00", uuid)
@@ -147,17 +139,17 @@ mod tests {
     async fn unarchive_thread_updates_sqlite_metadata_when_present() {
         let home = TempDir::new().expect("temp dir");
         let config = test_config(home.path());
-        let store = LocalThreadStore::new(config.clone());
         let uuid = Uuid::from_u128(204);
         let thread_id = ThreadId::from_string(&uuid.to_string()).expect("valid thread id");
         let archived_path = write_archived_session_file(home.path(), "2025-01-03T13-00-00", uuid)
             .expect("archived session file");
         let runtime = codex_state::StateRuntime::init(
-            home.path().to_path_buf(),
-            config.model_provider_id.clone(),
+            codex_state::SqliteConfig::new_for_testing(home.path().abs()),
+            config.default_model_provider_id.clone(),
         )
         .await
         .expect("state db should initialize");
+        let store = LocalThreadStore::new(config.clone(), Some(runtime.clone()));
         runtime
             .mark_backfill_complete(/*last_watermark*/ None)
             .await
@@ -168,20 +160,25 @@ mod tests {
             Utc::now(),
             SessionSource::Cli,
         );
-        builder.model_provider = Some(config.model_provider_id.clone());
+        builder.model_provider = Some(config.default_model_provider_id.clone());
         builder.cwd = home.path().to_path_buf();
         builder.cli_version = Some("test_version".to_string());
-        let mut metadata = builder.build(config.model_provider_id.as_str());
+        let mut metadata = builder.build(config.default_model_provider_id.as_str());
         metadata.archived_at = Some(metadata.updated_at);
+        metadata.section = Some(codex_state::ThreadSection {
+            id: codex_state::PINNED_THREAD_SECTION_ID.to_string(),
+            name: codex_state::PINNED_THREAD_SECTION_NAME.to_string(),
+        });
         runtime
             .upsert_thread(&metadata)
             .await
             .expect("state db upsert should succeed");
 
-        store
+        let unarchived = store
             .unarchive_thread(ArchiveThreadParams { thread_id })
             .await
             .expect("unarchive thread");
+        assert_eq!(unarchived.section, metadata.section);
 
         let restored_path = home
             .path()
@@ -194,5 +191,7 @@ mod tests {
             .expect("thread metadata should exist");
         assert_eq!(updated.rollout_path, restored_path);
         assert_eq!(updated.archived_at, None);
+        assert_eq!(updated.recency_at, metadata.recency_at);
+        assert_eq!(updated.section, metadata.section);
     }
 }

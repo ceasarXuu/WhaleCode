@@ -436,7 +436,11 @@ def validate_ledger_paths(
         if path not in upstream_paths:
             errors.append(f"path absent from upstream commit tree: {upstream}:{path}")
     for path in entry.get("paths", []):
-        if path not in baseline_paths and path not in current_paths:
+        if (
+            entry.get("status") != "superseded_by_vendor"
+            and path not in baseline_paths
+            and path not in current_paths
+        ):
             errors.append(f"ledger path absent from baseline and current tree: {path}")
     return errors
 

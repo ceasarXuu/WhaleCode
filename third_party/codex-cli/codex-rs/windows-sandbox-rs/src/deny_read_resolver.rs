@@ -43,7 +43,8 @@ pub fn resolve_windows_deny_read_paths(
                 path: FileSystemPath::GlobPattern {
                     pattern: pattern.clone(),
                 },
-                access: FileSystemAccessMode::None,
+                access: FileSystemAccessMode::Deny,
+                missing_path_behavior: None,
             })
             .collect(),
     );
@@ -93,7 +94,8 @@ fn collect_existing_glob_matches(
     }
 
     // Canonical directory keys keep recursive scans from following a symlink or
-    // junction cycle forever while preserving the original matched path.
+    // junction cycle forever while preserving the original matched path for the
+    // ACL layer.
     let scan_key = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     if !seen_scan_dirs.insert(scan_key) {
         return Ok(());
@@ -136,7 +138,8 @@ fn push_absolute_path(
 
 fn glob_scan_plan(pattern: &str, configured_max_depth: Option<usize>) -> GlobScanPlan {
     // Start scanning at the deepest literal directory prefix before the first
-    // glob metacharacter.
+    // glob metacharacter. For example, `C:\repo\**\*.env` only scans `C:\repo`
+    // instead of the current directory or drive root.
     let first_glob = pattern
         .char_indices()
         .find(|(_, ch)| matches!(ch, '*' | '?' | '['))
@@ -203,7 +206,8 @@ mod tests {
     fn unreadable_glob_entry(pattern: String) -> FileSystemSandboxEntry {
         FileSystemSandboxEntry {
             path: FileSystemPath::GlobPattern { pattern },
-            access: FileSystemAccessMode::None,
+            access: FileSystemAccessMode::Deny,
+            missing_path_behavior: None,
         }
     }
 
@@ -212,7 +216,8 @@ mod tests {
             path: FileSystemPath::Path {
                 path: AbsolutePathBuf::from_absolute_path(path).expect("absolute path"),
             },
-            access: FileSystemAccessMode::None,
+            access: FileSystemAccessMode::Deny,
+            missing_path_behavior: None,
         }
     }
 

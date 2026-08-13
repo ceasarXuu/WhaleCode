@@ -10,6 +10,7 @@ from pathlib import Path
 
 from generate_overlay_inventory import (
     BASELINE,
+    IMPORT_BASELINE,
     OUTPUT_PATH,
     TARGET,
     build_inventory,
@@ -90,7 +91,7 @@ def validate_repository(repo: Path) -> list[str]:
     if delta_path.exists():
         delta = _load(repo, DELTA_PATH)
         errors.extend(validate_upstream_delta(delta))
-        if delta.get("baseline_commit") != BASELINE:
+        if delta.get("baseline_commit") != IMPORT_BASELINE:
             errors.append("upstream delta baseline does not match generator baseline")
         if delta.get("target_commit") != TARGET:
             errors.append("upstream delta target does not match generator target")
@@ -127,7 +128,7 @@ def validate_repository(repo: Path) -> list[str]:
                 errors.append(f"{path}: replay current hash is stale")
             if decision.get("target_sha256") != expected_target:
                 errors.append(f"{path}: replay target hash is stale")
-    if ledger.get("baseline_commit") != BASELINE:
+    if ledger.get("baseline_commit") != IMPORT_BASELINE:
         errors.append("ledger baseline does not match generator baseline")
     if inventory.get("baseline_commit") != BASELINE:
         errors.append("inventory baseline does not match generator baseline")
@@ -139,7 +140,7 @@ def validate_repository(repo: Path) -> list[str]:
     if existing != regenerated:
         errors.append("overlay inventory is stale relative to the Git index")
 
-    baseline_paths = set(list_tree(repo, resolve_tree(repo, BASELINE)))
+    baseline_paths = set(list_tree(repo, resolve_tree(repo, IMPORT_BASELINE)))
     current_paths = set(entry[3] for entry in _current_vendor_entries(repo))
     for entry in ledger.get("entries", []):
         upstream = entry["upstream_commit"]
@@ -175,6 +176,7 @@ def validate_repository(repo: Path) -> list[str]:
 
     upstream_text = (repo / UPSTREAM_PATH).read_text(encoding="utf-8")
     required_text = (
+        IMPORT_BASELINE,
         BASELINE,
         TARGET,
         "overlay-inventory.json",

@@ -258,6 +258,8 @@ def classify(
                 "codex-rs/config/**",
                 "codex-rs/core/src/config/**",
                 "codex-rs/core/src/config_loader/**",
+                "codex-rs/features/src/lib.rs",
+                "codex-rs/features/src/tests.rs",
             ),
         ),
         (

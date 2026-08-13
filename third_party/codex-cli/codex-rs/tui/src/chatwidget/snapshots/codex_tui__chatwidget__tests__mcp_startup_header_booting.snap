@@ -6,6 +6,6 @@ expression: normalized_backend_snapshot(terminal.backend())
 "• Booting MCP server: alpha (0s • esc to interrupt)                             "
 "                                                                                "
 "                                                                                "
-"› Ask Whale to do anything                                                      "
+"› Ask Codex to do anything                                                      "
 "                                                                                "
-"  deepseek-v4-flash default · /tmp/project                                      "
+"  gpt-5.6-sol default · /tmp/project                                            "

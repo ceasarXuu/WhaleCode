@@ -12,39 +12,46 @@
 //! 4. Apply the guardian's explicit allow/deny outcome.
 
 mod approval_request;
+mod metrics;
 mod prompt;
 mod review;
 mod review_session;
 
 use std::time::Duration;
 
-use codex_protocol::protocol::GuardianAssessmentDecisionSource;
 use codex_protocol::protocol::GuardianAssessmentOutcome;
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::tools::sandboxing::ApprovalRequestReasons;
+
 pub(crate) use approval_request::GuardianApprovalRequest;
 pub(crate) use approval_request::GuardianMcpAnnotations;
 pub(crate) use approval_request::GuardianNetworkAccessTrigger;
+#[cfg(test)]
 pub(crate) use approval_request::guardian_approval_request_to_json;
-pub(crate) use review::guardian_rejection_message;
+pub(crate) use review::GuardianReviewOptions;
 pub(crate) use review::guardian_timeout_message;
 pub(crate) use review::is_guardian_reviewer_source;
 pub(crate) use review::new_guardian_review_id;
 #[cfg(test)]
 pub(crate) use review::record_guardian_denial_for_test;
 pub(crate) use review::review_approval_request;
-#[cfg(test)]
 pub(crate) use review::review_approval_request_with_cancel;
+pub(crate) use review::routes_approval_policy_to_guardian;
 pub(crate) use review::routes_approval_to_guardian;
+pub(crate) use review::routes_approval_to_guardian_with_reviewer;
 pub(crate) use review::spawn_approval_request_review;
 pub(crate) use review_session::GuardianReviewSessionManager;
+pub(crate) use review_session::prompt_cache_key_override_for_review_session;
 
-const GUARDIAN_PREFERRED_MODEL: &str = "codex-auto-review";
 pub(crate) const GUARDIAN_REVIEW_TIMEOUT: Duration = Duration::from_secs(90);
 pub(crate) const GUARDIAN_REVIEWER_NAME: &str = "guardian";
 pub(crate) const MAX_CONSECUTIVE_GUARDIAN_DENIALS_PER_TURN: u32 = 3;
-pub(crate) const MAX_TOTAL_GUARDIAN_DENIALS_PER_TURN: u32 = 10;
+pub(crate) const MAX_RECENT_AUTO_REVIEW_DENIALS_PER_TURN: u32 = 10;
+pub(crate) const AUTO_REVIEW_DENIAL_WINDOW_SIZE: usize = 50;
+pub(crate) const AUTO_REVIEW_DENIED_ACTION_APPROVAL_DEVELOPER_PREFIX: &str =
+    "The user has manually approved a specific action that was previously `Rejected`.";
 const GUARDIAN_MAX_MESSAGE_TRANSCRIPT_TOKENS: usize = 10_000;
 const GUARDIAN_MAX_TOOL_TRANSCRIPT_TOKENS: usize = 10_000;
 const GUARDIAN_MAX_MESSAGE_ENTRY_TOKENS: usize = 2_000;
@@ -62,12 +69,6 @@ pub(crate) struct GuardianAssessment {
     pub(crate) rationale: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct GuardianRejection {
-    pub(crate) rationale: String,
-    pub(crate) source: GuardianAssessmentDecisionSource,
-}
-
 #[derive(Debug, Default)]
 pub(crate) struct GuardianRejectionCircuitBreaker {
     turns: std::collections::HashMap<String, GuardianRejectionCircuitBreakerTurn>,
@@ -76,7 +77,7 @@ pub(crate) struct GuardianRejectionCircuitBreaker {
 #[derive(Debug, Default)]
 struct GuardianRejectionCircuitBreakerTurn {
     consecutive_denials: u32,
-    total_denials: u32,
+    recent_denials: std::collections::VecDeque<bool>,
     interrupt_triggered: bool,
 }
 
@@ -85,7 +86,7 @@ pub(crate) enum GuardianRejectionCircuitBreakerAction {
     Continue,
     InterruptTurn {
         consecutive_denials: u32,
-        total_denials: u32,
+        recent_denials: u32,
     },
 }
 
@@ -97,15 +98,16 @@ impl GuardianRejectionCircuitBreaker {
     pub(crate) fn record_denial(&mut self, turn_id: &str) -> GuardianRejectionCircuitBreakerAction {
         let turn = self.turns.entry(turn_id.to_string()).or_default();
         turn.consecutive_denials = turn.consecutive_denials.saturating_add(1);
-        turn.total_denials = turn.total_denials.saturating_add(1);
+        Self::record_recent_review(turn, /*denied*/ true);
+        let recent_denials = turn.recent_denials.iter().filter(|denied| **denied).count() as u32;
         if !turn.interrupt_triggered
             && (turn.consecutive_denials >= MAX_CONSECUTIVE_GUARDIAN_DENIALS_PER_TURN
-                || turn.total_denials >= MAX_TOTAL_GUARDIAN_DENIALS_PER_TURN)
+                || recent_denials >= MAX_RECENT_AUTO_REVIEW_DENIALS_PER_TURN)
         {
             turn.interrupt_triggered = true;
             GuardianRejectionCircuitBreakerAction::InterruptTurn {
                 consecutive_denials: turn.consecutive_denials,
-                total_denials: turn.total_denials,
+                recent_denials,
             }
         } else {
             GuardianRejectionCircuitBreakerAction::Continue
@@ -115,6 +117,14 @@ impl GuardianRejectionCircuitBreaker {
     pub(crate) fn record_non_denial(&mut self, turn_id: &str) {
         let turn = self.turns.entry(turn_id.to_string()).or_default();
         turn.consecutive_denials = 0;
+        Self::record_recent_review(turn, /*denied*/ false);
+    }
+
+    fn record_recent_review(turn: &mut GuardianRejectionCircuitBreakerTurn, denied: bool) {
+        turn.recent_denials.push_back(denied);
+        if turn.recent_denials.len() > AUTO_REVIEW_DENIAL_WINDOW_SIZE {
+            turn.recent_denials.pop_front();
+        }
     }
 }
 
@@ -135,13 +145,11 @@ use prompt::GuardianTranscriptEntryKind;
 #[cfg(test)]
 use prompt::build_guardian_prompt_items;
 #[cfg(test)]
+use prompt::build_guardian_prompt_items_with_parent_turn;
+#[cfg(test)]
 use prompt::collect_guardian_transcript_entries;
 #[cfg(test)]
 use prompt::guardian_output_schema;
-#[cfg(test)]
-pub(crate) use prompt::guardian_policy_prompt;
-#[cfg(test)]
-pub(crate) use prompt::guardian_policy_prompt_with_config;
 #[cfg(test)]
 use prompt::guardian_truncate_text;
 #[cfg(test)]
@@ -151,7 +159,7 @@ use prompt::render_guardian_transcript_entries;
 #[cfg(test)]
 use review::GuardianReviewOutcome;
 #[cfg(test)]
-use review::run_guardian_review_session as run_guardian_review_session_for_test;
+use review::run_guardian_review_session_with_retry as run_guardian_review_session_for_test;
 #[cfg(test)]
 use review_session::build_guardian_review_session_config as build_guardian_review_session_config_for_test;
 

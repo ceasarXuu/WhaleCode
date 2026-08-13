@@ -1,14 +1,14 @@
 # Codex CLI 主线融合执行计划
 
-- 文档状态：有效，Phase A verified；Phase B 实现完成但被 cache gate 阻断，等待 material plan delta 审批
+- 文档状态：有效，Phase A、Phase B verified；下一步执行 Phase C rebase gate
 - Plan Validity：`valid-with-qualifications`
 - 计划性质：覆盖已完成里程碑与剩余工作的唯一执行计划
 - 适用版本：WhaleCode v0.0.5
 - 工作空间：仅 `/home/zhangxu/whalecode-codex`
 - Product Authority：[./decisions.md](decisions.md)
 - Applicable Decisions：D1、D2
-- 当前生产 vendor：已暂存 Codex CLI `rust-v0.147.0` / `be6e8eac029b183056b7e4402879f15d2c85f61b` + U3 最小 Whale substrate overlay，尚未提交交付
-- 当前候选：U2 资格结论 `direction-supported-with-known-test-risks`；U4 cache gate 尚未通过
+- 当前生产 vendor：Codex CLI `rust-v0.147.0` / `be6e8eac029b183056b7e4402879f15d2c85f61b` + U3 最小 Whale substrate overlay（U4 已验证）
+- 当前候选：U2 资格结论 `direction-supported-with-known-test-risks`；U4 免费 cache final-wire 门禁通过
 - 官方发布依据：[OpenAI Codex Changelog：0.147.0（2026-08-07）](https://learn.chatgpt.com/docs/changelog)
 
 ## 1. 执行合同
@@ -36,10 +36,10 @@
 | 0.147 正式资格 | U2 verified | fmt、offline CLI、sandboxed V8 code-mode-host 与 app-server 全过；core 3,288 passed / 5 path failures / 1 MCP timeout；TUI 3,376 passed / 33 release snapshots | 执行 Checkpoint B，刷新 0.147 target-dependent 工件后进入 U3 | `direction-supported-with-known-test-risks`；生产 vendor 未变化 |
 | 0.147 target-dependent 工件 | Checkpoint B verified | overlay inventory 730 路径、upstream delta 4,666 路径、replay ledger 730 路径均固定到 0.147；app-server schema lineage 已跟随上游迁移到 Python 生成器 | 进入 U3 时按需查询路径证据，不把自动 disposition 当作产品决定 | 仅同步证据与生成脚本变化；生产 vendor tree 未变化 |
 | 0.147 最小 Whale 兼容边界 | U3 verified | 6 个生产文件 + 2 个专用测试文件的临时 overlay 可构建 `whale 0.147.0`；home/auth/keyring 隔离通过；remote plugin/sharing 默认值锁回 false | Phase B 只重放声明的 substrate patch；DeepSeek、TaskSpace 仍留在各自单元 | 无生产 vendor 变化；0 模型请求 |
-| 0.147 vendor substrate | U4 blocked | vendor 替换和本地验证已完成，只含 8 个 U3 修改路径；cache gate 因产品敏感面与 Whale final-wire/policy 同批变化而阻断 | 必须先批准 Phase B/C 提交边界修订，不能直接提交或运行当前无 DeepSeek/TaskSpace 的真实回归 | 未提交；0 模型请求 |
+| 0.147 vendor substrate | U4 verified | vendor 替换只含 8 个 U3 修改路径；U4a 已独立迁移免费缓存合同，U4 cache index gate 通过 | Phase C 按独立工作单元重放 DeepSeek；TaskSpace 保留到 Phase D | 已纳入 U4 原子交付；0 模型请求 |
 | 计划治理 | 1/1 verified | 唯一产品权威、唯一执行计划、历史工件降级和闭环工作单元 | 约束 U1–U17 的范围和停止条件 | 已完成 |
 
-因此，U2 已按纠正后的官方构建合同完成，U3 已完成，U4 实现完成但验证未闭环；`U5–U17` 尚未执行，不表示整个 Codex 主线追赶从零开始。历史工作、已完成单元与剩余工作目标、单位和验收标准不同，不做失真的简单平均百分比。
+因此，U2 已按纠正后的官方构建合同完成，U3、U4 均已验证；`U5–U17` 尚未执行，不表示整个 Codex 主线追赶从零开始。历史工作、已完成单元与剩余工作目标、单位和验收标准不同，不做失真的简单平均百分比。
 
 当前状态应读取为：
 
@@ -48,7 +48,7 @@
 - 0.146 候选初次资格审查：已完成，结论 no-go；
 - no-go 原因的最小增量复核：已完成（U1）；
 - 0.147 候选正式资格：已完成（U2）；结论为 `direction-supported-with-known-test-risks`；
-- 生产 vendor cutover：实现已完成但未交付（U4 cache gate blocked）；DeepSeek/TaskSpace 重放尚未开始（U5–U17）。
+- 生产 vendor cutover：实现与门禁验证均已完成（U4）；DeepSeek/TaskSpace 重放尚未开始（U5–U17）。
 
 ### 2.2 治理后的权威关系
 
@@ -152,16 +152,16 @@
 - Material plan delta：`material`（U4 执行后由 cache gate 新证据触发）
 - Plan delta record：PLD-003
 - User approval：`user-approved-plan-direct: “批准”`
-- Gate status：`ready-for-u4a`
+- Gate status：`verified`
 
 进入条件：Phase A verified，用户已看到 0.147 资格结论。适用决策：D2。
 
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| U4 | 替换 vendor substrate | dependency/source | `third_party/codex-cli/`、`UPSTREAM.md` | 已验证的 0.147 源码与 workspace metadata | 已用官方 Git archive 替换 vendor，只重放 U3 patch；保留官方锁文件 | 工作树候选对齐 0.147，Whale 数据仍隔离；尚未提交 | 建立可维护 substrate，减少逐补丁漂移 | Complexity：大规模机械变化、无新业务抽象；Reach/Cost：全 workspace 构建和审查成本高 | SHA/tree/license、U3 tests、offline CLI build/smoke、42 个 metadata 单测通过；cache index gate blocked | 保持未提交；先审批 material plan delta，禁止绕过 gate | blocked-on-cache-gate |
-| U4a | 迁移 vendor cutover 缓存验证合同 | test/governance | cache gate contract、free final-wire fixtures、U4 提交边界 | 0.147 已移除的 Whale 专用 cache policy/final-wire 合同 | 只迁移或重建可在 0.147 substrate 上执行的免费合同；不修改产品源码、accepted baseline 或真实回归结果 | U4 的缓存敏感变化可被免费证据发现并与后续真实回归边界分离 | 保留强制门禁，同时避免无被测链路的付费运行 | Complexity：限于测试/门禁；Reach/Cost：增加免费测试维护成本，0 模型请求 | cache runner 单测；free final-wire；index gate；证明 accepted baseline 未变 | 无法在不改产品逻辑下建立可信合同时停止，不降低 gate | in-progress |
+| U4 | 替换 vendor substrate | dependency/source | `third_party/codex-cli/`、`UPSTREAM.md` | 已验证的 0.147 源码与 workspace metadata | 已用官方 Git archive 替换 vendor，只重放 U3 patch；保留官方锁文件 | vendor 对齐 0.147，Whale 数据仍隔离；DeepSeek/TaskSpace 未混入本单元 | 建立可维护 substrate，减少逐补丁漂移 | Complexity：大规模机械变化、无新业务抽象；Reach/Cost：全 workspace 构建和审查成本高 | SHA/tree/license、U3 tests、offline CLI build/smoke、42 个 metadata 单测、cache index gate 通过 | 独立 revert U4；产品 overlay 仍按 U5–U16 分单元恢复 | verified |
+| U4a | 迁移 vendor cutover 缓存验证合同 | test/governance | cache gate contract、free final-wire fixtures、U4 提交边界 | 0.147 已移除的 Whale 专用 cache policy/final-wire 合同 | 已在不修改产品源码、accepted baseline 或真实回归结果的前提下迁移免费合同 | U4 的缓存敏感变化可被免费证据发现并与后续真实回归边界分离 | 保留强制门禁，同时避免无被测链路的付费运行 | Complexity：限于测试/门禁；Reach/Cost：增加免费测试维护成本，0 模型请求 | 53 个 gate/contract 单测；free final-wire 全矩阵；index gate 通过；accepted baseline 未变 | 独立提交 `17424eac8` 可回滚；不得据此晋升 live baseline | verified |
 
-退出条件：未满足。U4 本地实现与常规验证已完成，但 cache index gate blocked；未在本阶段重放 DeepSeek/TaskSpace。证据见 [U4 vendor cutover report](../../migration/codex-sync/2026-08-13-u4-vendor-substrate-cutover.md)。
+退出条件：已满足。U4 常规验证与 cache index gate 均通过；Phase B 未重放 DeepSeek/TaskSpace，也未改变 accepted live baseline。证据见 [U4 vendor cutover report](../../migration/codex-sync/2026-08-13-u4-vendor-substrate-cutover.md)。
 
 ### Phase C：DeepSeek 闭环
 
@@ -238,7 +238,7 @@
 | 已完成：资格与差异证据 | 无生产语义 | 仅候选、差异和 replay 证据；vendor 未变 | none | engineering-only | 自动语义分类已降级 |
 | 已完成：U1 | 无产品语义 | 修正 qualification runner 并确认 0.146 validation direction-rejected；vendor 未变 | D2 | engineering-only | 已收口为 Phase A 历史输入 |
 | Phase A | 已完成 | U2 direction-supported-with-known-test-risks；Checkpoint B 已刷新 0.147 查询工件；U3 最小 identity/home/auth/default seam 验证通过；vendor 未变 | D2 | covered + engineering-only | 进入 Phase B rebase gate |
-| Phase B | blocked | 工作树候选对齐 0.147 且只保留 U3 seam；cache policy/final-wire 删除与敏感源码替换同批，门禁拒绝提交 | D2 | material plan delta | 用户批准提交/验证边界修订后继续 |
+| Phase B | 已完成 | vendor 对齐 0.147 且只保留 U3 seam；U4a 独立迁移免费缓存合同，cache index gate 通过；live baseline 仍保持失败状态 | D2 | covered + engineering-only | 进入 Phase C rebase gate |
 | Phase C | 待执行 | 待记录 | D1、D2 | 待分类 | U5–U10 后审计 |
 | Phase D | 待执行 | 待记录 | D2 | 待分类 | U11–U16 后审计 |
 | Phase E | 待执行 | 待记录 | D1、D2 | 待分类 | U17 后审计 |
@@ -254,7 +254,7 @@
 
 ## 8. 执行与提交边界
 
-执行顺序当前停在 `... -> U3（已完成） -> Phase B rebase gate（已完成） -> U4（cache gate blocked）`。不能绕过门禁直接提交，也不能在缺少 DeepSeek/TaskSpace 被测路径时消耗真实回归预算；下一步需先批准 material plan delta。
+执行顺序当前到达 `... -> U3（已完成） -> Phase B rebase gate（已完成） -> U4a（已完成） -> U4（已验证）`。下一步进入 Phase C rebase gate；在 DeepSeek/TaskSpace 被测路径恢复前不消耗真实回归预算，也不晋升 live baseline。
 
 - 每个 U 单元至少一个独立、可理解、已基本验证的 commit，并立即 push。
 - 单元内出现两个可独立回滚的行为主题时继续拆 commit；不得把 vendor 机械替换与产品 overlay 混为一个提交。

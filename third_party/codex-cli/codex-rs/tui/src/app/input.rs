@@ -4,15 +4,93 @@
 //! entry, Ctrl-L clear, external editor launch, and agent navigation shortcuts.
 
 use super::*;
+use crate::app_backtrack::SIDE_EDIT_PREVIOUS_UNAVAILABLE_MESSAGE;
 
 impl App {
+    pub(super) fn route_key_chord_event(
+        &mut self,
+        tui: &mut tui::Tui,
+        key_event: KeyEvent,
+    ) -> Option<KeyEvent> {
+        let contexts = self.active_keymap_contexts();
+        let was_pending = self.key_chord_matcher.is_pending();
+        match self.key_chord_matcher.advance(
+            key_event,
+            &self.keymap.chords,
+            contexts,
+            tokio::time::Instant::now(),
+        ) {
+            crate::keymap::KeyChordMatch::PassThrough => {
+                if was_pending && !self.key_chord_matcher.is_pending() {
+                    self.chat_widget.set_footer_hint_override(/*items*/ None);
+                }
+                Some(key_event)
+            }
+            crate::keymap::KeyChordMatch::Pending(prefix) => {
+                if self.backtrack.primed {
+                    self.reset_backtrack_state();
+                }
+                self.chat_widget.set_footer_hint_override(Some(vec![
+                    (
+                        format!("{} …", prefix.display_label()),
+                        "waiting for next key".to_string(),
+                    ),
+                    ("esc".to_string(), "cancel".to_string()),
+                ]));
+                tui.frame_requester()
+                    .schedule_frame_in(crate::keymap::KEY_CHORD_TIMEOUT);
+                None
+            }
+            crate::keymap::KeyChordMatch::Completed(dispatch_event) => {
+                self.chat_widget.set_footer_hint_override(/*items*/ None);
+                Some(dispatch_event)
+            }
+            crate::keymap::KeyChordMatch::Cancelled => {
+                self.chat_widget.set_footer_hint_override(/*items*/ None);
+                None
+            }
+            crate::keymap::KeyChordMatch::Ignored => None,
+        }
+    }
+
+    pub(super) fn expire_pending_key_chord(&mut self) {
+        let contexts = self.active_keymap_contexts();
+        if self
+            .key_chord_matcher
+            .expire(contexts, tokio::time::Instant::now())
+        {
+            self.chat_widget.set_footer_hint_override(/*items*/ None);
+        }
+    }
+
+    pub(super) fn cancel_pending_key_chord(&mut self) {
+        if self.key_chord_matcher.cancel() {
+            self.chat_widget.set_footer_hint_override(/*items*/ None);
+        }
+    }
+
+    fn active_keymap_contexts(&self) -> crate::keymap::KeymapContextSet {
+        if self.overlay.is_some() {
+            return crate::keymap::KeymapContextSet::new(crate::keymap::KeymapContext::Pager);
+        }
+
+        let contexts = self.chat_widget.keymap_contexts();
+        if self.chat_widget.no_modal_or_popup_active() {
+            contexts
+                .with(crate::keymap::KeymapContext::Global)
+                .with(crate::keymap::KeymapContext::Chat)
+        } else {
+            contexts
+        }
+    }
+
     pub(super) async fn launch_external_editor(&mut self, tui: &mut tui::Tui) {
         let editor_cmd = match external_editor::resolve_editor_command() {
             Ok(cmd) => cmd,
             Err(external_editor::EditorError::MissingEditor) => {
                 self.chat_widget
                     .add_to_history(history_cell::new_error_event(
-                    "Cannot open external editor: set $VISUAL or $EDITOR before starting Whale."
+                    "Cannot open external editor: set $VISUAL or $EDITOR before starting Codex."
                         .to_string(),
                 ));
                 self.reset_external_editor_state(tui);
@@ -30,9 +108,7 @@ impl App {
 
         let seed = self.chat_widget.composer_text_with_pending();
         let editor_result = tui
-            .with_restored(tui::RestoreMode::KeepRaw, || async {
-                external_editor::run_editor(&seed, &editor_cmd).await
-            })
+            .with_restored(|| async { external_editor::run_editor(&seed, &editor_cmd).await })
             .await;
         self.reset_external_editor_state(tui);
 
@@ -66,6 +142,26 @@ impl App {
         self.chat_widget
             .set_external_editor_state(ExternalEditorState::Closed);
         self.chat_widget.set_footer_hint_override(/*items*/ None);
+        tui.frame_requester().schedule_frame();
+    }
+
+    pub(super) fn apply_raw_output_mode(
+        &mut self,
+        tui: &mut tui::Tui,
+        enabled: bool,
+        notify: bool,
+    ) {
+        if notify {
+            self.chat_widget.set_raw_output_mode_and_notify(enabled);
+        } else {
+            self.chat_widget.set_raw_output_mode(enabled);
+        }
+        let terminal_width = tui.terminal.last_known_screen_size.into();
+        if let Err(err) = self.reflow_transcript_now(tui, terminal_width) {
+            tracing::warn!(error = %err, "failed to reflow transcript after raw output mode toggle");
+            self.chat_widget
+                .add_error_message(format!("Failed to redraw transcript: {err}"));
+        }
         tui.frame_requester().schedule_frame();
     }
 
@@ -122,24 +218,85 @@ impl App {
             return;
         }
 
-        match key_event {
-            KeyEvent {
-                code: KeyCode::Char('t'),
-                modifiers: KeyModifiers::CONTROL,
-                kind: KeyEventKind::Press,
-                ..
-            } => {
-                // Enter alternate screen and set viewport to full size.
-                let _ = tui.enter_alt_screen();
-                self.overlay = Some(Overlay::new_transcript(self.transcript_cells.clone()));
-                tui.frame_requester().schedule_frame();
+        let app_keymap_shortcuts_available = self.app_keymap_shortcuts_available();
+
+        let side_toggle_bindings = &self.keymap.app.toggle_side_conversation;
+        if app_keymap_shortcuts_available
+            && (side_toggle_bindings.is_pressed(key_event)
+                || side_toggle_bindings.contains(&crate::key_hint::ctrl(KeyCode::Char('/')))
+                    && crate::key_hint::ctrl(KeyCode::Char('7')).is_press(key_event))
+        {
+            if let Err(err) = self.toggle_side_conversation(tui, app_server).await {
+                self.chat_widget
+                    .add_error_message(format!("Failed to switch side conversation: {err}"));
             }
-            KeyEvent {
-                code: KeyCode::Char('l'),
-                modifiers: KeyModifiers::CONTROL,
-                kind: KeyEventKind::Press,
-                ..
-            } => {
+            return;
+        }
+
+        if app_keymap_shortcuts_available && self.keymap.app.toggle_vim_mode.is_pressed(key_event) {
+            self.chat_widget.toggle_vim_mode_and_notify();
+            return;
+        }
+
+        if app_keymap_shortcuts_available
+            && self.keymap.app.toggle_fast_mode.is_pressed(key_event)
+            && self.chat_widget.can_toggle_fast_mode_from_keybinding()
+        {
+            self.chat_widget.toggle_fast_mode_from_ui();
+            return;
+        }
+
+        if app_keymap_shortcuts_available && self.keymap.app.toggle_raw_output.is_pressed(key_event)
+        {
+            let enabled = !self.chat_widget.raw_output_mode();
+            self.apply_raw_output_mode(tui, enabled, /*notify*/ false);
+            return;
+        }
+
+        if app_keymap_shortcuts_available && self.keymap.app.open_transcript.is_pressed(key_event) {
+            self.scrollback_has_older_history = self
+                .chat_widget
+                .thread_id()
+                .is_some_and(|thread_id| app_server.has_older_history(thread_id));
+            self.open_transcript_overlay(tui);
+            return;
+        }
+
+        if app_keymap_shortcuts_available
+            && self.keymap.app.open_external_editor.is_pressed(key_event)
+        {
+            // Only launch the external editor if there is no overlay and the bottom pane is not in use.
+            // Note that it can be launched while a task is running to enable editing while the previous turn is ongoing.
+            if self.overlay.is_none()
+                && self.chat_widget.can_launch_external_editor()
+                && self.chat_widget.external_editor_state() == ExternalEditorState::Closed
+            {
+                self.request_external_editor_launch(tui);
+            }
+            return;
+        }
+
+        if matches!(key_event.code, KeyCode::Esc)
+            && matches!(key_event.kind, KeyEventKind::Press | KeyEventKind::Repeat)
+        {
+            // Esc primes/advances backtracking only in normal (not working) mode
+            // with the composer focused and empty. In any other state, forward
+            // Esc so the active UI (e.g. status indicator, modals, popups)
+            // handles it.
+            if self.should_handle_backtrack_esc(key_event) {
+                self.handle_backtrack_esc_key(tui);
+            } else if self.should_reject_side_backtrack_esc(key_event) {
+                self.reject_side_backtrack_esc();
+            } else {
+                self.chat_widget.handle_key_event(key_event);
+            }
+            return;
+        }
+
+        match key_event {
+            _ if app_keymap_shortcuts_available
+                && self.keymap.app.clear_terminal.is_pressed(key_event) =>
+            {
                 if !self.chat_widget.can_run_ctrl_l_clear_now() {
                     return;
                 }
@@ -153,38 +310,6 @@ impl App {
                     tui.frame_requester().schedule_frame();
                 }
             }
-            KeyEvent {
-                code: KeyCode::Char('g'),
-                modifiers: KeyModifiers::CONTROL,
-                kind: KeyEventKind::Press,
-                ..
-            } => {
-                // Only launch the external editor if there is no overlay and the bottom pane is not in use.
-                // Note that it can be launched while a task is running to enable editing while the previous turn is ongoing.
-                if self.overlay.is_none()
-                    && self.chat_widget.can_launch_external_editor()
-                    && self.chat_widget.external_editor_state() == ExternalEditorState::Closed
-                {
-                    self.request_external_editor_launch(tui);
-                }
-            }
-            // Esc primes/advances backtracking only in normal (not working) mode
-            // with the composer focused and empty. In any other state, forward
-            // Esc so the active UI (e.g. status indicator, modals, popups)
-            // handles it.
-            KeyEvent {
-                code: KeyCode::Esc,
-                kind: KeyEventKind::Press | KeyEventKind::Repeat,
-                ..
-            } => {
-                if self.chat_widget.is_normal_backtrack_mode()
-                    && self.chat_widget.composer_is_empty()
-                {
-                    self.handle_backtrack_esc_key(tui);
-                } else {
-                    self.chat_widget.handle_key_event(key_event);
-                }
-            }
             // Enter confirms backtrack when primed + count > 0. Otherwise pass to widget.
             KeyEvent {
                 code: KeyCode::Enter,
@@ -195,7 +320,8 @@ impl App {
                 && self.chat_widget.composer_is_empty() =>
             {
                 if let Some(selection) = self.confirm_backtrack_from_main() {
-                    self.apply_backtrack_selection(tui, selection);
+                    self.apply_backtrack_selection(selection);
+                    tui.frame_requester().schedule_frame();
                 }
             }
             KeyEvent {
@@ -216,7 +342,47 @@ impl App {
         };
     }
 
+    pub(super) fn should_handle_backtrack_esc(&self, key_event: KeyEvent) -> bool {
+        !self.chat_widget.side_conversation_active()
+            && self.chat_widget.is_normal_backtrack_mode()
+            && self.chat_widget.composer_is_empty()
+            && !self.chat_widget.should_handle_vim_insert_escape(key_event)
+    }
+
+    pub(super) fn should_reject_side_backtrack_esc(&self, key_event: KeyEvent) -> bool {
+        self.chat_widget.side_conversation_active()
+            && self.chat_widget.is_normal_backtrack_mode()
+            && self.chat_widget.composer_is_empty()
+            && !self.chat_widget.should_handle_vim_insert_escape(key_event)
+    }
+
+    pub(super) fn reject_side_backtrack_esc(&mut self) {
+        self.reset_backtrack_state();
+        self.chat_widget
+            .add_error_message(SIDE_EDIT_PREVIOUS_UNAVAILABLE_MESSAGE.to_string());
+    }
+
+    fn app_keymap_shortcuts_available(&self) -> bool {
+        self.overlay.is_none() && self.chat_widget.no_modal_or_popup_active()
+    }
+
     pub(super) fn refresh_status_line(&mut self) {
         self.chat_widget.refresh_status_line();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::make_test_app;
+
+    #[tokio::test]
+    async fn app_keymap_shortcuts_are_disabled_while_keymap_view_is_active() {
+        let mut app = make_test_app().await;
+        assert!(app.app_keymap_shortcuts_available());
+
+        let keymap = app.keymap.clone();
+        app.chat_widget.open_keymap_debug(&keymap);
+
+        assert!(!app.app_keymap_shortcuts_available());
     }
 }

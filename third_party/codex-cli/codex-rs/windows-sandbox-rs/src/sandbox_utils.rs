@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 /// Walk upward from `start` to locate the git worktree root for `safe.directory`.
-fn find_git_root(start: &Path) -> Option<std::path::PathBuf> {
+fn find_git_worktree_root_for_safe_directory(start: &Path) -> Option<std::path::PathBuf> {
     let mut cur = dunce::canonicalize(start).ok()?;
     loop {
         if cur.join(".git").exists() {
@@ -34,7 +34,7 @@ pub fn ensure_codex_home_exists(p: &Path) -> Result<()> {
 /// git will not otherwise allow the Sandbox user to run git commands on the repo directory
 /// which is owned by the primary user.
 pub fn inject_git_safe_directory(env_map: &mut HashMap<String, String>, cwd: &Path) {
-    if let Some(git_root) = find_git_root(cwd) {
+    if let Some(git_root) = find_git_worktree_root_for_safe_directory(cwd) {
         let mut cfg_count: usize = env_map
             .get("GIT_CONFIG_COUNT")
             .and_then(|v| v.parse::<usize>().ok())

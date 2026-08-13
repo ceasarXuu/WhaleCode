@@ -132,7 +132,9 @@ where
 
     if total == AUTH_HEADER_PREFIX.len() {
         buf.zeroize();
-        return Err(anyhow!("API key must be provided via stdin"));
+        return Err(anyhow!(
+            "API key must be provided via stdin (e.g. printenv OPENAI_API_KEY | codex responses-api-proxy)"
+        ));
     }
 
     if let Err(err) = validate_auth_header_bytes(&buf[AUTH_HEADER_PREFIX.len()..total]) {
