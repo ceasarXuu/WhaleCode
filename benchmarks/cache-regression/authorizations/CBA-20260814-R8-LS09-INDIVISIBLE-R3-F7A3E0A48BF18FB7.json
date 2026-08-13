@@ -1,0 +1,29 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "approved_at": "2026-08-14T01:49:07+08:00",
+  "authorization_id": "CBA-20260814-R8-LS09-INDIVISIBLE-R3-F7A3E0A48BF18FB7",
+  "approval_reference": "用户于 2026-08-14 明确批准修复后 repeat=5；这是统计运行 3/5，零自动重试。",
+  "proposal_id": "CBP-F7A3E0A48BF18FB7",
+  "proposal_sha256": "af4f938308f3e2dbe9dfddbf0656449a617a9c2d1ed9ca9b8e08aa46351ec828",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": ["provider-web-search-probe"],
+    "arms": ["map-request"],
+    "repeat": 1,
+    "planned_sample_runs": 1,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 1,
+    "stop_conditions": ["after_any_usage_gap", "after_any_budget_observation_exceeded"],
+    "selection_reason": "用户批准 provider-web-search-probe × map-request × repeat=5，验证顶层 web_search 与 taskspace_exec 归属登记的不可拆分双写协议。由于 runner 会在单轮业务失败后停止批次，拆成五个独立 repeat=1，合计不超过批准五轮；每轮最多 12 Provider requests、500,000 input、25,000 output、420 秒，零重试。"
+  },
+  "approved_maximums": {
+    "provider_requests": 12,
+    "input_tokens": 12000000,
+    "output_tokens": 4608000,
+    "elapsed_seconds": 540,
+    "estimated_cost": 2.97024,
+    "currency": "USD"
+  }
+}

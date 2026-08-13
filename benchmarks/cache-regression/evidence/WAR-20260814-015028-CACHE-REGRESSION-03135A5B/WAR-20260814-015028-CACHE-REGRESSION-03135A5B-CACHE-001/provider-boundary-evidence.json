@@ -1,0 +1,63 @@
+{
+  "schema_version": "whalecode-provider-boundary-evidence-v2",
+  "request_facts_analyzer_version": "i07-review-fixes-v3",
+  "status": "reconciled",
+  "boundary_availability": "measured",
+  "boundary_correlation_availability": "measured",
+  "expected_model": "deepseek-v4-flash",
+  "allowed_method": "POST",
+  "allowed_path": "/responses",
+  "boundary_request_count": 2,
+  "wire_request_count": 2,
+  "local_attempt_count": 2,
+  "local_only_attempt_count": 0,
+  "boundary_requests": [
+    {
+      "count": 1,
+      "method": "POST",
+      "path": "/responses",
+      "model": "deepseek-v4-flash",
+      "body_sha256": "8483fb2f5d7fb9c7e1146606a2a9e148689241922cf15120fc0babc414289b30"
+    },
+    {
+      "count": 2,
+      "method": "POST",
+      "path": "/responses",
+      "model": "deepseek-v4-flash",
+      "body_sha256": "e3b87a44ff14c9d1c704e73ef2287c86c1def7df0e1cf461a4e0d23174492e80"
+    }
+  ],
+  "wire_requests": [
+    {
+      "request_id": "provider-wire:019ffc3f-74ee-7bf0-8d59-3d742408c8ae:0:logical-1:attempt-1",
+      "request_count_after": 1,
+      "provider_payload_sha256": "8483fb2f5d7fb9c7e1146606a2a9e148689241922cf15120fc0babc414289b30"
+    },
+    {
+      "request_id": "provider-wire:019ffc3f-74ee-7bf0-8d59-3d742408c8ae:0:logical-2:attempt-1",
+      "request_count_after": 2,
+      "provider_payload_sha256": "e3b87a44ff14c9d1c704e73ef2287c86c1def7df0e1cf461a4e0d23174492e80"
+    }
+  ],
+  "local_attempts": [
+    {
+      "request_id": "provider-wire:019ffc3f-74ee-7bf0-8d59-3d742408c8ae:0:logical-1:attempt-1",
+      "logical_request_id": "provider-wire:019ffc3f-74ee-7bf0-8d59-3d742408c8ae:0:logical-1",
+      "attempt_seq": 1,
+      "request_index": 1,
+      "provider_payload_sha256": "8483fb2f5d7fb9c7e1146606a2a9e148689241922cf15120fc0babc414289b30",
+      "boundary_status": "observed",
+      "terminal_status": "response_completed"
+    },
+    {
+      "request_id": "provider-wire:019ffc3f-74ee-7bf0-8d59-3d742408c8ae:0:logical-2:attempt-1",
+      "logical_request_id": "provider-wire:019ffc3f-74ee-7bf0-8d59-3d742408c8ae:0:logical-2",
+      "attempt_seq": 1,
+      "request_index": 2,
+      "provider_payload_sha256": "e3b87a44ff14c9d1c704e73ef2287c86c1def7df0e1cf461a4e0d23174492e80",
+      "boundary_status": "observed",
+      "terminal_status": "response_completed"
+    }
+  ],
+  "errors": []
+}

@@ -1,7 +1,340 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-14T00:22:59+08:00",
+  "updated_at": "2026-08-14T01:56:50+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260814-015254-CACHE-REGRESSION-12F30F0E",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-14T01:53:01+08:00",
+      "ended_at": "2026-08-14T01:56:50+08:00",
+      "elapsed_calendar_seconds": 229.066,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "用户批准 provider-web-search-probe × map-request × repeat=5，验证顶层 web_search 与 taskspace_exec 归属登记的不可拆分双写协议。由于 runner 会在单轮业务失败后停止批次，拆成五个独立 repeat=1，合计不超过批准五轮；每轮最多 12 Provider requests、500,000 input、25,000 output、420 秒，零重试。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260814-R8-LS09-INDIVISIBLE-R3-F7A3E0A48BF18FB7",
+        "reference": "用户于 2026-08-14 明确批准修复后 repeat=5；这是统计运行 3/5，零自动重试。",
+        "budget_summary": {
+          "provider_requests": 12,
+          "input_tokens": 12000000,
+          "output_tokens": 4608000,
+          "elapsed_seconds": 540,
+          "estimated_cost": 2.97024,
+          "currency": "USD"
+        },
+        "note": "严格绑定预算提案 CBP-F7A3E0A48BF18FB7。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "b607fa0b89e170151556844e2d3c852be41238284821dbc1ffda49290f24ce00",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "provider-web-search-probe"
+        ],
+        "arm_ids": [
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 12,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 947691,
+        "cached_input": 877824,
+        "uncached_input": 69867,
+        "output": 21012
+      },
+      "monetary_cost": {
+        "status": "estimated_partial",
+        "currency": "USD",
+        "amount": 0.0181226472,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.0024579072,
+          "uncached_input": 0.009781380000000001,
+          "output": 0.005883360000000001
+        },
+        "pricing_snapshot": {
+          "currency": "USD",
+          "captured_at": "2026-07-31",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "按已取得的部分 provider token 遥测估算；金额是已知最低值。"
+      },
+      "evidence": {
+        "planned_run_root": "target/r8-ls09/indivisible-pairing/run",
+        "subject_commit": "ba8198acd56730efe9a1ba53abd7a7c0410931fc",
+        "surface_sha256": "04cc04af2a5f45bd16790b8c4dbede61cbbeb9814ae70425e4a2e6795674fed1",
+        "proposal_id": "CBP-F7A3E0A48BF18FB7",
+        "proposal_contract_sha256": "af4f938308f3e2dbe9dfddbf0656449a617a9c2d1ed9ca9b8e08aa46351ec828",
+        "proposal_path": "benchmarks/cache-regression/proposals/CBP-F7A3E0A48BF18FB7.json",
+        "proposal_sha256": "e7a766f965758aebf62018e64730fa4f4f2e1c720b2d6bd2174a7bf57d2ae281",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260814-R8-LS09-INDIVISIBLE-R3-F7A3E0A48BF18FB7.json",
+        "authorization_sha256": "eec604e4cc03f38d718a125d2979f8b0322e9231bfe7f05443344b19a4372806",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "provider-web-search-probe"
+          ],
+          "arms": [
+            "map-request"
+          ],
+          "repeat": 1,
+          "planned_sample_runs": 1,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 1,
+          "stop_conditions": [
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "用户批准 provider-web-search-probe × map-request × repeat=5，验证顶层 web_search 与 taskspace_exec 归属登记的不可拆分双写协议。由于 runner 会在单轮业务失败后停止批次，拆成五个独立 repeat=1，合计不超过批准五轮；每轮最多 12 Provider requests、500,000 input、25,000 output、420 秒，零重试。"
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "partial",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260814-015254-CACHE-REGRESSION-12F30F0E/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "a46f3a37dcdf5334a96b7fa72cab27aef6c72ff962c236897692cd42c83f6a2c",
+        "actual_run_root": "target/r8-ls09/indivisible-pairing/run",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260814-015254-CACHE-REGRESSION-12F30F0E.json",
+        "runner_exit_code": 3,
+        "outcome": "partial"
+      }
+    },
+    {
+      "record_id": "WAR-20260814-015115-CACHE-REGRESSION-38D79769",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-14T01:51:23+08:00",
+      "ended_at": "2026-08-14T01:52:54+08:00",
+      "elapsed_calendar_seconds": 91.083,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "用户批准 provider-web-search-probe × map-request × repeat=5，验证顶层 web_search 与 taskspace_exec 归属登记的不可拆分双写协议。由于 runner 会在单轮业务失败后停止批次，拆成五个独立 repeat=1，合计不超过批准五轮；每轮最多 12 Provider requests、500,000 input、25,000 output、420 秒，零重试。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260814-R8-LS09-INDIVISIBLE-R2-F7A3E0A48BF18FB7",
+        "reference": "用户于 2026-08-14 明确批准修复后 repeat=5；这是统计运行 2/5，零自动重试。",
+        "budget_summary": {
+          "provider_requests": 12,
+          "input_tokens": 12000000,
+          "output_tokens": 4608000,
+          "elapsed_seconds": 540,
+          "estimated_cost": 2.97024,
+          "currency": "USD"
+        },
+        "note": "严格绑定预算提案 CBP-F7A3E0A48BF18FB7。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "b1844d922c14472ddc8b24b4961f8f9c8696c9106ef25dd1e59207298d22e7ec",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "provider-web-search-probe"
+        ],
+        "arm_ids": [
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 12,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 318146,
+        "cached_input": 289280,
+        "uncached_input": 28866,
+        "output": 7023
+      },
+      "monetary_cost": {
+        "status": "estimated_partial",
+        "currency": "USD",
+        "amount": 0.006817664,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.0008099839999999999,
+          "uncached_input": 0.004041240000000001,
+          "output": 0.0019664400000000003
+        },
+        "pricing_snapshot": {
+          "currency": "USD",
+          "captured_at": "2026-07-31",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "按已取得的部分 provider token 遥测估算；金额是已知最低值。"
+      },
+      "evidence": {
+        "planned_run_root": "target/r8-ls09/indivisible-pairing/run",
+        "subject_commit": "ba8198acd56730efe9a1ba53abd7a7c0410931fc",
+        "surface_sha256": "04cc04af2a5f45bd16790b8c4dbede61cbbeb9814ae70425e4a2e6795674fed1",
+        "proposal_id": "CBP-F7A3E0A48BF18FB7",
+        "proposal_contract_sha256": "af4f938308f3e2dbe9dfddbf0656449a617a9c2d1ed9ca9b8e08aa46351ec828",
+        "proposal_path": "benchmarks/cache-regression/proposals/CBP-F7A3E0A48BF18FB7.json",
+        "proposal_sha256": "e7a766f965758aebf62018e64730fa4f4f2e1c720b2d6bd2174a7bf57d2ae281",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260814-R8-LS09-INDIVISIBLE-R2-F7A3E0A48BF18FB7.json",
+        "authorization_sha256": "339112c4a16b30f643839e79771b899f50a48b652e9ac3d64d4fe0c999cb07ab",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "provider-web-search-probe"
+          ],
+          "arms": [
+            "map-request"
+          ],
+          "repeat": 1,
+          "planned_sample_runs": 1,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 1,
+          "stop_conditions": [
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "用户批准 provider-web-search-probe × map-request × repeat=5，验证顶层 web_search 与 taskspace_exec 归属登记的不可拆分双写协议。由于 runner 会在单轮业务失败后停止批次，拆成五个独立 repeat=1，合计不超过批准五轮；每轮最多 12 Provider requests、500,000 input、25,000 output、420 秒，零重试。"
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "partial",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260814-015115-CACHE-REGRESSION-38D79769/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "8285cdfdab921f3de6ce0314198bdb5c7346ab78f3d68f16c0bf59dc5d1ee6e2",
+        "actual_run_root": "target/r8-ls09/indivisible-pairing/run",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260814-015115-CACHE-REGRESSION-38D79769.json",
+        "runner_exit_code": 3,
+        "outcome": "partial"
+      }
+    },
+    {
+      "record_id": "WAR-20260814-015028-CACHE-REGRESSION-03135A5B",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-14T01:50:35+08:00",
+      "ended_at": "2026-08-14T01:51:15+08:00",
+      "elapsed_calendar_seconds": 39.85,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "用户批准 provider-web-search-probe × map-request × repeat=5，验证顶层 web_search 与 taskspace_exec 归属登记的不可拆分双写协议。由于 runner 会在单轮业务失败后停止批次，拆成五个独立 repeat=1，合计不超过批准五轮；每轮最多 12 Provider requests、500,000 input、25,000 output、420 秒，零重试。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260814-R8-LS09-INDIVISIBLE-R1-F7A3E0A48BF18FB7",
+        "reference": "用户于 2026-08-14 明确批准修复后 repeat=5；这是统计运行 1/5，零自动重试。",
+        "budget_summary": {
+          "provider_requests": 12,
+          "input_tokens": 12000000,
+          "output_tokens": 4608000,
+          "elapsed_seconds": 540,
+          "estimated_cost": 2.97024,
+          "currency": "USD"
+        },
+        "note": "严格绑定预算提案 CBP-F7A3E0A48BF18FB7。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "8b1f20c3fb087fce3e87ede20eab67d99eeb5e19465d05c9bdb2f45ddb935d6f",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "provider-web-search-probe"
+        ],
+        "arm_ids": [
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 2,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 26119,
+        "cached_input": 12672,
+        "uncached_input": 13447,
+        "output": 1914
+      },
+      "monetary_cost": {
+        "status": "estimated_partial",
+        "currency": "USD",
+        "amount": 0.0024539816,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 3.5481599999999996e-05,
+          "uncached_input": 0.0018825800000000002,
+          "output": 0.0005359200000000001
+        },
+        "pricing_snapshot": {
+          "currency": "USD",
+          "captured_at": "2026-07-31",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "按已取得的部分 provider token 遥测估算；金额是已知最低值。"
+      },
+      "evidence": {
+        "planned_run_root": "target/r8-ls09/indivisible-pairing/run",
+        "subject_commit": "ba8198acd56730efe9a1ba53abd7a7c0410931fc",
+        "surface_sha256": "04cc04af2a5f45bd16790b8c4dbede61cbbeb9814ae70425e4a2e6795674fed1",
+        "proposal_id": "CBP-F7A3E0A48BF18FB7",
+        "proposal_contract_sha256": "af4f938308f3e2dbe9dfddbf0656449a617a9c2d1ed9ca9b8e08aa46351ec828",
+        "proposal_path": "benchmarks/cache-regression/proposals/CBP-F7A3E0A48BF18FB7.json",
+        "proposal_sha256": "e7a766f965758aebf62018e64730fa4f4f2e1c720b2d6bd2174a7bf57d2ae281",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260814-R8-LS09-INDIVISIBLE-R1-F7A3E0A48BF18FB7.json",
+        "authorization_sha256": "fdbb7309f9473c52d2b9de885f4c166d6965539594df7b390bba0b14da7db4fc",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "provider-web-search-probe"
+          ],
+          "arms": [
+            "map-request"
+          ],
+          "repeat": 1,
+          "planned_sample_runs": 1,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 1,
+          "stop_conditions": [
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "用户批准 provider-web-search-probe × map-request × repeat=5，验证顶层 web_search 与 taskspace_exec 归属登记的不可拆分双写协议。由于 runner 会在单轮业务失败后停止批次，拆成五个独立 repeat=1，合计不超过批准五轮；每轮最多 12 Provider requests、500,000 input、25,000 output、420 秒，零重试。"
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "partial",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260814-015028-CACHE-REGRESSION-03135A5B/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "f154ae257dc67acc1fabb785d72bd7cc0ba1ff207ceafd647e0b3c1f7535a370",
+        "actual_run_root": "target/r8-ls09/indivisible-pairing/run",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260814-015028-CACHE-REGRESSION-03135A5B.json",
+        "runner_exit_code": 3,
+        "outcome": "partial"
+      }
+    },
     {
       "record_id": "WAR-20260814-002101-CACHE-REGRESSION-FAC26AFA",
       "record_type": "run_batch",

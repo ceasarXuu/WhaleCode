@@ -36,22 +36,24 @@
 
 ## 3. 协议行为统计
 
-五轮 trace 合计出现 33 个 Provider 内部 Web output item（`search` 15、`open_page` 10、`find_in_page` 8），Runtime
-忠实聚合为逻辑 `web_search`，没有把内部步骤拆成 Map action。Agent 共生成 16 次 Hosted 归属声明，其中 8 次完成
-同响应逻辑对账；另外出现 6 次漏登拒绝、3 次提前登记拒绝和 2 次 owner 节点状态拒绝。每轮至少出现一种协议或序列错误。
+> 2026-08-14 纠偏：`search`、`open_page`、`find_in_page` 是同一个 Hosted Web Search 调用中的内部 action，
+> 不是三个 TaskSpace Tool，也不分别产生三份归属。此前把 subtype 映射列为主根因的结论无效。
 
-第一轮提供了直接正向证据：Agent reasoning 明确复述“原生 `search` 与 Exec `web_search` 必须在同一响应”，随后首次配对
-成功。这说明新合同进入了有效上下文，不是完全无效。但后续 `open_page` 又发生漏登，证明模型没有稳定建立 Provider 原生
-动作与逻辑 Tool 的完整映射。
+五轮 trace 中 Runtime 始终把同一 Provider response scope 内的 Web Search 内部 output 聚合为一个逻辑
+`web_search`，没有把内部步骤拆成 Map action。Agent 共生成 16 次 Hosted 归属声明，其中 8 次完成同响应逻辑对账；
+另外出现 6 次漏登拒绝、3 次提前登记拒绝和 2 次 owner 节点状态拒绝。每轮至少出现一种协议或序列错误。
+
+有效正向证据仅能说明 Agent 偶尔可以在同一个响应中同时生成 Hosted Web Search 和 Exec 归属；它不能证明内部 action
+需要分别映射。稳定缺口发生在两个独立顶层 response item 之间：当前 schema 不能结构性表达二者必须同时存在，只能依赖
+Agent 遵循文字合同，再由 Runtime 事后核对。
 
 ## 4. 剩余根因
 
-### 4.1 原生名称到逻辑 Tool 的映射没有闭合
+### 4.1 两个顶层 response item 缺少结构性耦合
 
-Provider 向 Agent 暴露 `search`、`open_page`、`find_in_page` 三种原生动作；Exec 只接受一个逻辑归属名
-`web_search`。当前合同仅说 Provider 内部步骤不得拆分，没有明确写出三者均属于同一个逻辑 `web_search`，也没有明确
-“任一原生 Web 动作出现，本响应都需要同一个逻辑归属声明”。Agent 因此经常给 `search` 配对，却把后续
-`open_page/find_in_page` 当成不需登记的内部结果。这是本轮最稳定的合同缺口。
+Hosted Web Search 的原生结果与 `taskspace_exec` 归属是两个独立顶层 response item。JSON Schema 可以分别约束二者的
+内部结构，但不能声明“出现 A 时必须在同一响应出现 B”。当前实现只能用文字合同要求 Agent 双写，并在响应完成后由 Runtime
+忠实核对；漏写、提前写或错写仍然由模型自由生成。这是本轮证据支持的机制缺口，与 Web Search 内部 action 无关。
 
 ### 4.2 `Hosted work -> complete owner` 缺少合法同批顺序
 
@@ -67,13 +69,13 @@ cache runner 的 `stop_reason()` 当前对任意业务失败都停止，即使 p
 
 ## 5. 判定
 
-- **已验证收益**：同响应双写语义可被模型理解并成功执行；8 次真实逻辑对账成功；Hosted `input` 误用不再是主导失败。
+- **已验证收益**：同响应双写语义可被模型偶尔执行；8 次真实逻辑对账成功；Hosted `input` 误用不再是主导失败。
 - **未达成**：协议没有稳定闭合，5/5 均有协议或序列错误，公开业务验证仅 2/5 通过。
 - **缓存**：加权全量 91.00%、request 2+ 91.28%，没有出现缓存结构崩溃；但业务失败结果不得晋升 accepted baseline。
 - **边界**：不引入 Runtime 自动绑定、默认 Root、跨响应 pending 或 Provider 结果重解释。
 
-下一步应先用最小合同补齐 `search/open_page/find_in_page -> web_search` 显式映射，再单独解决 Hosted 归属后完成 owner 的合法
-序列；两个变量不得合并验证。
+下一步应先单变量验证是否能在不引入 Runtime 自动绑定的前提下增强两个顶层 item 的配对合同，再单独解决 Hosted 归属后
+完成 owner 的合法序列；不得再把内部 action 映射作为修复方向。
 
 ## 6. 证据
 
