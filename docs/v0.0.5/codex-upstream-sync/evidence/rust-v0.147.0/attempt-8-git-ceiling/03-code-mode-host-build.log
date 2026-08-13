@@ -1,0 +1,220 @@
+command: cargo build --offline -p codex-code-mode-host --bin codex-code-mode-host
+cwd: codex-rs
+environment: {"INSTA_UPDATE": "no", "NEXTEST_PROFILE": "local", "RUST_MIN_STACK": "8388608"}
+proxy_environment: inherited
+home_environment: inherited
+tmp_environment: external
+git_ceiling_directories: inherited
+child_umask: inherited
+exit_code: 0
+
+   Compiling lock_api v0.4.14
+   Compiling hashbrown v0.17.1
+   Compiling subtle v2.6.1
+   Compiling serde_json v1.0.149
+   Compiling getrandom v0.3.4
+   Compiling futures-io v0.3.32
+   Compiling typenum v1.20.0
+   Compiling writeable v0.6.2
+   Compiling mio v1.2.0
+   Compiling generic-array v0.14.7
+   Compiling smallvec v1.15.1
+   Compiling tracing v0.1.44
+   Compiling either v1.15.0
+   Compiling zerotrie v0.2.4
+   Compiling memchr v2.8.1
+   Compiling zeroize v1.8.2
+   Compiling serde_core v1.0.228
+   Compiling ring v0.17.14
+   Compiling time v0.3.47
+   Compiling num-integer v0.1.46
+   Compiling getrandom v0.2.17
+   Compiling futures-util v0.3.32
+   Compiling serde v1.0.228
+   Compiling potential_utf v0.1.4
+   Compiling icu_locale_core v2.2.0
+   Compiling spin v0.9.8
+   Compiling itertools v0.14.0
+   Compiling parking_lot_core v0.9.12
+   Compiling nibble_vec v0.1.0
+   Compiling icu_collections v2.2.0
+   Compiling rustls-pki-types v1.14.0
+   Compiling radix_trie v0.3.0
+   Compiling aws-lc-rs v1.16.2
+   Compiling flume v0.12.0
+   Compiling parking_lot v0.12.5
+   Compiling rand_core v0.9.5
+   Compiling uuid v1.20.0
+   Compiling ahash v0.8.12
+   Compiling tokio v1.52.3
+   Compiling rand_chacha v0.9.0
+   Compiling indexmap v2.14.0
+   Compiling aho-corasick v1.1.4
+   Compiling num-bigint v0.4.6
+   Compiling getrandom v0.4.2
+   Compiling rustls v0.23.36
+   Compiling rand v0.9.3
+   Compiling libm v0.2.16
+   Compiling rustix v1.1.4
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling rand v0.10.1
+   Compiling ts-rs v11.1.0
+   Compiling schemars v0.8.22
+   Compiling digest v0.10.7
+   Compiling icu_provider v2.2.0
+   Compiling sha2 v0.10.9
+   Compiling sha1 v0.10.6
+   Compiling toml_edit v0.23.10+spec-1.0.0
+   Compiling quickcheck v1.1.0
+   Compiling lock_free_hashtable v0.1.4
+   Compiling moka v0.12.13
+   Compiling icu_normalizer v2.2.0
+   Compiling icu_properties v2.2.0
+   Compiling regex-automata v0.4.13
+   Compiling heapless v0.7.17
+   Compiling arrayvec v0.7.6
+   Compiling asn1-rs v0.7.1
+   Compiling glob v0.3.3
+   Compiling linux-raw-sys v0.12.1
+   Compiling proc-macro-crate v3.4.0
+   Compiling logos-codegen v0.15.1
+   Compiling clang-sys v1.8.1
+   Compiling postcard v1.1.3
+   Compiling nix v0.28.0
+   Compiling rustls-native-certs v0.8.3
+   Compiling dashmap v6.1.0
+   Compiling codex-utils-absolute-path v0.147.0 (<candidate>/codex-rs/utils/absolute-path)
+   Compiling allocative v0.3.6
+   Compiling sorted_vector_map v0.2.1
+   Compiling blake3 v1.8.2
+   Compiling core_maths v0.1.1
+   Compiling icu_locale v2.2.0
+   Compiling static_interner v0.1.2
+   Compiling rama-macros v0.3.0-alpha.4
+   Compiling idna_adapter v1.2.1
+   Compiling prettyplease v0.2.37
+   Compiling calendrical_calculations v0.2.4
+   Compiling idna v1.1.0
+   Compiling serde_html_form v0.3.2
+   Compiling futures-executor v0.3.32
+   Compiling pagable v0.4.1
+   Compiling rustix v0.38.44
+   Compiling icu_calendar_data v2.2.0
+   Compiling futures v0.3.31
+   Compiling der-parser v10.0.0
+   Compiling oid-registry v0.8.1
+   Compiling url v2.5.8
+   Compiling publicsuffix v2.3.0
+   Compiling clap_builder v4.5.58
+   Compiling radix_trie v0.2.1
+   Compiling flate2 v1.1.8
+   Compiling cookie v0.18.1
+   Compiling lsp-types v0.97.0
+   Compiling yasna v0.5.2
+   Compiling nom v7.1.3
+   Compiling resb v0.1.2
+   Compiling libloading v0.8.9
+   Compiling bindgen v0.72.1
+   Compiling linux-raw-sys v0.4.15
+   Compiling display_container v0.9.0
+   Compiling logos-derive v0.15.1
+   Compiling png v0.18.0
+   Compiling zoneinfo64 v0.3.0
+   Compiling tracing-subscriber v0.3.22
+   Compiling regex v1.12.3
+   Compiling cookie_store v0.22.1
+   Compiling logos v0.15.1
+   Compiling fd-lock v4.0.4
+   Compiling itertools v0.13.0
+   Compiling Inflector v0.11.4
+   Compiling starlark_map v0.14.2
+   Compiling schemafy_core v0.5.2
+   Compiling schemafy_lib v0.5.2
+   Compiling webpki-roots v1.0.5
+   Compiling opentelemetry v0.31.0
+   Compiling strck v1.0.0
+   Compiling bstr v1.12.1
+   Compiling enumflags2 v0.7.12
+   Compiling diplomat_core v0.15.0
+   Compiling globset v0.4.18
+   Compiling image v0.25.9
+   Compiling icu_calendar v2.2.1
+   Compiling timezone_provider v0.2.3
+   Compiling tempfile v3.27.0
+   Compiling codex-utils-home-dir v0.147.0 (<candidate>/codex-rs/utils/home-dir)
+   Compiling rustyline v14.0.0
+   Compiling schemafy v0.5.2
+   Compiling tracing-opentelemetry v0.32.1
+   Compiling gzip-header v1.0.0
+   Compiling cexpr v0.6.0
+   Compiling miniz_oxide v0.8.9
+   Compiling fixed_decimal v0.7.2
+   Compiling tokio-util v0.7.18
+   Compiling tokio-graceful v0.2.2
+   Compiling rama-utils v0.3.0-alpha.4
+   Compiling hickory-proto v0.25.2
+   Compiling tower v0.5.3
+   Compiling tokio-stream v0.1.18
+   Compiling tokio-native-tls v0.3.1
+   Compiling debugserver-types v0.5.0
+   Compiling clap v4.5.58
+   Compiling which v6.0.3
+   Compiling codex-utils-cache v0.147.0 (<candidate>/codex-rs/utils/cache)
+   Compiling fslock v0.2.1
+   Compiling rama-core v0.3.0-alpha.4
+   Compiling h2 v0.4.13
+   Compiling tower-http v0.6.8
+   Compiling tokio-test v0.4.5
+   Compiling ixdtf v0.6.4
+   Compiling codex-utils-string v0.147.0 (<candidate>/codex-rs/utils/string)
+   Compiling codex-utils-path-uri v0.147.0 (<candidate>/codex-rs/utils/path-uri)
+   Compiling headers v0.4.1
+   Compiling codex-async-utils v0.147.0 (<candidate>/codex-rs/async-utils)
+   Compiling temporal_rs v0.2.3
+   Compiling icu_decimal v2.2.0
+   Compiling landlock v0.4.4
+   Compiling codex-extension-items v0.147.0 (<candidate>/codex-rs/ext/items)
+   Compiling rustls-webpki v0.103.13
+   Compiling x509-parser v0.18.1
+   Compiling strum v0.27.2
+   Compiling diplomat-runtime v0.15.1
+   Compiling tungstenite v0.27.0 (https://github.com/openai-oss-forks/tungstenite-rs?rev=4fffad30fe373adbdcffab9545e9e9bf4f2fc19f#4fffad30)
+   Compiling deno_core_icudata v0.77.0
+   Compiling diplomat v0.15.0
+   Compiling codex-utils-image v0.147.0 (<candidate>/codex-rs/utils/image)
+   Compiling temporal_capi v0.2.3
+   Compiling tokio-tungstenite v0.28.0 (https://github.com/openai-oss-forks/tokio-tungstenite?rev=0e5b2d73aa18dd9f0a50ee9ff199d5aef7594186#0e5b2d73)
+   Compiling hickory-resolver v0.25.2
+   Compiling rcgen v0.14.7
+   Compiling rama-http-types v0.3.0-alpha.4
+   Compiling hyper v1.8.1
+   Compiling hyper-util v0.1.20
+   Compiling rama-net v0.3.0-alpha.4
+   Compiling tokio-rustls v0.26.4
+   Compiling codex-utils-rustls-provider v0.147.0 (<candidate>/codex-rs/utils/rustls-provider)
+   Compiling v8 v150.4.0
+   Compiling hyper-rustls v0.27.7
+   Compiling hyper-tls v0.6.0
+   Compiling axum v0.8.8
+   Compiling reqwest v0.12.28
+   Compiling starlark_syntax v0.14.2
+   Compiling codex-http-client v0.147.0 (<candidate>/codex-rs/http-client)
+   Compiling rama-http-headers v0.3.0-alpha.4
+   Compiling rama-dns v0.3.0-alpha.4
+   Compiling rama-udp v0.3.0-alpha.4
+   Compiling rama-unix v0.3.0-alpha.4
+   Compiling rama-tls-rustls v0.3.0-alpha.4
+   Compiling starlark v0.14.2
+   Compiling rama-http v0.3.0-alpha.4
+   Compiling rama-tcp v0.3.0-alpha.4
+   Compiling rama-socks5 v0.3.0-alpha.4
+   Compiling rama-http-core v0.3.0-alpha.4
+   Compiling rama-http-backend v0.3.0-alpha.4
+   Compiling codex-network-proxy v0.147.0 (<candidate>/codex-rs/network-proxy)
+   Compiling codex-execpolicy v0.147.0 (<candidate>/codex-rs/execpolicy)
+   Compiling codex-protocol v0.147.0 (<candidate>/codex-rs/protocol)
+   Compiling codex-code-mode-protocol v0.147.0 (<candidate>/codex-rs/code-mode-protocol)
+   Compiling codex-code-mode-runtime v0.147.0 (<candidate>/codex-rs/code-mode-runtime)
+   Compiling codex-code-mode-host v0.147.0 (<candidate>/codex-rs/code-mode-host)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 28.45s

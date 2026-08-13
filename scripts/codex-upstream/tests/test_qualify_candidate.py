@@ -17,6 +17,17 @@ class QualifyCandidateTests(unittest.TestCase):
             "be6e8eac029b183056b7e4402879f15d2c85f61b",
         )
 
+    def test_candidate_uses_codex_sandboxed_v8_artifacts(self) -> None:
+        self.assertEqual(qualify_candidate.RUSTY_V8_VERSION, "150.4.0")
+        self.assertEqual(
+            qualify_candidate.RUSTY_V8_TARGET,
+            "x86_64-unknown-linux-gnu",
+        )
+        self.assertEqual(
+            qualify_candidate.RUSTY_V8_PROFILE,
+            "ptrcomp_sandbox_release",
+        )
+
     def test_environment_scrubs_proxy_variants(self) -> None:
         environment = qualify_candidate._qualification_environment(
             {
@@ -24,6 +35,7 @@ class QualifyCandidateTests(unittest.TestCase):
                 "https_proxy": "lower",
                 "All_Proxy": "mixed",
                 "NO_PROXY": "localhost",
+                "CODEX_SANDBOX_NETWORK_DISABLED": "1",
                 "UNRELATED": "preserved",
             }
         )
@@ -35,8 +47,36 @@ class QualifyCandidateTests(unittest.TestCase):
                 for key in environment
             )
         )
+        self.assertNotIn("CODEX_SANDBOX_NETWORK_DISABLED", environment)
         for key, value in qualify_candidate.QUALIFICATION_ENVIRONMENT.items():
             self.assertEqual(environment[key], value)
+
+    def test_environment_isolates_home_without_losing_rust_toolchains(self) -> None:
+        isolated_home = Path("/candidate/.qualification/home")
+        environment = qualify_candidate._qualification_environment(
+            {
+                "HOME": "/developer",
+                "CARGO_HOME": "/cache/cargo",
+                "UNRELATED": "preserved",
+            },
+            isolated_home=isolated_home,
+        )
+
+        self.assertEqual(environment["HOME"], str(isolated_home))
+        self.assertEqual(environment["CARGO_HOME"], "/cache/cargo")
+        self.assertEqual(environment["RUSTUP_HOME"], "/developer/.rustup")
+        self.assertEqual(environment["UNRELATED"], "preserved")
+
+    def test_package_tests_record_reproducible_environment(self) -> None:
+        self.assertEqual(
+            qualify_candidate.EVIDENCE_DIR,
+            "docs/v0.0.5/codex-upstream-sync/evidence/"
+            "rust-v0.147.0/attempt-9-runtime-ceiling",
+        )
+        self.assertEqual(
+            qualify_candidate.ISOLATED_HOME_TEST_IDS,
+            {"05-app-server-tests"},
+        )
 
     def test_commands_use_supported_isolated_entrypoints(self) -> None:
         commands = dict(qualify_candidate.COMMANDS)
@@ -67,15 +107,35 @@ class QualifyCandidateTests(unittest.TestCase):
             qualify_candidate.PACKAGE_TEST_IDS,
             {"04-core-tests", "05-app-server-tests", "06-tui-tests"},
         )
+        self.assertEqual(
+            qualify_candidate.TEST_SUPPORT_COMMAND,
+            (
+                "cargo",
+                "build",
+                "--offline",
+                "-p",
+                "codex-cli",
+                "--bin",
+                "codex",
+                "-p",
+                "codex-rmcp-client",
+                "--bin",
+                "test_stdio_server",
+            ),
+        )
 
     def test_output_normalization_removes_paths_and_trailing_whitespace(self) -> None:
         normalized = qualify_candidate._normalize_output(
-            "/candidate/file  \n/repo/file\t\n/home/file\n",
+            "/candidate/file  \n/runtime/file\n/repo/file\t\n/home/file\n",
             Path("/repo"),
             Path("/candidate"),
+            Path("/runtime"),
         )
 
-        self.assertEqual(normalized, "<candidate>/file\n<repo>/file\n/home/file")
+        self.assertEqual(
+            normalized,
+            "<candidate>/file\n<runtime>/file\n<repo>/file\n/home/file",
+        )
 
 
 if __name__ == "__main__":

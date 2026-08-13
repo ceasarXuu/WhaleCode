@@ -29,7 +29,12 @@
         "RUST_MIN_STACK": "8388608"
       },
       "proxy_environment": "inherited",
-      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.147.0/01-fmt.log",
+      "home_environment": "inherited",
+      "tmp_environment": "external",
+      "git_ceiling_directories": "inherited",
+      "child_umask": "inherited",
+      "rusty_v8_artifacts": "codex-release-verified",
+      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.147.0/attempt-9-runtime-ceiling/01-fmt.log",
       "exit_code": 0,
       "id": "01-fmt",
       "result": "passed"
@@ -51,7 +56,12 @@
         "RUST_MIN_STACK": "8388608"
       },
       "proxy_environment": "inherited",
-      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.147.0/02-cli-check.log",
+      "home_environment": "inherited",
+      "tmp_environment": "external",
+      "git_ceiling_directories": "inherited",
+      "child_umask": "inherited",
+      "rusty_v8_artifacts": "codex-release-verified",
+      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.147.0/attempt-9-runtime-ceiling/02-cli-check.log",
       "exit_code": 0,
       "id": "02-cli-check",
       "result": "passed"
@@ -73,10 +83,15 @@
         "RUST_MIN_STACK": "8388608"
       },
       "proxy_environment": "inherited",
-      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.147.0/03-code-mode-host-build.log",
-      "exit_code": 101,
+      "home_environment": "inherited",
+      "tmp_environment": "external",
+      "git_ceiling_directories": "inherited",
+      "child_umask": "inherited",
+      "rusty_v8_artifacts": "codex-release-verified",
+      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.147.0/attempt-9-runtime-ceiling/03-code-mode-host-build.log",
+      "exit_code": 0,
       "id": "03-code-mode-host-build",
-      "result": "failed"
+      "result": "passed"
     },
     {
       "command": [
@@ -94,7 +109,12 @@
         "RUST_MIN_STACK": "8388608"
       },
       "proxy_environment": "scrubbed",
-      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.147.0/04-core-tests.log",
+      "home_environment": "inherited",
+      "tmp_environment": "external",
+      "git_ceiling_directories": "runtime-temp",
+      "child_umask": "0022",
+      "rusty_v8_artifacts": "codex-release-verified",
+      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.147.0/attempt-9-runtime-ceiling/04-core-tests.log",
       "exit_code": 100,
       "id": "04-core-tests",
       "result": "failed"
@@ -115,10 +135,15 @@
         "RUST_MIN_STACK": "8388608"
       },
       "proxy_environment": "scrubbed",
-      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.147.0/05-app-server-tests.log",
-      "exit_code": 100,
+      "home_environment": "isolated",
+      "tmp_environment": "external",
+      "git_ceiling_directories": "runtime-temp",
+      "child_umask": "0022",
+      "rusty_v8_artifacts": "codex-release-verified",
+      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.147.0/attempt-9-runtime-ceiling/05-app-server-tests.log",
+      "exit_code": 0,
       "id": "05-app-server-tests",
-      "result": "failed"
+      "result": "passed"
     },
     {
       "command": [
@@ -136,7 +161,12 @@
         "RUST_MIN_STACK": "8388608"
       },
       "proxy_environment": "scrubbed",
-      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.147.0/06-tui-tests.log",
+      "home_environment": "inherited",
+      "tmp_environment": "external",
+      "git_ceiling_directories": "runtime-temp",
+      "child_umask": "0022",
+      "rusty_v8_artifacts": "codex-release-verified",
+      "evidence": "docs/v0.0.5/codex-upstream-sync/evidence/rust-v0.147.0/attempt-9-runtime-ceiling/06-tui-tests.log",
       "exit_code": 100,
       "id": "06-tui-tests",
       "result": "failed"
@@ -147,8 +177,8 @@
   "summary": {
     "command_count": 6,
     "by_result": {
-      "failed": 4,
-      "passed": 2
+      "failed": 2,
+      "passed": 4
     }
   }
 }
