@@ -30,6 +30,7 @@
 - [U11 旧 Whale TaskSpace migration bridge 报告](../../migration/codex-sync/2026-08-14-u11-legacy-taskspace-migration-bridge.md)
 - [U12 canonical kernel 移植清单与代码预算](../../migration/codex-sync/2026-08-14-u12-canonical-kernel-budget.md)
 - [U13 TaskSpace 唯一 state store、CAS 与 replay](../../migration/codex-sync/2026-08-14-u13-taskspace-state-store.md)
+- [U14 extension runtime 第一原子段与 seam spike](../../migration/codex-sync/2026-08-14-u14-extension-runtime-stage1.md)
 
 ## 当前批次状态
 
