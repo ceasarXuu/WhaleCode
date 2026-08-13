@@ -89,8 +89,8 @@ fn logical_hosted_tools_bind_by_capability_not_internal_output_order() {
         json!({
             "type": "work",
             "tools": [
-                {"tool": "web_search", "node_ids": ["work", "support"]},
-                {"tool": "image_generation", "node_ids": ["work"]}
+                {"tool": "web_search", "execution": "already_executed", "node_ids": ["work", "support"]},
+                {"tool": "image_generation", "execution": "already_executed", "node_ids": ["work"]}
             ]
         }),
         Some(&current),
@@ -121,7 +121,7 @@ fn initialization_can_record_one_logical_hosted_tool_on_new_nodes() {
         json!({
             "type": "initialize_and_work",
             "initialize_map": initialize_input(),
-            "tools": [{"tool": "web_search", "node_ids": ["work"]}]
+            "tools": [{"tool": "web_search", "execution": "already_executed", "node_ids": ["work"]}]
         }),
         None,
     );
@@ -143,7 +143,7 @@ fn read_map_schema_cannot_share_a_response_with_provider_work() {
                 &json!({
                     "type": "read_map",
                     "read_map": {},
-                    "tools": [{"tool": "web_search", "node_ids": ["work"]}]
+                    "tools": [{"tool": "web_search", "execution": "already_executed", "node_ids": ["work"]}]
                 })
                 .to_string()
             )
@@ -176,7 +176,7 @@ fn hosted_tool_set_and_node_mismatches_are_rejected() {
     let one_binding = envelope(
         json!({
             "type": "work",
-            "tools": [{"tool": "web_search", "node_ids": ["work"]}]
+            "tools": [{"tool": "web_search", "execution": "already_executed", "node_ids": ["work"]}]
         }),
         Some(&current),
     );
@@ -201,7 +201,7 @@ fn hosted_tool_set_and_node_mismatches_are_rejected() {
         let binding = envelope(
             json!({
                 "type": "work",
-                "tools": [{"tool": "web_search", "node_ids": nodes}]
+                "tools": [{"tool": "web_search", "execution": "already_executed", "node_ids": nodes}]
             }),
             Some(&current),
         );
@@ -219,8 +219,8 @@ fn duplicate_logical_hosted_tools_are_rejected() {
         json!({
             "type": "work",
             "tools": [
-                {"tool": "web_search", "node_ids": ["work"]},
-                {"tool": "web_search", "node_ids": ["support"]}
+                {"tool": "web_search", "execution": "already_executed", "node_ids": ["work"]},
+                {"tool": "web_search", "execution": "already_executed", "node_ids": ["support"]}
             ]
         }),
         Some(&current),
@@ -234,7 +234,7 @@ fn duplicate_logical_hosted_tools_are_rejected() {
     let one_binding = envelope(
         json!({
             "type": "work",
-            "tools": [{"tool": "web_search", "node_ids": ["work"]}]
+            "tools": [{"tool": "web_search", "execution": "already_executed", "node_ids": ["work"]}]
         }),
         Some(&current),
     );

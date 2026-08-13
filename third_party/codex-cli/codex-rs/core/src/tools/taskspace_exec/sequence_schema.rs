@@ -133,6 +133,7 @@ fn tool_action_schema(capability: &TaskSpaceToolCapability) -> JsonSchema {
             let mut schema = strict_object(
                 [
                     ("tool", exact_name(kind.name())),
+                    ("execution", exact_name("already_executed")),
                     (
                         "node_ids",
                         JsonSchema::array(
@@ -145,10 +146,10 @@ fn tool_action_schema(capability: &TaskSpaceToolCapability) -> JsonSchema {
                         .with_min_items(1),
                     ),
                 ],
-                &["tool", "node_ids"],
+                &["tool", "execution", "node_ids"],
             );
             schema.description = Some(format!(
-                "One logical `{}` Tool action executed natively by the Provider in this response. Declare it exactly once and bind all of its internal steps and results to `node_ids`; do not repeat declarations for internal actions or include native Tool input. Always use the public Tool name `{}`.",
+                "One logical `{}` Tool action already executed natively by the Provider in this response. Set `execution` to `already_executed`, declare it exactly once, and bind all of its internal steps and results to `node_ids`. This records an existing Provider result; it does not invoke the Tool. Do not repeat declarations for internal actions or include native Tool input. Always use the public Tool name `{}`.",
                 kind.name(),
                 kind.name()
             ));

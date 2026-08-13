@@ -150,15 +150,24 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
     let hosted_contract = web_search["description"].as_str().unwrap();
     for required in [
         "One logical `web_search` Tool action",
-        "Declare it exactly once",
+        "already executed natively",
+        "does not invoke the Tool",
+        "declare it exactly once",
         "all of its internal steps and results",
-        "do not repeat declarations for internal actions",
+        "Do not repeat declarations for internal actions",
         "include native Tool input",
         "public Tool name `web_search`",
     ] {
         assert!(hosted_contract.contains(required), "missing {required}");
     }
-    assert_eq!(web_search["required"], json!(["tool", "node_ids"]));
+    assert_eq!(
+        web_search["required"],
+        json!(["tool", "execution", "node_ids"])
+    );
+    assert_eq!(
+        web_search["properties"]["execution"]["enum"],
+        json!(["already_executed"])
+    );
     assert_eq!(web_search["additionalProperties"], false);
     let rendered = declaration.to_string();
     for name in [
@@ -191,6 +200,10 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
             .unwrap()
             .contains("do not also patch that owner to `in_flight`")
     );
+    let description = declaration["description"].as_str().unwrap();
+    assert!(description.contains("Provider-hosted result attribution example"));
+    assert!(description.contains("\"execution\":\"already_executed\""));
+    assert!(description.contains("this does not invoke it"));
 }
 
 #[test]
@@ -240,8 +253,8 @@ fn unified_tools_preserve_client_freeform_namespace_and_hosted_actions() {
                     client_tool(),
                     {"tool": "apply_patch", "node_id": "fix", "input": "*** Begin Patch"},
                     {"tool": "lookup", "namespace": "mcp__sample__", "node_id": "work", "input": {"value": "b"}},
-                    {"tool": "web_search", "node_ids": ["work", "fix"]},
-                    {"tool": "image_generation", "node_ids": ["work"]}
+                    {"tool": "web_search", "execution": "already_executed", "node_ids": ["work", "fix"]},
+                    {"tool": "image_generation", "execution": "already_executed", "node_ids": ["work"]}
                 ]
             })
             .to_string(),
@@ -269,7 +282,10 @@ fn tool_shapes_are_exact_and_namespace_identity_is_lossless() {
         json!({"type": "work", "tools": [{"tool": "missing", "node_id": "n", "input": {}}]}),
         json!({"type": "work", "tools": [{"tool": "mcp__sample__lookup", "node_id": "n", "input": {"value": "v"}}]}),
         json!({"type": "work", "tools": [{"tool": "lookup", "node_id": "n", "input": {"value": "v"}}]}),
-        json!({"type": "work", "tools": [{"tool": "web_search", "node_ids": []}]}),
+        json!({"type": "work", "tools": [{"tool": "web_search", "node_ids": ["n"]}]}),
+        json!({"type": "work", "tools": [{"tool": "web_search", "execution": "requested", "node_ids": ["n"]}]}),
+        json!({"type": "work", "tools": [{"tool": "web_search", "execution": "already_executed", "node_ids": ["n"], "input": {"queries": ["x"]}}]}),
+        json!({"type": "work", "tools": [{"tool": "web_search", "execution": "already_executed", "node_ids": []}]}),
         json!({"type": "work", "tools": [{"tool": "read_file", "node_id": "n", "input": {"value": "v"}, "revision": 1}]}),
     ] {
         assert!(
@@ -360,7 +376,7 @@ fn declaration_without_hosted_tools_has_no_hosted_variant() {
     assert!(
         catalog
             .decode_plan(
-                &json!({"type": "work", "tools": [{"tool": "web_search", "node_ids": ["n"]}]})
+                &json!({"type": "work", "tools": [{"tool": "web_search", "execution": "already_executed", "node_ids": ["n"]}]})
                     .to_string()
             )
             .is_err()

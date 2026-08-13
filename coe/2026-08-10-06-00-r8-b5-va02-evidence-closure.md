@@ -1597,11 +1597,11 @@
 - Related evidence:
   - E-040
   - E-041
-- Conclusion: confirmed。Runtime 的单次拒绝语义均准确，但 response-local 生命周期使第一次遗漏不可纠正。不能用额外同义提示、自动绑定或默认 Root 归属掩盖；跨响应待归属事实是否进入产品模型需用户决策。
-- Repair design readiness: blocked on product decision
-- Next step: 在“严格同响应”与“Agent 后续显式认领待归属事实”之间确认产品边界，再制定最小工程方案。
+- Conclusion: confirmed。response-local 生命周期确实使已经发生的遗漏无法在下一响应补录；但 E-043 证明遗漏前存在更直接的 Agent 可见执行方向歧义。因此本机制保持 confirmed，但跨响应恢复被降级为后续候选，不再阻塞 H-022 的最小结构复验。
+- Repair design readiness: superseded as current repair direction by H-022
+- Next step: 先验证 `execution: "already_executed"` 是否消除漏声明；只有修复后仍稳定复发时才重新评估跨响应恢复。
 - Blocker:
-  - product lifecycle decision required
+  - none for H-022 validation
 - Close reason:
   - not closed
 
@@ -1636,4 +1636,59 @@
 - Correlation keys:
   - `WAR-20260813-085518-CACHE-REGRESSION-CC73D9BE`
 - Interpretation: Agent 所称“工具集状态切换”是对 response-local 事实的错误解释；实际能力面稳定。当前合同只报告错误，没有给 Agent 一个合法的后续认领动作。
+- Time: 2026-08-13
+
+## Hypothesis H-022: Hosted action 的执行方向在 Agent 可见结构和错误反馈中存在歧义
+- Status: confirmed
+- Parent: P-001
+- Claim: 同一 `tools[]` 中 client action 表示“请求执行”，Hosted action 却表示“Provider 已执行结果的归属”；旧 Hosted 结构只有 `tool + node_ids`，且 mismatch 反馈使用 `actual/declared`，导致 Agent 把归属声明当成 Tool 执行入口或工具注册状态。
+- Layer: agent-visible-tool-contract
+- Factor relation: single
+- Depends on:
+  - H-013 verified
+- Rationale:
+  - Provider 原始 `web_search` 结果与 Runtime 聚合均正确；错误发生在 Agent 生成的 `taskspace_exec` 第二份声明。
+- Falsifiable predictions:
+  - If true: Agent 会给 Hosted 声明填 client-style `input`，或明说“retry web_search”后只提交 Hosted 归属结构；并把 `actual=[]` 理解为工具未注册。
+  - If false: Agent 明确把该结构解释为执行后归属，错误仅由其他 schema 或 Runtime 故障触发。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-043
+  - E-044
+- Conclusion: confirmed。应先用 Hosted-only 固定方向判别、无 `input` schema、正向示例和事实型错误反馈复验；H-021 的跨响应恢复不再是当前首要修复方向。
+- Repair design readiness: implemented offline / provider validation pending
+- Next step: 通过缓存门禁后申请 `provider-web-search-probe × map-request × repeat=1`。
+- Blocker:
+  - paid provider validation approval
+- Close reason:
+  - not closed
+
+## Evidence E-043: Agent 直接把 Hosted 归属结构用作搜索执行入口
+- Related hypotheses:
+  - H-022
+- Direction: supports
+- Type: production-trace-analysis
+- Source: `WAR-20260813-085518-CACHE-REGRESSION-CC73D9BE` requests 1～3 and 6
+- Prediction or plan link:
+  - Hosted execution-direction ambiguity。
+- Matched signal:
+  - Request 1/2 在未发生 Provider 搜索时向 Hosted 声明填入 `queries` input，并明说“执行检索”。
+  - Provider 搜索已在 request 5 发生后，Agent 在 request 6 明说“Let me just retry web_search now”，随后只提交 `tools:[{tool:web_search,node_ids:...}]`。
+  - Agent 明确把 `actual=[]` 解释为 Hosted Tool 未注册，而 12 个请求的 capability identity 始终不变。
+- Interpretation: 执行方向歧义有 Agent 自述与结构化输出的双重证据，不是根据拒绝结果倒推动机。
+- Time: 2026-08-13
+
+## Evidence E-044: `already_executed` 单变量修复通过离线合同和回归
+- Related hypotheses:
+  - H-022
+- Direction: supports
+- Type: deterministic-test
+- Source: `sequence_schema.rs`、`protocol.rs`、`handler.rs`、TaskSpace Exec tests
+- Prediction or plan link:
+  - Hosted execution-direction repair。
+- Matched signal:
+  - Hosted variant 必填 `execution: "already_executed"`，其他值、缺失字段、任何 `input` 均由 schema 拒绝。
+  - Tool description 包含同响应归属正向示例；mismatch 反馈不再使用裸 `actual/declared` 结构误导工具注册。
+  - `cargo test -p codex-core taskspace_exec --lib`：74 passed。
+- Interpretation: 修复未增加 pending、跨响应状态或 Runtime 绑定决策；是否改善 Agent 行为必须由新的真实 Provider 运行验证。
 - Time: 2026-08-13

@@ -19,7 +19,7 @@ const PROTOCOL: &str = r#"Use `taskspace_exec` as the single top-level entry poi
 Tool contract:
 - Put client and provider-hosted Tool actions in the sequence's single `tools` array.
 - Each client action keeps its native Tool input in `input` and declares one owner `node_id`; namespaced Tools also declare `namespace`.
-- Each provider-hosted Tool is one logical action already executed by the Provider in this response. Declare it once with all owner `node_ids`; Provider-internal steps and results never become separate TaskSpace actions.
+- Each provider-hosted Tool is one logical action already executed by the Provider in this response. Record it with `execution: "already_executed"` and all owner `node_ids`; this does not invoke the Tool. Provider-internal steps and results never become separate TaskSpace actions.
 - Tool array order supplies stable action identity. It does not create Tool dependencies; result-dependent work belongs in a later request.
 
 Map contract:
@@ -58,12 +58,27 @@ pub(super) fn build_description<'a>(
         canonical_finish_example()
     ));
     if !hosted_tools.is_empty() {
+        let first_hosted = hosted_tools
+            .first()
+            .expect("non-empty Hosted Tool set has a first item");
         sections.push(format!(
-            "Available provider-hosted Tool actions: {}.",
-            hosted_tools.iter().cloned().collect::<Vec<_>>().join(", ")
+            "Available provider-hosted Tool actions: {}.\n\nProvider-hosted result attribution example (emit after the Provider has already returned this Tool in the same response; this does not invoke it):\n```json\n{}\n```",
+            hosted_tools.iter().cloned().collect::<Vec<_>>().join(", "),
+            canonical_hosted_result_example(first_hosted),
         ));
     }
     sections.join("\n\n")
+}
+
+fn canonical_hosted_result_example(tool: &str) -> Value {
+    json!({
+        "type": "work",
+        "tools": [{
+            "tool": tool,
+            "execution": "already_executed",
+            "node_ids": ["research"]
+        }]
+    })
 }
 
 pub(crate) fn canonical_first_turn_example() -> Value {

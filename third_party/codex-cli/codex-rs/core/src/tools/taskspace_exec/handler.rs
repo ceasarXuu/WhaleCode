@@ -441,6 +441,23 @@ pub(super) fn render_preflight_rejection(error: &TaskSpaceExecPreflightError) ->
             "Tool action {index} targeted work node `{node_id}` in state `{}`; incomplete direct parent nodes: {incomplete_parent_ids:?}. Only the sequence's preceding Map operation can unlock work; Tool outcomes do not change node state. No Map or Tool actions were executed.",
             node_state_label(*state)
         ),
+        TaskSpaceExecPreflightError::HostedToolSetMismatch { actual, declared }
+            if !actual.is_empty() && declared.is_empty() =>
+        {
+            format!(
+                "This Provider response already executed hosted Tool(s) {actual:?}, but this taskspace_exec did not attribute them to Work nodes. Record each logical Tool once in `tools` with `execution: \"already_executed\"` and `node_ids`. No Map or Tool actions were executed."
+            )
+        }
+        TaskSpaceExecPreflightError::HostedToolSetMismatch { actual, declared }
+            if actual.is_empty() && !declared.is_empty() =>
+        {
+            format!(
+                "This taskspace_exec attributed hosted Tool(s) {declared:?}, but this Provider response contains no newly executed hosted Tool result. `execution: \"already_executed\"` records a result from this same response; it does not invoke the Tool. No Map or Tool actions were executed."
+            )
+        }
+        TaskSpaceExecPreflightError::HostedToolSetMismatch { actual, declared } => format!(
+            "Hosted Tool attribution does not match this Provider response: response Tool(s) {actual:?}; taskspace_exec attribution(s) {declared:?}. Record each logical Tool from this response exactly once with `execution: \"already_executed\"` and `node_ids`. No Map or Tool actions were executed."
+        ),
         _ => format!("preflight: {error:?}. No Map or Tool actions were executed."),
     }
 }

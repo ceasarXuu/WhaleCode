@@ -46,6 +46,30 @@ fn waiting_preflight_feedback_names_parents_and_mechanical_batch_boundary() {
         "Tool action 2 targeted work node `implement` in state `waiting`; incomplete direct parent nodes: [\"inspect\", \"design\"]. Only the sequence's preceding Map operation can unlock work; Tool outcomes do not change node state. No Map or Tool actions were executed."
     );
 }
+
+#[test]
+fn hosted_mismatch_feedback_states_response_facts_and_execution_direction() {
+    let missing_attribution = super::handler::render_preflight_rejection(
+        &TaskSpaceExecPreflightError::HostedToolSetMismatch {
+            actual: vec!["web_search".into()],
+            declared: Vec::new(),
+        },
+    );
+    assert!(missing_attribution.contains("response already executed"));
+    assert!(missing_attribution.contains("did not attribute"));
+    assert!(missing_attribution.contains("`execution: \"already_executed\"`"));
+
+    let unsupported_attribution = super::handler::render_preflight_rejection(
+        &TaskSpaceExecPreflightError::HostedToolSetMismatch {
+            actual: Vec::new(),
+            declared: vec!["web_search".into()],
+        },
+    );
+    assert!(unsupported_attribution.contains("contains no newly executed"));
+    assert!(unsupported_attribution.contains("does not invoke the Tool"));
+    assert!(!unsupported_attribution.contains("actual:"));
+    assert!(!unsupported_attribution.contains("declared:"));
+}
 use crate::tools::registry::ToolHandler;
 use crate::tools::registry::ToolKind;
 use crate::tools::registry::ToolRegistryBuilder;
@@ -714,7 +738,7 @@ async fn hosted_internal_steps_are_one_logical_action_without_changing_node_stat
         .handle(invocation(
             &harness,
             initialize_work(vec![
-                json!({"tool": "web_search", "node_ids": ["work"]}),
+                json!({"tool": "web_search", "execution": "already_executed", "node_ids": ["work"]}),
                 inspect_action(json!({})),
             ]),
         ))
@@ -767,7 +791,7 @@ async fn failed_hosted_result_preserves_failure_without_changing_node_state() {
         .handler
         .handle(invocation(
             &harness,
-            initialize_work(vec![json!({"tool": "web_search", "node_ids": ["work"]})]),
+            initialize_work(vec![json!({"tool": "web_search", "execution": "already_executed", "node_ids": ["work"]})]),
         ))
         .await
         .unwrap();

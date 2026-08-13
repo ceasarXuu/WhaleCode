@@ -17,8 +17,10 @@ Provider ID、output index 或内部 action subtype。
 包含真实搜索结果的两次响应里都漏写了 `web_search` 归属；Runtime 当轮准确拒绝。Agent 下一请求再补声明时，当前响应已经
 没有新的 Hosted 事实，Runtime 又准确拒绝。Agent 因而把响应级事实误解为“工具注册状态反复变化”，产生多轮无效纠正。
 
-这不是内部 output 聚合回归，也不是 Runtime 丢失搜索结果。它暴露了一个更底层的协议断层：同响应声明一旦遗漏，现有合同
-没有合法恢复路径。继续增加同义提示不能改变该时序事实；是否引入“待归属 Hosted 事实”的跨响应恢复边界，需要单独产品决策。
+这不是内部 output 聚合回归，也不是 Runtime 丢失搜索结果。后续对原始 reasoning 的复核确认：Agent 曾明确把
+`taskspace_exec.tools[].web_search` 当成搜索执行入口，并在已有 Provider 搜索后说“重新尝试”再提交该结构。因此“同响应遗漏后
+无恢复路径”是真实机制，但不能直接升级为首要修复方向。应先用 schema 的固定 `execution: "already_executed"`、无
+`input` 结构、一个正向示例和准确错误反馈消除执行方向歧义；未经新的真实证据，不引入跨响应 pending 机制。
 
 ## 2. 请求路径
 
@@ -71,8 +73,9 @@ Provider ID、output index 或内部 action subtype。
 - Map 为 `root -> search_docs -> write_fact -> validate -> finish`，共 5 节点、4 边，无孤立节点。
 - 截止时 `search_docs=completed`、`write_fact=in_flight`、`validate/finish=waiting`、Root 保持 open。
 - `provider_fact.json` 已写入，但公开校验未执行，隐藏 oracle 未通过，因此不得记为业务成功。
-- I03 保持 `verifying`。逻辑 Hosted 聚合子问题已通过，剩余阻塞是同响应归属遗漏后的不可恢复性。
-- 在明确“严格同响应且不提供恢复”与“保留待归属事实并由 Agent 后续显式认领”的产品边界前，不继续改 Runtime，也不申请新真实预算。
+- I03 保持 `verifying`。逻辑 Hosted 聚合子问题已通过；当前优先验证 Agent 是否能稳定区分 Provider 已执行结果与 client 执行请求。
+- `execution: "already_executed"` 单变量修复已离线通过 74 项 TaskSpace Exec 测试；缺字段、其他值、非法 `input` 均由 schema 拒绝，尚未进行真实 Provider 复验。
+- 在该结构复验前，不引入 pending、跨响应认领、Runtime 自动绑定或默认 Root。
 
 ## 6. 证据
 

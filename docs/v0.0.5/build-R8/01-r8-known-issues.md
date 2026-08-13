@@ -167,7 +167,7 @@
 > 生产路径：同响应 `search succeeded + open_page failed` 只形成一个 `actual=[web_search]`，`find_in_page failed` 加一次
 > Agent 声明只返回一个逻辑 Hosted result，Provider 内部 ID/index/subtype 均未进入 outer result。端到端仍失败：Agent 在
 > 两次真实搜索响应中漏写归属，Runtime 当轮准确拒绝；下一请求补声明时当前响应已无 Hosted 事实，合同没有合法恢复路径，Agent
-> 误判为能力注册反复变化。该不可恢复时序断层继续归入 I03，不新增问题编号；在产品边界确认前暂停 Runtime 改动和新预算。
+> 误判为能力注册反复变化。后续原始 reasoning 复核证明 Agent 曾把 Hosted 归属结构直接当成搜索执行入口，因此跨响应恢复被降级为后续候选。当前先验证 Hosted-only 必填 `execution: "already_executed"`、禁止 `input`、正向示例和事实型错误反馈的单变量修复；离线 TaskSpace Exec 74/74 已通过，真实 Provider 行为未复验。
 
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按

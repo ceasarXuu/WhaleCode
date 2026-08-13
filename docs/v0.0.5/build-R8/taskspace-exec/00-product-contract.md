@@ -203,7 +203,9 @@ outcome 也不自动完成节点。Root 和 Finish 只表达任务边界，不�
 Provider-hosted Tool 由 provider 在响应生成过程中原生执行。它的原始输出是唯一执行事实，不能被
 `taskspace_exec` 回滚、重执行或替换。
 
-Agent 在同一响应的 `taskspace_exec.tools[]` 中为每个已执行的 Hosted capability 声明一次非空 `node_ids[]`。一个逻辑
+Agent 在同一响应的 `taskspace_exec.tools[]` 中为每个已执行的 Hosted capability 声明一次固定
+`execution: "already_executed"` 和非空 `node_ids[]`。该固定值只区分“Provider 已执行结果的归属”与“请求 Runtime
+执行 client Tool”，不是 Tool outcome；Hosted 声明不提供 `input`。一个逻辑
 Provider Tool action 可以同时供多个节点使用，但在 Map 中只形成一个 action identity。Runtime 只做 capability 级机械核对：
 
 - `web_search` 是不可拆分的一个逻辑 Tool；`search`、`open_page`、翻页、内部失败与重试都属于 Provider 内部过程；
@@ -220,7 +222,8 @@ Hosted action 也只能归属于 Work node。其执行已经发生，因此 Tool
 Hosted action 记到 Root、Finish、未知节点或空归属中。
 
 当前合同只接受同一 response scope 内的 Hosted 事实与 Agent 归属声明。LS-09 在线证据已确认：如果 Agent
-当轮漏写声明，下一轮没有合法的补录路径。这是当前尚未决策的产品边界，不得由 Runtime 自动绑定、默认归根
+当轮漏写声明，下一轮没有合法的补录路径。但当前证据同时显示 Agent 会把旧 Hosted 结构误解为执行请求；
+因此必须先验证 `already_executed` 的方向判别是否消除漏写，不得过早引入跨轮 pending、Runtime 自动绑定、默认归根
 或隐式跨轮接受。证据见 [`46-ls09-logical-hosted-revalidation-result.md`](46-ls09-logical-hosted-revalidation-result.md)。
 
 ### 5.3 失败与结算矩阵
