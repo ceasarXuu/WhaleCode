@@ -1655,11 +1655,12 @@
 - Related evidence:
   - E-043
   - E-044
-- Conclusion: confirmed。应先用 Hosted-only 固定方向判别、无 `input` schema、正向示例和事实型错误反馈复验；H-021 的跨响应恢复不再是当前首要修复方向。
-- Repair design readiness: implemented offline / provider validation pending
-- Next step: 通过缓存门禁后申请 `provider-web-search-probe × map-request × repeat=1`。
+  - E-045
+- Conclusion: confirmed。固定方向判别已在真实 Provider 路径生效并让样本完成，但没有消除首次提前登记和真实搜索后漏登；执行方向歧义是部分根因，不是全部根因。H-021 的跨响应恢复仍不自动升级为当前修复方向。
+- Repair design readiness: implemented and provider-validated / residual timing issue remains
+- Next step: 保留当前结构，后续真实样本继续观察同响应漏登频率；没有新证据前不增加 pending 或 Runtime 绑定决策。
 - Blocker:
-  - paid provider validation approval
+  - none
 - Close reason:
   - not closed
 
@@ -1691,4 +1692,21 @@
   - Tool description 包含同响应归属正向示例；mismatch 反馈不再使用裸 `actual/declared` 结构误导工具注册。
   - `cargo test -p codex-core taskspace_exec --lib`：74 passed。
 - Interpretation: 修复未增加 pending、跨响应状态或 Runtime 绑定决策；是否改善 Agent 行为必须由新的真实 Provider 运行验证。
+- Time: 2026-08-13
+
+## Evidence E-045: `already_executed` 在线生效但未消除同响应漏登
+- Related hypotheses:
+  - H-022
+  - H-021
+- Direction: supports
+- Type: production-reproduction
+- Source: `WAR-20260813-220517-CACHE-REGRESSION-ED5FF5CE` rollout、result 和 oracle
+- Prediction or plan link:
+  - Hosted execution-direction repair provider validation。
+- Matched signal:
+  - Agent 在反馈后明确复述 `already_executed` 只登记、不会调用 Tool，且没有再携带 Hosted `input`。
+  - 同一响应内真实 `search` 与 `taskspace_exec` 归属成功，outer result 只有一个逻辑 `web_search`。
+  - 首次仍提前登记一次；第一次真实搜索仍漏登，下一响应补登被 response-local 合同拒绝。
+  - 业务文件、公开验证、隐藏 oracle 和 4 节点 Map 闭合均通过；12 requests，302,780 input，USD 0.009600416。
+- Interpretation: 方向字段消除了结构含义的一部分歧义并恢复业务闭环，但 Hosted 执行与归属必须同响应生成的时机问题仍存在；不能关闭 I03，也不能据此引入 Runtime 自动绑定。
 - Time: 2026-08-13

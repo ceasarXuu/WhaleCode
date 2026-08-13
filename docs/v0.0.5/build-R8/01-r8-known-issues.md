@@ -169,6 +169,13 @@
 > 两次真实搜索响应中漏写归属，Runtime 当轮准确拒绝；下一请求补声明时当前响应已无 Hosted 事实，合同没有合法恢复路径，Agent
 > 误判为能力注册反复变化。后续原始 reasoning 复核证明 Agent 曾把 Hosted 归属结构直接当成搜索执行入口，因此跨响应恢复被降级为后续候选。当前先验证 Hosted-only 必填 `execution: "already_executed"`、禁止 `input`、正向示例和事实型错误反馈的单变量修复；离线 TaskSpace Exec 74/74 已通过，真实 Provider 行为未复验。
 
+> **Hosted 执行方向在线复验（2026-08-13）**：`provider-web-search-probe × map-request × repeat=1` 业务、公开验证、
+> 隐藏 oracle 和 Map 闭合全部通过。Agent 能准确解释 `already_executed` 不调用 Tool，并最终在同一响应中完成真实搜索和
+> 一次逻辑归属；未再携带 Hosted `input`，也未拆分 Provider 内部步骤。但首次仍提前登记一次，第一次真实搜索后仍漏登并在
+> 下一响应补登失败。该结构从失败闭环改善为成功闭环，但 12 requests 和约 303K input 未下降，故 I03 保持 verifying；不把
+> 单次成功扩大为跨响应恢复、自动绑定或默认 Root 的依据。详见
+> [`taskspace-exec/47-ls09-hosted-execution-direction-result.md`](taskspace-exec/47-ls09-hosted-execution-direction-result.md)。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。
