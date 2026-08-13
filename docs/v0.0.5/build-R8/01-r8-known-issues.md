@@ -191,6 +191,13 @@
 > 重新授权，且不得把 Web Search 内部 action 当成独立 Tool 或独立双写。详见
 > [`taskspace-exec/49-ls09-indivisible-pairing-partial-result.md`](taskspace-exec/49-ls09-indivisible-pairing-partial-result.md)。
 
+> **原生 Hosted Tool 身份在线验收（2026-08-14）**：提交 `2b92f2345` 删除 TaskSpace 自建 Hosted 公共名称，改为逐字
+> 复用当前请求 `ToolSpec::name()`。Standard/map-request smoke 2/2 通过；专项 Web Search trace 确认 Provider 顶层声明、
+> 原始 response item 和 Runtime mismatch 均只使用原生 `web_search`，内部 `search/open_page/find_in_page` 没有被提升成 Tool。
+> 但专项运行的两个逻辑 Hosted 使用均漏掉同响应 Exec 归属，成功 Hosted 归属为 0；业务、校验和 Map 最终通过不能替代协议验收。
+> I03 保持 verifying。I07 需把“原生执行数、成功归属数、mismatch 数”分开观察，避免把 `provider_results=0` 误读为没有执行。
+> 详见 [`taskspace-exec/50-native-hosted-identity-live-result.md`](taskspace-exec/50-native-hosted-identity-live-result.md)。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。

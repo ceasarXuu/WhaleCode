@@ -1,7 +1,7 @@
 # Problem P-001: VA-02 首轮证据链未能如实结算
 - Status: verifying
 - Created: 2026-08-10 06:00
-- Updated: 2026-08-11
+- Updated: 2026-08-14
 - Objective: 保留 VA-02 首轮的真实协议、Map 和成本证据，并在不放宽 TaskSpace 硬约束的前提下修复确定的观测缺陷。
 - Symptoms:
   - 首次 `taskspace_exec` 参数多出一个右花括号，被严格 JSON 解码拒绝。
@@ -30,7 +30,7 @@
   - 已完成 provider 请求可精确离线结算，失败本地尝试仍单独可见。
   - benchmark 不再消费已淘汰的旧 Map result/ref/compaction 模型。
   - 严格 JSON 解码保持不变；剩余一次真实运行只用于观察生产形状与偶发格式错误是否重复。
-- Current conclusion: Dedicated TaskSpace base 已消除顶层 client Tool 逃逸，Source 已退役。I05 修复后的在线复验再次出现首请求少一个闭合括号，但新反馈准确说明 syntax、direct `calls` 和零执行，Agent 下一请求立即纠正且未再产生 wrapper 重复。随后正确 patch、3 项测试和完整 Map 均完成，canonical parent handoff 在线可执行。最终自然语言回复所需的第 9 次本地请求被 8-request 授权边界在 Provider 前截断，因此端到端仍为 partial。I03、I04 继续开放；I07 新发现 nested patch 漏计。整体保持 verifying。
+- Current conclusion: Dedicated TaskSpace base 已消除顶层 client Tool 逃逸，Source 已退役。I05 修复后的在线复验确认 syntax 反馈不再诱发 wrapper 重复。最新原生 Hosted 身份验收确认 TaskSpace 已逐字复用 `ToolSpec::name()`，且 Web Search 内部 action 未被提升成 Tool；但专项样本的两个逻辑 Hosted 使用均漏掉同响应 Exec 归属，业务完成不能替代协议验收。I03、I04、I07 继续开放，整体保持 verifying。
 - Related hypotheses:
   - H-001
   - H-002
@@ -50,8 +50,10 @@
   - H-016
   - H-017
   - H-018
+  - H-021
+  - H-022
 - Resolution basis:
-  - E-001 至 E-031；H-012 确认顶层逃逸消失，H-013 的交接合同已在线走通，H-015 的反馈修复已在线验证；H-016～H-018 分别坐实正式上下文自愈接缝、waiting 事实反馈和 nested patch 观测缺口。
+  - E-001 至 E-047；H-012 确认顶层逃逸消失，H-013 的交接合同已在线走通，H-015 的反馈修复已在线验证；H-016～H-018 分别坐实正式上下文自愈接缝、waiting 事实反馈和 nested patch 观测缺口。E-047 确认原生 Hosted 身份修复在线成立，但同响应漏登仍未解决。
 - Close reason:
   - not closed
 
@@ -1728,4 +1730,27 @@
   - 两次 Hosted 归属在同批 owner 已被 Agent 标成 Completed 后触发 `HostedNodeInvalid`；现有 update-before-work 顺序无法表达 work 后完成 owner。
   - 60 requests 共 1,947,752 input、1,772,544 cached、175,208 uncached、51,739 output；全量加权 cache 91.00%，费用 USD 0.0439791632。
 - Interpretation: 方向字段不是无效修复，但协议仍未形成模型可稳定遵循的闭集。有效证据支持两个独立合同缺口：两个顶层 item 缺少结构性耦合，以及 Hosted work 后完成 owner 的合法序列缺失；不支持内部 action 映射、Provider 结果不可靠、Runtime 自动绑定或跨响应默认恢复。
+- Time: 2026-08-14
+
+## Evidence E-047: 原生 Hosted 身份在线成立但两个逻辑使用均漏登
+- Related hypotheses:
+  - H-022
+  - H-021
+- Direction: supports
+- Type: production-revalidation
+- Source: `WAR-20260814-025239-CACHE-REGRESSION-EB43D143`、`WAR-20260814-025657-CACHE-REGRESSION-3ABDE358`
+- Prediction or plan link:
+  - Hosted identity 必须逐字来自原生 `ToolSpec::name()`；内部 action 不得成为 Tool；身份修复不等于同响应配对修复。
+- Matched signal:
+  - Standard/map-request smoke 均完成业务；专项请求顶层 Tool 声明只有 `taskspace_exec + web_search`。
+  - 原始 Provider response 共四个 `web_search_call`，内部 action 为两次 `search`、一次 `open_page`、一次 `find_in_page`；
+    Runtime mismatch 只报告 `web_search`。
+  - 两个逻辑 Web Search 使用均没有同响应 `execution: "already_executed"` 归属；一次后续 Exec 被准确、零副作用拒绝，
+    最终业务通过但 `hosted_results` 始终为空。
+  - 三次运行共 24 requests、525,541 input、456,448 cached、69,093 uncached、14,764 output，估算费用
+    USD 0.0150849944；usage 完整。
+- Correlation keys:
+  - subject `2b92f23459a24ef0347f72f3f6c029bdbd363360`
+- Interpretation: TaskSpace 自建 Hosted 名称已从生产路径移除；剩余失败仍是两个独立顶层 item 的共现/归属问题，不能再从
+  Web Search 内部 action 寻找根因。性能观察必须区分 Provider 原生执行与成功 TaskSpace 归属。
 - Time: 2026-08-14

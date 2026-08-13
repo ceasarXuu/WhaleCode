@@ -115,6 +115,11 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   `search/open_page` 不得成为 TaskSpace action。当前已删除逐 output 数量、顺序、ID 和结果暴露，按 capability 形成一次
   声明、一次绑定和一次结果；真实收益等待单次复验。详见
   [`45-ls09-hosted-contract-revalidation-result.md`](45-ls09-hosted-contract-revalidation-result.md)。
+- 原生 Hosted Tool 身份已从 TaskSpace 自建名称收敛为当前请求 `ToolSpec::name()` 的机械复用。获批的
+  Standard/map-request smoke 均通过；专项 Web Search trace 也确认顶层声明与 Runtime mismatch 只使用 `web_search`，
+  `search/open_page/find_in_page` 仅为 `web_search_call` 内部 action。然而专项样本的两个逻辑 Hosted 使用均未在同响应
+  生成 Exec 归属，最终虽完成业务和 Map，成功 Hosted 归属仍为 0。身份修复在线成立，I03 同响应双写缺口未关闭；详见
+  [`50-native-hosted-identity-live-result.md`](50-native-hosted-identity-live-result.md)。
 
 ## 3. 文档
 
@@ -177,6 +182,10 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     在线生效、业务闭环和残余提前登记/漏登证据。
 49. [`48-ls09-same-response-pairing-repeat5-result.md`](48-ls09-same-response-pairing-repeat5-result.md)：同响应双写合同修复后的
     五轮统计、缓存与成本、原生 Web 动作映射缺口和合法序列缺口。
+50. [`49-ls09-indivisible-pairing-partial-result.md`](49-ls09-indivisible-pairing-partial-result.md)：不可拆分文字合同的三轮失败、
+    协议误读和预算停点。
+51. [`50-native-hosted-identity-live-result.md`](50-native-hosted-identity-live-result.md)：原生 Hosted ToolSpec 身份修复的三次
+    获批真实运行、缓存成本、Web Search 原始 trace 与剩余同响应漏登结论。
 
 ## 4. 推进规则
 

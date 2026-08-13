@@ -1,7 +1,239 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-14T01:56:50+08:00",
+  "updated_at": "2026-08-14T02:59:07+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260814-025657-CACHE-REGRESSION-3ABDE358",
+      "record_type": "run_batch",
+      "status": "settled",
+      "started_at": "2026-08-14T02:57:05+08:00",
+      "ended_at": "2026-08-14T02:59:07+08:00",
+      "elapsed_calendar_seconds": 121.583,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "用户批准对原生 Hosted ToolSpec 身份修复执行一次 provider-web-search-probe × map-request 直接能力验证；检查原生 web_search ToolSpec 身份、同响应归属、Map 记录和缓存，零重试。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260814-R8-NATIVE-HOSTED-DIRECT-2FDC861EEA2633D2",
+        "reference": "用户于 2026-08-14 明确批准一次 provider-web-search-probe × map-request 专项预算，零重试。",
+        "budget_summary": {
+          "provider_requests": 12,
+          "input_tokens": 12000000,
+          "output_tokens": 4608000,
+          "elapsed_seconds": 540,
+          "estimated_cost": 2.97024,
+          "currency": "USD"
+        },
+        "note": "严格绑定预算提案 CBP-2FDC861EEA2633D2。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "5fa5da64f977c1dc2aa23254d4a1636d14f916f1bdebe5b4e89097ab91c7b8ad",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "provider-web-search-probe"
+        ],
+        "arm_ids": [
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 12,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 362286,
+        "cached_input": 320640,
+        "uncached_input": 41646,
+        "output": 11136
+      },
+      "monetary_cost": {
+        "status": "estimated",
+        "currency": "USD",
+        "amount": 0.009846312,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.0008977919999999999,
+          "uncached_input": 0.005830440000000001,
+          "output": 0.0031180800000000005
+        },
+        "pricing_snapshot": {
+          "currency": "USD",
+          "captured_at": "2026-07-31",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "按完整 provider token 遥测和冻结价格估算。"
+      },
+      "evidence": {
+        "planned_run_root": "target/r8-native-hosted-tool-live/direct/run",
+        "subject_commit": "2b92f23459a24ef0347f72f3f6c029bdbd363360",
+        "surface_sha256": "19b2395a7c61547d38d91813fc8238897b119333bcba34c9102b0b9239240af2",
+        "proposal_id": "CBP-2FDC861EEA2633D2",
+        "proposal_contract_sha256": "82ddac52c2ab4540b0f296d8c4a36c89d390cd304426a22863ef7b7bc7710335",
+        "proposal_path": "benchmarks/cache-regression/proposals/CBP-2FDC861EEA2633D2.json",
+        "proposal_sha256": "bb15b91659a4d747f206f41077f8141f11f5225e0790fba43c6cb1a095d5f2a6",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260814-R8-NATIVE-HOSTED-DIRECT-2FDC861EEA2633D2.json",
+        "authorization_sha256": "83a8401ffe609effda15088e0b98be172242f2e33b22b914947fed382b793759",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "provider-web-search-probe"
+          ],
+          "arms": [
+            "map-request"
+          ],
+          "repeat": 1,
+          "planned_sample_runs": 1,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 1,
+          "stop_conditions": [
+            "after_any_run_failure",
+            "after_any_business_failure",
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "用户批准对原生 Hosted ToolSpec 身份修复执行一次 provider-web-search-probe × map-request 直接能力验证；检查原生 web_search ToolSpec 身份、同响应归属、Map 记录和缓存，零重试。"
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_run_failure",
+          "after_any_business_failure",
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "complete",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260814-025657-CACHE-REGRESSION-3ABDE358/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "b71490c0b6d6a1589351e0ca8631fe8a25768a4d46e5abf7c9c51dd1664d7e3d",
+        "actual_run_root": "target/r8-native-hosted-tool-live/direct/run",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260814-025657-CACHE-REGRESSION-3ABDE358.json",
+        "runner_exit_code": 0,
+        "outcome": "completed"
+      }
+    },
+    {
+      "record_id": "WAR-20260814-025239-CACHE-REGRESSION-EB43D143",
+      "record_type": "run_batch",
+      "status": "settled",
+      "started_at": "2026-08-14T02:52:47+08:00",
+      "ended_at": "2026-08-14T02:54:14+08:00",
+      "elapsed_calendar_seconds": 87.346,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "用户要求对原生 Hosted ToolSpec 身份修复执行真实运行测试；使用 accepted baseline 的 single-file-fast-fix，Standard 与 map-request 各一次，验证业务正确性、TaskSpace 行动路径与缓存回归，零重试。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260814-R8-NATIVE-HOSTED-820555FE5E948DBE",
+        "reference": "用户于 2026-08-14 明确要求对原生 Hosted ToolSpec 身份修复执行真实运行测试；采用 accepted baseline 的最小两臂 smoke，零重试。",
+        "budget_summary": {
+          "provider_requests": 24,
+          "input_tokens": 24000000,
+          "output_tokens": 9216000,
+          "elapsed_seconds": 600,
+          "estimated_cost": 5.94048,
+          "currency": "USD"
+        },
+        "note": "严格绑定预算提案 CBP-820555FE5E948DBE。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "4bc28e811523605baa6ef5617c758af37e2660be09097dc422b6953c05681b1c",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "standard",
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 2,
+        "actual_sample_runs": 2,
+        "api_requests": 12,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 163255,
+        "cached_input": 135808,
+        "uncached_input": 27447,
+        "output": 3628
+      },
+      "monetary_cost": {
+        "status": "estimated",
+        "currency": "USD",
+        "amount": 0.0052386824,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.00038026240000000005,
+          "uncached_input": 0.0038425800000000004,
+          "output": 0.00101584
+        },
+        "pricing_snapshot": {
+          "currency": "USD",
+          "captured_at": "2026-07-31",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "按完整 provider token 遥测和冻结价格估算。"
+      },
+      "evidence": {
+        "planned_run_root": "target/r8-native-hosted-tool-live/run",
+        "subject_commit": "2b92f23459a24ef0347f72f3f6c029bdbd363360",
+        "surface_sha256": "19b2395a7c61547d38d91813fc8238897b119333bcba34c9102b0b9239240af2",
+        "proposal_id": "CBP-820555FE5E948DBE",
+        "proposal_contract_sha256": "b09f9ce469514df33080b0b7edea738d908b8e9dfd0c21414d36b34a96eddc1f",
+        "proposal_path": "benchmarks/cache-regression/proposals/CBP-820555FE5E948DBE.json",
+        "proposal_sha256": "b693f945874b5164681cccd9c344fb5025750de74eacaf302e6ed15a2e85c952",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260814-R8-NATIVE-HOSTED-820555FE5E948DBE.json",
+        "authorization_sha256": "59bf7f949b9b68f7bb357961bf739c5468959416cd99c448fc5bc8b1b3b53cf0",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "single-file-fast-fix"
+          ],
+          "arms": [
+            "standard",
+            "map-request"
+          ],
+          "repeat": 1,
+          "planned_sample_runs": 2,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 2,
+          "stop_conditions": [
+            "after_any_run_failure",
+            "after_any_business_failure",
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "用户要求对原生 Hosted ToolSpec 身份修复执行真实运行测试；使用 accepted baseline 的 single-file-fast-fix，Standard 与 map-request 各一次，验证业务正确性、TaskSpace 行动路径与缓存回归，零重试。"
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_run_failure",
+          "after_any_business_failure",
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "complete",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260814-025239-CACHE-REGRESSION-EB43D143/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "10e52725d89f6f939e9499ba6509c66ab4de9169d64020964bf1916f22beafff",
+        "actual_run_root": "target/r8-native-hosted-tool-live/run",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260814-025239-CACHE-REGRESSION-EB43D143.json",
+        "runner_exit_code": 0,
+        "outcome": "completed"
+      }
+    },
     {
       "record_id": "WAR-20260814-015254-CACHE-REGRESSION-12F30F0E",
       "record_type": "run_batch",

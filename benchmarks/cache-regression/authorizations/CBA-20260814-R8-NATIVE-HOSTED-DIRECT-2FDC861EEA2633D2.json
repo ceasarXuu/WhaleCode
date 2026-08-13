@@ -1,0 +1,38 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "approved_at": "2026-08-14T02:56:23+08:00",
+  "authorization_id": "CBA-20260814-R8-NATIVE-HOSTED-DIRECT-2FDC861EEA2633D2",
+  "approval_reference": "用户于 2026-08-14 明确批准一次 provider-web-search-probe × map-request 专项预算，零重试。",
+  "proposal_id": "CBP-2FDC861EEA2633D2",
+  "proposal_sha256": "82ddac52c2ab4540b0f296d8c4a36c89d390cd304426a22863ef7b7bc7710335",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "provider-web-search-probe"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 1,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 1,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "用户批准对原生 Hosted ToolSpec 身份修复执行一次 provider-web-search-probe × map-request 直接能力验证；检查原生 web_search ToolSpec 身份、同响应归属、Map 记录和缓存，零重试。"
+  },
+  "approved_maximums": {
+    "provider_requests": 12,
+    "input_tokens": 12000000,
+    "output_tokens": 4608000,
+    "elapsed_seconds": 540,
+    "estimated_cost": 2.97024,
+    "currency": "USD"
+  }
+}
