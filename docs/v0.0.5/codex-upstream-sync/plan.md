@@ -1,6 +1,6 @@
 # Codex CLI 主线融合执行计划
 
-- 文档状态：有效，Phase A verified；下一步执行 Phase B Pre-Phase Plan Rebase Gate
+- 文档状态：有效，Phase A verified；Phase B rebase gate ready；下一步执行 U4
 - Plan Validity：`valid-with-qualifications`
 - 计划性质：覆盖已完成里程碑与剩余工作的唯一执行计划
 - 适用版本：WhaleCode v0.0.5
@@ -146,11 +146,11 @@
 
 #### Pre-Phase Plan Rebase Gate
 
-- Rebase scope：Phase A 的 0.147 qualification、target-dependent 工件、最小 overlay 和默认产品面审计 + Phase B–E 剩余计划。
-- Material plan delta：`pending`
-- Plan delta record：`pending`
-- User approval：`pending-if-material`
-- Gate status：`pending`
+- Rebase scope：已复核 Phase A 的 0.147 qualification、target-dependent 工件、U3 最小 overlay/default 审计和 Phase B–E 剩余计划。
+- Material plan delta：`none`
+- Plan delta record：`not-required`；U3 发现的 remote plugin/sharing 默认变化已由既定 V4 审计和“不启用新增产品能力”边界覆盖，未改变 U4 目标或范围。
+- User approval：`not-required`；沿用已批准的 PLD-001、PLD-002 和 D2，不产生新的产品选择。
+- Gate status：`ready`
 
 进入条件：Phase A verified，用户已看到 0.147 资格结论。适用决策：D2。
 
@@ -251,7 +251,7 @@
 
 ## 8. 执行与提交边界
 
-执行顺序仍为 `U1（历史完成） -> U2（已完成） -> Checkpoint B（已完成） -> U3（已完成） -> Phase B rebase gate -> U4 -> ... -> U17`。当前先完成 Phase B rebase gate；不能用并行大合并绕过门禁。
+执行顺序仍为 `U1（历史完成） -> U2（已完成） -> Checkpoint B（已完成） -> U3（已完成） -> Phase B rebase gate（ready） -> U4 -> ... -> U17`。当前进入 U4；不能用并行大合并绕过门禁。
 
 - 每个 U 单元至少一个独立、可理解、已基本验证的 commit，并立即 push。
 - 单元内出现两个可独立回滚的行为主题时继续拆 commit；不得把 vendor 机械替换与产品 overlay 混为一个提交。
