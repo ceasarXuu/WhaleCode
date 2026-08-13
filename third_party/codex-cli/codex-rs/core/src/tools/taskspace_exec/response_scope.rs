@@ -1,11 +1,13 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use codex_protocol::models::ResponseItem;
 
-use super::HostedOutputFact;
+use super::HostedToolFact;
 use super::TASKSPACE_EXEC_TOOL_NAME;
-use super::hosted::hosted_output_fact;
+use super::hosted::hosted_tool_fact;
+use super::hosted::merge_hosted_outcome;
 
 #[derive(Debug)]
 pub(crate) struct TaskSpaceExecResponseScope {
@@ -17,7 +19,7 @@ pub(crate) struct TaskSpaceExecResponseScope {
 struct ResponseScopeState {
     request: Option<TaskSpaceExecRequestSnapshot>,
     response: Option<TaskSpaceExecResponseIdentity>,
-    facts: Vec<HostedOutputFact>,
+    hosted_tools: BTreeMap<String, HostedToolFact>,
     complete: bool,
     terminal: bool,
     error: Option<String>,
@@ -37,7 +39,7 @@ pub(crate) struct TaskSpaceExecRequestSnapshot {
 pub(crate) struct TaskSpaceExecResponseClaim {
     pub(crate) request: TaskSpaceExecRequestSnapshot,
     pub(crate) response: TaskSpaceExecResponseIdentity,
-    pub(crate) hosted_facts: Vec<HostedOutputFact>,
+    pub(crate) hosted_facts: Vec<HostedToolFact>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,7 +85,7 @@ impl TaskSpaceExecResponseScope {
         Ok(())
     }
 
-    pub(crate) fn record_completed_item(&self, output_index: Option<usize>, item: &ResponseItem) {
+    pub(crate) fn record_completed_item(&self, item: &ResponseItem) {
         if let ResponseItem::FunctionCall {
             name,
             namespace,
@@ -120,7 +122,7 @@ impl TaskSpaceExecResponseScope {
             }
             return;
         }
-        let observed = hosted_output_fact(output_index, item);
+        let observed = hosted_tool_fact(item);
         if matches!(observed, Ok(None)) {
             return;
         }
@@ -133,7 +135,15 @@ impl TaskSpaceExecResponseScope {
             return;
         }
         match observed {
-            Ok(Some(fact)) => state.facts.push(fact),
+            Ok(Some(fact)) => {
+                state
+                    .hosted_tools
+                    .entry(fact.tool.clone())
+                    .and_modify(|current| {
+                        current.outcome = merge_hosted_outcome(current.outcome, fact.outcome);
+                    })
+                    .or_insert(fact);
+            }
             Ok(None) => {}
             Err(error) => state.error = Some(error),
         }
@@ -168,7 +178,7 @@ impl TaskSpaceExecResponseScope {
             capability_identity = request.map(|value| value.capability_identity.as_ref()).unwrap_or(""),
             response_completed,
             exec_call_count = state.exec_call_count,
-            hosted_fact_count = state.facts.len(),
+            hosted_tool_count = state.hosted_tools.len(),
             accepted = result.is_ok(),
         );
         result
@@ -198,7 +208,7 @@ impl TaskSpaceExecResponseScope {
             response: state.response.clone().ok_or_else(|| {
                 "TaskSpace response has no provider response identity".to_string()
             })?,
-            hosted_facts: state.facts.clone(),
+            hosted_facts: state.hosted_tools.values().cloned().collect(),
         })
     }
 
@@ -226,7 +236,7 @@ fn validate_finalized(state: &ResponseScopeState) -> Result<(), String> {
     if !state.terminal {
         return Err("provider response did not complete before TaskSpace Exec".to_string());
     }
-    if !state.complete && (state.exec_call_count > 0 || !state.facts.is_empty()) {
+    if !state.complete && (state.exec_call_count > 0 || !state.hosted_tools.is_empty()) {
         return Err("provider response did not complete before TaskSpace Exec".to_string());
     }
     if !state.complete {
@@ -244,8 +254,8 @@ fn validate_finalized(state: &ResponseScopeState) -> Result<(), String> {
     if state.exec_call_count == 1 && state.response.is_none() {
         return Err("TaskSpace response has no provider response identity".to_string());
     }
-    if !state.facts.is_empty() && state.exec_call_count != 1 {
-        return Err("provider-hosted outputs require exactly one TaskSpace Exec call".to_string());
+    if !state.hosted_tools.is_empty() && state.exec_call_count != 1 {
+        return Err("provider-hosted Tools require exactly one TaskSpace Exec call".to_string());
     }
     Ok(())
 }
@@ -284,36 +294,37 @@ mod tests {
 
     #[test]
     #[traced_test]
-    fn scope_preserves_provider_identity_order_and_terminal_outcome() {
+    fn scope_preserves_response_identity_and_logical_hosted_outcome() {
         let scope = TaskSpaceExecResponseScope::default();
         scope.begin_request("map-1", Some(7)).unwrap();
-        scope.record_completed_item(
-            Some(3),
-            &ResponseItem::WebSearchCall {
-                id: Some("ws-1".into()),
-                status: Some("completed".into()),
-                action: Some(WebSearchAction::Search {
-                    query: Some("query".into()),
-                    queries: None,
-                }),
-            },
-        );
-        scope.record_completed_item(
-            Some(4),
-            &ResponseItem::FunctionCall {
-                id: None,
-                name: TASKSPACE_EXEC_TOOL_NAME.into(),
-                namespace: None,
-                arguments: "{}".into(),
-                call_id: "outer".into(),
-            },
-        );
+        scope.record_completed_item(&ResponseItem::WebSearchCall {
+            id: Some("ws-1".into()),
+            status: Some("completed".into()),
+            action: Some(WebSearchAction::Search {
+                query: Some("query".into()),
+                queries: None,
+            }),
+        });
+        scope.record_completed_item(&ResponseItem::WebSearchCall {
+            id: Some("ws-2".into()),
+            status: Some("failed".into()),
+            action: Some(WebSearchAction::OpenPage {
+                url: Some("https://example.com".into()),
+            }),
+        });
+        scope.record_completed_item(&ResponseItem::FunctionCall {
+            id: None,
+            name: TASKSPACE_EXEC_TOOL_NAME.into(),
+            namespace: None,
+            arguments: "{}".into(),
+            call_id: "outer".into(),
+        });
         scope.finalize(true, Some(response_identity())).unwrap();
         let claim = scope.claim_response("outer").unwrap();
         assert_eq!(claim.request.map_id, "map-1");
         assert_eq!(claim.request.revision, Some(7));
-        assert_eq!(claim.hosted_facts[0].output_index, 3);
-        assert_eq!(claim.hosted_facts[0].provider_id, "ws-1");
+        assert_eq!(claim.hosted_facts.len(), 1);
+        assert_eq!(claim.hosted_facts[0].tool, "web_search");
         assert_eq!(claim.hosted_facts[0].outcome, ActionOutcome::Succeeded);
         assert_eq!(claim.response, response_identity());
         logs_assert(|lines: &[&str]| {
@@ -335,16 +346,13 @@ mod tests {
     fn incomplete_response_is_not_accepted() {
         let scope = TaskSpaceExecResponseScope::default();
         scope.begin_request("map-1", Some(7)).unwrap();
-        scope.record_completed_item(
-            Some(1),
-            &ResponseItem::FunctionCall {
-                id: None,
-                name: TASKSPACE_EXEC_TOOL_NAME.into(),
-                namespace: None,
-                arguments: "{}".into(),
-                call_id: "outer".into(),
-            },
-        );
+        scope.record_completed_item(&ResponseItem::FunctionCall {
+            id: None,
+            name: TASKSPACE_EXEC_TOOL_NAME.into(),
+            namespace: None,
+            arguments: "{}".into(),
+            call_id: "outer".into(),
+        });
         assert!(scope.finalize(false, None).is_err());
         assert!(
             scope
@@ -362,32 +370,13 @@ mod tests {
     }
 
     #[test]
-    fn hosted_outputs_require_wire_index_and_one_exec() {
+    fn hosted_tools_require_one_exec_but_not_internal_output_identity() {
         let scope = TaskSpaceExecResponseScope::default();
-        scope.record_completed_item(
-            None,
-            &ResponseItem::WebSearchCall {
-                id: Some("ws-1".into()),
-                status: Some("completed".into()),
-                action: None,
-            },
-        );
-        assert!(
-            scope
-                .finalize(true, Some(response_identity()))
-                .unwrap_err()
-                .contains("output_index")
-        );
-
-        let scope = TaskSpaceExecResponseScope::default();
-        scope.record_completed_item(
-            Some(1),
-            &ResponseItem::WebSearchCall {
-                id: Some("ws-1".into()),
-                status: Some("completed".into()),
-                action: None,
-            },
-        );
+        scope.record_completed_item(&ResponseItem::WebSearchCall {
+            id: Some("ws-1".into()),
+            status: Some("completed".into()),
+            action: None,
+        });
         assert!(
             scope
                 .finalize(true, Some(response_identity()))
@@ -401,16 +390,13 @@ mod tests {
         let scope = TaskSpaceExecResponseScope::default();
         scope.begin_request("map-1", Some(7)).unwrap();
         for call_id in ["outer-1", "outer-2"] {
-            scope.record_completed_item(
-                Some(1),
-                &ResponseItem::FunctionCall {
-                    id: None,
-                    name: TASKSPACE_EXEC_TOOL_NAME.into(),
-                    namespace: None,
-                    arguments: "{}".into(),
-                    call_id: call_id.into(),
-                },
-            );
+            scope.record_completed_item(&ResponseItem::FunctionCall {
+                id: None,
+                name: TASKSPACE_EXEC_TOOL_NAME.into(),
+                namespace: None,
+                arguments: "{}".into(),
+                call_id: call_id.into(),
+            });
         }
         assert!(
             scope
@@ -421,16 +407,13 @@ mod tests {
 
         let scope = TaskSpaceExecResponseScope::default();
         scope.begin_request("map-1", Some(7)).unwrap();
-        scope.record_completed_item(
-            Some(1),
-            &ResponseItem::FunctionCall {
-                id: None,
-                name: TASKSPACE_EXEC_TOOL_NAME.into(),
-                namespace: None,
-                arguments: "{}".into(),
-                call_id: "outer".into(),
-            },
-        );
+        scope.record_completed_item(&ResponseItem::FunctionCall {
+            id: None,
+            name: TASKSPACE_EXEC_TOOL_NAME.into(),
+            namespace: None,
+            arguments: "{}".into(),
+            call_id: "outer".into(),
+        });
         scope.finalize(true, Some(response_identity())).unwrap();
         assert!(scope.ensure_reconciled().is_err());
         scope.claim_response("outer").unwrap();
@@ -441,26 +424,20 @@ mod tests {
     fn response_rejects_forbidden_top_level_client_call_before_exec_claim() {
         let scope = TaskSpaceExecResponseScope::default();
         scope.begin_request("map-1", Some(7)).unwrap();
-        scope.record_completed_item(
-            Some(0),
-            &ResponseItem::FunctionCall {
-                id: None,
-                name: "inspect".into(),
-                namespace: None,
-                arguments: "{}".into(),
-                call_id: "bypass".into(),
-            },
-        );
-        scope.record_completed_item(
-            Some(1),
-            &ResponseItem::FunctionCall {
-                id: None,
-                name: TASKSPACE_EXEC_TOOL_NAME.into(),
-                namespace: None,
-                arguments: "{}".into(),
-                call_id: "outer".into(),
-            },
-        );
+        scope.record_completed_item(&ResponseItem::FunctionCall {
+            id: None,
+            name: "inspect".into(),
+            namespace: None,
+            arguments: "{}".into(),
+            call_id: "bypass".into(),
+        });
+        scope.record_completed_item(&ResponseItem::FunctionCall {
+            id: None,
+            name: TASKSPACE_EXEC_TOOL_NAME.into(),
+            namespace: None,
+            arguments: "{}".into(),
+            call_id: "outer".into(),
+        });
 
         let error = scope.finalize(true, Some(response_identity())).unwrap_err();
         assert!(error.contains("forbidden top-level client Tool `inspect`"));
@@ -470,16 +447,13 @@ mod tests {
     #[test]
     fn exec_response_requires_request_time_map_snapshot() {
         let scope = TaskSpaceExecResponseScope::default();
-        scope.record_completed_item(
-            Some(0),
-            &ResponseItem::FunctionCall {
-                id: None,
-                name: TASKSPACE_EXEC_TOOL_NAME.into(),
-                namespace: None,
-                arguments: "{}".into(),
-                call_id: "outer".into(),
-            },
-        );
+        scope.record_completed_item(&ResponseItem::FunctionCall {
+            id: None,
+            name: TASKSPACE_EXEC_TOOL_NAME.into(),
+            namespace: None,
+            arguments: "{}".into(),
+            call_id: "outer".into(),
+        });
 
         assert!(
             scope

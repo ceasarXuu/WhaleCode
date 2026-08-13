@@ -26,7 +26,7 @@ pub(crate) use envelope::TaskSpaceExecEnvelopeError;
 pub(crate) use envelope::TaskSpaceExecInternalCallId;
 pub(crate) use envelope::TaskSpaceExecRequestContext;
 pub(crate) use handler::TaskSpaceExecHandler;
-pub(crate) use hosted::HostedOutputFact;
+pub(crate) use hosted::HostedToolFact;
 pub(crate) use map_operations::MapOperation;
 pub(crate) use map_operations::MapOperationApplyError;
 pub(crate) use map_operations::MapOperationEffect;

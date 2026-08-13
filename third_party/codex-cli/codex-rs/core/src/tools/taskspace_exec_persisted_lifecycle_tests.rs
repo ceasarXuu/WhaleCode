@@ -101,16 +101,13 @@ async fn persisted_exec_reaches_map_rollout_and_provider_preparation() {
     );
     let response_scope = router.taskspace_response_scope().expect("response scope");
     response_scope.begin_request(map_id.clone(), None).unwrap();
-    response_scope.record_completed_item(
-        Some(0),
-        &ResponseItem::FunctionCall {
-            id: None,
-            name: TASKSPACE_EXEC_TOOL_NAME.into(),
-            namespace: None,
-            arguments: "{}".into(),
-            call_id: "outer".into(),
-        },
-    );
+    response_scope.record_completed_item(&ResponseItem::FunctionCall {
+        id: None,
+        name: TASKSPACE_EXEC_TOOL_NAME.into(),
+        namespace: None,
+        arguments: "{}".into(),
+        call_id: "outer".into(),
+    });
     response_scope
         .finalize(
             true,

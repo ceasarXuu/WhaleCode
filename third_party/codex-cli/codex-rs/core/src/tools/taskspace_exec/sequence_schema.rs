@@ -138,7 +138,7 @@ fn tool_action_schema(capability: &TaskSpaceToolCapability) -> JsonSchema {
                         JsonSchema::array(
                             JsonSchema::string(None),
                             Some(
-                                "One or more Agent-declared owner work nodes for this output item."
+                                "One or more Agent-declared owner work nodes for this logical Tool action."
                                     .into(),
                             ),
                         )
@@ -148,7 +148,7 @@ fn tool_action_schema(capability: &TaskSpaceToolCapability) -> JsonSchema {
                 &["tool", "node_ids"],
             );
             schema.description = Some(format!(
-                "Ownership declaration for exactly one `{}` provider-hosted output item already produced in this same response. Do not include native Tool input or use this action to request execution. Declare one action for every output item in provider output order, including failed items and action subtypes, and always use the public Tool name `{}`.",
+                "One logical `{}` Tool action executed natively by the Provider in this response. Declare it exactly once and bind all of its internal steps and results to `node_ids`; do not repeat declarations for internal actions or include native Tool input. Always use the public Tool name `{}`.",
                 kind.name(),
                 kind.name()
             ));

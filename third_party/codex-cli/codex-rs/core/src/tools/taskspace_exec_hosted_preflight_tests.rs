@@ -75,8 +75,15 @@ fn initialize_input() -> serde_json::Value {
     })
 }
 
+fn hosted(tool: &str, outcome: ActionOutcome) -> HostedToolFact {
+    HostedToolFact {
+        tool: tool.into(),
+        outcome,
+    }
+}
+
 #[test]
-fn hosted_facts_are_sorted_by_provider_index_and_bind_to_multiple_nodes() {
+fn logical_hosted_tools_bind_by_capability_not_internal_output_order() {
     let current = open_map();
     let envelope = envelope(
         json!({
@@ -89,33 +96,27 @@ fn hosted_facts_are_sorted_by_provider_index_and_bind_to_multiple_nodes() {
         Some(&current),
     );
     let facts = [
-        HostedOutputFact {
-            output_index: 9,
-            provider_id: "image-1".into(),
-            tool: "image_generation".into(),
-            outcome: ActionOutcome::Succeeded,
-        },
-        HostedOutputFact {
-            output_index: 2,
-            provider_id: "search-1".into(),
-            tool: "web_search".into(),
-            outcome: ActionOutcome::Succeeded,
-        },
+        hosted("image_generation", ActionOutcome::Succeeded),
+        hosted("web_search", ActionOutcome::Succeeded),
     ];
 
     let prepared = preflight_taskspace_exec(&envelope, Some(&current), &facts).unwrap();
     assert_eq!(prepared.provider_actions[0].tool_index, 0);
-    assert_eq!(prepared.provider_actions[0].output_index, 2);
+    assert_eq!(prepared.provider_actions[0].tool, "web_search");
     assert_eq!(
         prepared.provider_actions[0].node_ids,
         vec!["work", "support"]
     );
-    assert_eq!(prepared.provider_actions[1].output_index, 9);
+    assert_eq!(
+        prepared.provider_actions[0].identity.transport_id(),
+        "outer-hosted/taskspace/call/0"
+    );
     assert_eq!(prepared.provider_actions[1].tool_index, 1);
+    assert_eq!(prepared.provider_actions[1].tool, "image_generation");
 }
 
 #[test]
-fn initialization_can_record_already_completed_provider_work_on_new_nodes() {
+fn initialization_can_record_one_logical_hosted_tool_on_new_nodes() {
     let envelope = envelope(
         json!({
             "type": "initialize_and_work",
@@ -124,12 +125,7 @@ fn initialization_can_record_already_completed_provider_work_on_new_nodes() {
         }),
         None,
     );
-    let facts = [HostedOutputFact {
-        output_index: 4,
-        provider_id: "search-new-map".into(),
-        tool: "web_search".into(),
-        outcome: ActionOutcome::Succeeded,
-    }];
+    let facts = [hosted("web_search", ActionOutcome::Succeeded)];
 
     let prepared = preflight_taskspace_exec(&envelope, None, &facts).unwrap();
     assert_eq!(prepared.candidate_map.unwrap().map_id, "map-1");
@@ -156,7 +152,7 @@ fn read_map_schema_cannot_share_a_response_with_provider_work() {
 }
 
 #[test]
-fn hosted_count_tool_and_node_mismatches_are_rejected() {
+fn hosted_tool_set_and_node_mismatches_are_rejected() {
     let current = open_map();
     let omitted_binding = envelope(
         json!({
@@ -168,17 +164,12 @@ fn hosted_count_tool_and_node_mismatches_are_rejected() {
         }),
         Some(&current),
     );
-    let search = [HostedOutputFact {
-        output_index: 1,
-        provider_id: "search-1".into(),
-        tool: "web_search".into(),
-        outcome: ActionOutcome::Succeeded,
-    }];
+    let search = [hosted("web_search", ActionOutcome::Succeeded)];
     assert_eq!(
         preflight_taskspace_exec(&omitted_binding, Some(&current), &search),
-        Err(TaskSpaceExecPreflightError::HostedCountMismatch {
-            actual: 1,
-            declared: 0
+        Err(TaskSpaceExecPreflightError::HostedToolSetMismatch {
+            actual: vec!["web_search".into()],
+            declared: vec![],
         })
     );
 
@@ -191,20 +182,15 @@ fn hosted_count_tool_and_node_mismatches_are_rejected() {
     );
     assert_eq!(
         preflight_taskspace_exec(&one_binding, Some(&current), &[]),
-        Err(TaskSpaceExecPreflightError::HostedCountMismatch {
-            actual: 0,
-            declared: 1
+        Err(TaskSpaceExecPreflightError::HostedToolSetMismatch {
+            actual: vec![],
+            declared: vec!["web_search".into()],
         })
     );
-    let wrong_tool = [HostedOutputFact {
-        output_index: 1,
-        provider_id: "image-1".into(),
-        tool: "image_generation".into(),
-        outcome: ActionOutcome::Succeeded,
-    }];
+    let wrong_tool = [hosted("image_generation", ActionOutcome::Succeeded)];
     assert!(matches!(
         preflight_taskspace_exec(&one_binding, Some(&current), &wrong_tool),
-        Err(TaskSpaceExecPreflightError::HostedToolMismatch { .. })
+        Err(TaskSpaceExecPreflightError::HostedToolSetMismatch { .. })
     ));
 
     for (nodes, reason) in [
@@ -227,81 +213,37 @@ fn hosted_count_tool_and_node_mismatches_are_rejected() {
 }
 
 #[test]
-fn duplicate_hosted_provider_facts_are_rejected() {
+fn duplicate_logical_hosted_tools_are_rejected() {
     let current = open_map();
-    let envelope = envelope(
+    let duplicate_declaration = envelope(
         json!({
             "type": "work",
             "tools": [
                 {"tool": "web_search", "node_ids": ["work"]},
-                {"tool": "web_search", "node_ids": ["work"]}
+                {"tool": "web_search", "node_ids": ["support"]}
             ]
         }),
         Some(&current),
     );
-    let duplicate_index = [
-        HostedOutputFact {
-            output_index: 1,
-            provider_id: "search-1".into(),
-            tool: "web_search".into(),
-            outcome: ActionOutcome::Succeeded,
-        },
-        HostedOutputFact {
-            output_index: 1,
-            provider_id: "search-2".into(),
-            tool: "web_search".into(),
-            outcome: ActionOutcome::Succeeded,
-        },
-    ];
+    let search = [hosted("web_search", ActionOutcome::Succeeded)];
     assert!(matches!(
-        preflight_taskspace_exec(&envelope, Some(&current), &duplicate_index),
-        Err(TaskSpaceExecPreflightError::HostedFactInvalid {
-            reason: "duplicate_output_index",
-            ..
-        })
+        preflight_taskspace_exec(&duplicate_declaration, Some(&current), &search),
+        Err(TaskSpaceExecPreflightError::HostedToolDuplicate { .. })
     ));
 
-    let duplicate_provider_id = [
-        HostedOutputFact {
-            output_index: 1,
-            provider_id: "search-1".into(),
-            tool: "web_search".into(),
-            outcome: ActionOutcome::Succeeded,
-        },
-        HostedOutputFact {
-            output_index: 2,
-            provider_id: "search-1".into(),
-            tool: "web_search".into(),
-            outcome: ActionOutcome::Failed,
-        },
+    let one_binding = envelope(
+        json!({
+            "type": "work",
+            "tools": [{"tool": "web_search", "node_ids": ["work"]}]
+        }),
+        Some(&current),
+    );
+    let duplicate_facts = [
+        hosted("web_search", ActionOutcome::Succeeded),
+        hosted("web_search", ActionOutcome::Failed),
     ];
     assert!(matches!(
-        preflight_taskspace_exec(&envelope, Some(&current), &duplicate_provider_id),
-        Err(TaskSpaceExecPreflightError::HostedFactInvalid {
-            reason: "missing_or_duplicate_provider_id",
-            ..
-        })
-    ));
-
-    let missing_provider_id = [
-        HostedOutputFact {
-            output_index: 1,
-            provider_id: String::new(),
-            tool: "web_search".into(),
-            outcome: ActionOutcome::Succeeded,
-        },
-        HostedOutputFact {
-            output_index: 2,
-            provider_id: "search-2".into(),
-            tool: "web_search".into(),
-            outcome: ActionOutcome::Succeeded,
-        },
-    ];
-    assert!(matches!(
-        preflight_taskspace_exec(&envelope, Some(&current), &missing_provider_id),
-        Err(TaskSpaceExecPreflightError::HostedFactInvalid {
-            reason: "missing_or_duplicate_provider_id",
-            ..
-        })
+        preflight_taskspace_exec(&one_binding, Some(&current), &duplicate_facts),
+        Err(TaskSpaceExecPreflightError::HostedFactDuplicate { .. })
     ));
 }

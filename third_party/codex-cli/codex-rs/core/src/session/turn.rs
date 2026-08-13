@@ -2110,10 +2110,10 @@ async fn try_run_sampling_request(
 
         match event {
             ResponseEvent::Created => {}
-            ResponseEvent::OutputItemDone(mut item, output_index) => {
+            ResponseEvent::OutputItemDone(mut item, _output_index) => {
                 self_heal_completed_response_item(&tool_runtime, &mut item);
                 if let Some(scope) = taskspace_response_scope.as_ref() {
-                    scope.record_completed_item(output_index, &item);
+                    scope.record_completed_item(&item);
                 }
                 if let Some((_, mut consumer)) = active_tool_argument_diff_consumer.take()
                     && let Ok(Some(event)) = consumer.finish()

@@ -73,13 +73,9 @@ Runtime 的 schema、Map 初始化和 Hosted 同响应核对均在副作用前�
 2. Agent 仍稳定套用 client action 的结构和执行心智；不是一次随机字段拼写错误。
 3. 当前同一个 `tools[]` action union 同时表达执行前请求和执行后凭据，语义角色不统一。
 
-尚未决定：
-
-1. 保留逐 Provider output item 登记，并为 Hosted 生命周期设计更自解释的结构；
-2. 改为逻辑 Provider Tool 调用粒度的归属，再由 Runtime 对内部 `search/open_page` output 机械聚合。
-
-第二项会改变 Hosted 绑定合同，并带来多 Provider 调用、多节点归属和稳定关联身份的产品定义问题。没有用户决策前，
-不得继续通过提示词堆叠或 Runtime 语义纠错推进。I03 保持 `verifying`，LS-09 保持未通过。
+后续用户已明确产品边界：`web_search` 是一个不可拆分的逻辑 Tool，`search/open_page` 等均为 Provider 内部过程，Agent
+和 Runtime 都不得把它们拆成多个 TaskSpace action。逐 output item 模型因此被废弃，不再作为候选。修复按逻辑 capability
+一次声明、一次绑定、一次结果推进；本文件仍保留为旧模型失败证据。I03 保持 `verifying`，LS-09 保持未通过，等待修复复验。
 
 ## 6. 证据
 

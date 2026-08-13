@@ -235,16 +235,15 @@ fn assert_feedback_matches_declared_result(harness: &Harness, feedback: &Value) 
 }
 
 fn finalize_scope(harness: &Harness) {
-    harness.response_scope.record_completed_item(
-        Some(99),
-        &ResponseItem::FunctionCall {
+    harness
+        .response_scope
+        .record_completed_item(&ResponseItem::FunctionCall {
             id: None,
             name: TASKSPACE_EXEC_TOOL_NAME.into(),
             namespace: None,
             arguments: "{}".into(),
             call_id: "outer".into(),
-        },
-    );
+        });
     harness
         .response_scope
         .finalize(
@@ -687,20 +686,28 @@ async fn response_uses_request_time_revision_and_rejects_a_stale_plan() {
 }
 
 #[tokio::test]
-async fn hosted_result_is_bound_by_provider_identity_without_changing_node_state() {
+async fn hosted_internal_steps_are_one_logical_action_without_changing_node_state() {
     let harness = harness(true).await;
     begin_scope(&harness).await;
-    harness.response_scope.record_completed_item(
-        Some(2),
-        &ResponseItem::WebSearchCall {
+    harness
+        .response_scope
+        .record_completed_item(&ResponseItem::WebSearchCall {
             id: Some("provider-search-1".into()),
             status: Some("completed".into()),
             action: Some(WebSearchAction::Search {
                 query: Some("evidence".into()),
                 queries: None,
             }),
-        },
-    );
+        });
+    harness
+        .response_scope
+        .record_completed_item(&ResponseItem::WebSearchCall {
+            id: Some("provider-open-page-1".into()),
+            status: Some("failed".into()),
+            action: Some(WebSearchAction::OpenPage {
+                url: Some("https://example.com".into()),
+            }),
+        });
     finalize_scope(&harness);
     let output = harness
         .handler
@@ -717,11 +724,14 @@ async fn hosted_result_is_bound_by_provider_identity_without_changing_node_state
     assert_eq!(output.success, Some(true));
     let feedback: Value = serde_json::from_str(&output.into_text()).unwrap();
     assert_feedback_matches_declared_result(&harness, &feedback);
+    assert_eq!(feedback["hosted_results"].as_array().unwrap().len(), 1);
     assert_eq!(
-        feedback["hosted_results"][0]["provider_id"],
-        "provider-search-1"
+        feedback["hosted_results"][0]["action_id"],
+        "outer/taskspace/call/0"
     );
     assert_eq!(feedback["hosted_results"][0]["tool_index"], 0);
+    assert!(feedback["hosted_results"][0].get("provider_id").is_none());
+    assert!(feedback["hosted_results"][0].get("output_index").is_none());
     let map = harness
         .session
         .canonical_action_map_snapshot()
@@ -732,7 +742,7 @@ async fn hosted_result_is_bound_by_provider_identity_without_changing_node_state
     let work = map.nodes.iter().find(|node| node.id == "work").unwrap();
     assert_eq!(work.state, "in_flight");
     assert!(work.actions.iter().any(|action| {
-        action.action_id == "provider-search-1" && action.outcome == "succeeded"
+        action.action_id == "outer/taskspace/call/0" && action.outcome == "succeeded"
     }));
     assert!(
         work.actions
@@ -745,14 +755,13 @@ async fn hosted_result_is_bound_by_provider_identity_without_changing_node_state
 async fn failed_hosted_result_preserves_failure_without_changing_node_state() {
     let harness = harness(true).await;
     begin_scope(&harness).await;
-    harness.response_scope.record_completed_item(
-        Some(2),
-        &ResponseItem::WebSearchCall {
+    harness
+        .response_scope
+        .record_completed_item(&ResponseItem::WebSearchCall {
             id: Some("provider-search-failed".into()),
             status: Some("failed".into()),
             action: None,
-        },
-    );
+        });
     finalize_scope(&harness);
     let output = harness
         .handler
@@ -774,7 +783,7 @@ async fn failed_hosted_result_preserves_failure_without_changing_node_state() {
         .unwrap();
     let work = map.nodes.iter().find(|node| node.id == "work").unwrap();
     assert_eq!(work.state, "in_flight");
-    assert_eq!(work.actions[0].action_id, "provider-search-failed");
+    assert_eq!(work.actions[0].action_id, "outer/taskspace/call/0");
     assert_eq!(work.actions[0].outcome, "failed");
 }
 

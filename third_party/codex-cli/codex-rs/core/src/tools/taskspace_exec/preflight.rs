@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 use codex_tools::ToolSpecCapabilityInput;
@@ -11,7 +12,7 @@ use crate::action_map::taskspace_map_view;
 
 use super::ClientCall;
 use super::ClientCallInput;
-use super::HostedOutputFact;
+use super::HostedToolFact;
 use super::MapOperationApplyError;
 use super::MapOperationEffect;
 use super::TaskSpaceExecEnvelope;
@@ -30,8 +31,7 @@ pub(crate) struct PreparedClientCall {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PreparedProviderAction {
     pub(crate) tool_index: usize,
-    pub(crate) output_index: usize,
-    pub(crate) provider_id: String,
+    pub(crate) identity: TaskSpaceExecInternalCallId,
     pub(crate) tool: String,
     pub(crate) outcome: rooted_dag::ActionOutcome,
     pub(crate) node_ids: Vec<String>,
@@ -89,18 +89,16 @@ pub(crate) enum TaskSpaceExecPreflightError {
     PatchLimitExceeded {
         indices: Vec<usize>,
     },
-    HostedCountMismatch {
-        actual: usize,
-        declared: usize,
+    HostedToolSetMismatch {
+        actual: Vec<String>,
+        declared: Vec<String>,
     },
-    HostedFactInvalid {
-        output_index: usize,
-        reason: &'static str,
-    },
-    HostedToolMismatch {
+    HostedToolDuplicate {
         tool_index: usize,
-        actual: String,
-        declared: String,
+        tool: String,
+    },
+    HostedFactDuplicate {
+        tool: String,
     },
     HostedNodeInvalid {
         tool_index: usize,
@@ -112,7 +110,7 @@ pub(crate) enum TaskSpaceExecPreflightError {
 pub(crate) fn preflight_taskspace_exec(
     envelope: &TaskSpaceExecEnvelope,
     current_map: Option<&TaskSpaceMap>,
-    hosted_facts: &[HostedOutputFact],
+    hosted_facts: &[HostedToolFact],
 ) -> Result<TaskSpaceExecPreflightResult, TaskSpaceExecPreflightError> {
     envelope
         .request()
@@ -156,8 +154,12 @@ pub(crate) fn preflight_taskspace_exec(
             indices: patch_indices,
         });
     }
-    let provider_actions =
-        reconcile_provider_actions(&provider_actions, candidate_map.as_ref(), hosted_facts)?;
+    let provider_actions = reconcile_provider_actions(
+        &provider_actions,
+        candidate_map.as_ref(),
+        hosted_facts,
+        envelope,
+    )?;
     candidate_map = activate_ready_tool_nodes(candidate_map, &client_calls, &provider_actions)?;
 
     if let Some(operation) = envelope.plan().terminal_map.as_ref() {
@@ -288,44 +290,47 @@ fn is_apply_patch(call: &ClientCall) -> bool {
 fn reconcile_provider_actions(
     actions: &[(usize, super::plan::ProviderAction)],
     candidate_map: Option<&TaskSpaceMap>,
-    hosted_facts: &[HostedOutputFact],
+    hosted_facts: &[HostedToolFact],
+    envelope: &TaskSpaceExecEnvelope,
 ) -> Result<Vec<PreparedProviderAction>, TaskSpaceExecPreflightError> {
-    if hosted_facts.len() != actions.len() {
-        return Err(TaskSpaceExecPreflightError::HostedCountMismatch {
-            actual: hosted_facts.len(),
-            declared: actions.len(),
-        });
+    let mut facts_by_tool = BTreeMap::new();
+    for fact in hosted_facts {
+        if facts_by_tool.insert(fact.tool.as_str(), fact).is_some() {
+            return Err(TaskSpaceExecPreflightError::HostedFactDuplicate {
+                tool: fact.tool.clone(),
+            });
+        }
     }
-    let mut facts = hosted_facts.to_vec();
-    facts.sort_by_key(|fact| fact.output_index);
-    let mut output_indices = BTreeSet::new();
-    let mut provider_ids = BTreeSet::new();
-    for fact in &facts {
-        if !output_indices.insert(fact.output_index) {
-            return Err(TaskSpaceExecPreflightError::HostedFactInvalid {
-                output_index: fact.output_index,
-                reason: "duplicate_output_index",
+    let mut actions_by_tool = BTreeMap::new();
+    for (tool_index, action) in actions {
+        if actions_by_tool
+            .insert(action.tool.as_str(), (*tool_index, action))
+            .is_some()
+        {
+            return Err(TaskSpaceExecPreflightError::HostedToolDuplicate {
+                tool_index: *tool_index,
+                tool: action.tool.clone(),
             });
         }
-        if fact.provider_id.trim().is_empty() || !provider_ids.insert(fact.provider_id.as_str()) {
-            return Err(TaskSpaceExecPreflightError::HostedFactInvalid {
-                output_index: fact.output_index,
-                reason: "missing_or_duplicate_provider_id",
-            });
-        }
+    }
+    let actual = facts_by_tool
+        .keys()
+        .map(|tool| (*tool).to_string())
+        .collect::<Vec<_>>();
+    let declared = actions_by_tool
+        .keys()
+        .map(|tool| (*tool).to_string())
+        .collect::<Vec<_>>();
+    if actual != declared {
+        return Err(TaskSpaceExecPreflightError::HostedToolSetMismatch { actual, declared });
     }
 
-    facts
-        .into_iter()
-        .zip(actions)
-        .map(|(fact, (tool_index, action))| {
-            if fact.tool != action.tool {
-                return Err(TaskSpaceExecPreflightError::HostedToolMismatch {
-                    tool_index: *tool_index,
-                    actual: fact.tool,
-                    declared: action.tool.clone(),
-                });
-            }
+    actions
+        .iter()
+        .map(|(tool_index, action)| {
+            let fact = facts_by_tool
+                .get(action.tool.as_str())
+                .expect("Hosted Tool sets were checked above");
             let mut node_ids = BTreeSet::new();
             for node_id in &action.node_ids {
                 if node_id.trim().is_empty() || !node_ids.insert(node_id.as_str()) {
@@ -366,9 +371,10 @@ fn reconcile_provider_actions(
             }
             Ok(PreparedProviderAction {
                 tool_index: *tool_index,
-                output_index: fact.output_index,
-                provider_id: fact.provider_id,
-                tool: fact.tool,
+                identity: envelope
+                    .internal_call_id(*tool_index)
+                    .map_err(TaskSpaceExecPreflightError::RequestContext)?,
+                tool: fact.tool.clone(),
                 outcome: fact.outcome,
                 node_ids: action.node_ids.clone(),
             })

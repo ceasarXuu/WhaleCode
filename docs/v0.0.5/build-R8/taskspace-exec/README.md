@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 Hosted contract revalidation failed, product protocol decision required
+- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 logical Hosted repair implemented offline, provider revalidation pending
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -108,8 +108,9 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 - Run C 暴露的 Hosted action 文字合同已经补入最终 Provider-visible schema，并由 Run D 证明真实生效；但 Agent 仍把
   Hosted action 套用为 client Tool 的执行请求，连续产生字段、生命周期和同响应对账错误。当前证据把根因推进到统一
   `tools[]` 表达模型：client 是执行前请求，Hosted 是执行后归属凭据，两者位于同一动作槽却具有相反生命周期。Run D
-  12 requests 后仍未生成业务文件，正式验收失败。继续修复前需确认 Hosted 绑定应保留逐 output item 模型，还是收敛到
-  逻辑 Provider Tool 调用粒度；详见
+  12 requests 后仍未生成业务文件，正式验收失败。用户随后明确 `web_search` 是不可拆分的逻辑 Tool，Provider 内部
+  `search/open_page` 不得成为 TaskSpace action。当前已删除逐 output 数量、顺序、ID 和结果暴露，按 capability 形成一次
+  声明、一次绑定和一次结果；真实收益等待单次复验。详见
   [`45-ls09-hosted-contract-revalidation-result.md`](45-ls09-hosted-contract-revalidation-result.md)。
 
 ## 3. 文档

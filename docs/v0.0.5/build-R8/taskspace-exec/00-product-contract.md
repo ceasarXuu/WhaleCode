@@ -84,7 +84,7 @@ Runtime 在 Agent 响应产生前不生成、不预测、不补全或重排这�
 | 类别 | Agent 声明 | Runtime 权限 | 权威执行事实 |
 |---|---|---|---|
 | Map declaration | 合法序列允许的 canonical Map input；不声明外层 owner | 机械归一化后调用 canonical transaction validator/commit | canonical Map transaction |
-| Tool action | Tool 原生身份、适用的原生调用内容、非空 `node_id/node_ids` | client 调用原 Router 一次；Provider 逐项核对并登记，不重执行 | client 原生 result 或 provider 原始 output item |
+| Tool action | Tool 原生身份、适用的原生调用内容、非空 `node_id/node_ids` | client 调用原 Router 一次；Provider 按逻辑 Tool 核对并登记，不重执行 | client 原生 result 或一次逻辑 Provider Tool result |
 
 内部语法不是第二份业务 Tool schema：Tool 名、描述、`input` 的值域和输出合同都从原 ToolSpec 派生；`node_id` 和序列位置属于
 外层 TaskSpace invocation metadata，不能写回普通 Tool 参数。
@@ -203,21 +203,19 @@ outcome 也不自动完成节点。Root 和 Finish 只表达任务边界，不�
 Provider-hosted Tool 由 provider 在响应生成过程中原生执行。它的原始输出是唯一执行事实，不能被
 `taskspace_exec` 回滚、重执行或替换。
 
-Agent 在同一响应的 `taskspace_exec.tools[]` 中为每项 Hosted 动作分别声明非空 `node_ids[]`。同一个 Provider 事实可以同时供多个
-节点使用，多个事实也可以指向同一节点；事实本身仍只保存一份。Runtime 使用 provider 原始输出逐项核对：
+Agent 在同一响应的 `taskspace_exec.tools[]` 中为每个已执行的 Hosted capability 声明一次非空 `node_ids[]`。一个逻辑
+Provider Tool action 可以同时供多个节点使用，但在 Map 中只形成一个 action identity。Runtime 只做 capability 级机械核对：
 
-- 绑定最小单位是一个带独立 Provider 身份的原始 hosted output item，不是整个响应或 Runtime 推断的语义任务组；
-- 从每个真实 hosted output item 直接读取唯一 `id/item_id` 和 Tool 类型；
-- 将每项 Hosted 事实绑定到该项 Agent 声明的节点；
-- 允许同一响应中的不同 Hosted 事实归属不同节点，也允许多项事实归属同一节点；
-- 检查声明与事实是否一一对应、节点是否存在、Provider ID 是否缺失或重复；
-- 保留 Provider 状态，但不以成功或失败改变节点状态。
+- `web_search` 是不可拆分的一个逻辑 Tool；`search`、`open_page`、翻页、内部失败与重试都属于 Provider 内部过程；
+- Provider 内部 output item、action subtype、`id/item_id` 和 `output_index` 不进入 TaskSpace 协议、Map、节点绑定或 outer result；
+- 同一 response scope 内同一种 Hosted capability 无论产生多少内部 item，都聚合成一个逻辑事实；
+- Agent 对同一种 Hosted capability 只能声明一次，并可用同一个 `node_ids[]` 归属多个 Work node；
+- Runtime 只核对实际发生与 Agent 声明的 capability 集合是否一致、节点是否合法，不核对内部项数量、顺序或身份；
+- 逻辑 outcome 机械聚合：任一内部项成功则整体成功；否则失败优先于取消。outcome 不改变节点生命周期。
 
-Agent 不得回显、复制或另造 Provider 传输身份。统一 `tools[]` 中的 Provider Tool action 按 Provider 原始 `output_index`
-排序后的 Hosted item 顺序逐项声明；每项只包含模型可见的 Tool 名和 Agent 选择的非空 `node_ids[]`。Runtime 使用 `output_index` 恢复顺序，
-再核对数量和 Tool 类型，不得用事件完成顺序、URL、结果内容或语义相似度猜配。缺少声明、无法唯一对应、节点非法、
-Provider ID/`output_index` 缺失或冲突时，该响应不被 TaskSpace 接受，不能把事实标记为已结算的 `unbound`，也不能
-默认写到 Root。
+Agent 不得回显、复制或另造 Provider 传输身份。逻辑 Hosted action 使用 outer `call_id + tools[] index` 形成稳定 action identity，
+与 client action 使用同一身份规则。缺少逻辑 Tool 声明、声明了未发生的 Tool、重复声明或节点非法时，该响应不被 TaskSpace
+接受，不能标记为 `unbound` 或默认写到 Root。Provider 原始结果仍按 Standard 路径忠实进入自然上下文，不复制进 Map。
 Hosted action 也只能归属于 Work node。其执行已经发生，因此 Tool outcome 不决定节点生命周期；Runtime 仍必须拒绝将
 Hosted action 记到 Root、Finish、未知节点或空归属中。
 
@@ -327,9 +325,9 @@ fallback 或兼容读取。
 | Hosted 原生执行 + 双写核对 | 已确认 | provider 事实不可回滚；Runtime 只核对绑定 |
 | 静态 schema + Agent 动态实例 | 旧 `calls[]` 证据不再代表目标合同 | schema 固定序列类型；Agent 决定序列内的节点、Tool、参数和归属 |
 | 完整批次预检边界 | EX-04 离线通过 | 结构、能力、node 声明、Map/DAG 边界和单 Patch 在 dispatch 前判定；失败只返回机械错误且零副作用 |
-| Hosted 稳定 Provider 身份 | A2 部分证据成立 | Runtime 可直接读取 Provider `id/item_id`，不要求 Agent 回显传输身份 |
-| Hosted 逐项多节点归属 | Phase A direction-supported / 实施验收后移 | 产品语义和 Runtime 无语义核对离线成立；节点 `actions[]`、完整链路和集成行为由新 Phase B 单元验收 |
-| Hosted 多节点持久化 | Phase B 待实施 | 同一真实 action identity 可出现在 Agent 声明的多个节点 `actions[]`；Provider 原始结果不进入 Map，也不创建 ref |
+| Hosted 内部传输身份 | 明确排除 | Provider `id/item_id/output_index` 只属于原生响应处理，不进入 TaskSpace 协议、Map 或反馈 |
+| Hosted 逻辑 Tool 多节点归属 | 已确认 / 离线实现 | 同一种 Hosted capability 每个 response scope 只形成一个 action，可绑定 Agent 声明的多个 Work node |
+| Hosted 多节点持久化 | 已确认 / 离线实现 | 逻辑 action identity 可出现在 Agent 声明的多个节点 `actions[]`；Provider 原始结果不进入 Map，也不创建 ref |
 | 最简 canonical Map | Phase B1 已完成 | Node 直接包含 goal/state/content/parents/actions；children 始终可见但机械派生；无顶层 edges、平行 ledger 或 Map 自建 ref |
 
 ## 9. 验收标准

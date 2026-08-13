@@ -27,51 +27,56 @@ impl HostedToolKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct HostedOutputFact {
-    pub(crate) output_index: usize,
-    pub(crate) provider_id: String,
+pub(crate) struct HostedToolFact {
     pub(crate) tool: String,
     pub(crate) outcome: ActionOutcome,
 }
 
-pub(super) fn hosted_output_fact(
-    output_index: Option<usize>,
-    item: &ResponseItem,
-) -> Result<Option<HostedOutputFact>, String> {
+pub(super) fn hosted_tool_fact(item: &ResponseItem) -> Result<Option<HostedToolFact>, String> {
     let observed = match item {
-        ResponseItem::WebSearchCall { id, status, .. } => Some((
-            HostedToolKind::WebSearch,
-            id.clone().unwrap_or_default(),
-            status.as_deref(),
-        )),
-        ResponseItem::ImageGenerationCall { id, status, .. } => Some((
-            HostedToolKind::ImageGeneration,
-            id.clone(),
-            Some(status.as_str()),
-        )),
+        ResponseItem::WebSearchCall { status, .. } => {
+            Some((HostedToolKind::WebSearch, status.as_deref()))
+        }
+        ResponseItem::ImageGenerationCall { status, .. } => {
+            Some((HostedToolKind::ImageGeneration, Some(status.as_str())))
+        }
         _ => None,
     };
-    let Some((kind, provider_id, status)) = observed else {
+    let Some((kind, status)) = observed else {
         return Ok(None);
     };
-    let output_index =
-        output_index.ok_or_else(|| "provider-hosted output is missing output_index".to_string())?;
     let outcome = match status {
         Some("completed") => ActionOutcome::Succeeded,
         Some("failed") => ActionOutcome::Failed,
         Some("cancelled" | "canceled") => ActionOutcome::Cancelled,
         _ => {
             return Err(format!(
-                "provider-hosted output {output_index} has non-terminal status"
+                "provider-hosted Tool `{}` has non-terminal status",
+                kind.name()
             ));
         }
     };
-    Ok(Some(HostedOutputFact {
-        output_index,
-        provider_id,
+    Ok(Some(HostedToolFact {
         tool: kind.name().to_string(),
         outcome,
     }))
+}
+
+pub(super) fn merge_hosted_outcome(current: ActionOutcome, next: ActionOutcome) -> ActionOutcome {
+    if hosted_outcome_rank(next) > hosted_outcome_rank(current) {
+        next
+    } else {
+        current
+    }
+}
+
+fn hosted_outcome_rank(outcome: ActionOutcome) -> u8 {
+    match outcome {
+        ActionOutcome::Succeeded => 3,
+        ActionOutcome::Failed => 2,
+        ActionOutcome::Cancelled => 1,
+        ActionOutcome::Pending => 0,
+    }
 }
 
 #[cfg(test)]
@@ -100,28 +105,22 @@ mod tests {
             Some("image_generation")
         );
 
-        let web = hosted_output_fact(
-            Some(1),
-            &ResponseItem::WebSearchCall {
-                id: Some("ws-1".into()),
-                status: Some("failed".into()),
-                action: Some(WebSearchAction::Search {
-                    query: Some("query".into()),
-                    queries: None,
-                }),
-            },
-        )
+        let web = hosted_tool_fact(&ResponseItem::WebSearchCall {
+            id: Some("ws-1".into()),
+            status: Some("failed".into()),
+            action: Some(WebSearchAction::Search {
+                query: Some("query".into()),
+                queries: None,
+            }),
+        })
         .unwrap()
         .unwrap();
-        let image = hosted_output_fact(
-            Some(2),
-            &ResponseItem::ImageGenerationCall {
-                id: "ig-1".into(),
-                status: "cancelled".into(),
-                revised_prompt: None,
-                result: String::new(),
-            },
-        )
+        let image = hosted_tool_fact(&ResponseItem::ImageGenerationCall {
+            id: "ig-1".into(),
+            status: "cancelled".into(),
+            revised_prompt: None,
+            result: String::new(),
+        })
         .unwrap()
         .unwrap();
         assert_eq!(
@@ -131,6 +130,18 @@ mod tests {
         assert_eq!(
             (image.tool.as_str(), image.outcome),
             ("image_generation", ActionOutcome::Cancelled)
+        );
+    }
+
+    #[test]
+    fn logical_hosted_outcome_ignores_failed_internal_steps_after_success() {
+        assert_eq!(
+            merge_hosted_outcome(ActionOutcome::Succeeded, ActionOutcome::Failed),
+            ActionOutcome::Succeeded
+        );
+        assert_eq!(
+            merge_hosted_outcome(ActionOutcome::Cancelled, ActionOutcome::Failed),
+            ActionOutcome::Failed
         );
     }
 }

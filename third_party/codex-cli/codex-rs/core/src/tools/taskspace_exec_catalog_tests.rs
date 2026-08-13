@@ -149,10 +149,11 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
         .unwrap();
     let hosted_contract = web_search["description"].as_str().unwrap();
     for required in [
-        "already produced in this same response",
-        "Do not include native Tool input",
-        "one action for every output item in provider output order",
-        "including failed items and action subtypes",
+        "One logical `web_search` Tool action",
+        "Declare it exactly once",
+        "all of its internal steps and results",
+        "do not repeat declarations for internal actions",
+        "include native Tool input",
         "public Tool name `web_search`",
     ] {
         assert!(hosted_contract.contains(required), "missing {required}");

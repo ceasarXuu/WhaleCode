@@ -188,8 +188,7 @@ impl ToolHandler for TaskSpaceExecHandler {
                 map_revision = ?candidate_revision,
                 capability_identity = self.catalog.capability_identity(),
                 tool_index = action.tool_index,
-                output_index = action.output_index,
-                action_id = %action.provider_id,
+                action_id = %action.identity.transport_id(),
                 node_ids = ?action.node_ids,
                 tool = %action.tool,
                 outcome = outcome_name(action.outcome),
@@ -330,7 +329,7 @@ fn provider_action_bindings(
     actions: &[PreparedProviderAction],
 ) -> impl Iterator<Item = ActionBinding> + '_ {
     actions.iter().map(|action| ActionBinding {
-        action_id: action.provider_id.clone(),
+        action_id: action.identity.transport_id(),
         tool_name: action.tool.clone(),
         outcome: action.outcome,
         node_ids: action.node_ids.clone(),
@@ -381,8 +380,7 @@ async fn persist_candidate(
 fn hosted_result(binding: PreparedProviderAction) -> HostedResult {
     HostedResult {
         tool_index: binding.tool_index,
-        output_index: binding.output_index,
-        provider_id: binding.provider_id,
+        action_id: binding.identity.transport_id(),
         tool: binding.tool,
         outcome: outcome_name(binding.outcome),
         node_ids: binding.node_ids,

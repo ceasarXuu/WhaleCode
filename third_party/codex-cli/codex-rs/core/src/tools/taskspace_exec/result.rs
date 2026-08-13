@@ -49,8 +49,7 @@ pub(super) struct ClientResult {
 #[derive(Debug, Serialize)]
 pub(super) struct HostedResult {
     pub(super) tool_index: usize,
-    pub(super) output_index: usize,
-    pub(super) provider_id: String,
+    pub(super) action_id: String,
     pub(super) tool: String,
     pub(super) outcome: &'static str,
     pub(super) node_ids: Vec<String>,
@@ -244,8 +243,7 @@ fn hosted_result_schema() -> JsonSchema {
     strict_object(
         [
             ("tool_index", JsonSchema::integer(None).with_minimum(0)),
-            ("output_index", JsonSchema::integer(None).with_minimum(0)),
-            ("provider_id", JsonSchema::string(None)),
+            ("action_id", JsonSchema::string(None)),
             ("tool", JsonSchema::string(None)),
             (
                 "outcome",
@@ -256,14 +254,7 @@ fn hosted_result_schema() -> JsonSchema {
                 JsonSchema::array(JsonSchema::string(None), None).with_min_items(1),
             ),
         ],
-        &[
-            "tool_index",
-            "output_index",
-            "provider_id",
-            "tool",
-            "outcome",
-            "node_ids",
-        ],
+        &["tool_index", "action_id", "tool", "outcome", "node_ids"],
     )
 }
 
