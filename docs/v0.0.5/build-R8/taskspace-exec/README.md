@@ -173,6 +173,10 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     真实复验、逐请求失败链、成本和统一 Tool action 表达冲突。
 47. [`46-ls09-logical-hosted-revalidation-result.md`](46-ls09-logical-hosted-revalidation-result.md)：逻辑 Hosted Tool 聚合的真实
     通过证据、同响应归属遗漏后的不可恢复断层、成本与产品决策停点。
+48. [`47-ls09-hosted-execution-direction-result.md`](47-ls09-hosted-execution-direction-result.md)：`already_executed` 执行方向
+    在线生效、业务闭环和残余提前登记/漏登证据。
+49. [`48-ls09-same-response-pairing-repeat5-result.md`](48-ls09-same-response-pairing-repeat5-result.md)：同响应双写合同修复后的
+    五轮统计、缓存与成本、原生 Web 动作映射缺口和合法序列缺口。
 
 ## 4. 推进规则
 

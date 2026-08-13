@@ -1656,9 +1656,10 @@
   - E-043
   - E-044
   - E-045
-- Conclusion: confirmed。固定方向判别已在真实 Provider 路径生效并让样本完成，但没有消除首次提前登记和真实搜索后漏登；执行方向歧义是部分根因，不是全部根因。H-021 的跨响应恢复仍不自动升级为当前修复方向。
-- Repair design readiness: implemented and provider-validated / residual timing issue remains
-- Next step: 保留当前结构，后续真实样本继续观察同响应漏登频率；没有新证据前不增加 pending 或 Runtime 绑定决策。
+  - E-046
+- Conclusion: confirmed。固定方向判别已在真实 Provider 路径生效并产生 8 次成功逻辑对账，但五轮均未稳定闭环；执行方向歧义是部分根因。剩余主因收敛为原生 `search/open_page/find_in_page` 与逻辑 `web_search` 的显式映射缺失，以及 Hosted 归属后同批完成 owner 的合法序列缺口。H-021 的跨响应恢复仍不自动升级为当前修复方向。
+- Repair design readiness: partial / two independent contract gaps identified
+- Next step: 先单变量补齐原生 Web 动作到逻辑 Tool 的映射；随后独立复核 Hosted work 后完成 owner 的合法序列。没有新证据前不增加 pending、Runtime 自动绑定或默认归属。
 - Blocker:
   - none
 - Close reason:
@@ -1710,3 +1711,21 @@
   - 业务文件、公开验证、隐藏 oracle 和 4 节点 Map 闭合均通过；12 requests，302,780 input，USD 0.009600416。
 - Interpretation: 方向字段消除了结构含义的一部分歧义并恢复业务闭环，但 Hosted 执行与归属必须同响应生成的时机问题仍存在；不能关闭 I03，也不能据此引入 Runtime 自动绑定。
 - Time: 2026-08-13
+
+## Evidence E-046: 同响应双写五轮统计确认映射与序列缺口
+- Related hypotheses:
+  - H-022
+  - H-021
+- Direction: supports
+- Type: production-reproduction-matrix
+- Source: `WAR-20260814-001055-CACHE-REGRESSION-C8EE908A`、`WAR-20260814-001541-CACHE-REGRESSION-059E5635`、`WAR-20260814-001715-CACHE-REGRESSION-B4175C28`、`WAR-20260814-001927-CACHE-REGRESSION-A77EFD54`、`WAR-20260814-002101-CACHE-REGRESSION-FAC26AFA`
+- Prediction or plan link:
+  - Same-response Provider-hosted pairing contract。
+- Matched signal:
+  - 16 次 Agent Hosted 声明中有 8 次成功逻辑对账，证明同响应合同可被理解和执行。
+  - 五轮合计出现 6 次漏登和 3 次提前登记拒绝；每轮至少出现一种协议或序列错误，公开验证 2/5。
+  - Provider 原生动作使用 `search/open_page/find_in_page`，Exec 只允许逻辑名 `web_search`；合同没有逐名明确三者均触发同一个逻辑归属。Agent 多次给 `search` 配对，却遗漏 `open_page/find_in_page`。
+  - 两次 Hosted 归属在同批 owner 已被 Agent 标成 Completed 后触发 `HostedNodeInvalid`；现有 update-before-work 顺序无法表达 work 后完成 owner。
+  - 60 requests 共 1,947,752 input、1,772,544 cached、175,208 uncached、51,739 output；全量加权 cache 91.00%，费用 USD 0.0439791632。
+- Interpretation: 方向字段不是无效修复，但协议仍未形成模型可稳定遵循的闭集。根因证据支持两个独立合同缺口，不支持 Provider 结果不可靠、Runtime 自动绑定或跨响应默认恢复。
+- Time: 2026-08-14

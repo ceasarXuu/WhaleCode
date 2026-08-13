@@ -1,0 +1,36 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "approved_at": "2026-08-14T00:09:54+08:00",
+  "authorization_id": "CBA-20260814-R8-LS09-SAME-RESPONSE-0A974853461268C8",
+  "approval_reference": "用户明确要求先修复协议问题，并批准运行 provider-web-search-probe × map-request × repeat=5，用于分析同响应 Hosted 双写的统计规律；零自动重试。",
+  "proposal_id": "CBP-0A974853461268C8",
+  "proposal_sha256": "1101358ceaa4253fe024eb371329bed4fcd53a1defff489e6a1893bb32263046",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "provider-web-search-probe"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 5,
+    "planned_sample_runs": 5,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 5,
+    "stop_conditions": [
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "用户于 2026-08-13 明确要求先修复同响应双写协议，并批准 provider-web-search-probe × map-request × repeat=5 统计复验；每轮最多 12 Provider requests、400,000 input、20,000 output、420 秒，五轮合计观测阈值 60 requests、2,000,000 input、100,000 output、45 分钟，零自动重试；业务失败仍保留并继续以获得五轮统计，出现 usage 缺口或硬预算异常立即停止。"
+  },
+  "approved_maximums": {
+    "provider_requests": 60,
+    "input_tokens": 60000000,
+    "output_tokens": 23040000,
+    "elapsed_seconds": 2700,
+    "estimated_cost": 14.8512,
+    "currency": "USD"
+  }
+}

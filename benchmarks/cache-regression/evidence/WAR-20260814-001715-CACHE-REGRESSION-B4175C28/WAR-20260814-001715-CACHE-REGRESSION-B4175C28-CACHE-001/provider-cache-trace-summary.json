@@ -1,0 +1,107 @@
+{
+  "schema_version": "TaskSpaceProviderCacheTraceSummaryV4",
+  "source": "provider_final_wire_trace",
+  "provider_request_count": 12,
+  "provider_request_source": "request_facts_boundary",
+  "provider_attempt_count": 13,
+  "shape_observation_count": 12,
+  "completed_response_count": 12,
+  "failed_or_cancelled_attempt_count": 1,
+  "request_facts_analyzer_version": "i07-review-fixes-v3",
+  "request_facts_availability": {
+    "attempt": "measured",
+    "boundary": "measured",
+    "boundary_correlation": "measured",
+    "completion": "measured",
+    "usage": "measured"
+  },
+  "request_facts_findings": [],
+  "comparison_eligible": true,
+  "trace_coverage": 1.0,
+  "cache_usage_missing_count": 0,
+  "request_shape_counts": {
+    "native_tools_schema_hot_path": 12
+  },
+  "native_tools_schema_hot_path_count": 12,
+  "tool_free_action_contract_count": 0,
+  "unknown_or_unclassified_count": 0,
+  "request_2_plus_count": 11,
+  "request_2_plus_cached_input_tokens": 445312,
+  "request_2_plus_uncached_input_tokens": 37497,
+  "request_2_plus_hit_rate": 0.922336,
+  "prefix_comparison_count": 11,
+  "prefix_preserved_count": 0,
+  "prefix_preserved_rate": 0.0,
+  "first_diff_path_counts": {
+    "messages[14].message": 1,
+    "messages[18].message": 1,
+    "messages[25].message": 1,
+    "messages[3].message": 1,
+    "messages[32].message": 1,
+    "messages[39].message": 1,
+    "messages[43].message": 1,
+    "messages[47].message": 1,
+    "messages[54].message": 1,
+    "messages[7].message": 1,
+    "messages[70].message": 1
+  },
+  "zero_cache_hit_count": 0,
+  "cache_warmup_candidate_count": 0,
+  "same_shape_zero_hit_count": 0,
+  "tool_choice_transition_count": 0,
+  "cache_shape_transition_count": 0,
+  "section_cost_summary": {
+    "schema_version": "provider-wire-section-cost-summary-v1",
+    "availability": "unavailable",
+    "request_count": 12,
+    "measured_request_count": 0,
+    "unavailable_request_count": 12,
+    "unavailable_reason_counts": {
+      "section_kind_missing": 12
+    },
+    "section_bytes_total": null,
+    "estimated_tokens_total": null,
+    "sections": [],
+    "active_projection_identity_summary": {
+      "schema_version": "provider-wire-active-projection-identity-summary-v1",
+      "bootstrap_count": 0,
+      "active_count": 0,
+      "unavailable_count": 12,
+      "unavailable_reason_counts": {
+        "section_kind_missing": 12
+      },
+      "projection_sha256_counts": {},
+      "revision_counts": {},
+      "unique_projection_sha256_count": 0,
+      "unique_revision_count": 0
+    }
+  },
+  "base_instructions_identity_summary": {
+    "schema_version": "WhaleCodeBaseInstructionsIdentitySummaryV1",
+    "request_count": 12,
+    "present_count": 12,
+    "absent_count": 0,
+    "invalid_count": 0,
+    "unavailable_count": 0,
+    "current_contract_match_count": 12,
+    "current_contract_match_rate": 1.0,
+    "message_bytes_total": 236304,
+    "message_bytes_per_present_request_mean": 19692.0,
+    "estimated_tokens_total": 59076,
+    "estimated_tokens_per_present_request_mean": 4923.0,
+    "profile_counts": {
+      "taskspace": 12
+    },
+    "version_counts": {
+      "3.0.0": 12
+    },
+    "sha256_counts": {
+      "db2095e88dd61fb2a7118526be3f43b1aa729f7db89d494700d55b4989810286": 12
+    },
+    "message_index_counts": {},
+    "wire_role_counts": {
+      "instructions": 12
+    },
+    "unavailable_reason_counts": {}
+  }
+}
