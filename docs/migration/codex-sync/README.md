@@ -22,3 +22,4 @@ Required fields:
 - [2026-08-14：U7 验证 DeepSeek 原生 Responses 请求与流式事件](2026-08-14-u7-deepseek-native-responses.md)
 - [2026-08-14：U8 恢复 provider 用量对账与开发期请求硬门禁](2026-08-14-u8-provider-accounting-guard.md)
 - [2026-08-14：U9 恢复 DeepSeek 长上下文压缩合同](2026-08-14-u9-deepseek-compaction.md)
+- [2026-08-14：U10 锁定 DeepSeek Standard final-wire 与免费缓存合同](2026-08-14-u10-deepseek-final-wire-cache.md)

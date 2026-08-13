@@ -2,7 +2,7 @@
   "schema_version": 1,
   "baseline_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
   "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
-  "overlay_tree": "971164d14f260cc8000b766abd5a86a480357627",
+  "overlay_tree": "1a15b964a82f28e449f1e0ad7ad62d27a245c982",
   "cutover_batches": [
     {
       "id": "batch-1-brand-home",
@@ -458,7 +458,7 @@
         "provider_model",
         "test_fixture"
       ],
-      "current_sha256": "ac59fe1afd42c8fffc3f91bd0831282244bf1f7e0b260f8a320f9f083b5f17fc",
+      "current_sha256": "199a7895bd72446bb28330080ccae5a50759091622cdb0d8cd4d9eb2461d81d0",
       "cutover_batch": "batch-3-deepseek-wire",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"

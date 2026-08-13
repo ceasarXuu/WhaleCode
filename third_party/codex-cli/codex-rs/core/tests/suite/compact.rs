@@ -747,10 +747,19 @@ async fn deepseek_flash_compaction_request_uses_pro_model() {
 
     let requests = request_log.requests();
     assert_eq!(requests.len(), 2, "expected one turn and one compaction");
-    assert_eq!(
-        requests[0].body_json()["model"].as_str(),
-        Some("deepseek-v4-flash")
-    );
+    let standard_body = requests[0].body_json();
+    assert_eq!(standard_body["model"].as_str(), Some("deepseek-v4-flash"));
+    assert_eq!(standard_body["reasoning"], json!({"effort": "standard"}));
+    assert_eq!(standard_body.get("stream_options"), None);
+    assert_eq!(standard_body.get("text"), None);
+    assert_eq!(standard_body["parallel_tool_calls"], true);
+    assert_eq!(standard_body["store"], false);
+    assert_eq!(standard_body["stream"], true);
+    assert!(standard_body["tools"].as_array().is_some_and(|tools| {
+        tools
+            .iter()
+            .any(|tool| tool["type"] == "custom" && tool["name"] == "apply_patch")
+    }));
     assert_eq!(
         requests[1].body_json()["model"].as_str(),
         Some("deepseek-v4-pro")

@@ -1,6 +1,6 @@
 # Codex CLI 主线融合执行计划
 
-- 文档状态：有效，Phase A、Phase B verified；Phase C rebase gate ready，U5、U7、U8、U9 verified，下一步执行 U10
+- 文档状态：有效，Phase A、Phase B verified；Phase C rebase gate ready，U5、U7、U8、U9、U10 verified，下一步执行 U6
 - Plan Validity：`valid-with-qualifications`
 - 计划性质：覆盖已完成里程碑与剩余工作的唯一执行计划
 - 适用版本：WhaleCode v0.0.5
@@ -190,7 +190,7 @@ Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依�
 | U7 | 恢复原生 Responses 请求与流式事件 | provider-wire | `codex-api` 的 Responses/SSE seam | DeepSeek Responses request、reasoning stream、tool-call assembly | 已用显式 DeepSeek provider 请求和官方形状 SSE fixture 验证 0.147 Responses-only 主链；fixture 直接通过，因此未增加生产分支，也未恢复 Chat Completions 转换层 | reasoning、文本和完整 function call 可由 DeepSeek 原生 Responses 进入现有事件链 | 以零生产侵入恢复主请求合同并淘汰失效兼容假设 | Complexity：仅 2 组测试 fixture；Reach/Cost：无 runtime 变化、0 网络请求 | fmt；2 个定向 fixture；codex-api 159 项；42 个 sync tests、metadata 和 cache index gate 全过 | 测试可独立回滚；final-wire/cache 仍留给 U10 | verified |
 | U8 | 恢复用量与开发期请求保护 | accounting | `core/src/client.rs` 现有 transport/accounting seam；Realtime start seam | provider usage、开发期 hard request limit、terminal reconciliation | 已将显式环境变量触发的 transport-exact guard 接到 HTTP/WS/compact/memory/realtime dispatch；跨 client 共享计数、关闭隐藏重试并对无法精确计数的 Realtime fail-closed；completed usage 继续由上游事件链写入 rollout terminal | 普通产品运行不变；获批真实回归可获得机械请求上限；provider usage 与终止记录一致 | 防止主线融合丢失成本保护，同时不恢复 TaskSpace budget 状态或产品授权协议 | Complexity：一个默认关闭的局部 guard，无第二 accounting 状态；Reach/Cost：client/realtime tests，0 网络请求 | fmt；5 个 hard-limit、20 个 client、15 个 realtime tests；usage terminal fixture；sync/cache gate | 独立 revert；不修改 compaction threshold、TaskSpace 或 ledger 规则 | verified |
 | U9 | 恢复 DeepSeek compaction | context-lifecycle | `core/src/compact.rs`、context-window 与隐藏模型元数据 | Flash 主任务的 Pro compact request、1M/755K threshold、上游 checkpoint 状态保留 | 已按 PLD-005 在既有 local compaction 路径只替换 DeepSeek 压缩采样模型；恢复 Flash/Pro 隐藏运行时元数据；复用上游 checkpoint prompt/history replacement，不引入 TaskSpace projection | 短作业不压缩；到 755K 触发；Flash 压缩请求使用 Pro；模型仍不在选择器显示 | 将上下文生命周期风险从 wire/cache 中隔离，并避免恢复旧专用状态提示词 | Complexity：一个局部采样模型选择和目录数据；Reach/Cost：context/session/mock tests，0 真实请求 | model catalog、sampling、threshold/zero-short-job、mock final request、compact regression；sync/cache gate | 独立 revert；未修改 TaskSpace retention，选择器可见性仍由 U6 控制 | verified |
-| U10 | 恢复缓存与 final-wire 证据 | cache/observability | `provider_wire_*`、cache contract/gate | Standard 最终 payload 与敏感面 | 迁移 free final-wire/trace，运行 index gate；不建新缓存框架 | 可在零模型请求下检测 payload 漂移 | 付费回归前提供确定性保护 | Complexity：复用现合同、原则上无新 runtime state；Reach/Cost：cache-sensitive，可能预算阻塞 | contract tests；cache index gate；真实回归须另获批 | gate 阻断则回退/停在 U10，不用 `--no-verify` | not-started |
+| U10 | 恢复缓存与 final-wire 证据 | cache/observability | DeepSeek mock final-wire、既有 cache contract/gate | Standard 最终 payload 与敏感面 | 已在 U9 mock 链补齐 Standard final-wire 精确断言，并运行现有五组免费缓存合同和 index gate；旧 `provider_wire_trace` 强耦合 TaskSpace，未在本单元恢复 | 零模型请求即可锁定 Standard 请求字段与通用前缀/cache-key/MCP/API 合同 | 付费回归前提供确定性保护，不提前引入 TaskSpace 观测代码 | Complexity：只增加测试断言和证据文档，0 runtime state；Reach/Cost：cache-sensitive test gate，0 真实请求 | Standard final-wire；5 组 free contracts；sync/metadata；cache index gate | 独立 revert；live baseline 保持失败且未晋升；TaskSpace trace 留给 Phase D | verified |
 | U6 | 恢复模型目录与可见性 | catalog/defaults | `models-manager` 及 model selector | Flash/Pro catalog entries、default/visibility | 在 U5、U7–U10 验证后迁移模型元数据，使 Flash 默认可见、Pro 恢复可见；同单元更新目录生成物和 TUI 快照 | 模型选择行为符合 D1，正式版 Pro 可供用户选择 | 将用户可见开关放在 provider/final-wire 验证之后 | Complexity：目录数据和现有 selector 条件；Reach/Cost：生成物和 TUI 快照 | model manager tests；默认/可见性快照；provider/final-wire 前置证据；D1 检查 | 独立 revert U6 可重新隐藏 Pro，不回滚已验证 provider 主链 | not-started |
 
 退出条件：U5–U10 verified；D1 语义 covered；没有 TaskSpace 产品语义变化。
@@ -248,7 +248,7 @@ Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依�
 | 已完成：U1 | 无产品语义 | 修正 qualification runner 并确认 0.146 validation direction-rejected；vendor 未变 | D2 | engineering-only | 已收口为 Phase A 历史输入 |
 | Phase A | 已完成 | U2 direction-supported-with-known-test-risks；Checkpoint B 已刷新 0.147 查询工件；U3 最小 identity/home/auth/default seam 验证通过；vendor 未变 | D2 | covered + engineering-only | 进入 Phase B rebase gate |
 | Phase B | 已完成 | vendor 对齐 0.147 且只保留 U3 seam；U4a 独立迁移免费缓存合同，cache index gate 通过；live baseline 仍保持失败状态 | D2 | covered + engineering-only | 进入 Phase C rebase gate |
-| Phase C | 执行中 | PLD-004/005 已批准；U5 已恢复 provider/鉴权/Flash 默认；U7 已证明原生 Responses/SSE；U8 已恢复开发期 transport guard；U9 已恢复隐藏运行时元数据、1M/755K 与 Flash→Pro 压缩请求；未触及 TaskSpace 或模型选择器可见性 | D1、D2 | 当前增量 covered + engineering-only；待阶段完成后终审 | 执行 U10，完成 U10→U6 后审计 |
+| Phase C | 执行中 | PLD-004/005 已批准；U5/U7/U8 已恢复 provider、原生 Responses 与开发期 guard；U9 已恢复隐藏运行时元数据、1M/755K 与 Flash→Pro 压缩；U10 已锁定 Standard final-wire 并通过免费缓存门禁；未触及 TaskSpace 或模型选择器可见性 | D1、D2 | 当前增量 covered + engineering-only；待阶段完成后终审 | 执行 U6 后完成 Phase C 审计 |
 | Phase D | 待执行 | 待记录 | D2 | 待分类 | U11–U16 后审计 |
 | Phase E | 待执行 | 待记录 | D1、D2 | 待分类 | U17 后审计 |
 
@@ -263,7 +263,7 @@ Phase C 的 PLD-004 只采用 DeepSeek 官方一手资料作为外部事实依�
 
 ## 8. 执行与提交边界
 
-执行顺序当前到达 `... -> U4（已验证） -> Phase C rebase gate（PLD-004/005 已批准） -> U5（已验证） -> U7（已验证） -> U8（已验证） -> U9（已验证）`。下一步执行 U10；Phase C 继续按 `U10→U6` 推进，在 DeepSeek/TaskSpace 被测路径恢复前不消耗真实回归预算，也不晋升 live baseline。
+执行顺序当前到达 `... -> U4（已验证） -> Phase C rebase gate（PLD-004/005 已批准） -> U5（已验证） -> U7（已验证） -> U8（已验证） -> U9（已验证） -> U10（已验证）`。下一步执行 U6；完成模型默认值/可见性与 TUI 验证后收口 Phase C，不消耗真实回归预算，也不晋升 live baseline。
 
 - 每个 U 单元至少一个独立、可理解、已基本验证的 commit，并立即 push。
 - 单元内出现两个可独立回滚的行为主题时继续拆 commit；不得把 vendor 机械替换与产品 overlay 混为一个提交。
