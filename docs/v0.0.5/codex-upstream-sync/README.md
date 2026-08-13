@@ -2,7 +2,7 @@
 
 > 计划治理说明（2026-08-10）：本专题只保留一份工程计划：[plan.md](plan.md)。已完成工作统一记录在该计划的状态表中，详细证据由 execution report 和 ledger 承载；不存在并行或嵌套的历史计划。唯一产品决策权威源为 [decisions.md](decisions.md)。
 
-> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据均已完成；0.147 Phase A、Phase B、Phase C 已完成；Phase D 的 U11–U13 已验证，下一步执行 U14 extension runtime 集成。
+> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据均已完成；0.147 Phase A、Phase B、Phase C 已完成；Phase D 的 U11–U13 已验证，U14 已完成 read runtime 与 response tool-batch preflight 两个原子段。
 
 - 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成；Phase A、Phase B、Phase C verified；Phase D 执行中
 - 分析日期：2026-08-01
@@ -31,6 +31,7 @@
 - [U12 canonical kernel 移植清单与代码预算](../../migration/codex-sync/2026-08-14-u12-canonical-kernel-budget.md)
 - [U13 TaskSpace 唯一 state store、CAS 与 replay](../../migration/codex-sync/2026-08-14-u13-taskspace-state-store.md)
 - [U14 extension runtime 第一原子段与 seam spike](../../migration/codex-sync/2026-08-14-u14-extension-runtime-stage1.md)
+- [U14 response tool-batch preflight](../../migration/codex-sync/2026-08-14-u14-response-tool-batch-preflight.md)
 
 ## 当前批次状态
 
@@ -47,6 +48,7 @@
 - U11 已在 state 初始化入口增加精确 checksum 保护的迁移桥：已知旧 Whale `0030/0031` 可保留 TaskSpace 数据并升级到 0.147 migration history；fresh/current 数据库 no-op，未知或部分历史继续由 SQLx fail-closed。没有读取或改写真实用户数据库。
 - U12 已完成：独立 `ext/taskspace` 恢复 canonical model、DAG invariants、transitions、events/replay 与 transactions；34 条测试和 Clippy `-D warnings` 通过，生产代码 1,691 行，低于获批硬上限且无 host/store/protocol 依赖。下一步是 U13 的唯一 state store/CAS/replay adapter。
 - U13 已完成：在现有 `StateRuntime` state DB 上恢复唯一 canonical store、thread binding、commit-id replay 与并发 CAS；fresh/current 使用新 `0047` migration，经 U11 修复的旧表原地复用。生产代码 424 行，`codex-state` 176 条测试和 Clippy 通过。
+- U14 第二原子段已完成：新增通用、默认空操作的完整响应工具批次门禁；拒绝会在 executor 轮询前关闭整批 provider call，端到端用例证明零 dispatch。TaskSpace 当前只校验 read-only control 批次；未绑定 Standard 线程保持放行。写事务与 action manifest 仍待下一原子段。
 - replay ledger 和五批 DAG 已降级为非权威证据；后续不得直接按自动 disposition 或路径桶实施，应按 `plan.md` 的 U1–U17 语义闭环推进。
 
 ## 1. 执行摘要

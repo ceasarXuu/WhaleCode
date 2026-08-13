@@ -28,3 +28,4 @@ Required fields:
 - [2026-08-14：U12 TaskSpace canonical kernel 移植清单与代码预算](2026-08-14-u12-canonical-kernel-budget.md)
 - [2026-08-14：U13 TaskSpace 唯一 state store、CAS 与 replay](2026-08-14-u13-taskspace-state-store.md)
 - [2026-08-14：U14 extension runtime 第一原子段与 seam spike](2026-08-14-u14-extension-runtime-stage1.md)
+- [2026-08-14：U14 response tool-batch preflight](2026-08-14-u14-response-tool-batch-preflight.md)

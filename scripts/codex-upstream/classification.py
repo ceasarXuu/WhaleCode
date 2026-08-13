@@ -344,7 +344,12 @@ def classify(
         (
             "tool_runtime",
             "subsystem.tool_runtime",
-            ("codex-rs/tools/**", "codex-rs/core/src/tools/**"),
+            (
+                "codex-rs/tools/**",
+                "codex-rs/core/src/tools/**",
+                "codex-rs/core/src/stream_events_utils.rs",
+                "codex-rs/ext/extension-api/**",
+            ),
         ),
         ("tui_experience", "subsystem.tui", ("codex-rs/tui/**",)),
     )
