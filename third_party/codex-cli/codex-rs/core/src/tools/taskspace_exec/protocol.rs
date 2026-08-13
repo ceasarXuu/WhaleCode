@@ -38,11 +38,17 @@ pub(super) fn build_description<'a>(
     let has_exec_command = client_tool_names
         .into_iter()
         .any(|name| name == "exec_command");
+    let example_hosted = hosted_tools
+        .get("web_search")
+        .or_else(|| hosted_tools.first());
     let mut sections = vec![PROTOCOL.to_string()];
     if has_exec_command {
+        let first_turn_example = example_hosted.map_or_else(canonical_first_turn_example, |tool| {
+            canonical_first_turn_with_hosted_example(tool)
+        });
         sections.push(format!(
             "First-turn initialization and work example:\n```json\n{}\n```",
-            canonical_first_turn_example()
+            first_turn_example
         ));
         sections.push(format!(
             "Parent completion and direct-child work example:\n```json\n{}\n```",
@@ -57,28 +63,26 @@ pub(super) fn build_description<'a>(
         "Final work-node completion and explicit Map finish example:\n```json\n{}\n```",
         canonical_finish_example()
     ));
-    if !hosted_tools.is_empty() {
-        let first_hosted = hosted_tools
-            .first()
-            .expect("non-empty Hosted Tool set has a first item");
+    if let Some(first_hosted) = example_hosted {
         sections.push(format!(
-            "Provider-hosted ToolSpec names, exposed unchanged: {}.\n\nIndivisible same-response pair: if you emit the native top-level Provider Tool item, emit the `taskspace_exec` attribution below in that same assistant response. If you do not emit the native item, do not emit its attribution. The native item performs the work; the attribution only records node ownership. Never emit either side alone or defer attribution to another response:\n```json\n{}\n```",
+            "Provider-hosted ToolSpec names, exposed unchanged: {}. The first-turn example records `{first_hosted}` only because its native Provider Tool item has already executed in that same assistant response. The native item performs the work; its `taskspace_exec` entry only records node ownership. Never emit either side alone or defer attribution to another response.",
             hosted_tools.iter().cloned().collect::<Vec<_>>().join(", "),
-            canonical_hosted_result_example(first_hosted),
         ));
     }
     sections.join("\n\n")
 }
 
-fn canonical_hosted_result_example(tool: &str) -> Value {
-    json!({
-        "type": "work",
-        "tools": [{
+fn canonical_first_turn_with_hosted_example(tool: &str) -> Value {
+    let mut example = canonical_first_turn_example();
+    example["tools"]
+        .as_array_mut()
+        .expect("canonical first-turn tools must be an array")
+        .push(json!({
             "tool": tool,
             "execution": "already_executed",
-            "node_ids": ["research"]
-        }]
-    })
+            "node_ids": ["inspect"]
+        }));
+    example
 }
 
 pub(crate) fn canonical_first_turn_example() -> Value {

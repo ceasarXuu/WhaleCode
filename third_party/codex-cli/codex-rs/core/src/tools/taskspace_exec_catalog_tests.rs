@@ -209,6 +209,22 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
     assert!(description.contains("in that same assistant response"));
     assert!(description.contains("Never emit either side alone or defer attribution"));
     assert!(description.contains("\"execution\":\"already_executed\""));
+    let first_turn = description
+        .split_once("First-turn initialization and work example:")
+        .unwrap()
+        .1
+        .split_once("Parent completion and direct-child work example:")
+        .unwrap()
+        .0;
+    for required in [
+        "\"type\":\"initialize_and_work\"",
+        "\"tool\":\"exec_command\"",
+        "\"tool\":\"web_search\"",
+        "\"execution\":\"already_executed\"",
+    ] {
+        assert!(first_turn.contains(required), "missing {required}");
+    }
+    assert!(!description.contains("\"type\":\"work\",\"tools\":[{\"tool\":\"web_search\""));
     assert!(!description.contains("single top-level entry point"));
 }
 
