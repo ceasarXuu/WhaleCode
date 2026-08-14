@@ -243,16 +243,24 @@ Phase D 的 PLD-006 采用当前 0.147 源码和以下一手资料校验扩展�
 #### Pre-Phase Plan Rebase Gate
 
 - Rebase scope：U4–U16 实际实现、生成物、Linux/Windows 延期、缓存门禁和剩余发布风险 + Phase E 计划。
-- Material plan delta：`pending`
-- Plan delta record：`pending`
-- User approval：`pending-if-material`
-- Gate status：`pending`
+- Material plan delta：`none`
+- Plan delta record：`none`
+- User approval：`not-required`
+- Gate status：`ready`
+
+重基结论：U4–U16 的实现未改变 U17 的发布收口目标，但将执行边界收窄为纯核验与文档同步：
+
+1. 更新已停留在 U4 时点的 `third_party/codex-cli/UPSTREAM.md`，记录当前 0.147 substrate、DeepSeek 与 TaskSpace overlay；来源 commit/tag 不变。
+2. 刷新并验证 overlay inventory/replay ledger、schema 与 lockfile；不复制或改写 vendor 内的上游 CI/release workflow，也不新增 Whale 发布框架。
+3. Linux 使用 0.147 官方 Cargo 入口执行 fmt、workspace all-target check、workspace test 和 CLI build/smoke；失败必须按实际签名归属，不为追求全绿修改无关模块。
+4. 执行完整免费缓存合同和 index gate；accepted live baseline 保持最近一次失败状态，U17 不申请真实模型预算、不晋升 baseline。
+5. TaskSpace TUI 已登记夹具以及 Windows runner/终端 smoke 继续明确延期；没有对应平台证据时不声明通过。
 
 进入条件：Phase D verified。适用决策：D1、D2。
 
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| U17 | 完成发布闭环 | release | workspace metadata、`UPSTREAM.md`、migration report、CI/release config | 来源、剩余生成物、支持矩阵 | 刷新机械生成物和来源记录，跑 Linux 全量无模型回归，明确 TaskSpace TUI/Windows deferred | 形成可追溯新 vendor 和真实通过/延期清单 | 防止局部通过误报为整体完成 | Complexity：无新生产抽象；Reach/Cost：全 workspace build/CI | fmt/check/test、CLI smoke、schema/lock clean、cache gate、provenance、Git clean | 跨产品失败回到归属 U 单元，不在收口阶段扩张 | not-started |
+| U17 | 完成发布闭环 | release | workspace metadata、`UPSTREAM.md`、最终 migration report | 来源、生成物、Linux 支持矩阵 | 更新 provenance 文档，刷新/验证机械工件，跑官方 Cargo 全量无模型回归和 CLI smoke，明确 TUI/Windows deferred | 形成可追溯的 0.147 substrate、Whale overlay 与真实通过/延期清单 | 防止局部通过误报为整体完成 | Complexity：无生产代码或新发布框架；Reach/Cost：全 workspace 构建/测试耗时，0 模型请求 | fmt、workspace all-target check/test、CLI build/smoke、schema/lock clean、免费 cache gate、provenance、Git clean | 跨产品失败回到归属 U 单元，不在收口阶段扩张；live baseline 不晋升 | not-started |
 
 退出条件：U17 verified；所有修改已提交并 push；工作树 clean；延期项未被表述为通过。
 
