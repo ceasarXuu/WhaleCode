@@ -73,6 +73,9 @@ mod taskspace_map_repository;
 mod taskspace_maps;
 #[cfg(test)]
 mod taskspace_maps_tests;
+mod taskspace_pending_actions;
+#[cfg(test)]
+mod taskspace_pending_actions_tests;
 #[cfg(test)]
 mod test_support;
 mod threads;
