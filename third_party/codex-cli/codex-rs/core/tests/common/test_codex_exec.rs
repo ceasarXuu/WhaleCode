@@ -17,7 +17,11 @@ impl TestCodexExecBuilder {
         cmd.current_dir(self.cwd.path())
             .env("WHALE_HOME", self.home.path())
             .env("CODEX_SQLITE_HOME", self.home.path())
-            .env(CODEX_API_KEY_ENV_VAR, "dummy");
+            .env(CODEX_API_KEY_ENV_VAR, "dummy")
+            // These fixtures exercise the upstream OpenAI wire contract against a local
+            // mock server. Whale defaults to DeepSeek, so keep the test provider explicit.
+            .arg("-c")
+            .arg("model_provider=\"openai\"");
         cmd
     }
     pub fn cmd_with_server(&self, server: &MockServer) -> assert_cmd::Command {
