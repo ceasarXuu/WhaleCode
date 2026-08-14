@@ -47,9 +47,10 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   action 写入与出队使用同一 SQLite CAS 事务，队列非空不能绕过 Exec 直接结束。Runtime 不推断节点、不默认 Root，也不因
   Tool outcome 改变 Node state。PA-07
   `repeat=3` 中 Provider 归属和 pending 清空 3/3 通过，业务与 Map 闭合 2/3；第三轮暴露 Provider-first 初始化形状缺口，
-  当前不晋升缓存基线。PA-08 已把 work 存在性提升到单个 assistant response preflight：Provider facts 与 Exec client
-  actions 任一非空即合法。真实复验中 Provider 与 Exec 没有同响应共现，前三次空初始化被正确拒绝，Agent 随后仍使用
-  `pwd` 占位并耗尽 12 请求；实现边界正确但产品收益未成立，需确认 response 与完整 Agent turn 的边界定义。
+  当前不晋升缓存基线。PA-08 已把 work 存在性提升到完整 Provider 请求 preflight：Provider facts 与 Exec client actions
+  任一非空即合法。真实复验第 4 个请求已同时出现原生 `web_search` 和 Exec，但 Agent 仍主动添加 `pwd`；前三个真正空的
+  初始化请求正确拒绝，随后又发生一次纯归属序列误选和一次 Waiting 节点拒绝，最终耗尽 12 请求。实现边界正确，
+  Provider-only 分支和减少占位的产品收益尚未被真实 trace 单独证明。
 
 - 最新 Codex 主线仍使用一个 `exec` 入口，将 Function、Freeform 和 Namespace Tool 从原 `ToolSpec` 派生为内部
   ToolDefinition，并把嵌套调用送回统一 Tool runtime。

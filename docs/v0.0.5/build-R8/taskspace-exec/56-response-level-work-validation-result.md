@@ -2,7 +2,7 @@
 
 - Date: 2026-08-15
 - Scope: PA-08
-- Result: **响应级机械校验离线正确；真实 Provider 生命周期未形成目标共现，行为验收未通过**
+- Result: **响应级机械校验离线正确；真实请求已出现 Provider/Exec 共现，但 Agent 仍主动添加占位，目标分支未被单独验收**
 
 ## 1. 回归根因
 
@@ -53,19 +53,24 @@ Key 迎合测试。聚焦生产链、State 和 final-wire 均已通过。
 |---:|---:|---:|---:|---:|---:|---:|---:|
 | 12 | 314,069 | 271,744 | 42,325 | 7,859 | 88.98% | 94.505 s | USD 0.0088869032 |
 
-真实 trace 中前三个 assistant response 都只生成了 `taskspace_exec(initialize_and_work)`，没有同响应原生
-`web_search`，因此被新的响应级规则正确拒绝。第四个 response 才单独执行 `web_search`；随后 Agent 仍用无业务价值的
-`pwd` 作为 client action 初始化 Map。下一请求又把纯 pending 归属写成 `type: work`，因既无本响应 Provider action、
-也无 client action 再被拒绝。四次协议拒绝加上官方页面 `open_page`、容器 DNS 和 `web_fetch` 失败耗尽 12 请求，
+按 canonical `request-facts.json` 和 rollout `token_count` 边界重查后，前三个 Provider 请求都只生成
+`taskspace_exec(initialize_and_work)`，没有同请求原生 `web_search` 或 client action，因此被新规则正确拒绝。第 4 个
+Provider 请求先完成原生 `web_search`，随后在同一请求中生成 `taskspace_exec(initialize_and_work)`；但 Agent 同时又加入
+无业务价值的 `pwd && ls -la` client action。该请求合法初始化 Map，却无法单独证明“只有 Provider work、空 client
+tools”分支已在线发挥作用。
+
+第 5 个请求把纯 pending 归属写成 `type: work`，因既无本请求 Provider action、也无 client action 被拒绝；正确的纯归属
+序列没有被选择。第 10 个请求又在 `search` 尚未完成时把 client action 绑定到 Waiting 的 `write_fact`，被 DAG 硬门拒绝。
+四次 work 合同拒绝、一次 DAG 拒绝，加上官方页面 `open_page`、容器 DNS 和 `web_fetch` 失败耗尽 12 请求，
 `provider_fact.json` 尚未写入。
 
 因此本轮证明的是：
 
-1. 已实现的 OR 检查与其“单个 assistant response”边界一致，没有误放真正空响应；
-2. 真实运行没有生成“Provider action 与 Exec 同响应共现”，所以该修复没有消除 Provider-first 占位行为；
-3. 不能把离线正例扩大为产品收益，也不能据此晋升 final-wire/cache baseline；
-4. 下一步必须先明确“完整请求”是单个 Provider response，还是包含 Hosted continuation 的完整 Agent turn。若选择后者，
-   需要重新设计机械事实边界；不得在没有产品确认时把任意 pending 队列存在自动解释为本轮 work。
+1. 已实现的 OR 检查与真实 Provider 请求边界一致，没有误放前三个真正空的初始化请求；
+2. 第 4 个请求已经出现 Provider/Exec 同请求共现，但同时存在 client `pwd`，目标 Provider-only 分支没有被真实 trace 隔离；
+3. 当前不能宣称该修复消除了占位行为，也不能据此晋升 final-wire/cache baseline；
+4. 新暴露的行为重点是 Agent 为何在已有 Provider work 时仍添加 `pwd`，以及为什么没有为纯 pending 归属选择已有合法序列；
+   不能再归因为 Provider response 与 Agent turn 边界不一致。
 
 第一次启动在接触 Provider 和认领账本之前被旧 `~/.whale/bin/whale` 的 attestation 拒绝；随后从当前干净 HEAD 重建并以
 `target/r8-pa08/bin/whale` 通过 `pass/valid` 预检。该预检失败没有产生 Provider 请求，也未消费 sample repeat。
