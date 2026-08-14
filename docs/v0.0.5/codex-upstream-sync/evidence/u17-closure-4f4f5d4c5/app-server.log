@@ -1,0 +1,1867 @@
+RUST_MIN_STACK=8388608 NEXTEST_PROFILE=local cargo nextest run --no-fail-fast "$@"
+    Updating crates.io index
+   Compiling codex-app-server v0.147.0 (<WORKSPACE>/third_party/codex-cli/codex-rs/app-server)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.50s
+────────────
+ Nextest run ID fc2d2bf9-a828-4b21-9f38-e2ea9d6d0754 with nextest profile: local
+    Starting 1122 tests across 7 binaries (1 test skipped)
+  TRY 2 FAIL [   0.246s] ( 334/1122) codex-app-server::all suite::v2::account::logout_managed_bedrock_restores_default_account
+  stdout ───
+
+    running 1 test
+    test suite::v2::account::logout_managed_bedrock_restores_default_account ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::account::logout_managed_bedrock_restores_default_account
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.23s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpbRndUy"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "account/login/start", params: Some(Object {"apiKey": String("managed-bedrock-api-key"), "region": String("us-west-2"), "type": String("amazonBedrock")}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"type": String("amazonBedrock")} })
+    in read_stream_until_notification_message(account/login/completed)
+    read message from stdout: Notification(JSONRPCNotification { method: "account/login/completed", params: Some(Object {"error": Null, "loginId": Null, "onboardingEntrypoint": Null, "success": Bool(true)}) })
+    in read_stream_until_notification_message(account/updated)
+    read message from stdout: Notification(JSONRPCNotification { method: "account/updated", params: Some(Object {"authMode": String("bedrockApiKey"), "planType": Null}) })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(2), method: "account/read", params: Some(Object {}), trace: None })
+    in read_stream_until_response_message(Integer(2))
+    read message from stdout: Response(JSONRPCResponse { id: Integer(2), result: Object {"account": Object {"type": String("amazonBedrock"), "usesCodexManagedCredentials": Bool(true)}, "requiresOpenaiAuth": Bool(false)} })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(3), method: "account/logout", params: None, trace: None })
+    in read_stream_until_response_message(Integer(3))
+    read message from stdout: Response(JSONRPCResponse { id: Integer(3), result: Object {} })
+    in read_stream_until_notification_message(account/updated)
+    read message from stdout: Notification(JSONRPCNotification { method: "account/updated", params: Some(Object {"authMode": Null, "planType": Null}) })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(4), method: "account/read", params: Some(Object {}), trace: None })
+    in read_stream_until_response_message(Integer(4))
+    read message from stdout: Response(JSONRPCResponse { id: Integer(4), result: Object {"account": Null, "requiresOpenaiAuth": Bool(false)} })
+
+    thread 'suite::v2::account::logout_managed_bedrock_restores_default_account' (2992424) panicked at app-server/tests/suite/v2/account.rs:1347:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+     GetAccountResponse {
+         account: None,
+    <    requires_openai_auth: false,
+    >    requires_openai_auth: true,
+     }
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.311s] ( 594/1122) codex-app-server::all suite::v2::model_list::list_models_includes_hidden_models
+  stdout ───
+
+    running 1 test
+    test suite::v2::model_list::list_models_includes_hidden_models ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::model_list::list_models_includes_hidden_models
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.30s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmppu6AYy"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "model/list", params: Some(Object {"cursor": Null, "includeHidden": Bool(true), "limit": Number(100)}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"data": Array [Object {"additionalSpeedTiers": Array [], "availabilityNux": Null, "defaultReasoningEffort": String("standard"), "defaultServiceTier": Null, "description": String("Fast Whale coding model for everyday implementation work."), "displayName": String("DeepSeek V4 Flash"), "hidden": Bool(false), "id": String("deepseek-v4-flash"), "inputModalities": Array [String("text"), String("image")], "isDefault": Bool(true), "model": String("deepseek-v4-flash"), "modelSpecialty": Null, "serviceTiers": Array [], "supportedReasoningEfforts": Array [Object {"description": String("DeepSeek default reasoning mode"), "reasoningEffort": String("standard")}, Object {"description": String("Deeper reasoning for complex work"), "reasoningEffort": String("high")}, Object {"description": String("Maximum reasoning for the hardest work"), "reasoningEffort": String("max")}], "supportsPersonality": Bool(false), "upgrade": Null, "upgradeInfo": Null}, Object {"additionalSpeedTiers": Array [], "availabilityNux": Null, "defaultReasoningEffort": String("standard"), "defaultServiceTier": Null, "description": String("High-quality Whale coding model for planning, diagnosis, review, and verification."), "displayName": String("DeepSeek V4 Pro"), "hidden": Bool(false), "id": String("deepseek-v4-pro"), "inputModalities": Array [String("text"), String("image")], "isDefault": Bool(false), "model": String("deepseek-v4-pro"), "modelSpecialty": Null, "serviceTiers": Array [], "supportedReasoningEfforts": Array [Object {"description": String("DeepSeek default reasoning mode"), "reasoningEffort": String("standard")}, Object {"description": String("Deeper reasoning for complex work"), "reasoningEffort": String("high")}, Object {"description": String("Maximum reasoning for the hardest work"), "reasoningEffort": String("max")}], "supportsPersonality": Bool(false), "upgrade": Null, "upgradeInfo": Null}], "nextCursor": Null} })
+
+    thread 'suite::v2::model_list::list_models_includes_hidden_models' (3033506) panicked at app-server/tests/suite/v2/model_list.rs:148:5:
+    assertion failed: items.iter().any(|item| item.hidden)
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.322s] ( 595/1122) codex-app-server::all suite::v2::model_list::list_models_pagination_works
+  stdout ───
+
+    running 1 test
+    test suite::v2::model_list::list_models_pagination_works ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::model_list::list_models_pagination_works
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.31s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpl7uM28"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "model/list", params: Some(Object {"cursor": Null, "includeHidden": Null, "limit": Number(1)}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"data": Array [Object {"additionalSpeedTiers": Array [], "availabilityNux": Null, "defaultReasoningEffort": String("standard"), "defaultServiceTier": Null, "description": String("Fast Whale coding model for everyday implementation work."), "displayName": String("DeepSeek V4 Flash"), "hidden": Bool(false), "id": String("deepseek-v4-flash"), "inputModalities": Array [String("text"), String("image")], "isDefault": Bool(true), "model": String("deepseek-v4-flash"), "modelSpecialty": Null, "serviceTiers": Array [], "supportedReasoningEfforts": Array [Object {"description": String("DeepSeek default reasoning mode"), "reasoningEffort": String("standard")}, Object {"description": String("Deeper reasoning for complex work"), "reasoningEffort": String("high")}, Object {"description": String("Maximum reasoning for the hardest work"), "reasoningEffort": String("max")}], "supportsPersonality": Bool(false), "upgrade": Null, "upgradeInfo": Null}], "nextCursor": String("1")} })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(2), method: "model/list", params: Some(Object {"cursor": String("1"), "includeHidden": Null, "limit": Number(1)}), trace: None })
+    in read_stream_until_response_message(Integer(2))
+    read message from stdout: Response(JSONRPCResponse { id: Integer(2), result: Object {"data": Array [Object {"additionalSpeedTiers": Array [], "availabilityNux": Null, "defaultReasoningEffort": String("standard"), "defaultServiceTier": Null, "description": String("High-quality Whale coding model for planning, diagnosis, review, and verification."), "displayName": String("DeepSeek V4 Pro"), "hidden": Bool(false), "id": String("deepseek-v4-pro"), "inputModalities": Array [String("text"), String("image")], "isDefault": Bool(false), "model": String("deepseek-v4-pro"), "modelSpecialty": Null, "serviceTiers": Array [], "supportedReasoningEfforts": Array [Object {"description": String("DeepSeek default reasoning mode"), "reasoningEffort": String("standard")}, Object {"description": String("Deeper reasoning for complex work"), "reasoningEffort": String("high")}, Object {"description": String("Maximum reasoning for the hardest work"), "reasoningEffort": String("max")}], "supportsPersonality": Bool(false), "upgrade": Null, "upgradeInfo": Null}], "nextCursor": Null} })
+
+    thread 'suite::v2::model_list::list_models_pagination_works' (3033508) panicked at app-server/tests/suite/v2/model_list.rs:295:13:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+     [
+         Model {
+             id: "deepseek-v4-flash",
+             model: "deepseek-v4-flash",
+             upgrade: None,
+             upgrade_info: None,
+             availability_nux: None,
+             display_name: "DeepSeek V4 Flash",
+             description: "Fast Whale coding model for everyday implementation work.",
+             model_specialty: None,
+             hidden: false,
+             supported_reasoning_efforts: [
+                 ReasoningEffortOption {
+                     reasoning_effort: Custom(
+                         "standard",
+                     ),
+                     description: "DeepSeek default reasoning mode",
+                 },
+                 ReasoningEffortOption {
+                     reasoning_effort: High,
+                     description: "Deeper reasoning for complex work",
+                 },
+                 ReasoningEffortOption {
+                     reasoning_effort: Max,
+                     description: "Maximum reasoning for the hardest work",
+                 },
+             ],
+             default_reasoning_effort: Custom(
+                 "standard",
+             ),
+             input_modalities: [
+                 Text,
+    <            Image,
+             ],
+             supports_personality: false,
+             additional_speed_tiers: [],
+             service_tiers: [],
+             default_service_tier: None,
+             is_default: true,
+         },
+         Model {
+             id: "deepseek-v4-pro",
+             model: "deepseek-v4-pro",
+             upgrade: None,
+             upgrade_info: None,
+             availability_nux: None,
+             display_name: "DeepSeek V4 Pro",
+             description: "High-quality Whale coding model for planning, diagnosis, review, and verification.",
+             model_specialty: None,
+             hidden: false,
+             supported_reasoning_efforts: [
+                 ReasoningEffortOption {
+                     reasoning_effort: Custom(
+                         "standard",
+                     ),
+                     description: "DeepSeek default reasoning mode",
+                 },
+                 ReasoningEffortOption {
+                     reasoning_effort: High,
+                     description: "Deeper reasoning for complex work",
+                 },
+                 ReasoningEffortOption {
+                     reasoning_effort: Max,
+                     description: "Maximum reasoning for the hardest work",
+                 },
+             ],
+             default_reasoning_effort: Custom(
+                 "standard",
+             ),
+    >        input_modalities: [
+    >            Text,
+    >        ],
+    >        supports_personality: false,
+    >        additional_speed_tiers: [],
+    >        service_tiers: [],
+    >        default_service_tier: None,
+    >        is_default: false,
+    >    },
+    >    Model {
+    >        id: "gpt-5.6-sol",
+    >        model: "gpt-5.6-sol",
+    >        upgrade: None,
+    >        upgrade_info: None,
+    >        availability_nux: Some(
+    >            ModelAvailabilityNux {
+    >                message: "Our most capable model yet. GPT-5.6 Sol can tackle complex code changes, dig into research, produce polished documents, and take on your most ambitious work. Sol is highly capable at lower reasoning efforts—try starting lower, then turn it up for harder jobs.",
+    >            },
+    >        ),
+    >        display_name: "GPT-5.6-Sol",
+    >        description: "Latest frontier agentic coding model.",
+    >        model_specialty: None,
+    >        hidden: false,
+    >        supported_reasoning_efforts: [
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Low,
+    >                description: "Fast responses with lighter reasoning",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Medium,
+    >                description: "Balances speed and reasoning depth for everyday tasks",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: High,
+    >                description: "Greater reasoning depth for complex problems",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: XHigh,
+    >                description: "Extra high reasoning depth for complex problems",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Max,
+    >                description: "Maximum reasoning depth for the hardest problems",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Ultra,
+    >                description: "Maximum reasoning with automatic task delegation",
+    >            },
+    >        ],
+    >        default_reasoning_effort: Low,
+    >        input_modalities: [
+    >            Text,
+    >            Image,
+    >        ],
+    >        supports_personality: false,
+    >        additional_speed_tiers: [
+    >            "fast",
+    >        ],
+    >        service_tiers: [
+    >            ModelServiceTier {
+    >                id: "priority",
+    >                name: "Fast",
+    >                description: "1.5x speed, increased usage",
+    >            },
+    >        ],
+    >        default_service_tier: None,
+    >        is_default: false,
+    >    },
+    >    Model {
+    >        id: "gpt-5.6-terra",
+    >        model: "gpt-5.6-terra",
+    >        upgrade: None,
+    >        upgrade_info: None,
+    >        availability_nux: None,
+    >        display_name: "GPT-5.6-Terra",
+    >        description: "Balanced agentic coding model for everyday work.",
+    >        model_specialty: None,
+    >        hidden: false,
+    >        supported_reasoning_efforts: [
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Low,
+    >                description: "Fast responses with lighter reasoning",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Medium,
+    >                description: "Balances speed and reasoning depth for everyday tasks",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: High,
+    >                description: "Greater reasoning depth for complex problems",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: XHigh,
+    >                description: "Extra high reasoning depth for complex problems",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Max,
+    >                description: "Maximum reasoning depth for the hardest problems",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Ultra,
+    >                description: "Maximum reasoning with automatic task delegation",
+    >            },
+    >        ],
+    >        default_reasoning_effort: Medium,
+    >        input_modalities: [
+    >            Text,
+    >            Image,
+    >        ],
+    >        supports_personality: false,
+    >        additional_speed_tiers: [
+    >            "fast",
+    >        ],
+    >        service_tiers: [
+    >            ModelServiceTier {
+    >                id: "priority",
+    >                name: "Fast",
+    >                description: "1.5x speed, increased usage",
+    >            },
+    >        ],
+    >        default_service_tier: None,
+    >        is_default: false,
+    >    },
+    >    Model {
+    >        id: "gpt-5.6-luna",
+    >        model: "gpt-5.6-luna",
+    >        upgrade: None,
+    >        upgrade_info: None,
+    >        availability_nux: None,
+    >        display_name: "GPT-5.6-Luna",
+    >        description: "Fast and affordable agentic coding model.",
+    >        model_specialty: None,
+    >        hidden: false,
+    >        supported_reasoning_efforts: [
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Low,
+    >                description: "Fast responses with lighter reasoning",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Medium,
+    >                description: "Balances speed and reasoning depth for everyday tasks",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: High,
+    >                description: "Greater reasoning depth for complex problems",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: XHigh,
+    >                description: "Extra high reasoning depth for complex problems",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Max,
+    >                description: "Maximum reasoning depth for the hardest problems",
+    >            },
+    >        ],
+    >        default_reasoning_effort: Medium,
+    >        input_modalities: [
+    >            Text,
+    >            Image,
+    >        ],
+    >        supports_personality: false,
+    >        additional_speed_tiers: [
+    >            "fast",
+    >        ],
+    >        service_tiers: [
+    >            ModelServiceTier {
+    >                id: "priority",
+    >                name: "Fast",
+    >                description: "1.5x speed, increased usage",
+    >            },
+    >        ],
+    >        default_service_tier: None,
+    >        is_default: false,
+    >    },
+    >    Model {
+    >        id: "gpt-5.5",
+    >        model: "gpt-5.5",
+    >        upgrade: None,
+    >        upgrade_info: None,
+    >        availability_nux: Some(
+    >            ModelAvailabilityNux {
+    >                message: "GPT-5.5 is now available in Codex. It's our strongest agentic coding model yet, built to reason through large codebases, check assumptions with tools, and keep going until the work is done.\n\nLearn more: https://openai.com/index/introducing-gpt-5-5/\n\n",
+    >            },
+    >        ),
+    >        display_name: "GPT-5.5",
+    >        description: "Frontier model for complex coding, research, and real-world work.",
+    >        model_specialty: None,
+    >        hidden: false,
+    >        supported_reasoning_efforts: [
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Low,
+    >                description: "Fast responses with lighter reasoning",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Medium,
+    >                description: "Balances speed and reasoning depth for everyday tasks",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: High,
+    >                description: "Greater reasoning depth for complex problems",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: XHigh,
+    >                description: "Extra high reasoning depth for complex problems",
+    >            },
+    >        ],
+    >        default_reasoning_effort: Medium,
+    >        input_modalities: [
+    >            Text,
+    >            Image,
+    >        ],
+    >        supports_personality: false,
+    >        additional_speed_tiers: [
+    >            "fast",
+    >        ],
+    >        service_tiers: [
+    >            ModelServiceTier {
+    >                id: "priority",
+    >                name: "Fast",
+    >                description: "1.5x speed, increased usage",
+    >            },
+    >        ],
+    >        default_service_tier: None,
+    >        is_default: false,
+    >    },
+    >    Model {
+    >        id: "gpt-5.2",
+    >        model: "gpt-5.2",
+    >        upgrade: None,
+    >        upgrade_info: None,
+    >        availability_nux: None,
+    >        display_name: "GPT-5.2",
+    >        description: "Optimized for professional work and long-running agents.",
+    >        model_specialty: None,
+    >        hidden: false,
+    >        supported_reasoning_efforts: [
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Low,
+    >                description: "Balances speed with some reasoning; useful for straightforward queries and short explanations",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Medium,
+    >                description: "Provides a solid balance of reasoning depth and latency for general-purpose tasks",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: High,
+    >                description: "Maximizes reasoning depth for complex or ambiguous problems",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: XHigh,
+    >                description: "Extra high reasoning for complex problems",
+    >            },
+    >        ],
+    >        default_reasoning_effort: Medium,
+             input_modalities: [
+                 Text,
+                 Image,
+             ],
+             supports_personality: false,
+             additional_speed_tiers: [],
+             service_tiers: [],
+             default_service_tier: None,
+             is_default: false,
+         },
+     ]
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.304s] ( 596/1122) codex-app-server::all suite::v2::model_list::list_models_returns_all_models_with_large_limit
+  stdout ───
+
+    running 1 test
+    test suite::v2::model_list::list_models_returns_all_models_with_large_limit ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::model_list::list_models_returns_all_models_with_large_limit
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.29s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpgMHFbY"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "model/list", params: Some(Object {"cursor": Null, "includeHidden": Null, "limit": Number(100)}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"data": Array [Object {"additionalSpeedTiers": Array [], "availabilityNux": Null, "defaultReasoningEffort": String("standard"), "defaultServiceTier": Null, "description": String("Fast Whale coding model for everyday implementation work."), "displayName": String("DeepSeek V4 Flash"), "hidden": Bool(false), "id": String("deepseek-v4-flash"), "inputModalities": Array [String("text"), String("image")], "isDefault": Bool(true), "model": String("deepseek-v4-flash"), "modelSpecialty": Null, "serviceTiers": Array [], "supportedReasoningEfforts": Array [Object {"description": String("DeepSeek default reasoning mode"), "reasoningEffort": String("standard")}, Object {"description": String("Deeper reasoning for complex work"), "reasoningEffort": String("high")}, Object {"description": String("Maximum reasoning for the hardest work"), "reasoningEffort": String("max")}], "supportsPersonality": Bool(false), "upgrade": Null, "upgradeInfo": Null}, Object {"additionalSpeedTiers": Array [], "availabilityNux": Null, "defaultReasoningEffort": String("standard"), "defaultServiceTier": Null, "description": String("High-quality Whale coding model for planning, diagnosis, review, and verification."), "displayName": String("DeepSeek V4 Pro"), "hidden": Bool(false), "id": String("deepseek-v4-pro"), "inputModalities": Array [String("text"), String("image")], "isDefault": Bool(false), "model": String("deepseek-v4-pro"), "modelSpecialty": Null, "serviceTiers": Array [], "supportedReasoningEfforts": Array [Object {"description": String("DeepSeek default reasoning mode"), "reasoningEffort": String("standard")}, Object {"description": String("Deeper reasoning for complex work"), "reasoningEffort": String("high")}, Object {"description": String("Maximum reasoning for the hardest work"), "reasoningEffort": String("max")}], "supportsPersonality": Bool(false), "upgrade": Null, "upgradeInfo": Null}], "nextCursor": Null} })
+
+    thread 'suite::v2::model_list::list_models_returns_all_models_with_large_limit' (3033698) panicked at app-server/tests/suite/v2/model_list.rs:120:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+     [
+         Model {
+             id: "deepseek-v4-flash",
+             model: "deepseek-v4-flash",
+             upgrade: None,
+             upgrade_info: None,
+             availability_nux: None,
+             display_name: "DeepSeek V4 Flash",
+             description: "Fast Whale coding model for everyday implementation work.",
+             model_specialty: None,
+             hidden: false,
+             supported_reasoning_efforts: [
+                 ReasoningEffortOption {
+                     reasoning_effort: Custom(
+                         "standard",
+                     ),
+                     description: "DeepSeek default reasoning mode",
+                 },
+                 ReasoningEffortOption {
+                     reasoning_effort: High,
+                     description: "Deeper reasoning for complex work",
+                 },
+                 ReasoningEffortOption {
+                     reasoning_effort: Max,
+                     description: "Maximum reasoning for the hardest work",
+                 },
+             ],
+             default_reasoning_effort: Custom(
+                 "standard",
+             ),
+             input_modalities: [
+                 Text,
+    <            Image,
+             ],
+             supports_personality: false,
+             additional_speed_tiers: [],
+             service_tiers: [],
+             default_service_tier: None,
+             is_default: true,
+         },
+         Model {
+             id: "deepseek-v4-pro",
+             model: "deepseek-v4-pro",
+             upgrade: None,
+             upgrade_info: None,
+             availability_nux: None,
+             display_name: "DeepSeek V4 Pro",
+             description: "High-quality Whale coding model for planning, diagnosis, review, and verification.",
+             model_specialty: None,
+             hidden: false,
+             supported_reasoning_efforts: [
+                 ReasoningEffortOption {
+                     reasoning_effort: Custom(
+                         "standard",
+                     ),
+                     description: "DeepSeek default reasoning mode",
+                 },
+                 ReasoningEffortOption {
+                     reasoning_effort: High,
+                     description: "Deeper reasoning for complex work",
+                 },
+                 ReasoningEffortOption {
+                     reasoning_effort: Max,
+                     description: "Maximum reasoning for the hardest work",
+                 },
+             ],
+             default_reasoning_effort: Custom(
+                 "standard",
+             ),
+    >        input_modalities: [
+    >            Text,
+    >        ],
+    >        supports_personality: false,
+    >        additional_speed_tiers: [],
+    >        service_tiers: [],
+    >        default_service_tier: None,
+    >        is_default: false,
+    >    },
+    >    Model {
+    >        id: "gpt-5.6-sol",
+    >        model: "gpt-5.6-sol",
+    >        upgrade: None,
+    >        upgrade_info: None,
+    >        availability_nux: Some(
+    >            ModelAvailabilityNux {
+    >                message: "Our most capable model yet. GPT-5.6 Sol can tackle complex code changes, dig into research, produce polished documents, and take on your most ambitious work. Sol is highly capable at lower reasoning efforts—try starting lower, then turn it up for harder jobs.",
+    >            },
+    >        ),
+    >        display_name: "GPT-5.6-Sol",
+    >        description: "Latest frontier agentic coding model.",
+    >        model_specialty: None,
+    >        hidden: false,
+    >        supported_reasoning_efforts: [
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Low,
+    >                description: "Fast responses with lighter reasoning",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Medium,
+    >                description: "Balances speed and reasoning depth for everyday tasks",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: High,
+    >                description: "Greater reasoning depth for complex problems",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: XHigh,
+    >                description: "Extra high reasoning depth for complex problems",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Max,
+    >                description: "Maximum reasoning depth for the hardest problems",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Ultra,
+    >                description: "Maximum reasoning with automatic task delegation",
+    >            },
+    >        ],
+    >        default_reasoning_effort: Low,
+    >        input_modalities: [
+    >            Text,
+    >            Image,
+    >        ],
+    >        supports_personality: false,
+    >        additional_speed_tiers: [
+    >            "fast",
+    >        ],
+    >        service_tiers: [
+    >            ModelServiceTier {
+    >                id: "priority",
+    >                name: "Fast",
+    >                description: "1.5x speed, increased usage",
+    >            },
+    >        ],
+    >        default_service_tier: None,
+    >        is_default: false,
+    >    },
+    >    Model {
+    >        id: "gpt-5.6-terra",
+    >        model: "gpt-5.6-terra",
+    >        upgrade: None,
+    >        upgrade_info: None,
+    >        availability_nux: None,
+    >        display_name: "GPT-5.6-Terra",
+    >        description: "Balanced agentic coding model for everyday work.",
+    >        model_specialty: None,
+    >        hidden: false,
+    >        supported_reasoning_efforts: [
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Low,
+    >                description: "Fast responses with lighter reasoning",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Medium,
+    >                description: "Balances speed and reasoning depth for everyday tasks",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: High,
+    >                description: "Greater reasoning depth for complex problems",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: XHigh,
+    >                description: "Extra high reasoning depth for complex problems",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Max,
+    >                description: "Maximum reasoning depth for the hardest problems",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Ultra,
+    >                description: "Maximum reasoning with automatic task delegation",
+    >            },
+    >        ],
+    >        default_reasoning_effort: Medium,
+    >        input_modalities: [
+    >            Text,
+    >            Image,
+    >        ],
+    >        supports_personality: false,
+    >        additional_speed_tiers: [
+    >            "fast",
+    >        ],
+    >        service_tiers: [
+    >            ModelServiceTier {
+    >                id: "priority",
+    >                name: "Fast",
+    >                description: "1.5x speed, increased usage",
+    >            },
+    >        ],
+    >        default_service_tier: None,
+    >        is_default: false,
+    >    },
+    >    Model {
+    >        id: "gpt-5.6-luna",
+    >        model: "gpt-5.6-luna",
+    >        upgrade: None,
+    >        upgrade_info: None,
+    >        availability_nux: None,
+    >        display_name: "GPT-5.6-Luna",
+    >        description: "Fast and affordable agentic coding model.",
+    >        model_specialty: None,
+    >        hidden: false,
+    >        supported_reasoning_efforts: [
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Low,
+    >                description: "Fast responses with lighter reasoning",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Medium,
+    >                description: "Balances speed and reasoning depth for everyday tasks",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: High,
+    >                description: "Greater reasoning depth for complex problems",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: XHigh,
+    >                description: "Extra high reasoning depth for complex problems",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Max,
+    >                description: "Maximum reasoning depth for the hardest problems",
+    >            },
+    >        ],
+    >        default_reasoning_effort: Medium,
+    >        input_modalities: [
+    >            Text,
+    >            Image,
+    >        ],
+    >        supports_personality: false,
+    >        additional_speed_tiers: [
+    >            "fast",
+    >        ],
+    >        service_tiers: [
+    >            ModelServiceTier {
+    >                id: "priority",
+    >                name: "Fast",
+    >                description: "1.5x speed, increased usage",
+    >            },
+    >        ],
+    >        default_service_tier: None,
+    >        is_default: false,
+    >    },
+    >    Model {
+    >        id: "gpt-5.5",
+    >        model: "gpt-5.5",
+    >        upgrade: None,
+    >        upgrade_info: None,
+    >        availability_nux: Some(
+    >            ModelAvailabilityNux {
+    >                message: "GPT-5.5 is now available in Codex. It's our strongest agentic coding model yet, built to reason through large codebases, check assumptions with tools, and keep going until the work is done.\n\nLearn more: https://openai.com/index/introducing-gpt-5-5/\n\n",
+    >            },
+    >        ),
+    >        display_name: "GPT-5.5",
+    >        description: "Frontier model for complex coding, research, and real-world work.",
+    >        model_specialty: None,
+    >        hidden: false,
+    >        supported_reasoning_efforts: [
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Low,
+    >                description: "Fast responses with lighter reasoning",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Medium,
+    >                description: "Balances speed and reasoning depth for everyday tasks",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: High,
+    >                description: "Greater reasoning depth for complex problems",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: XHigh,
+    >                description: "Extra high reasoning depth for complex problems",
+    >            },
+    >        ],
+    >        default_reasoning_effort: Medium,
+    >        input_modalities: [
+    >            Text,
+    >            Image,
+    >        ],
+    >        supports_personality: false,
+    >        additional_speed_tiers: [
+    >            "fast",
+    >        ],
+    >        service_tiers: [
+    >            ModelServiceTier {
+    >                id: "priority",
+    >                name: "Fast",
+    >                description: "1.5x speed, increased usage",
+    >            },
+    >        ],
+    >        default_service_tier: None,
+    >        is_default: false,
+    >    },
+    >    Model {
+    >        id: "gpt-5.2",
+    >        model: "gpt-5.2",
+    >        upgrade: None,
+    >        upgrade_info: None,
+    >        availability_nux: None,
+    >        display_name: "GPT-5.2",
+    >        description: "Optimized for professional work and long-running agents.",
+    >        model_specialty: None,
+    >        hidden: false,
+    >        supported_reasoning_efforts: [
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Low,
+    >                description: "Balances speed with some reasoning; useful for straightforward queries and short explanations",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: Medium,
+    >                description: "Provides a solid balance of reasoning depth and latency for general-purpose tasks",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: High,
+    >                description: "Maximizes reasoning depth for complex or ambiguous problems",
+    >            },
+    >            ReasoningEffortOption {
+    >                reasoning_effort: XHigh,
+    >                description: "Extra high reasoning for complex problems",
+    >            },
+    >        ],
+    >        default_reasoning_effort: Medium,
+             input_modalities: [
+                 Text,
+                 Image,
+             ],
+             supports_personality: false,
+             additional_speed_tiers: [],
+             service_tiers: [],
+             default_service_tier: None,
+             is_default: false,
+         },
+     ]
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.434s] ( 599/1122) codex-app-server::all suite::v2::model_list::list_models_uses_chatgpt_remote_catalog_as_source_of_truth
+  stdout ───
+
+    running 1 test
+    test suite::v2::model_list::list_models_uses_chatgpt_remote_catalog_as_source_of_truth ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::model_list::list_models_uses_chatgpt_remote_catalog_as_source_of_truth
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.42s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:34:31.082735Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpLABNhC"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "model/list", params: Some(Object {"cursor": Null, "includeHidden": Null, "limit": Number(100)}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    [mcp stderr] {"timestamp":"2026-08-14T16:34:31.096363Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"data": Array [Object {"additionalSpeedTiers": Array [], "availabilityNux": Null, "defaultReasoningEffort": String("standard"), "defaultServiceTier": Null, "description": String("Fast Whale coding model for everyday implementation work."), "displayName": String("DeepSeek V4 Flash"), "hidden": Bool(false), "id": String("deepseek-v4-flash"), "inputModalities": Array [String("text")], "isDefault": Bool(true), "model": String("deepseek-v4-flash"), "modelSpecialty": Null, "serviceTiers": Array [], "supportedReasoningEfforts": Array [Object {"description": String("DeepSeek default reasoning mode"), "reasoningEffort": String("standard")}, Object {"description": String("Deeper reasoning for complex work"), "reasoningEffort": String("high")}, Object {"description": String("Maximum reasoning for the hardest work"), "reasoningEffort": String("max")}], "supportsPersonality": Bool(false), "upgrade": Null, "upgradeInfo": Null}, Object {"additionalSpeedTiers": Array [], "availabilityNux": Null, "defaultReasoningEffort": String("standard"), "defaultServiceTier": Null, "description": String("High-quality Whale coding model for planning, diagnosis, review, and verification."), "displayName": String("DeepSeek V4 Pro"), "hidden": Bool(false), "id": String("deepseek-v4-pro"), "inputModalities": Array [String("text")], "isDefault": Bool(false), "model": String("deepseek-v4-pro"), "modelSpecialty": Null, "serviceTiers": Array [], "supportedReasoningEfforts": Array [Object {"description": String("DeepSeek default reasoning mode"), "reasoningEffort": String("standard")}, Object {"description": String("Deeper reasoning for complex work"), "reasoningEffort": String("high")}, Object {"description": String("Maximum reasoning for the hardest work"), "reasoningEffort": String("max")}], "supportsPersonality": Bool(false), "upgrade": Null, "upgradeInfo": Null}], "nextCursor": Null} })
+
+    thread 'suite::v2::model_list::list_models_uses_chatgpt_remote_catalog_as_source_of_truth' (3033979) panicked at app-server/tests/suite/v2/model_list.rs:250:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+     [
+         Model {
+    <        id: "deepseek-v4-flash",
+    <        model: "deepseek-v4-flash",
+    >        id: "chatgpt-remote-only",
+    >        model: "chatgpt-remote-only",
+             upgrade: None,
+             upgrade_info: None,
+             availability_nux: None,
+    <        display_name: "DeepSeek V4 Flash",
+    <        description: "Fast Whale coding model for everyday implementation work.",
+    <        model_specialty: None,
+    >        display_name: "ChatGPT Remote Only",
+    >        description: "Remote-only model for app-server model/list coverage",
+    >        model_specialty: Some(
+    >            "cyber",
+    >        ),
+             hidden: false,
+             supported_reasoning_efforts: [
+                 ReasoningEffortOption {
+    <                reasoning_effort: Custom(
+    <                    "standard",
+    <                ),
+    <                description: "DeepSeek default reasoning mode",
+    >                reasoning_effort: Max,
+    >                description: "Maximum",
+                 },
+                 ReasoningEffortOption {
+    <                reasoning_effort: High,
+    <                description: "Deeper reasoning for complex work",
+    >                reasoning_effort: Low,
+    >                description: "Low",
+                 },
+                 ReasoningEffortOption {
+    <                reasoning_effort: Max,
+    <                description: "Maximum reasoning for the hardest work",
+    <            },
+    <        ],
+    <        default_reasoning_effort: Custom(
+    <            "standard",
+    <        ),
+    <        input_modalities: [
+    <            Text,
+    <        ],
+    <        supports_personality: false,
+    <        additional_speed_tiers: [],
+    <        service_tiers: [],
+    <        default_service_tier: None,
+    <        is_default: true,
+    <    },
+    <    Model {
+    <        id: "deepseek-v4-pro",
+    <        model: "deepseek-v4-pro",
+    <        upgrade: None,
+    <        upgrade_info: None,
+    <        availability_nux: None,
+    <        display_name: "DeepSeek V4 Pro",
+    <        description: "High-quality Whale coding model for planning, diagnosis, review, and verification.",
+    <        model_specialty: None,
+    <        hidden: false,
+    <        supported_reasoning_efforts: [
+    <            ReasoningEffortOption {
+                     reasoning_effort: Custom(
+    <                    "standard",
+    >                    "focused",
+                     ),
+    <                description: "DeepSeek default reasoning mode",
+    >                description: "Focused",
+                 },
+    <            ReasoningEffortOption {
+    <                reasoning_effort: High,
+    <                description: "Deeper reasoning for complex work",
+    <            },
+    <            ReasoningEffortOption {
+    <                reasoning_effort: Max,
+    <                description: "Maximum reasoning for the hardest work",
+    <            },
+             ],
+    <        default_reasoning_effort: Custom(
+    <            "standard",
+    <        ),
+    >        default_reasoning_effort: Max,
+             input_modalities: [
+                 Text,
+    >            Image,
+             ],
+             supports_personality: false,
+             additional_speed_tiers: [],
+             service_tiers: [],
+             default_service_tier: None,
+    <        is_default: false,
+    >        is_default: true,
+         },
+     ]
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.418s] ( 659/1122) codex-app-server::all suite::v2::plugin_list::plugin_installed_includes_created_by_me_when_remote_plugins_enabled
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_list::plugin_installed_includes_created_by_me_when_remote_plugins_enabled ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_list::plugin_installed_includes_created_by_me_when_remote_plugins_enabled
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.41s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:34:39.081173Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpT8xfbk"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/installed", params: Some(Object {"cwds": Null, "installSuggestionPluginNames": Null}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"marketplaceLoadErrors": Array [], "marketplaces": Array []} })
+
+    thread 'suite::v2::plugin_list::plugin_installed_includes_created_by_me_when_remote_plugins_enabled' (3044373) panicked at app-server/tests/suite/v2/plugin_list.rs:3540:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+    <0
+    >1
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.384s] ( 662/1122) codex-app-server::all suite::v2::plugin_list::plugin_installed_prefers_api_curated_conflicts_after_switching_to_api_auth
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_list::plugin_installed_prefers_api_curated_conflicts_after_switching_to_api_auth ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_list::plugin_installed_prefers_api_curated_conflicts_after_switching_to_api_auth
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.37s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:34:40.106683Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpI0Zyhv"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/installed", params: Some(Object {"cwds": Null, "installSuggestionPluginNames": Null}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    [mcp stderr] {"timestamp":"2026-08-14T16:34:40.190132Z","level":"WARN","fields":{"message":"skipping remote installed plugin bundle download","remote_plugin_id":"plugins~Plugin_00000000000000000000000000000000","plugin":"linear","marketplace":"openai-curated-remote","error":"backend did not return a download URL for remote plugin `plugins~Plugin_00000000000000000000000000000000`"},"target":"codex_core_plugins::remote::remote_installed_plugin_sync"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"marketplaceLoadErrors": Array [], "marketplaces": Array [Object {"interface": Object {"displayName": String("OpenAI Curated")}, "name": String("openai-api-curated"), "path": String("/tmp/.tmpI0Zyhv/.tmp/plugins/.agents/plugins/api_marketplace.json"), "plugins": Array [Object {"authPolicy": String("ON_INSTALL"), "availability": String("AVAILABLE"), "disabledReason": Null, "eligiblePlanTypes": Null, "enabled": Bool(true), "id": String("linear@openai-api-curated"), "installPolicy": String("AVAILABLE"), "installPolicySource": Null, "installed": Bool(true), "installedAt": Null, "interface": Null, "keywords": Array [], "localVersion": Null, "mustShowInstallationInterstitial": Null, "name": String("linear"), "remotePluginId": Null, "shareContext": Null, "source": Object {"path": String("/tmp/.tmpI0Zyhv/.tmp/plugins/plugins/linear"), "type": String("local")}, "version": Null}]}]} })
+
+    thread 'suite::v2::plugin_list::plugin_installed_prefers_api_curated_conflicts_after_switching_to_api_auth' (3045330) panicked at app-server/tests/suite/v2/plugin_list.rs:382:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+     [
+    <    "linear@openai-api-curated",
+    >    "linear@openai-curated-remote",
+     ]
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.407s] ( 663/1122) codex-app-server::all suite::v2::plugin_list::plugin_installed_prefers_remote_curated_conflicts_when_remote_plugin_enabled
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_list::plugin_installed_prefers_remote_curated_conflicts_when_remote_plugin_enabled ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_list::plugin_installed_prefers_remote_curated_conflicts_when_remote_plugin_enabled
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.39s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:34:40.261467Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpENTKNA"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/installed", params: Some(Object {"cwds": Null, "installSuggestionPluginNames": Null}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    [mcp stderr] {"timestamp":"2026-08-14T16:34:40.345956Z","level":"WARN","fields":{"message":"skipping remote installed plugin bundle download","remote_plugin_id":"plugins~Plugin_00000000000000000000000000000000","plugin":"linear","marketplace":"openai-curated-remote","error":"backend did not return a download URL for remote plugin `plugins~Plugin_00000000000000000000000000000000`"},"target":"codex_core_plugins::remote::remote_installed_plugin_sync"}
+    [mcp stderr] {"timestamp":"2026-08-14T16:34:40.346073Z","level":"WARN","fields":{"message":"skipping remote installed plugin bundle download","remote_plugin_id":"plugins~Plugin_11111111111111111111111111111111","plugin":"remote-only","marketplace":"openai-curated-remote","error":"backend did not return a download URL for remote plugin `plugins~Plugin_11111111111111111111111111111111`"},"target":"codex_core_plugins::remote::remote_installed_plugin_sync"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"marketplaceLoadErrors": Array [], "marketplaces": Array [Object {"interface": Null, "name": String("openai-curated"), "path": String("/tmp/.tmpENTKNA/.tmp/plugins/.agents/plugins/marketplace.json"), "plugins": Array [Object {"authPolicy": String("ON_INSTALL"), "availability": String("AVAILABLE"), "disabledReason": Null, "eligiblePlanTypes": Null, "enabled": Bool(true), "id": String("linear@openai-curated"), "installPolicy": String("AVAILABLE"), "installPolicySource": Null, "installed": Bool(true), "installedAt": Null, "interface": Null, "keywords": Array [], "localVersion": Null, "mustShowInstallationInterstitial": Null, "name": String("linear"), "remotePluginId": Null, "shareContext": Null, "source": Object {"path": String("/tmp/.tmpENTKNA/.tmp/plugins/plugins/linear"), "type": String("local")}, "version": Null}, Object {"authPolicy": String("ON_INSTALL"), "availability": String("AVAILABLE"), "disabledReason": Null, "eligiblePlanTypes": Null, "enabled": Bool(true), "id": String("calendar@openai-curated"), "installPolicy": String("AVAILABLE"), "installPolicySource": Null, "installed": Bool(true), "installedAt": Null, "interface": Null, "keywords": Array [], "localVersion": Null, "mustShowInstallationInterstitial": Null, "name": String("calendar"), "remotePluginId": Null, "shareContext": Null, "source": Object {"path": String("/tmp/.tmpENTKNA/.tmp/plugins/plugins/calendar"), "type": String("local")}, "version": Null}]}]} })
+
+    thread 'suite::v2::plugin_list::plugin_installed_prefers_remote_curated_conflicts_when_remote_plugin_enabled' (3045557) panicked at app-server/tests/suite/v2/plugin_list.rs:288:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+     [
+    <    "linear@openai-curated",
+         "calendar@openai-curated",
+     ]
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.343s] ( 671/1122) codex-app-server::all suite::v2::plugin_list::plugin_list_fetches_user_plugins_in_created_by_me_remote_marketplace
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_list::plugin_list_fetches_user_plugins_in_created_by_me_remote_marketplace ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_list::plugin_list_fetches_user_plugins_in_created_by_me_remote_marketplace
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.33s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:34:42.231123Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmp5CAFcs"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/list", params: Some(Object {"cwds": Null, "marketplaceKinds": Array [String("created-by-me-remote")]}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"featuredPluginIds": Array [], "marketplaceLoadErrors": Array [], "marketplaces": Array []} })
+
+    thread 'suite::v2::plugin_list::plugin_list_fetches_user_plugins_in_created_by_me_remote_marketplace' (3047242) panicked at app-server/tests/suite/v2/plugin_list.rs:4020:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+    <0
+    >1
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.420s] ( 672/1122) codex-app-server::all suite::v2::plugin_list::plugin_list_fetches_shared_with_me_kind
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_list::plugin_list_fetches_shared_with_me_kind ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_list::plugin_list_fetches_shared_with_me_kind
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.41s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:34:42.263504Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpPUPPve"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/list", params: Some(Object {"cwds": Null, "marketplaceKinds": Array [String("shared-with-me")]}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"featuredPluginIds": Array [], "marketplaceLoadErrors": Array [], "marketplaces": Array []} })
+
+    thread 'suite::v2::plugin_list::plugin_list_fetches_shared_with_me_kind' (3047282) panicked at app-server/tests/suite/v2/plugin_list.rs:4165:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+    <0
+    >2
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.396s] ( 675/1122) codex-app-server::all suite::v2::plugin_list::plugin_list_honors_global_remote_catalog_cache_ttl
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_list::plugin_list_honors_global_remote_catalog_cache_ttl ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_list::plugin_list_honors_global_remote_catalog_cache_ttl
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.38s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:34:44.193806Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmp1vnbhH"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/list", params: Some(Object {"cwds": Null, "marketplaceKinds": Null}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"featuredPluginIds": Array [], "marketplaceLoadErrors": Array [], "marketplaces": Array []} })
+
+    thread 'suite::v2::plugin_list::plugin_list_honors_global_remote_catalog_cache_ttl' (3048322) panicked at app-server/tests/suite/v2/plugin_list.rs:2239:10:
+    expected warmed remote marketplace
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.371s] ( 681/1122) codex-app-server::all suite::v2::plugin_list::plugin_list_includes_remote_marketplaces_when_remote_plugin_enabled
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_list::plugin_list_includes_remote_marketplaces_when_remote_plugin_enabled ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_list::plugin_list_includes_remote_marketplaces_when_remote_plugin_enabled
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.36s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:34:46.436098Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpOqqsGo"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/list", params: Some(Object {"cwds": Null, "marketplaceKinds": Null}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"featuredPluginIds": Array [], "marketplaceLoadErrors": Array [], "marketplaces": Array []} })
+
+    thread 'suite::v2::plugin_list::plugin_list_includes_remote_marketplaces_when_remote_plugin_enabled' (3049373) panicked at app-server/tests/suite/v2/plugin_list.rs:2069:10:
+    expected openai-curated remote marketplace
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.364s] ( 683/1122) codex-app-server::all suite::v2::plugin_list::plugin_list_marks_remote_plugin_disabled_by_admin
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_list::plugin_list_marks_remote_plugin_disabled_by_admin ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_list::plugin_list_marks_remote_plugin_disabled_by_admin
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.35s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:34:47.424240Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpB7HLvx"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/list", params: Some(Object {"cwds": Null, "marketplaceKinds": Null}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"featuredPluginIds": Array [], "marketplaceLoadErrors": Array [], "marketplaces": Array []} })
+
+    thread 'suite::v2::plugin_list::plugin_list_marks_remote_plugin_disabled_by_admin' (3049846) panicked at app-server/tests/suite/v2/plugin_list.rs:4528:10:
+    expected ChatGPT remote marketplace
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.375s] ( 686/1122) codex-app-server::all suite::v2::plugin_list::plugin_list_preserves_plan_ineligible_remote_plugin_metadata
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_list::plugin_list_preserves_plan_ineligible_remote_plugin_metadata ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_list::plugin_list_preserves_plan_ineligible_remote_plugin_metadata
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.36s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:34:48.849007Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpwG4L8J"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/list", params: Some(Object {"cwds": Null, "marketplaceKinds": Null}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"featuredPluginIds": Array [], "marketplaceLoadErrors": Array [], "marketplaces": Array []} })
+
+    thread 'suite::v2::plugin_list::plugin_list_preserves_plan_ineligible_remote_plugin_metadata' (3050575) panicked at app-server/tests/suite/v2/plugin_list.rs:4528:10:
+    expected ChatGPT remote marketplace
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.364s] ( 696/1122) codex-app-server::all suite::v2::plugin_list::plugin_list_sync_upgrades_and_removes_remote_installed_plugin_bundles
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_list::plugin_list_sync_upgrades_and_removes_remote_installed_plugin_bundles ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_list::plugin_list_sync_upgrades_and_removes_remote_installed_plugin_bundles
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.35s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:34:52.170901Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpWCHWWf"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/list", params: Some(Object {"cwds": Null, "marketplaceKinds": Null}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"featuredPluginIds": Array [], "marketplaceLoadErrors": Array [], "marketplaces": Array []} })
+
+    thread 'suite::v2::plugin_list::plugin_list_sync_upgrades_and_removes_remote_installed_plugin_bundles' (3051952) panicked at app-server/tests/suite/v2/plugin_list.rs:1879:10:
+    expected openai-curated-remote marketplace entry
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.374s] ( 700/1122) codex-app-server::all suite::v2::plugin_list::plugin_list_vertical_kind_noops_when_remote_plugin_enabled
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_list::plugin_list_vertical_kind_noops_when_remote_plugin_enabled ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_list::plugin_list_vertical_kind_noops_when_remote_plugin_enabled
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.36s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:34:53.643607Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpyzKjTv"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/list", params: Some(Object {"cwds": Null, "marketplaceKinds": Array [String("vertical")]}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Error(JSONRPCError { error: JSONRPCErrorError { code: -32600, data: None, message: "list OpenAI Curated remote plugin catalog: remote plugin catalog request to http://127.0.0.1:46001/backend-api/ps/plugins/installed?scope=GLOBAL failed with status 404 Not Found: " }, id: Integer(1) })
+
+    thread 'suite::v2::plugin_list::plugin_list_vertical_kind_noops_when_remote_plugin_enabled' (3052541) panicked at app-server/tests/common/test_app_server.rs:1612:13:
+    internal error: entered unreachable code: expected JSONRPCMessage::Response, got Error(JSONRPCError { error: JSONRPCErrorError { code: -32600, data: None, message: "list OpenAI Curated remote plugin catalog: remote plugin catalog request to http://127.0.0.1:46001/backend-api/ps/plugins/installed?scope=GLOBAL failed with status 404 Not Found: " }, id: Integer(1) })
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.307s] ( 728/1122) codex-app-server::all suite::v2::plugin_share::plugin_share_checkout_adds_personal_marketplace_entry
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_share::plugin_share_checkout_adds_personal_marketplace_entry ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_share::plugin_share_checkout_adds_personal_marketplace_entry
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.29s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:02.601422Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmptKaq66"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/share/checkout", params: Some(Object {"remotePluginId": String("plugins_123")}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Error(JSONRPCError { error: JSONRPCErrorError { code: -32600, data: None, message: "plugin sharing is disabled" }, id: Integer(1) })
+
+    thread 'suite::v2::plugin_share::plugin_share_checkout_adds_personal_marketplace_entry' (3055808) panicked at app-server/tests/common/test_app_server.rs:1612:13:
+    internal error: entered unreachable code: expected JSONRPCMessage::Response, got Error(JSONRPCError { error: JSONRPCErrorError { code: -32600, data: None, message: "plugin sharing is disabled" }, id: Integer(1) })
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.309s] ( 729/1122) codex-app-server::all suite::v2::plugin_share::plugin_share_checkout_cleans_up_path_when_marketplace_update_fails
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_share::plugin_share_checkout_cleans_up_path_when_marketplace_update_fails ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_share::plugin_share_checkout_cleans_up_path_when_marketplace_update_fails
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.29s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:03.228196Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpiSTaUV"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/share/checkout", params: Some(Object {"remotePluginId": String("plugins_123")}), trace: None })
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Error(JSONRPCError { error: JSONRPCErrorError { code: -32600, data: None, message: "plugin sharing is disabled" }, id: Integer(1) })
+
+    thread 'suite::v2::plugin_share::plugin_share_checkout_cleans_up_path_when_marketplace_update_fails' (3056032) panicked at app-server/tests/suite/v2/plugin_share.rs:915:5:
+    assertion failed: error.error.message.contains("marketplace already contains plugin `demo-plugin`")
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.310s] ( 730/1122) codex-app-server::all suite::v2::plugin_share::plugin_share_checkout_rejects_non_share_remote_plugin
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_share::plugin_share_checkout_rejects_non_share_remote_plugin ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_share::plugin_share_checkout_rejects_non_share_remote_plugin
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.30s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:03.849957Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpm5V3lF"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/share/checkout", params: Some(Object {"remotePluginId": String("plugins_global")}), trace: None })
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Error(JSONRPCError { error: JSONRPCErrorError { code: -32600, data: None, message: "plugin sharing is disabled" }, id: Integer(1) })
+
+    thread 'suite::v2::plugin_share::plugin_share_checkout_rejects_non_share_remote_plugin' (3056239) panicked at app-server/tests/suite/v2/plugin_share.rs:824:5:
+    assertion failed: error.error.message.contains("not available for plugin/share/checkout")
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.306s] ( 733/1122) codex-app-server::all suite::v2::plugin_share::plugin_share_rejects_workspace_targets_from_client
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_share::plugin_share_rejects_workspace_targets_from_client ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_share::plugin_share_rejects_workspace_targets_from_client
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.29s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:05.202860Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpHyqH50"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/share/save", params: Some(Object {"discoverability": String("UNLISTED"), "pluginPath": String("/tmp/.tmp9fiFfD/demo-plugin"), "shareTargets": Array [Object {"principalId": String("account-123"), "principalType": String("workspace"), "role": String("reader")}]}), trace: None })
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Error(JSONRPCError { error: JSONRPCErrorError { code: -32600, data: None, message: "plugin sharing is disabled" }, id: Integer(1) })
+
+    thread 'suite::v2::plugin_share::plugin_share_rejects_workspace_targets_from_client' (3056802) panicked at app-server/tests/suite/v2/plugin_share.rs:442:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+    <plugin sharing is disabled
+    >shareTargets cannot include workspace principals; use discoverability UNLISTED for workspace link access
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.303s] ( 734/1122) codex-app-server::all suite::v2::plugin_share::plugin_share_save_forwards_access_policy
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_share::plugin_share_save_forwards_access_policy ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_share::plugin_share_save_forwards_access_policy
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.29s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:05.805413Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpjdupQh"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/share/save", params: Some(Object {"discoverability": String("UNLISTED"), "pluginPath": String("/tmp/.tmpeTQx7b/demo-plugin"), "shareTargets": Array [Object {"principalId": String("user-1"), "principalType": String("user"), "role": String("editor")}]}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Error(JSONRPCError { error: JSONRPCErrorError { code: -32600, data: None, message: "plugin sharing is disabled" }, id: Integer(1) })
+
+    thread 'suite::v2::plugin_share::plugin_share_save_forwards_access_policy' (3057011) panicked at app-server/tests/common/test_app_server.rs:1612:13:
+    internal error: entered unreachable code: expected JSONRPCMessage::Response, got Error(JSONRPCError { error: JSONRPCErrorError { code: -32600, data: None, message: "plugin sharing is disabled" }, id: Integer(1) })
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.305s] ( 735/1122) codex-app-server::all suite::v2::plugin_share::plugin_share_save_rejects_access_policy_for_existing_plugin
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_share::plugin_share_save_rejects_access_policy_for_existing_plugin ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_share::plugin_share_save_rejects_access_policy_for_existing_plugin
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.29s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:06.412161Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpstbYyA"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/share/save", params: Some(Object {"discoverability": String("PRIVATE"), "pluginPath": String("/tmp/.tmpbud90Y/demo-plugin"), "remotePluginId": String("plugins_123"), "shareTargets": Array [Object {"principalId": String("user-1"), "principalType": String("user"), "role": String("reader")}]}), trace: None })
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Error(JSONRPCError { error: JSONRPCErrorError { code: -32600, data: None, message: "plugin sharing is disabled" }, id: Integer(1) })
+
+    thread 'suite::v2::plugin_share::plugin_share_save_rejects_access_policy_for_existing_plugin' (3057218) panicked at app-server/tests/suite/v2/plugin_share.rs:524:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+    <plugin sharing is disabled
+    >discoverability and shareTargets are only supported when creating a plugin share; use plugin/share/updateTargets to update share settings
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.306s] ( 736/1122) codex-app-server::all suite::v2::plugin_share::plugin_share_save_rejects_listed_discoverability
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_share::plugin_share_save_rejects_listed_discoverability ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_share::plugin_share_save_rejects_listed_discoverability
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.29s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:07.027488Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpnZMOlt"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/share/save", params: Some(Object {"discoverability": String("LISTED"), "pluginPath": String("/tmp/.tmp6sERuL/demo-plugin")}), trace: None })
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Error(JSONRPCError { error: JSONRPCErrorError { code: -32600, data: None, message: "plugin sharing is disabled" }, id: Integer(1) })
+
+    thread 'suite::v2::plugin_share::plugin_share_save_rejects_listed_discoverability' (3057424) panicked at app-server/tests/suite/v2/plugin_share.rs:330:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+    <plugin sharing is disabled
+    >discoverability LISTED is not supported for plugin/share/save; use UNLISTED or PRIVATE
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.335s] ( 738/1122) codex-app-server::all suite::v2::plugin_share::plugin_share_save_uploads_local_plugin
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_share::plugin_share_save_uploads_local_plugin ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_share::plugin_share_save_uploads_local_plugin
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.32s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:07.977626Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpR6G55F"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/share/save", params: Some(Object {"pluginPath": String("/tmp/.tmpQlxrBa/demo-plugin")}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Error(JSONRPCError { error: JSONRPCErrorError { code: -32600, data: None, message: "plugin sharing is disabled" }, id: Integer(1) })
+
+    thread 'suite::v2::plugin_share::plugin_share_save_uploads_local_plugin' (3057737) panicked at app-server/tests/common/test_app_server.rs:1612:13:
+    internal error: entered unreachable code: expected JSONRPCMessage::Response, got Error(JSONRPCError { error: JSONRPCErrorError { code: -32600, data: None, message: "plugin sharing is disabled" }, id: Integer(1) })
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.302s] ( 739/1122) codex-app-server::all suite::v2::plugin_share::plugin_share_update_targets_publishes_workspace_plugin
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_share::plugin_share_update_targets_publishes_workspace_plugin ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_share::plugin_share_update_targets_publishes_workspace_plugin
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.29s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:08.642064Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpyANZ01"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/share/updateTargets", params: Some(Object {"discoverability": String("LISTED"), "remotePluginId": String("plugins_123"), "shareTargets": Array []}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Error(JSONRPCError { error: JSONRPCErrorError { code: -32600, data: None, message: "plugin sharing is disabled" }, id: Integer(1) })
+
+    thread 'suite::v2::plugin_share::plugin_share_update_targets_publishes_workspace_plugin' (3058211) panicked at app-server/tests/common/test_app_server.rs:1612:13:
+    internal error: entered unreachable code: expected JSONRPCMessage::Response, got Error(JSONRPCError { error: JSONRPCErrorError { code: -32600, data: None, message: "plugin sharing is disabled" }, id: Integer(1) })
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.318s] ( 741/1122) codex-app-server::all suite::v2::plugin_share::plugin_share_update_targets_updates_share_targets
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_share::plugin_share_update_targets_updates_share_targets ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_share::plugin_share_update_targets_updates_share_targets
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.31s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:09.582632Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmp1KDqhK"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/share/updateTargets", params: Some(Object {"discoverability": String("UNLISTED"), "remotePluginId": String("plugins_123"), "shareTargets": Array [Object {"principalId": String("user-1"), "principalType": String("user"), "role": String("editor")}]}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Error(JSONRPCError { error: JSONRPCErrorError { code: -32600, data: None, message: "plugin sharing is disabled" }, id: Integer(1) })
+
+    thread 'suite::v2::plugin_share::plugin_share_update_targets_updates_share_targets' (3058687) panicked at app-server/tests/common/test_app_server.rs:1612:13:
+    internal error: entered unreachable code: expected JSONRPCMessage::Response, got Error(JSONRPCError { error: JSONRPCErrorError { code: -32600, data: None, message: "plugin sharing is disabled" }, id: Integer(1) })
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [  30.359s] ( 786/1122) codex-app-server::all suite::v2::plugin_list::app_server_startup_refreshes_cached_remote_catalog_without_blocking_plugin_list
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_list::app_server_startup_refreshes_cached_remote_catalog_without_blocking_plugin_list ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_list::app_server_startup_refreshes_cached_remote_catalog_without_blocking_plugin_list
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 30.34s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:08.059205Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpmkRvgM"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/list", params: Some(Object {"cwds": Null, "marketplaceKinds": Null}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"featuredPluginIds": Array [], "marketplaceLoadErrors": Array [], "marketplaces": Array []} })
+    Error: deadline has elapsed
+
+  TRY 2 FAIL [  30.451s] ( 787/1122) codex-app-server::all suite::v2::plugin_list::app_server_startup_skips_disabled_remote_plugin_catalog_scopes
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_list::app_server_startup_skips_disabled_remote_plugin_catalog_scopes ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_list::app_server_startup_skips_disabled_remote_plugin_catalog_scopes
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 30.43s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:08.398074Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmp4HmhHK"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/list", params: Some(Object {"cwds": Null, "marketplaceKinds": Null}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"featuredPluginIds": Array [], "marketplaceLoadErrors": Array [], "marketplaces": Array []} })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(2), method: "plugin/list", params: Some(Object {"cwds": Null, "marketplaceKinds": Array [String("created-by-me-remote"), String("workspace-directory")]}), trace: None })
+    in read_stream_until_response_message(Integer(2))
+    read message from stdout: Response(JSONRPCResponse { id: Integer(2), result: Object {"featuredPluginIds": Array [], "marketplaceLoadErrors": Array [], "marketplaces": Array [Object {"interface": Object {"displayName": String("Workspace Directory")}, "name": String("workspace-directory"), "path": Null, "plugins": Array [Object {"authPolicy": String("ON_USE"), "availability": String("AVAILABLE"), "disabledReason": Null, "eligiblePlanTypes": Null, "enabled": Bool(false), "id": String("workspace-linear@workspace-directory"), "installPolicy": String("AVAILABLE"), "installPolicySource": Null, "installed": Bool(false), "installedAt": Null, "interface": Object {"brandColor": Null, "capabilities": Array [], "category": Null, "composerIcon": Null, "composerIconUrl": Null, "defaultPrompt": Null, "developerName": Null, "displayName": String("Workspace Linear"), "logo": Null, "logoDark": Null, "logoUrl": Null, "logoUrlDark": Null, "longDescription": Null, "privacyPolicyUrl": Null, "screenshotUrls": Array [], "screenshots": Array [], "shortDescription": Null, "termsOfServiceUrl": Null, "websiteUrl": Null}, "keywords": Array [], "localVersion": Null, "mustShowInstallationInterstitial": Null, "name": String("workspace-linear"), "remotePluginId": String("plugins~Plugin_22222222222222222222222222222222"), "shareContext": Object {"canPublishToWorkspace": Null, "creatorAccountUserId": String("user-gavin__account-123"), "creatorName": String("Gavin"), "discoverability": String("LISTED"), "remotePluginId": String("plugins~Plugin_22222222222222222222222222222222"), "remoteVersion": String("1.2.3"), "sharePrincipals": Array [Object {"name": String("Gavin"), "principalId": String("user-gavin__account-123"), "principalType": String("user"), "role": String("owner")}, Object {"name": String("Ada"), "principalId": String("user-ada__account-123"), "principalType": String("user"), "role": String("reader")}], "shareUrl": String("https://chatgpt.example/plugins/share/share-key-1")}, "source": Object {"type": String("remote")}, "version": String("1.2.3")}]}]} })
+    Error: deadline has elapsed
+
+  TRY 2 FAIL [  30.327s] ( 797/1122) codex-app-server::all suite::v2::plugin_list::plugin_list_force_refetch_bypasses_fresh_global_remote_catalog_cache
+  stdout ───
+
+    running 1 test
+    test suite::v2::plugin_list::plugin_list_force_refetch_bypasses_fresh_global_remote_catalog_cache ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::plugin_list::plugin_list_force_refetch_bypasses_fresh_global_remote_catalog_cache
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 30.31s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:12.968616Z","level":"ERROR","fields":{"message":"failed to refresh available models: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."},"target":"codex_models_manager::manager"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpbs6gm9"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "plugin/list", params: Some(Object {"cwds": Null, "marketplaceKinds": Null}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"featuredPluginIds": Array [], "marketplaceLoadErrors": Array [], "marketplaces": Array []} })
+    Error: deadline has elapsed
+
+  TRY 2 FAIL [   0.658s] ( 800/1122) codex-app-server::all suite::v2::recommended_plugins::first_turn_after_external_login_waits_for_recommended_plugins
+  stdout ───
+
+    running 1 test
+    test suite::v2::recommended_plugins::first_turn_after_external_login_waits_for_recommended_plugins ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::recommended_plugins::first_turn_after_external_login_waits_for_recommended_plugins
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.64s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpcKhbHC"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "account/login/start", params: Some(Object {"accessToken": String("eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJlbWFpbCI6ImVtYmVkZGVkQGV4YW1wbGUuY29tIiwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjp7ImNoYXRncHRfYWNjb3VudF9pZCI6IjEyM2U0NTY3LWU4OWItNDJkMy1hNDU2LTQyNjYxNDE3NDAxMCIsImNoYXRncHRfcGxhbl90eXBlIjoicHJvIn19.c2lnbmF0dXJl"), "chatgptAccountId": String("123e4567-e89b-42d3-a456-426614174010"), "chatgptPlanType": String("pro"), "type": String("chatgptAuthTokens")}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"type": String("chatgptAuthTokens")} })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(2), method: "thread/start", params: Some(Object {"approvalPolicy": Null, "approvalsReviewer": Null, "baseInstructions": Null, "config": Null, "cwd": Null, "developerInstructions": Null, "dynamicTools": Null, "environments": Array [Object {"cwd": String("/tmp/.tmppQxPnd"), "environmentId": String("local"), "runtimeWorkspaceRoots": Null}], "ephemeral": Null, "historyMode": Null, "mockExperimentalField": Null, "model": String("mock-model"), "modelProvider": Null, "multiAgentMode": Null, "permissions": Null, "personality": Null, "runtimeWorkspaceRoots": Null, "sandbox": Null, "selectedCapabilityRoots": Null, "serviceName": Null, "sessionStartSource": Null, "threadSource": Null}), trace: None })
+    in read_stream_until_response_message(Integer(2))
+    read message from stdout: Notification(JSONRPCNotification { method: "account/login/completed", params: Some(Object {"error": Null, "loginId": Null, "onboardingEntrypoint": Null, "success": Bool(true)}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "account/updated", params: Some(Object {"authMode": String("chatgptAuthTokens"), "planType": String("pro")}) })
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:44.417518Z","level":"WARN","fields":{"message":"Unknown model mock-model is used. This will use fallback model metadata."},"target":"codex_models_manager::model_info"}
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:44.425173Z","level":"WARN","fields":{"message":"failed to refresh remote installed plugins cache","error":"remote plugin catalog request to http://127.0.0.1:37085/ps/plugins/installed?scope=USER failed with status 404 Not Found: ","materialized_remote_plugin_count":0},"target":"codex_core_plugins::manager"}
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:44.446156Z","level":"WARN","fields":{"message":"ignoring file://<HOME>/.agents/skills/bug-killer/agents/openai.yaml: invalid openai.yaml: mapping values are not allowed in this context at line 4 column 80"},"target":"codex_skills_extension::loader::metadata"}
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:44.447166Z","level":"WARN","fields":{"message":"ignoring file://<HOME>/.agents/skills/se-good-plan/agents/openai.yaml: invalid openai.yaml: mapping values are not allowed in this context at line 4 column 305"},"target":"codex_skills_extension::loader::metadata"}
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:44.456292Z","level":"WARN","fields":{"message":"ignoring file://<HOME>/.agents/skills/subagent-vs-review/agents/openai.yaml: invalid openai.yaml: mapping values are not allowed in this context at line 4 column 548"},"target":"codex_skills_extension::loader::metadata"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(2), result: Object {"activePermissionProfile": Null, "approvalPolicy": String("never"), "approvalsReviewer": String("user"), "cwd": String("/tmp/.tmpcKhbHC"), "instructionSources": Array [], "model": String("mock-model"), "modelProvider": String("mock_provider"), "multiAgentMode": String("explicitRequestOnly"), "reasoningEffort": Null, "runtimeWorkspaceRoots": Array [String("/tmp/.tmppQxPnd")], "sandbox": Object {"networkAccess": Bool(false), "type": String("readOnly")}, "serviceTier": Null, "thread": Object {"agentNickname": Null, "agentRole": Null, "canAcceptDirectInput": Bool(true), "cliVersion": String("0.147.0"), "createdAt": Number(1786725344), "cwd": String("/tmp/.tmpcKhbHC"), "ephemeral": Bool(false), "extra": Null, "forkedFromId": Null, "gitInfo": Null, "historyMode": String("legacy"), "id": String("01a00121-24a1-71e3-b809-1edc584550bc"), "modelProvider": String("mock_provider"), "name": Null, "parentThreadId": Null, "path": String("/tmp/.tmpcKhbHC/sessions/2026/08/15/rollout-2026-08-15T00-35-44-01a00121-24a1-71e3-b809-1edc584550bc.jsonl"), "preview": String(""), "recencyAt": Number(1786725344), "section": Null, "sectionEnteredAt": Null, "sessionId": String("01a00121-24a1-71e3-b809-1edc584550bc"), "source": String("vscode"), "status": Object {"type": String("idle")}, "threadSource": Null, "turns": Array [], "updatedAt": Number(1786725344)}} })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(3), method: "turn/start", params: Some(Object {"additionalContext": Null, "approvalPolicy": Null, "approvalsReviewer": Null, "clientUserMessageId": Null, "collaborationMode": Null, "cwd": Null, "effort": Null, "environments": Null, "input": Array [Object {"text": String("suggest a plugin"), "text_elements": Array [], "type": String("text")}], "model": Null, "multiAgentMode": Null, "outputSchema": Null, "permissions": Null, "personality": Null, "responsesapiClientMetadata": Null, "runtimeWorkspaceRoots": Null, "sandboxPolicy": Null, "summary": Null, "threadId": String("01a00121-24a1-71e3-b809-1edc584550bc")}), trace: None })
+    in read_stream_until_response_message(Integer(3))
+    read message from stdout: Notification(JSONRPCNotification { method: "mcpServer/startupStatus/updated", params: Some(Object {"error": Null, "failureReason": Null, "name": String("codex_apps"), "status": String("starting"), "threadId": String("01a00121-24a1-71e3-b809-1edc584550bc")}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "thread/started", params: Some(Object {"thread": Object {"agentNickname": Null, "agentRole": Null, "canAcceptDirectInput": Bool(true), "cliVersion": String("0.147.0"), "createdAt": Number(1786725344), "cwd": String("/tmp/.tmpcKhbHC"), "ephemeral": Bool(false), "extra": Null, "forkedFromId": Null, "gitInfo": Null, "historyMode": String("legacy"), "id": String("01a00121-24a1-71e3-b809-1edc584550bc"), "modelProvider": String("mock_provider"), "name": Null, "parentThreadId": Null, "path": String("/tmp/.tmpcKhbHC/sessions/2026/08/15/rollout-2026-08-15T00-35-44-01a00121-24a1-71e3-b809-1edc584550bc.jsonl"), "preview": String(""), "recencyAt": Number(1786725344), "section": Null, "sectionEnteredAt": Null, "sessionId": String("01a00121-24a1-71e3-b809-1edc584550bc"), "source": String("vscode"), "status": Object {"type": String("idle")}, "threadSource": Null, "turns": Array [], "updatedAt": Number(1786725344)}}) })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(3), result: Object {"turn": Object {"completedAt": Null, "durationMs": Null, "error": Null, "id": String("01a00121-24f6-76c0-9dbc-a8dbab9b7cbf"), "items": Array [], "itemsView": String("notLoaded"), "startedAt": Null, "status": String("inProgress")}} })
+    in read_stream_until_notification_message(turn/completed)
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:44.503468Z","level":"WARN","fields":{"message":"Unknown model mock-model is used. This will use fallback model metadata."},"target":"codex_models_manager::model_info"}
+    read message from stdout: Notification(JSONRPCNotification { method: "warning", params: Some(Object {"message": String("Model metadata for `mock-model` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."), "threadId": String("01a00121-24a1-71e3-b809-1edc584550bc")}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "thread/status/changed", params: Some(Object {"status": Object {"activeFlags": Array [], "type": String("active")}, "threadId": String("01a00121-24a1-71e3-b809-1edc584550bc")}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "turn/started", params: Some(Object {"threadId": String("01a00121-24a1-71e3-b809-1edc584550bc"), "turn": Object {"completedAt": Null, "durationMs": Null, "error": Null, "id": String("01a00121-24f6-76c0-9dbc-a8dbab9b7cbf"), "items": Array [], "itemsView": String("notLoaded"), "startedAt": Number(1786725344), "status": String("inProgress")}}) })
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:44.540607Z","level":"WARN","fields":{"message":"events failed with status 404 Not Found: "},"target":"codex_analytics::client"}
+    read message from stdout: Notification(JSONRPCNotification { method: "mcpServer/startupStatus/updated", params: Some(Object {"error": Null, "failureReason": Null, "name": String("codex_apps"), "status": String("ready"), "threadId": String("01a00121-24a1-71e3-b809-1edc584550bc")}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "item/started", params: Some(Object {"item": Object {"clientId": Null, "content": Array [Object {"text": String("suggest a plugin"), "text_elements": Array [], "type": String("text")}], "id": String("01a00121-2579-7192-92c5-580569cd8f32"), "type": String("userMessage")}, "startedAtMs": Number(1786725344633), "threadId": String("01a00121-24a1-71e3-b809-1edc584550bc"), "turnId": String("01a00121-24f6-76c0-9dbc-a8dbab9b7cbf")}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "item/completed", params: Some(Object {"completedAtMs": Number(1786725344633), "item": Object {"clientId": Null, "content": Array [Object {"text": String("suggest a plugin"), "text_elements": Array [], "type": String("text")}], "id": String("01a00121-2579-7192-92c5-580569cd8f32"), "type": String("userMessage")}, "threadId": String("01a00121-24a1-71e3-b809-1edc584550bc"), "turnId": String("01a00121-24f6-76c0-9dbc-a8dbab9b7cbf")}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "item/started", params: Some(Object {"item": Object {"id": String("msg-1"), "memoryCitation": Null, "phase": Null, "text": String("done"), "type": String("agentMessage")}, "startedAtMs": Number(1786725344679), "threadId": String("01a00121-24a1-71e3-b809-1edc584550bc"), "turnId": String("01a00121-24f6-76c0-9dbc-a8dbab9b7cbf")}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "item/completed", params: Some(Object {"completedAtMs": Number(1786725344679), "item": Object {"id": String("msg-1"), "memoryCitation": Null, "phase": Null, "text": String("done"), "type": String("agentMessage")}, "threadId": String("01a00121-24a1-71e3-b809-1edc584550bc"), "turnId": String("01a00121-24f6-76c0-9dbc-a8dbab9b7cbf")}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "thread/tokenUsage/updated", params: Some(Object {"threadId": String("01a00121-24a1-71e3-b809-1edc584550bc"), "tokenUsage": Object {"last": Object {"cacheWriteInputTokens": Number(0), "cachedInputTokens": Number(0), "inputTokens": Number(0), "outputTokens": Number(0), "reasoningOutputTokens": Number(0), "totalTokens": Number(0)}, "modelContextWindow": Number(258400), "total": Object {"cacheWriteInputTokens": Number(0), "cachedInputTokens": Number(0), "inputTokens": Number(0), "outputTokens": Number(0), "reasoningOutputTokens": Number(0), "totalTokens": Number(0)}}, "turnId": String("01a00121-24f6-76c0-9dbc-a8dbab9b7cbf")}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "account/rateLimits/updated", params: Some(Object {"rateLimits": Object {"credits": Null, "individualLimit": Null, "limitId": String("codex"), "limitName": Null, "planType": Null, "primary": Null, "rateLimitReachedType": Null, "secondary": Null, "spendControlReached": Null}}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "thread/status/changed", params: Some(Object {"status": Object {"type": String("idle")}, "threadId": String("01a00121-24a1-71e3-b809-1edc584550bc")}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "turn/completed", params: Some(Object {"threadId": String("01a00121-24a1-71e3-b809-1edc584550bc"), "turn": Object {"completedAt": Number(1786725344), "durationMs": Number(178), "error": Null, "id": String("01a00121-24f6-76c0-9dbc-a8dbab9b7cbf"), "items": Array [Object {"id": String("msg-1"), "memoryCitation": Null, "phase": Null, "text": String("done"), "type": String("agentMessage")}], "itemsView": String("summary"), "startedAt": Number(1786725344), "status": String("completed")}}) })
+
+    thread 'suite::v2::recommended_plugins::first_turn_after_external_login_waits_for_recommended_plugins' (3067749) panicked at app-server/tests/suite/v2/recommended_plugins.rs:176:5:
+    assertion failed: contextual_user_message.contains("<recommended_plugins>")
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.639s] ( 804/1122) codex-app-server::all suite::v2::recommended_plugins::first_turn_after_external_login_waits_for_recommended_plugins_without_tool_suggest
+  stdout ───
+
+    running 1 test
+    test suite::v2::recommended_plugins::first_turn_after_external_login_waits_for_recommended_plugins_without_tool_suggest ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::recommended_plugins::first_turn_after_external_login_waits_for_recommended_plugins_without_tool_suggest
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.63s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpzldD2p"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "account/login/start", params: Some(Object {"accessToken": String("eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJlbWFpbCI6ImVtYmVkZGVkQGV4YW1wbGUuY29tIiwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjp7ImNoYXRncHRfYWNjb3VudF9pZCI6IjEyM2U0NTY3LWU4OWItNDJkMy1hNDU2LTQyNjYxNDE3NDAxMCIsImNoYXRncHRfcGxhbl90eXBlIjoicHJvIn19.c2lnbmF0dXJl"), "chatgptAccountId": String("123e4567-e89b-42d3-a456-426614174010"), "chatgptPlanType": String("pro"), "type": String("chatgptAuthTokens")}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"type": String("chatgptAuthTokens")} })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(2), method: "thread/start", params: Some(Object {"approvalPolicy": Null, "approvalsReviewer": Null, "baseInstructions": Null, "config": Null, "cwd": Null, "developerInstructions": Null, "dynamicTools": Null, "environments": Array [Object {"cwd": String("/tmp/.tmp2SXfu4"), "environmentId": String("local"), "runtimeWorkspaceRoots": Null}], "ephemeral": Null, "historyMode": Null, "mockExperimentalField": Null, "model": String("mock-model"), "modelProvider": Null, "multiAgentMode": Null, "permissions": Null, "personality": Null, "runtimeWorkspaceRoots": Null, "sandbox": Null, "selectedCapabilityRoots": Null, "serviceName": Null, "sessionStartSource": Null, "threadSource": Null}), trace: None })
+    in read_stream_until_response_message(Integer(2))
+    read message from stdout: Notification(JSONRPCNotification { method: "account/login/completed", params: Some(Object {"error": Null, "loginId": Null, "onboardingEntrypoint": Null, "success": Bool(true)}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "account/updated", params: Some(Object {"authMode": String("chatgptAuthTokens"), "planType": String("pro")}) })
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:45.725822Z","level":"WARN","fields":{"message":"Unknown model mock-model is used. This will use fallback model metadata."},"target":"codex_models_manager::model_info"}
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:45.740435Z","level":"WARN","fields":{"message":"failed to refresh remote installed plugins cache","error":"remote plugin catalog request to http://127.0.0.1:46465/ps/plugins/installed?scope=USER failed with status 404 Not Found: ","materialized_remote_plugin_count":0},"target":"codex_core_plugins::manager"}
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:45.762483Z","level":"WARN","fields":{"message":"ignoring file://<HOME>/.agents/skills/bug-killer/agents/openai.yaml: invalid openai.yaml: mapping values are not allowed in this context at line 4 column 80"},"target":"codex_skills_extension::loader::metadata"}
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:45.763327Z","level":"WARN","fields":{"message":"ignoring file://<HOME>/.agents/skills/se-good-plan/agents/openai.yaml: invalid openai.yaml: mapping values are not allowed in this context at line 4 column 305"},"target":"codex_skills_extension::loader::metadata"}
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:45.763637Z","level":"WARN","fields":{"message":"ignoring file://<HOME>/.agents/skills/subagent-vs-review/agents/openai.yaml: invalid openai.yaml: mapping values are not allowed in this context at line 4 column 548"},"target":"codex_skills_extension::loader::metadata"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(2), result: Object {"activePermissionProfile": Null, "approvalPolicy": String("never"), "approvalsReviewer": String("user"), "cwd": String("/tmp/.tmpzldD2p"), "instructionSources": Array [], "model": String("mock-model"), "modelProvider": String("mock_provider"), "multiAgentMode": String("explicitRequestOnly"), "reasoningEffort": Null, "runtimeWorkspaceRoots": Array [String("/tmp/.tmp2SXfu4")], "sandbox": Object {"networkAccess": Bool(false), "type": String("readOnly")}, "serviceTier": Null, "thread": Object {"agentNickname": Null, "agentRole": Null, "canAcceptDirectInput": Bool(true), "cliVersion": String("0.147.0"), "createdAt": Number(1786725345), "cwd": String("/tmp/.tmpzldD2p"), "ephemeral": Bool(false), "extra": Null, "forkedFromId": Null, "gitInfo": Null, "historyMode": String("legacy"), "id": String("01a00121-29be-7ac3-806c-23fa36fe7abe"), "modelProvider": String("mock_provider"), "name": Null, "parentThreadId": Null, "path": String("/tmp/.tmpzldD2p/sessions/2026/08/15/rollout-2026-08-15T00-35-45-01a00121-29be-7ac3-806c-23fa36fe7abe.jsonl"), "preview": String(""), "recencyAt": Number(1786725345), "section": Null, "sectionEnteredAt": Null, "sessionId": String("01a00121-29be-7ac3-806c-23fa36fe7abe"), "source": String("vscode"), "status": Object {"type": String("idle")}, "threadSource": Null, "turns": Array [], "updatedAt": Number(1786725345)}} })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(3), method: "turn/start", params: Some(Object {"additionalContext": Null, "approvalPolicy": Null, "approvalsReviewer": Null, "clientUserMessageId": Null, "collaborationMode": Null, "cwd": Null, "effort": Null, "environments": Null, "input": Array [Object {"text": String("suggest a plugin"), "text_elements": Array [], "type": String("text")}], "model": Null, "multiAgentMode": Null, "outputSchema": Null, "permissions": Null, "personality": Null, "responsesapiClientMetadata": Null, "runtimeWorkspaceRoots": Null, "sandboxPolicy": Null, "summary": Null, "threadId": String("01a00121-29be-7ac3-806c-23fa36fe7abe")}), trace: None })
+    in read_stream_until_response_message(Integer(3))
+    read message from stdout: Notification(JSONRPCNotification { method: "thread/started", params: Some(Object {"thread": Object {"agentNickname": Null, "agentRole": Null, "canAcceptDirectInput": Bool(true), "cliVersion": String("0.147.0"), "createdAt": Number(1786725345), "cwd": String("/tmp/.tmpzldD2p"), "ephemeral": Bool(false), "extra": Null, "forkedFromId": Null, "gitInfo": Null, "historyMode": String("legacy"), "id": String("01a00121-29be-7ac3-806c-23fa36fe7abe"), "modelProvider": String("mock_provider"), "name": Null, "parentThreadId": Null, "path": String("/tmp/.tmpzldD2p/sessions/2026/08/15/rollout-2026-08-15T00-35-45-01a00121-29be-7ac3-806c-23fa36fe7abe.jsonl"), "preview": String(""), "recencyAt": Number(1786725345), "section": Null, "sectionEnteredAt": Null, "sessionId": String("01a00121-29be-7ac3-806c-23fa36fe7abe"), "source": String("vscode"), "status": Object {"type": String("idle")}, "threadSource": Null, "turns": Array [], "updatedAt": Number(1786725345)}}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "mcpServer/startupStatus/updated", params: Some(Object {"error": Null, "failureReason": Null, "name": String("codex_apps"), "status": String("starting"), "threadId": String("01a00121-29be-7ac3-806c-23fa36fe7abe")}) })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(3), result: Object {"turn": Object {"completedAt": Null, "durationMs": Null, "error": Null, "id": String("01a00121-2a18-7df2-b6d2-d232b8153e53"), "items": Array [], "itemsView": String("notLoaded"), "startedAt": Null, "status": String("inProgress")}} })
+    in read_stream_until_notification_message(turn/completed)
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:45.818332Z","level":"WARN","fields":{"message":"Unknown model mock-model is used. This will use fallback model metadata."},"target":"codex_models_manager::model_info"}
+    read message from stdout: Notification(JSONRPCNotification { method: "warning", params: Some(Object {"message": String("Model metadata for `mock-model` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."), "threadId": String("01a00121-29be-7ac3-806c-23fa36fe7abe")}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "thread/status/changed", params: Some(Object {"status": Object {"activeFlags": Array [], "type": String("active")}, "threadId": String("01a00121-29be-7ac3-806c-23fa36fe7abe")}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "turn/started", params: Some(Object {"threadId": String("01a00121-29be-7ac3-806c-23fa36fe7abe"), "turn": Object {"completedAt": Null, "durationMs": Null, "error": Null, "id": String("01a00121-2a18-7df2-b6d2-d232b8153e53"), "items": Array [], "itemsView": String("notLoaded"), "startedAt": Number(1786725345), "status": String("inProgress")}}) })
+    [mcp stderr] {"timestamp":"2026-08-14T16:35:45.852984Z","level":"WARN","fields":{"message":"events failed with status 404 Not Found: "},"target":"codex_analytics::client"}
+    read message from stdout: Notification(JSONRPCNotification { method: "mcpServer/startupStatus/updated", params: Some(Object {"error": Null, "failureReason": Null, "name": String("codex_apps"), "status": String("ready"), "threadId": String("01a00121-29be-7ac3-806c-23fa36fe7abe")}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "item/started", params: Some(Object {"item": Object {"clientId": Null, "content": Array [Object {"text": String("suggest a plugin"), "text_elements": Array [], "type": String("text")}], "id": String("01a00121-2aa1-7341-9ca4-596f9081bc2c"), "type": String("userMessage")}, "startedAtMs": Number(1786725345953), "threadId": String("01a00121-29be-7ac3-806c-23fa36fe7abe"), "turnId": String("01a00121-2a18-7df2-b6d2-d232b8153e53")}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "item/completed", params: Some(Object {"completedAtMs": Number(1786725345953), "item": Object {"clientId": Null, "content": Array [Object {"text": String("suggest a plugin"), "text_elements": Array [], "type": String("text")}], "id": String("01a00121-2aa1-7341-9ca4-596f9081bc2c"), "type": String("userMessage")}, "threadId": String("01a00121-29be-7ac3-806c-23fa36fe7abe"), "turnId": String("01a00121-2a18-7df2-b6d2-d232b8153e53")}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "item/started", params: Some(Object {"item": Object {"id": String("msg-1"), "memoryCitation": Null, "phase": Null, "text": String("done"), "type": String("agentMessage")}, "startedAtMs": Number(1786725346000), "threadId": String("01a00121-29be-7ac3-806c-23fa36fe7abe"), "turnId": String("01a00121-2a18-7df2-b6d2-d232b8153e53")}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "item/completed", params: Some(Object {"completedAtMs": Number(1786725346000), "item": Object {"id": String("msg-1"), "memoryCitation": Null, "phase": Null, "text": String("done"), "type": String("agentMessage")}, "threadId": String("01a00121-29be-7ac3-806c-23fa36fe7abe"), "turnId": String("01a00121-2a18-7df2-b6d2-d232b8153e53")}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "thread/tokenUsage/updated", params: Some(Object {"threadId": String("01a00121-29be-7ac3-806c-23fa36fe7abe"), "tokenUsage": Object {"last": Object {"cacheWriteInputTokens": Number(0), "cachedInputTokens": Number(0), "inputTokens": Number(0), "outputTokens": Number(0), "reasoningOutputTokens": Number(0), "totalTokens": Number(0)}, "modelContextWindow": Number(258400), "total": Object {"cacheWriteInputTokens": Number(0), "cachedInputTokens": Number(0), "inputTokens": Number(0), "outputTokens": Number(0), "reasoningOutputTokens": Number(0), "totalTokens": Number(0)}}, "turnId": String("01a00121-2a18-7df2-b6d2-d232b8153e53")}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "account/rateLimits/updated", params: Some(Object {"rateLimits": Object {"credits": Null, "individualLimit": Null, "limitId": String("codex"), "limitName": Null, "planType": Null, "primary": Null, "rateLimitReachedType": Null, "secondary": Null, "spendControlReached": Null}}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "thread/status/changed", params: Some(Object {"status": Object {"type": String("idle")}, "threadId": String("01a00121-29be-7ac3-806c-23fa36fe7abe")}) })
+    read message from stdout: Notification(JSONRPCNotification { method: "turn/completed", params: Some(Object {"threadId": String("01a00121-29be-7ac3-806c-23fa36fe7abe"), "turn": Object {"completedAt": Number(1786725346), "durationMs": Number(185), "error": Null, "id": String("01a00121-2a18-7df2-b6d2-d232b8153e53"), "items": Array [Object {"id": String("msg-1"), "memoryCitation": Null, "phase": Null, "text": String("done"), "type": String("agentMessage")}], "itemsView": String("summary"), "startedAt": Number(1786725345), "status": String("completed")}}) })
+
+    thread 'suite::v2::recommended_plugins::first_turn_after_external_login_waits_for_recommended_plugins_without_tool_suggest' (3068698) panicked at app-server/tests/suite/v2/recommended_plugins.rs:176:5:
+    assertion failed: contextual_user_message.contains("<recommended_plugins>")
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.375s] (1039/1122) codex-app-server::all suite::v2::thread_start::thread_start_provider_model_fallback_applies_to_configured_model
+  stdout ───
+
+    running 1 test
+    test suite::v2::thread_start::thread_start_provider_model_fallback_applies_to_configured_model ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::thread_start::thread_start_provider_model_fallback_applies_to_configured_model
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.36s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpJeDuuS"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "thread/start", params: Some(Object {"allowProviderModelFallback": Bool(true), "approvalPolicy": Null, "approvalsReviewer": Null, "baseInstructions": Null, "config": Null, "cwd": Null, "developerInstructions": Null, "dynamicTools": Null, "environments": Array [Object {"cwd": String("/tmp/.tmpd8KnJ7"), "environmentId": String("local"), "runtimeWorkspaceRoots": Null}], "ephemeral": Null, "historyMode": Null, "mockExperimentalField": Null, "model": Null, "modelProvider": Null, "multiAgentMode": Null, "permissions": Null, "personality": Null, "runtimeWorkspaceRoots": Null, "sandbox": Null, "selectedCapabilityRoots": Null, "serviceName": Null, "sessionStartSource": Null, "threadSource": Null}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    [mcp stderr] {"timestamp":"2026-08-14T16:36:22.444735Z","level":"WARN","fields":{"message":"Unknown model  is used. This will use fallback model metadata."},"target":"codex_models_manager::model_info"}
+    [mcp stderr] {"timestamp":"2026-08-14T16:36:22.470623Z","level":"WARN","fields":{"message":"ignoring file://<HOME>/.agents/skills/bug-killer/agents/openai.yaml: invalid openai.yaml: mapping values are not allowed in this context at line 4 column 80"},"target":"codex_skills_extension::loader::metadata"}
+    [mcp stderr] {"timestamp":"2026-08-14T16:36:22.471997Z","level":"WARN","fields":{"message":"ignoring file://<HOME>/.agents/skills/se-good-plan/agents/openai.yaml: invalid openai.yaml: mapping values are not allowed in this context at line 4 column 305"},"target":"codex_skills_extension::loader::metadata"}
+    [mcp stderr] {"timestamp":"2026-08-14T16:36:22.472349Z","level":"WARN","fields":{"message":"ignoring file://<HOME>/.agents/skills/subagent-vs-review/agents/openai.yaml: invalid openai.yaml: mapping values are not allowed in this context at line 4 column 548"},"target":"codex_skills_extension::loader::metadata"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"activePermissionProfile": Object {"extends": Null, "id": String(":read-only")}, "approvalPolicy": String("on-request"), "approvalsReviewer": String("user"), "cwd": String("/tmp/.tmpJeDuuS"), "instructionSources": Array [], "model": String(""), "modelProvider": String("amazon-bedrock"), "multiAgentMode": String("explicitRequestOnly"), "reasoningEffort": Null, "runtimeWorkspaceRoots": Array [String("/tmp/.tmpd8KnJ7")], "sandbox": Object {"networkAccess": Bool(false), "type": String("readOnly")}, "serviceTier": Null, "thread": Object {"agentNickname": Null, "agentRole": Null, "canAcceptDirectInput": Bool(true), "cliVersion": String("0.147.0"), "createdAt": Number(1786725382), "cwd": String("/tmp/.tmpJeDuuS"), "ephemeral": Bool(false), "extra": Null, "forkedFromId": Null, "gitInfo": Null, "historyMode": String("legacy"), "id": String("01a00121-b92c-7123-bc17-b14be24d5530"), "modelProvider": String("amazon-bedrock"), "name": Null, "parentThreadId": Null, "path": String("/tmp/.tmpJeDuuS/sessions/2026/08/15/rollout-2026-08-15T00-36-22-01a00121-b92c-7123-bc17-b14be24d5530.jsonl"), "preview": String(""), "recencyAt": Number(1786725382), "section": Null, "sectionEnteredAt": Null, "sessionId": String("01a00121-b92c-7123-bc17-b14be24d5530"), "source": String("vscode"), "status": Object {"type": String("idle")}, "threadSource": Null, "turns": Array [], "updatedAt": Number(1786725382)}} })
+
+    thread 'suite::v2::thread_start::thread_start_provider_model_fallback_applies_to_configured_model' (3104863) panicked at app-server/tests/suite/v2/thread_start.rs:111:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+    >openai.gpt-5.6-sol
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.413s] (1042/1122) codex-app-server::all suite::v2::thread_start::thread_start_provider_model_fallback_uses_bedrock_static_catalog
+  stdout ───
+
+    running 1 test
+    test suite::v2::thread_start::thread_start_provider_model_fallback_uses_bedrock_static_catalog ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::thread_start::thread_start_provider_model_fallback_uses_bedrock_static_catalog
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 858 filtered out; finished in 0.40s
+
+  stderr ───
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(0), method: "initialize", params: Some(Object {"capabilities": Object {"experimentalApi": Bool(true), "optOutNotificationMethods": Null, "requestAttestation": Bool(false)}, "clientInfo": Object {"name": String("codex-app-server-tests"), "title": Null, "version": String("0.1.0")}}), trace: None })
+    read message from stdout: Response(JSONRPCResponse { id: Integer(0), result: Object {"codexHome": String("/tmp/.tmpay68Px"), "platformFamily": String("unix"), "platformOs": String("linux"), "userAgent": String("codex-app-server-tests/0.147.0 (Ubuntu 24.4.0; x86_64) dumb (codex-app-server-tests; 0.1.0)")} })
+    writing message to stdin: Notification(JSONRPCNotification { method: "initialized", params: None })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(1), method: "thread/start", params: Some(Object {"allowProviderModelFallback": Bool(true), "approvalPolicy": Null, "approvalsReviewer": Null, "baseInstructions": Null, "config": Null, "cwd": Null, "developerInstructions": Null, "dynamicTools": Null, "environments": Array [Object {"cwd": String("/tmp/.tmpMnOsUG"), "environmentId": String("local"), "runtimeWorkspaceRoots": Null}], "ephemeral": Null, "historyMode": Null, "mockExperimentalField": Null, "model": String("gpt-5.4-mini"), "modelProvider": Null, "multiAgentMode": Null, "permissions": Null, "personality": Null, "runtimeWorkspaceRoots": Null, "sandbox": Null, "selectedCapabilityRoots": Null, "serviceName": Null, "sessionStartSource": Null, "threadSource": Null}), trace: None })
+    in read_stream_until_response_message(Integer(1))
+    read message from stdout: Notification(JSONRPCNotification { method: "remoteControl/status/changed", params: Some(Object {"environmentId": Null, "installationId": String("<INSTALLATION_ID>"), "serverName": String("<HOST>"), "status": String("disabled")}) })
+    [mcp stderr] {"timestamp":"2026-08-14T16:36:22.831664Z","level":"WARN","fields":{"message":"Unknown model  is used. This will use fallback model metadata."},"target":"codex_models_manager::model_info"}
+    [mcp stderr] {"timestamp":"2026-08-14T16:36:22.852037Z","level":"WARN","fields":{"message":"ignoring file://<HOME>/.agents/skills/bug-killer/agents/openai.yaml: invalid openai.yaml: mapping values are not allowed in this context at line 4 column 80"},"target":"codex_skills_extension::loader::metadata"}
+    [mcp stderr] {"timestamp":"2026-08-14T16:36:22.853072Z","level":"WARN","fields":{"message":"ignoring file://<HOME>/.agents/skills/se-good-plan/agents/openai.yaml: invalid openai.yaml: mapping values are not allowed in this context at line 4 column 305"},"target":"codex_skills_extension::loader::metadata"}
+    [mcp stderr] {"timestamp":"2026-08-14T16:36:22.853401Z","level":"WARN","fields":{"message":"ignoring file://<HOME>/.agents/skills/subagent-vs-review/agents/openai.yaml: invalid openai.yaml: mapping values are not allowed in this context at line 4 column 548"},"target":"codex_skills_extension::loader::metadata"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(1), result: Object {"activePermissionProfile": Object {"extends": Null, "id": String(":read-only")}, "approvalPolicy": String("on-request"), "approvalsReviewer": String("user"), "cwd": String("/tmp/.tmpay68Px"), "instructionSources": Array [], "model": String(""), "modelProvider": String("amazon-bedrock"), "multiAgentMode": String("explicitRequestOnly"), "reasoningEffort": Null, "runtimeWorkspaceRoots": Array [String("/tmp/.tmpMnOsUG")], "sandbox": Object {"networkAccess": Bool(false), "type": String("readOnly")}, "serviceTier": Null, "thread": Object {"agentNickname": Null, "agentRole": Null, "canAcceptDirectInput": Bool(true), "cliVersion": String("0.147.0"), "createdAt": Number(1786725382), "cwd": String("/tmp/.tmpay68Px"), "ephemeral": Bool(false), "extra": Null, "forkedFromId": Null, "gitInfo": Null, "historyMode": String("legacy"), "id": String("01a00121-baaf-7f03-89a5-c5affda8a825"), "modelProvider": String("amazon-bedrock"), "name": Null, "parentThreadId": Null, "path": String("/tmp/.tmpay68Px/sessions/2026/08/15/rollout-2026-08-15T00-36-22-01a00121-baaf-7f03-89a5-c5affda8a825.jsonl"), "preview": String(""), "recencyAt": Number(1786725382), "section": Null, "sectionEnteredAt": Null, "sessionId": String("01a00121-baaf-7f03-89a5-c5affda8a825"), "source": String("vscode"), "status": Object {"type": String("idle")}, "threadSource": Null, "turns": Array [], "updatedAt": Number(1786725382)}} })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(2), method: "thread/start", params: Some(Object {"allowProviderModelFallback": Bool(true), "approvalPolicy": Null, "approvalsReviewer": Null, "baseInstructions": Null, "config": Null, "cwd": Null, "developerInstructions": Null, "dynamicTools": Null, "environments": Array [Object {"cwd": String("/tmp/.tmpMnOsUG"), "environmentId": String("local"), "runtimeWorkspaceRoots": Null}], "ephemeral": Null, "historyMode": Null, "mockExperimentalField": Null, "model": String("openai.gpt-5.4"), "modelProvider": Null, "multiAgentMode": Null, "permissions": Null, "personality": Null, "runtimeWorkspaceRoots": Null, "sandbox": Null, "selectedCapabilityRoots": Null, "serviceName": Null, "sessionStartSource": Null, "threadSource": Null}), trace: None })
+    in read_stream_until_response_message(Integer(2))
+    read message from stdout: Notification(JSONRPCNotification { method: "thread/started", params: Some(Object {"thread": Object {"agentNickname": Null, "agentRole": Null, "canAcceptDirectInput": Bool(true), "cliVersion": String("0.147.0"), "createdAt": Number(1786725382), "cwd": String("/tmp/.tmpay68Px"), "ephemeral": Bool(false), "extra": Null, "forkedFromId": Null, "gitInfo": Null, "historyMode": String("legacy"), "id": String("01a00121-baaf-7f03-89a5-c5affda8a825"), "modelProvider": String("amazon-bedrock"), "name": Null, "parentThreadId": Null, "path": String("/tmp/.tmpay68Px/sessions/2026/08/15/rollout-2026-08-15T00-36-22-01a00121-baaf-7f03-89a5-c5affda8a825.jsonl"), "preview": String(""), "recencyAt": Number(1786725382), "section": Null, "sectionEnteredAt": Null, "sessionId": String("01a00121-baaf-7f03-89a5-c5affda8a825"), "source": String("vscode"), "status": Object {"type": String("idle")}, "threadSource": Null, "turns": Array [], "updatedAt": Number(1786725382)}}) })
+    [mcp stderr] {"timestamp":"2026-08-14T16:36:22.884672Z","level":"WARN","fields":{"message":"Unknown model  is used. This will use fallback model metadata."},"target":"codex_models_manager::model_info"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(2), result: Object {"activePermissionProfile": Object {"extends": Null, "id": String(":read-only")}, "approvalPolicy": String("on-request"), "approvalsReviewer": String("user"), "cwd": String("/tmp/.tmpay68Px"), "instructionSources": Array [], "model": String(""), "modelProvider": String("amazon-bedrock"), "multiAgentMode": String("explicitRequestOnly"), "reasoningEffort": Null, "runtimeWorkspaceRoots": Array [String("/tmp/.tmpMnOsUG")], "sandbox": Object {"networkAccess": Bool(false), "type": String("readOnly")}, "serviceTier": Null, "thread": Object {"agentNickname": Null, "agentRole": Null, "canAcceptDirectInput": Bool(true), "cliVersion": String("0.147.0"), "createdAt": Number(1786725382), "cwd": String("/tmp/.tmpay68Px"), "ephemeral": Bool(false), "extra": Null, "forkedFromId": Null, "gitInfo": Null, "historyMode": String("legacy"), "id": String("01a00121-bae4-75b1-8c6a-804ab4f77521"), "modelProvider": String("amazon-bedrock"), "name": Null, "parentThreadId": Null, "path": String("/tmp/.tmpay68Px/sessions/2026/08/15/rollout-2026-08-15T00-36-22-01a00121-bae4-75b1-8c6a-804ab4f77521.jsonl"), "preview": String(""), "recencyAt": Number(1786725382), "section": Null, "sectionEnteredAt": Null, "sessionId": String("01a00121-bae4-75b1-8c6a-804ab4f77521"), "source": String("vscode"), "status": Object {"type": String("idle")}, "threadSource": Null, "turns": Array [], "updatedAt": Number(1786725382)}} })
+    writing message to stdin: Request(JSONRPCRequest { id: Integer(3), method: "thread/start", params: Some(Object {"approvalPolicy": Null, "approvalsReviewer": Null, "baseInstructions": Null, "config": Null, "cwd": Null, "developerInstructions": Null, "dynamicTools": Null, "environments": Array [Object {"cwd": String("/tmp/.tmpMnOsUG"), "environmentId": String("local"), "runtimeWorkspaceRoots": Null}], "ephemeral": Null, "historyMode": Null, "mockExperimentalField": Null, "model": String("gpt-5.4-mini"), "modelProvider": Null, "multiAgentMode": Null, "permissions": Null, "personality": Null, "runtimeWorkspaceRoots": Null, "sandbox": Null, "selectedCapabilityRoots": Null, "serviceName": Null, "sessionStartSource": Null, "threadSource": Null}), trace: None })
+    in read_stream_until_response_message(Integer(3))
+    read message from stdout: Notification(JSONRPCNotification { method: "thread/started", params: Some(Object {"thread": Object {"agentNickname": Null, "agentRole": Null, "canAcceptDirectInput": Bool(true), "cliVersion": String("0.147.0"), "createdAt": Number(1786725382), "cwd": String("/tmp/.tmpay68Px"), "ephemeral": Bool(false), "extra": Null, "forkedFromId": Null, "gitInfo": Null, "historyMode": String("legacy"), "id": String("01a00121-bae4-75b1-8c6a-804ab4f77521"), "modelProvider": String("amazon-bedrock"), "name": Null, "parentThreadId": Null, "path": String("/tmp/.tmpay68Px/sessions/2026/08/15/rollout-2026-08-15T00-36-22-01a00121-bae4-75b1-8c6a-804ab4f77521.jsonl"), "preview": String(""), "recencyAt": Number(1786725382), "section": Null, "sectionEnteredAt": Null, "sessionId": String("01a00121-bae4-75b1-8c6a-804ab4f77521"), "source": String("vscode"), "status": Object {"type": String("idle")}, "threadSource": Null, "turns": Array [], "updatedAt": Number(1786725382)}}) })
+    [mcp stderr] {"timestamp":"2026-08-14T16:36:22.899680Z","level":"WARN","fields":{"message":"Unknown model gpt-5.4-mini is used. This will use fallback model metadata."},"target":"codex_models_manager::model_info"}
+    read message from stdout: Response(JSONRPCResponse { id: Integer(3), result: Object {"activePermissionProfile": Object {"extends": Null, "id": String(":read-only")}, "approvalPolicy": String("on-request"), "approvalsReviewer": String("user"), "cwd": String("/tmp/.tmpay68Px"), "instructionSources": Array [], "model": String("gpt-5.4-mini"), "modelProvider": String("amazon-bedrock"), "multiAgentMode": String("explicitRequestOnly"), "reasoningEffort": Null, "runtimeWorkspaceRoots": Array [String("/tmp/.tmpMnOsUG")], "sandbox": Object {"networkAccess": Bool(false), "type": String("readOnly")}, "serviceTier": Null, "thread": Object {"agentNickname": Null, "agentRole": Null, "canAcceptDirectInput": Bool(true), "cliVersion": String("0.147.0"), "createdAt": Number(1786725382), "cwd": String("/tmp/.tmpay68Px"), "ephemeral": Bool(false), "extra": Null, "forkedFromId": Null, "gitInfo": Null, "historyMode": String("legacy"), "id": String("01a00121-baf3-7b50-af63-ed384bc78fcf"), "modelProvider": String("amazon-bedrock"), "name": Null, "parentThreadId": Null, "path": String("/tmp/.tmpay68Px/sessions/2026/08/15/rollout-2026-08-15T00-36-22-01a00121-baf3-7b50-af63-ed384bc78fcf.jsonl"), "preview": String(""), "recencyAt": Number(1786725382), "section": Null, "sectionEnteredAt": Null, "sessionId": String("01a00121-baf3-7b50-af63-ed384bc78fcf"), "source": String("vscode"), "status": Object {"type": String("idle")}, "threadSource": Null, "turns": Array [], "updatedAt": Number(1786725382)}} })
+
+    thread 'suite::v2::thread_start::thread_start_provider_model_fallback_uses_bedrock_static_catalog' (3105231) panicked at app-server/tests/suite/v2/thread_start.rs:253:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+     [
+    <    "",
+    <    "",
+    >    "openai.gpt-5.6-sol",
+    >    "openai.gpt-5.4",
+         "gpt-5.4-mini",
+     ]
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [ 188.572s] 1122 tests run: 1089 passed (1 flaky), 33 failed, 1 skipped
+  TRY 2 FAIL [   0.246s] ( 334/1122) codex-app-server::all suite::v2::account::logout_managed_bedrock_restores_default_account
+  TRY 2 FAIL [   0.311s] ( 594/1122) codex-app-server::all suite::v2::model_list::list_models_includes_hidden_models
+  TRY 2 FAIL [   0.322s] ( 595/1122) codex-app-server::all suite::v2::model_list::list_models_pagination_works
+  TRY 2 FAIL [   0.304s] ( 596/1122) codex-app-server::all suite::v2::model_list::list_models_returns_all_models_with_large_limit
+  TRY 2 FAIL [   0.434s] ( 599/1122) codex-app-server::all suite::v2::model_list::list_models_uses_chatgpt_remote_catalog_as_source_of_truth
+  TRY 2 FAIL [   0.418s] ( 659/1122) codex-app-server::all suite::v2::plugin_list::plugin_installed_includes_created_by_me_when_remote_plugins_enabled
+  TRY 2 FAIL [   0.384s] ( 662/1122) codex-app-server::all suite::v2::plugin_list::plugin_installed_prefers_api_curated_conflicts_after_switching_to_api_auth
+  TRY 2 FAIL [   0.407s] ( 663/1122) codex-app-server::all suite::v2::plugin_list::plugin_installed_prefers_remote_curated_conflicts_when_remote_plugin_enabled
+  TRY 2 FAIL [   0.343s] ( 671/1122) codex-app-server::all suite::v2::plugin_list::plugin_list_fetches_user_plugins_in_created_by_me_remote_marketplace
+  TRY 2 FAIL [   0.420s] ( 672/1122) codex-app-server::all suite::v2::plugin_list::plugin_list_fetches_shared_with_me_kind
+  TRY 2 FAIL [   0.396s] ( 675/1122) codex-app-server::all suite::v2::plugin_list::plugin_list_honors_global_remote_catalog_cache_ttl
+  TRY 2 FAIL [   0.371s] ( 681/1122) codex-app-server::all suite::v2::plugin_list::plugin_list_includes_remote_marketplaces_when_remote_plugin_enabled
+  TRY 2 FAIL [   0.364s] ( 683/1122) codex-app-server::all suite::v2::plugin_list::plugin_list_marks_remote_plugin_disabled_by_admin
+  TRY 2 FAIL [   0.375s] ( 686/1122) codex-app-server::all suite::v2::plugin_list::plugin_list_preserves_plan_ineligible_remote_plugin_metadata
+  TRY 2 FAIL [   0.364s] ( 696/1122) codex-app-server::all suite::v2::plugin_list::plugin_list_sync_upgrades_and_removes_remote_installed_plugin_bundles
+  TRY 2 FAIL [   0.374s] ( 700/1122) codex-app-server::all suite::v2::plugin_list::plugin_list_vertical_kind_noops_when_remote_plugin_enabled
+  TRY 2 FAIL [   0.307s] ( 728/1122) codex-app-server::all suite::v2::plugin_share::plugin_share_checkout_adds_personal_marketplace_entry
+  TRY 2 FAIL [   0.309s] ( 729/1122) codex-app-server::all suite::v2::plugin_share::plugin_share_checkout_cleans_up_path_when_marketplace_update_fails
+  TRY 2 FAIL [   0.310s] ( 730/1122) codex-app-server::all suite::v2::plugin_share::plugin_share_checkout_rejects_non_share_remote_plugin
+  TRY 2 FAIL [   0.306s] ( 733/1122) codex-app-server::all suite::v2::plugin_share::plugin_share_rejects_workspace_targets_from_client
+  TRY 2 FAIL [   0.303s] ( 734/1122) codex-app-server::all suite::v2::plugin_share::plugin_share_save_forwards_access_policy
+  TRY 2 FAIL [   0.305s] ( 735/1122) codex-app-server::all suite::v2::plugin_share::plugin_share_save_rejects_access_policy_for_existing_plugin
+  TRY 2 FAIL [   0.306s] ( 736/1122) codex-app-server::all suite::v2::plugin_share::plugin_share_save_rejects_listed_discoverability
+  TRY 2 FAIL [   0.335s] ( 738/1122) codex-app-server::all suite::v2::plugin_share::plugin_share_save_uploads_local_plugin
+  TRY 2 FAIL [   0.302s] ( 739/1122) codex-app-server::all suite::v2::plugin_share::plugin_share_update_targets_publishes_workspace_plugin
+  TRY 2 FAIL [   0.318s] ( 741/1122) codex-app-server::all suite::v2::plugin_share::plugin_share_update_targets_updates_share_targets
+  TRY 2 FAIL [  30.359s] ( 786/1122) codex-app-server::all suite::v2::plugin_list::app_server_startup_refreshes_cached_remote_catalog_without_blocking_plugin_list
+  TRY 2 FAIL [  30.451s] ( 787/1122) codex-app-server::all suite::v2::plugin_list::app_server_startup_skips_disabled_remote_plugin_catalog_scopes
+  TRY 2 FAIL [  30.327s] ( 797/1122) codex-app-server::all suite::v2::plugin_list::plugin_list_force_refetch_bypasses_fresh_global_remote_catalog_cache
+  TRY 2 FAIL [   0.658s] ( 800/1122) codex-app-server::all suite::v2::recommended_plugins::first_turn_after_external_login_waits_for_recommended_plugins
+  TRY 2 FAIL [   0.639s] ( 804/1122) codex-app-server::all suite::v2::recommended_plugins::first_turn_after_external_login_waits_for_recommended_plugins_without_tool_suggest
+  TRY 2 FAIL [   0.375s] (1039/1122) codex-app-server::all suite::v2::thread_start::thread_start_provider_model_fallback_applies_to_configured_model
+  TRY 2 FAIL [   0.413s] (1042/1122) codex-app-server::all suite::v2::thread_start::thread_start_provider_model_fallback_uses_bedrock_static_catalog
+error: test run failed
+error: recipe `test` failed on line 82 with exit code 100

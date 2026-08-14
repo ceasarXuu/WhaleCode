@@ -1,0 +1,874 @@
+RUST_MIN_STACK=8388608 NEXTEST_PROFILE=local cargo nextest run --no-fail-fast "$@"
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.40s
+────────────
+ Nextest run ID 1126cb01-09be-4956-bcee-00462281aef3 with nextest profile: local
+    Starting 1123 tests across 1 binary (8 tests skipped)
+  TRY 2 FAIL [   0.437s] ( 389/1123) codex-core::all suite::guardian_review::guardian_session_prewarms_and_is_reused_for_first_review::api_key_uses_luna_with_responses_lite
+  stdout ───
+
+    running 2 tests
+    test suite::guardian_review::guardian_session_prewarms_and_is_reused_for_first_review::api_key_uses_luna_with_responses_lite ... FAILED
+    test suite::guardian_review::guardian_session_prewarms_and_is_reused_for_first_review::api_key_uses_luna_with_responses_lite ... FAILED
+
+    failures:
+
+    failures:
+        suite::guardian_review::guardian_session_prewarms_and_is_reused_for_first_review::api_key_uses_luna_with_responses_lite
+        suite::guardian_review::guardian_session_prewarms_and_is_reused_for_first_review::api_key_uses_luna_with_responses_lite
+
+    test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 1141 filtered out; finished in 0.42s
+
+  stderr ───
+    [ws test server +367ms] connection=0 received request=0 type=Some("response.create") role=None text=None data=None
+    [ws test server +368ms] connection=0 sending batch_size=2 event_types=[Some("response.created"), Some("response.completed")] audio_data=None
+    [ws test server +381ms] connection=0 received request=0 type=Some("response.create") role=None text=None data=None
+    [ws test server +381ms] connection=0 sending batch_size=2 event_types=[Some("response.created"), Some("response.completed")] audio_data=None
+    [ws test server +411ms] connection=1 received request=0 type=Some("response.create") role=None text=None data=None
+    [ws test server +411ms] connection=1 sending batch_size=2 event_types=[Some("response.created"), Some("response.completed")] audio_data=None
+
+    thread 'suite::guardian_review::guardian_session_prewarms_and_is_reused_for_first_review::api_key_uses_luna_with_responses_lite' (3193500) panicked at core/tests/suite/guardian_review.rs:216:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+     Some(
+    <    "gpt-5.5",
+    >    "gpt-5.6-luna",
+     )
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    [ws test server +415ms] connection=1 received request=0 type=Some("response.create") role=None text=None data=None
+    [ws test server +415ms] connection=1 sending batch_size=2 event_types=[Some("response.created"), Some("response.completed")] audio_data=None
+
+    thread 'suite::guardian_review::guardian_session_prewarms_and_is_reused_for_first_review::api_key_uses_luna_with_responses_lite' (3193499) panicked at core/tests/suite/guardian_review.rs:216:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+     Some(
+    <    "gpt-5.5",
+    >    "gpt-5.6-luna",
+     )
+
+
+
+  TRY 2 FAIL [   0.511s] ( 394/1123) codex-core::all suite::guardian_review::guardian_session_prewarms_and_is_reused_for_first_review::chatgpt_uses_codex_auto_review
+  stdout ───
+
+    running 2 tests
+    test suite::guardian_review::guardian_session_prewarms_and_is_reused_for_first_review::chatgpt_uses_codex_auto_review ... FAILED
+    test suite::guardian_review::guardian_session_prewarms_and_is_reused_for_first_review::chatgpt_uses_codex_auto_review ... FAILED
+
+    failures:
+
+    failures:
+        suite::guardian_review::guardian_session_prewarms_and_is_reused_for_first_review::chatgpt_uses_codex_auto_review
+        suite::guardian_review::guardian_session_prewarms_and_is_reused_for_first_review::chatgpt_uses_codex_auto_review
+
+    test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 1141 filtered out; finished in 0.49s
+
+  stderr ───
+    [ws test server +372ms] connection=0 received request=0 type=Some("response.create") role=None text=None data=None
+    [ws test server +373ms] connection=0 sending batch_size=2 event_types=[Some("response.created"), Some("response.completed")] audio_data=None
+    [ws test server +400ms] connection=0 received request=0 type=Some("response.create") role=None text=None data=None
+    [ws test server +400ms] connection=0 sending batch_size=2 event_types=[Some("response.created"), Some("response.completed")] audio_data=None
+    [ws test server +405ms] connection=1 received request=0 type=Some("response.create") role=None text=None data=None
+    [ws test server +405ms] connection=1 sending batch_size=2 event_types=[Some("response.created"), Some("response.completed")] audio_data=None
+
+    thread 'suite::guardian_review::guardian_session_prewarms_and_is_reused_for_first_review::chatgpt_uses_codex_auto_review' (3193733) panicked at core/tests/suite/guardian_review.rs:216:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+     Some(
+    <    "gpt-5.5",
+    >    "codex-auto-review",
+     )
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    [ws test server +430ms] connection=1 received request=0 type=Some("response.create") role=None text=None data=None
+    [ws test server +430ms] connection=1 sending batch_size=2 event_types=[Some("response.created"), Some("response.completed")] audio_data=None
+
+    thread 'suite::guardian_review::guardian_session_prewarms_and_is_reused_for_first_review::chatgpt_uses_codex_auto_review' (3193732) panicked at core/tests/suite/guardian_review.rs:216:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+     Some(
+    <    "gpt-5.5",
+    >    "codex-auto-review",
+     )
+
+
+
+  TRY 2 FAIL [   0.424s] ( 469/1123) codex-core::all suite::injected_models_cache::injected_cache_error_falls_back_for_agent_model_selection
+  stdout ───
+
+    running 1 test
+    test suite::injected_models_cache::injected_cache_error_falls_back_for_agent_model_selection ... FAILED
+
+    failures:
+
+    failures:
+        suite::injected_models_cache::injected_cache_error_falls_back_for_agent_model_selection
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 0.40s
+
+  stderr ───
+
+    thread 'suite::injected_models_cache::injected_cache_error_falls_back_for_agent_model_selection' (3199807) panicked at core/tests/suite/injected_models_cache.rs:172:5:
+    assertion failed: available_models.iter().any(|model| model.model == model_slug)
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.431s] ( 472/1123) codex-core::all suite::injected_models_cache::injected_cache_hit_drives_agent_model_selection
+  stdout ───
+
+    running 1 test
+    test suite::injected_models_cache::injected_cache_hit_drives_agent_model_selection ... FAILED
+
+    failures:
+
+    failures:
+        suite::injected_models_cache::injected_cache_hit_drives_agent_model_selection
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 0.42s
+
+  stderr ───
+
+    thread 'suite::injected_models_cache::injected_cache_hit_drives_agent_model_selection' (3199891) panicked at core/tests/suite/injected_models_cache.rs:172:5:
+    assertion failed: available_models.iter().any(|model| model.model == model_slug)
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.533s] ( 520/1123) codex-core::all suite::model_switching::model_switch_to_smaller_model_updates_token_context_window
+  stdout ───
+
+    running 1 test
+    test suite::model_switching::model_switch_to_smaller_model_updates_token_context_window ... FAILED
+
+    failures:
+
+    failures:
+        suite::model_switching::model_switch_to_smaller_model_updates_token_context_window
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 0.52s
+
+  stderr ───
+
+    thread 'suite::model_switching::model_switch_to_smaller_model_updates_token_context_window' (3205257) panicked at core/tests/suite/model_switching.rs:1031:5:
+    expected test-text-only-model to be available in remote model list
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.371s] ( 527/1123) codex-core::all suite::models_cache_ttl::uses_cache_when_version_matches
+  stdout ───
+
+    running 1 test
+    test suite::models_cache_ttl::uses_cache_when_version_matches ... FAILED
+
+    failures:
+
+    failures:
+        suite::models_cache_ttl::uses_cache_when_version_matches
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 0.36s
+
+  stderr ───
+
+    thread 'suite::models_cache_ttl::uses_cache_when_version_matches' (3206621) panicked at core/tests/suite/models_cache_ttl.rs:325:5:
+    expected cached model
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.426s] ( 530/1123) codex-core::all suite::models_cache_ttl::refreshes_when_cache_version_differs
+  stdout ───
+
+    running 1 test
+    test suite::models_cache_ttl::refreshes_when_cache_version_differs ... FAILED
+
+    failures:
+
+    failures:
+        suite::models_cache_ttl::refreshes_when_cache_version_differs
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 0.41s
+
+  stderr ───
+
+    thread 'suite::models_cache_ttl::refreshes_when_cache_version_differs' (3206649) panicked at core/tests/suite/models_cache_ttl.rs:431:5:
+    expected refreshed models
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.473s] ( 531/1123) codex-core::all suite::models_cache_ttl::refreshes_when_cache_version_missing
+  stdout ───
+
+    running 1 test
+    test suite::models_cache_ttl::refreshes_when_cache_version_missing ... FAILED
+
+    failures:
+
+    failures:
+        suite::models_cache_ttl::refreshes_when_cache_version_missing
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 0.46s
+
+  stderr ───
+
+    thread 'suite::models_cache_ttl::refreshes_when_cache_version_missing' (3206601) panicked at core/tests/suite/models_cache_ttl.rs:380:5:
+    expected refreshed models
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.502s] ( 537/1123) codex-core::all suite::models_cache_ttl::renews_cache_ttl_on_matching_models_etag
+  stdout ───
+
+    running 1 test
+    test suite::models_cache_ttl::renews_cache_ttl_on_matching_models_etag ... FAILED
+
+    failures:
+
+    failures:
+        suite::models_cache_ttl::renews_cache_ttl_on_matching_models_etag
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 0.49s
+
+  stderr ───
+
+    thread 'suite::models_cache_ttl::renews_cache_ttl_on_matching_models_etag' (3207051) panicked at core/tests/suite/models_cache_ttl.rs:148:5:
+    offline listing should use renewed cache
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   2.580s] ( 582/1123) codex-core::all suite::model_runtime_selectors::multi_agent_config_precedence_overrides_remote_model_selector
+  stdout ───
+
+    running 1 test
+    test suite::model_runtime_selectors::multi_agent_config_precedence_overrides_remote_model_selector ... FAILED
+
+    failures:
+
+    failures:
+        suite::model_runtime_selectors::multi_agent_config_precedence_overrides_remote_model_selector
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.56s
+
+  stderr ───
+
+    thread 'suite::model_runtime_selectors::multi_agent_config_precedence_overrides_remote_model_selector' (3208638) panicked at core/tests/suite/model_runtime_selectors.rs:89:13:
+    timed out waiting for the remote model test-multi-agent-v2 to appear
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   2.494s] ( 583/1123) codex-core::all suite::model_runtime_selectors::remote_code_mode_only_selector_fails_closed_when_host_is_disabled
+  stdout ───
+
+    running 1 test
+    test suite::model_runtime_selectors::remote_code_mode_only_selector_fails_closed_when_host_is_disabled ... FAILED
+
+    failures:
+
+    failures:
+        suite::model_runtime_selectors::remote_code_mode_only_selector_fails_closed_when_host_is_disabled
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.48s
+
+  stderr ───
+
+    thread 'suite::model_runtime_selectors::remote_code_mode_only_selector_fails_closed_when_host_is_disabled' (3208845) panicked at core/tests/suite/model_runtime_selectors.rs:89:13:
+    timed out waiting for the remote model test-tool-mode-code-mode-only-host-disabled to appear
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   2.529s] ( 584/1123) codex-core::all suite::model_runtime_selectors::remote_tool_mode_selector_overrides_feature_flags
+  stdout ───
+
+    running 1 test
+    test suite::model_runtime_selectors::remote_tool_mode_selector_overrides_feature_flags ... FAILED
+
+    failures:
+
+    failures:
+        suite::model_runtime_selectors::remote_tool_mode_selector_overrides_feature_flags
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.52s
+
+  stderr ───
+
+    thread 'suite::model_runtime_selectors::remote_tool_mode_selector_overrides_feature_flags' (3208968) panicked at core/tests/suite/model_runtime_selectors.rs:89:13:
+    timed out waiting for the remote model test-tool-mode-direct to appear
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   2.444s] ( 587/1123) codex-core::all suite::model_runtime_selectors::unsupported_code_mode_warning_is_emitted_each_turn
+  stdout ───
+
+    running 1 test
+    test suite::model_runtime_selectors::unsupported_code_mode_warning_is_emitted_each_turn ... FAILED
+
+    failures:
+
+    failures:
+        suite::model_runtime_selectors::unsupported_code_mode_warning_is_emitted_each_turn
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.43s
+
+  stderr ───
+
+    thread 'suite::model_runtime_selectors::unsupported_code_mode_warning_is_emitted_each_turn' (3209332) panicked at core/tests/suite/model_runtime_selectors.rs:89:13:
+    timed out waiting for the remote model test-tool-mode-warning-each-turn to appear
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   2.403s] ( 708/1123) codex-core::all suite::personality::remote_model_friendly_personality_instructions_with_feature
+  stdout ───
+
+    running 1 test
+    test suite::personality::remote_model_friendly_personality_instructions_with_feature ... FAILED
+
+    failures:
+
+    failures:
+        suite::personality::remote_model_friendly_personality_instructions_with_feature
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.39s
+
+  stderr ───
+
+    thread 'suite::personality::remote_model_friendly_personality_instructions_with_feature' (3221404) panicked at core/tests/suite/personality.rs:895:13:
+    timed out waiting for the remote model codex-remote-default-personality to appear
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   2.394s] ( 712/1123) codex-core::all suite::personality::user_turn_personality_remote_model_template_includes_update_message
+  stdout ───
+
+    running 1 test
+    test suite::personality::user_turn_personality_remote_model_template_includes_update_message ... FAILED
+
+    failures:
+
+    failures:
+        suite::personality::user_turn_personality_remote_model_template_includes_update_message
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.38s
+
+  stderr ───
+
+    thread 'suite::personality::user_turn_personality_remote_model_template_includes_update_message' (3221571) panicked at core/tests/suite/personality.rs:895:13:
+    timed out waiting for the remote model codex-remote-personality to appear
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.095s] ( 718/1123) codex-core::all suite::remote_models::remote_models_do_not_append_removed_builtin_presets
+  stdout ───
+
+    running 1 test
+    test suite::remote_models::remote_models_do_not_append_removed_builtin_presets ... FAILED
+
+    failures:
+
+    failures:
+        suite::remote_models::remote_models_do_not_append_removed_builtin_presets
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 0.08s
+
+  stderr ───
+
+    thread 'suite::remote_models::remote_models_do_not_append_removed_builtin_presets' (3225542) panicked at core/tests/suite/remote_models.rs:988:10:
+    remote model should be listed
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.114s] ( 719/1123) codex-core::all suite::remote_models::remote_models_hide_picker_only_models
+  stdout ───
+
+    running 1 test
+    test suite::remote_models::remote_models_hide_picker_only_models ... FAILED
+
+    failures:
+
+    failures:
+        suite::remote_models::remote_models_hide_picker_only_models
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 0.10s
+
+  stderr ───
+
+    thread 'suite::remote_models::remote_models_hide_picker_only_models' (3225614) panicked at core/tests/suite/remote_models.rs:1287:10:
+    hidden remote model should be listed
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.111s] ( 723/1123) codex-core::all suite::remote_models::remote_models_merge_adds_new_high_priority_first
+  stdout ───
+
+    running 1 test
+    test suite::remote_models::remote_models_merge_adds_new_high_priority_first ... FAILED
+
+    failures:
+
+    failures:
+        suite::remote_models::remote_models_merge_adds_new_high_priority_first
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 0.10s
+
+  stderr ───
+
+    thread 'suite::remote_models::remote_models_merge_adds_new_high_priority_first' (3225725) panicked at core/tests/suite/remote_models.rs:1051:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+    <None
+    >Some(
+    >    "remote-top",
+    >)
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   2.479s] ( 831/1123) codex-core::all suite::remote_models::remote_models_apply_legacy_instructions
+  stdout ───
+
+    running 1 test
+    test suite::remote_models::remote_models_apply_legacy_instructions ... FAILED
+
+    failures:
+
+    failures:
+        suite::remote_models::remote_models_apply_legacy_instructions
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.47s
+
+  stderr ───
+
+    thread 'suite::remote_models::remote_models_apply_legacy_instructions' (3231050) panicked at core/tests/suite/remote_models.rs:1315:13:
+    timed out waiting for the remote model test-gpt-5-remote to appear
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   2.459s] ( 839/1123) codex-core::all suite::remote_models::remote_models_remote_model_uses_unified_exec
+  stdout ───
+
+    running 1 test
+    test suite::remote_models::remote_models_remote_model_uses_unified_exec ... FAILED
+
+    failures:
+
+    failures:
+        suite::remote_models::remote_models_remote_model_uses_unified_exec
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.44s
+
+  stderr ───
+
+    thread 'suite::remote_models::remote_models_remote_model_uses_unified_exec' (3231474) panicked at core/tests/suite/remote_models.rs:1315:13:
+    timed out waiting for the remote model codex-test to appear
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   2.481s] ( 841/1123) codex-core::all suite::remote_models::remote_models_truncation_policy_with_tool_output_override
+  stdout ───
+
+    running 1 test
+    test suite::remote_models::remote_models_truncation_policy_with_tool_output_override ... FAILED
+
+    failures:
+
+    failures:
+        suite::remote_models::remote_models_truncation_policy_with_tool_output_override
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.46s
+
+  stderr ───
+
+    thread 'suite::remote_models::remote_models_truncation_policy_with_tool_output_override' (3231525) panicked at core/tests/suite/remote_models.rs:1315:13:
+    timed out waiting for the remote model codex-test-truncation-override to appear
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   2.431s] ( 843/1123) codex-core::all suite::remote_models::remote_models_truncation_policy_without_override_preserves_remote
+  stdout ───
+
+    running 1 test
+    test suite::remote_models::remote_models_truncation_policy_without_override_preserves_remote ... FAILED
+
+    failures:
+
+    failures:
+        suite::remote_models::remote_models_truncation_policy_without_override_preserves_remote
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.42s
+
+  stderr ───
+
+    thread 'suite::remote_models::remote_models_truncation_policy_without_override_preserves_remote' (3231775) panicked at core/tests/suite/remote_models.rs:1315:13:
+    timed out waiting for the remote model codex-test-truncation-policy to appear
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.396s] ( 951/1123) codex-core::all suite::subagent_notifications::spawn_agent_rejects_reasoning_effort_unsupported_by_role_model
+  stdout ───
+
+    running 1 test
+    test suite::subagent_notifications::spawn_agent_rejects_reasoning_effort_unsupported_by_role_model ... FAILED
+
+    failures:
+
+    failures:
+        suite::subagent_notifications::spawn_agent_rejects_reasoning_effort_unsupported_by_role_model
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 0.38s
+
+  stderr ───
+
+    thread 'suite::subagent_notifications::spawn_agent_rejects_reasoning_effort_unsupported_by_role_model' (3246209) panicked at core/tests/suite/subagent_notifications.rs:1980:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+     Some(
+    <    "Unknown model `gpt-5.6-sol` for spawn_agent. Available models: deepseek-v4-flash, deepseek-v4-pro",
+    >    "Reasoning effort `ultra` is not supported for model `gpt-5.4`. Supported reasoning efforts: low, medium, high, xhigh",
+     )
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   2.386s] ( 981/1123) codex-core::all suite::spawn_agent_description::spawn_agent_description_lists_visible_models_and_reasoning_efforts
+  stdout ───
+
+    running 1 test
+    test suite::spawn_agent_description::spawn_agent_description_lists_visible_models_and_reasoning_efforts ... FAILED
+
+    failures:
+
+    failures:
+        suite::spawn_agent_description::spawn_agent_description_lists_visible_models_and_reasoning_efforts
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.37s
+
+  stderr ───
+
+    thread 'suite::spawn_agent_description::spawn_agent_description_lists_visible_models_and_reasoning_efforts' (3247706) panicked at core/tests/suite/spawn_agent_description.rs:122:13:
+    timed out waiting for remote model visible-model to appear
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   2.399s] ( 986/1123) codex-core::all suite::subagent_notifications::multi_agent_v2_spawn_sends_agent_message_to_child::legacy_encrypted_leaf
+  stdout ───
+
+    running 1 test
+    2026-08-14T16:38:47.943024Z  INFO codex_rollout::metadata: state db backfill scanned=0, upserted=0, failed=0
+    2026-08-14T16:38:47.957133Z  INFO thread_spawn{otel.name="thread_spawn"}:list_models{refresh_strategy=online_if_uncached}: codex_models_manager::manager: models cache: evaluating cache eligibility client_version="0.147.0"
+    2026-08-14T16:38:47.957160Z  INFO thread_spawn{otel.name="thread_spawn"}:list_models{refresh_strategy=online_if_uncached}: codex_models_manager::cache: models cache: attempting load_fresh cache_path=/tmp/.tmpNSUES2/models_cache.json expected_version="0.147.0"
+    2026-08-14T16:38:47.957207Z  INFO thread_spawn{otel.name="thread_spawn"}:list_models{refresh_strategy=online_if_uncached}: codex_models_manager::manager: models cache: no usable cache entry
+    2026-08-14T16:38:47.959724Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init: codex_otel.log_only: event.name="codex.conversation_starts" provider_name=OpenAI auth.env_openai_api_key_present=false auth.env_codex_api_key_present=false auth.env_codex_api_key_enabled=false auth.env_refresh_token_url_override_present=false reasoning_summary=auto approval_policy=on-request sandbox_policy=read-only mcp_servers="" event.timestamp=2026-08-14T16:38:47.959Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:47.959785Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init: codex_otel.trace_safe: event.name="codex.conversation_starts" provider_name=OpenAI auth.env_openai_api_key_present=false auth.env_codex_api_key_present=false auth.env_codex_api_key_enabled=false auth.env_refresh_token_url_override_present=false reasoning_summary=auto approval_policy=on-request sandbox_policy=read-only mcp_server_count=0 event.timestamp=2026-08-14T16:38:47.959Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:47.982603Z  WARN thread_spawn{otel.name="thread_spawn"}:session_init:session_init.plugin_skill_warmup{otel.name="session_init.plugin_skill_warmup"}:skills_for_config{otel.name="skills_for_config"}: codex_skills_extension::loader::metadata: ignoring file://<HOME>/.agents/skills/bug-killer/agents/openai.yaml: invalid openai.yaml: mapping values are not allowed in this context at line 4 column 80
+    2026-08-14T16:38:47.984274Z  WARN thread_spawn{otel.name="thread_spawn"}:session_init:session_init.plugin_skill_warmup{otel.name="session_init.plugin_skill_warmup"}:skills_for_config{otel.name="skills_for_config"}: codex_skills_extension::loader::metadata: ignoring file://<HOME>/.agents/skills/se-good-plan/agents/openai.yaml: invalid openai.yaml: mapping values are not allowed in this context at line 4 column 305
+    2026-08-14T16:38:47.984768Z  WARN thread_spawn{otel.name="thread_spawn"}:session_init:session_init.plugin_skill_warmup{otel.name="session_init.plugin_skill_warmup"}:skills_for_config{otel.name="skills_for_config"}: codex_skills_extension::loader::metadata: ignoring file://<HOME>/.agents/skills/subagent-vs-review/agents/openai.yaml: invalid openai.yaml: mapping values are not allowed in this context at line 4 column 548
+    2026-08-14T16:38:47.993227Z  INFO session_loop{thread_id=01a00123-f195-7820-8d71-8df67780d6c6}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1b4-7220-ab28-57a90404c4e7" codex.op="user_input"}: codex_otel.log_only: event.name="codex.user_prompt" prompt_length=26 prompt=[REDACTED] event.timestamp=2026-08-14T16:38:47.993Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:47.993274Z  INFO session_loop{thread_id=01a00123-f195-7820-8d71-8df67780d6c6}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1b4-7220-ab28-57a90404c4e7" codex.op="user_input"}: codex_otel.trace_safe: event.name="codex.user_prompt" prompt_length=26 text_input_count=1 image_input_count=0 local_image_input_count=0 event.timestamp=2026-08-14T16:38:47.993Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.014411Z  INFO session_loop{thread_id=01a00123-f195-7820-8d71-8df67780d6c6}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1b4-7220-ab28-57a90404c4e7" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f195-7820-8d71-8df67780d6c6 turn.id=01a00123-f1b4-7220-ab28-57a90404c4e7 model=gpt-5.6-sol codex.turn.reasoning_effort=low}: feedback_tags: model="gpt-5.6-sol" approval_policy=Never sandbox_policy=DangerFullAccess effort=None auth_mode=Some(ApiKey) features=[ShellTool, ViewImage, CodexHooks, CodeModeHost, UnifiedExec, TerminalResizeReflow, EnableRequestCompression, Collab, MultiAgentV2, ToolSearchAlwaysDeferMcpTools, ToolSuggest, Plugins, InAppBrowser, InAppUpdates, BrowserUse, BrowserUseFullCdpAccess, BrowserUseExternal, ComputerUse, ImageGeneration, ResizeAllImages, ItemIds, SkillMcpDependencyInstall, SkillSearch, MentionsV2, GuardianApproval, Goals, ToolCallMcpElicitation, AuthElicitation, Personality, FastMode, RemoteCompactionV2, WorkspaceDependencies, Sqlite, Steer, CollaborationModes, TuiAppServer]
+    2026-08-14T16:38:48.020587Z  INFO session_loop{thread_id=01a00123-f195-7820-8d71-8df67780d6c6}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1b4-7220-ab28-57a90404c4e7" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f195-7820-8d71-8df67780d6c6 turn.id=01a00123-f1b4-7220-ab28-57a90404c4e7 model=gpt-5.6-sol codex.turn.reasoning_effort=low}:model_client.stream_responses_api{model=gpt-5.6-sol wire_api=responses transport="responses_http" http.method="POST" api.path="responses" turn.has_metadata_header=true}: codex_http_client::custom_ca: building HTTP client with rustls backend for custom CA bundle source_env="SSL_CERT_FILE" ca_path=/usr/lib/ssl/cert.pem
+    2026-08-14T16:38:48.026095Z  INFO session_loop{thread_id=01a00123-f195-7820-8d71-8df67780d6c6}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1b4-7220-ab28-57a90404c4e7" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f195-7820-8d71-8df67780d6c6 turn.id=01a00123-f1b4-7220-ab28-57a90404c4e7 model=gpt-5.6-sol codex.turn.reasoning_effort=low}:model_client.stream_responses_api{model=gpt-5.6-sol wire_api=responses transport="responses_http" http.method="POST" api.path="responses" turn.has_metadata_header=true}: codex_http_client::custom_ca: loaded certificates from custom CA bundle source_env="SSL_CERT_FILE" ca_path=/usr/lib/ssl/cert.pem certificate_count=121
+    2026-08-14T16:38:48.058241Z  INFO session_loop{thread_id=01a00123-f195-7820-8d71-8df67780d6c6}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1b4-7220-ab28-57a90404c4e7" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f195-7820-8d71-8df67780d6c6 turn.id=01a00123-f1b4-7220-ab28-57a90404c4e7 model=gpt-5.6-sol codex.turn.reasoning_effort=low}:model_client.stream_responses_api{model=gpt-5.6-sol wire_api=responses transport="responses_http" http.method="POST" api.path="responses" turn.has_metadata_header=true}:responses.stream_request{transport="responses_http" http.method="POST" api.path="responses"}:endpoint_session.stream_encoded_json_with{http.method=POST api.path="responses"}: codex_otel.log_only: event.name="codex.api_request" duration_ms=1 http.response.status_code=200 attempt=0 auth.header_attached=true auth.header_name="authorization" auth.retry_after_unauthorized=false endpoint="/responses" auth.env_openai_api_key_present=false auth.env_codex_api_key_present=false auth.env_codex_api_key_enabled=false auth.env_refresh_token_url_override_present=false event.timestamp=2026-08-14T16:38:48.058Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.058300Z  INFO session_loop{thread_id=01a00123-f195-7820-8d71-8df67780d6c6}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1b4-7220-ab28-57a90404c4e7" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f195-7820-8d71-8df67780d6c6 turn.id=01a00123-f1b4-7220-ab28-57a90404c4e7 model=gpt-5.6-sol codex.turn.reasoning_effort=low}:model_client.stream_responses_api{model=gpt-5.6-sol wire_api=responses transport="responses_http" http.method="POST" api.path="responses" turn.has_metadata_header=true}:responses.stream_request{transport="responses_http" http.method="POST" api.path="responses"}:endpoint_session.stream_encoded_json_with{http.method=POST api.path="responses"}: codex_otel.trace_safe: event.name="codex.api_request" duration_ms=1 http.response.status_code=200 attempt=0 auth.header_attached=true auth.header_name="authorization" auth.retry_after_unauthorized=false endpoint="/responses" auth.env_openai_api_key_present=false auth.env_codex_api_key_present=false auth.env_codex_api_key_enabled=false auth.env_refresh_token_url_override_present=false event.timestamp=2026-08-14T16:38:48.058Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.058324Z  INFO session_loop{thread_id=01a00123-f195-7820-8d71-8df67780d6c6}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1b4-7220-ab28-57a90404c4e7" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f195-7820-8d71-8df67780d6c6 turn.id=01a00123-f1b4-7220-ab28-57a90404c4e7 model=gpt-5.6-sol codex.turn.reasoning_effort=low}:model_client.stream_responses_api{model=gpt-5.6-sol wire_api=responses transport="responses_http" http.method="POST" api.path="responses" turn.has_metadata_header=true}:responses.stream_request{transport="responses_http" http.method="POST" api.path="responses"}:endpoint_session.stream_encoded_json_with{http.method=POST api.path="responses"}: feedback_tags: endpoint="/responses" auth_header_attached=true auth_header_name="authorization" auth_mode="ApiKey" auth_retry_after_unauthorized="false" auth_recovery_mode="" auth_recovery_phase="" auth_connection_reused="" auth_request_id="" auth_cf_ray="" auth_error="" auth_error_code="" auth_recovery_followup_success="" auth_recovery_followup_status="" auth_env_openai_api_key_present=false auth_env_codex_api_key_present=false auth_env_codex_api_key_enabled=false auth_env_provider_key_name="" auth_env_provider_key_present="" auth_env_refresh_token_url_override_present=false
+    2026-08-14T16:38:48.058680Z  INFO codex_otel.log_only: event.name="codex.sse_event" event.kind=response.created duration_ms=0 event.timestamp=2026-08-14T16:38:48.058Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.058767Z  INFO codex_otel.log_only: event.name="codex.sse_event" event.kind=response.output_item.done duration_ms=0 event.timestamp=2026-08-14T16:38:48.058Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.058811Z  INFO codex_otel.log_only: event.name="codex.sse_event" event.kind=response.completed duration_ms=0 event.timestamp=2026-08-14T16:38:48.058Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.058878Z  INFO feedback_tags: last_model_response_id="resp-parent-1"
+    2026-08-14T16:38:48.058887Z  INFO codex_otel.log_only: event.name="codex.sse_event" event.kind=response.completed input_token_count=0 output_token_count=0 cached_token_count=0 cache_write_token_count=0 reasoning_token_count=0 tool_token_count=0 model_reasoning_effort="low" event.timestamp=2026-08-14T16:38:48.058Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.058898Z  INFO codex_otel.trace_safe: event.name="codex.sse_event" event.kind=response.completed input_token_count=0 output_token_count=0 cached_token_count=0 cache_write_token_count=0 reasoning_token_count=0 tool_token_count=0 model_reasoning_effort="low" event.timestamp=2026-08-14T16:38:48.058Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.059041Z  INFO session_loop{thread_id=01a00123-f195-7820-8d71-8df67780d6c6}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1b4-7220-ab28-57a90404c4e7" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f195-7820-8d71-8df67780d6c6 turn.id=01a00123-f1b4-7220-ab28-57a90404c4e7 model=gpt-5.6-sol codex.turn.reasoning_effort=low}: codex_otel.log_only: event.name="codex.turn_ttft" duration_ms=65 event.timestamp=2026-08-14T16:38:48.059Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.059061Z  INFO session_loop{thread_id=01a00123-f195-7820-8d71-8df67780d6c6}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1b4-7220-ab28-57a90404c4e7" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f195-7820-8d71-8df67780d6c6 turn.id=01a00123-f1b4-7220-ab28-57a90404c4e7 model=gpt-5.6-sol codex.turn.reasoning_effort=low}: codex_otel.trace_safe: event.name="codex.turn_ttft" duration_ms=65 event.timestamp=2026-08-14T16:38:48.059Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.059106Z  INFO session_loop{thread_id=01a00123-f195-7820-8d71-8df67780d6c6}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1b4-7220-ab28-57a90404c4e7" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f195-7820-8d71-8df67780d6c6 turn.id=01a00123-f1b4-7220-ab28-57a90404c4e7 model=gpt-5.6-sol codex.turn.reasoning_effort=low}: codex_core::stream_events_utils: ToolCall: collaborationspawn_agent {"fork_turns":"none","message":"opaque-encrypted-message","model":"gpt-5.5","task_name":"worker"} thread_id=01a00123-f195-7820-8d71-8df67780d6c6
+    2026-08-14T16:38:48.061553Z  INFO list_models{refresh_strategy=offline}: codex_models_manager::manager: models cache: evaluating cache eligibility client_version="0.147.0"
+    2026-08-14T16:38:48.061578Z  INFO list_models{refresh_strategy=offline}: codex_models_manager::cache: models cache: attempting load_fresh cache_path=/tmp/.tmpNSUES2/models_cache.json expected_version="0.147.0"
+    2026-08-14T16:38:48.061622Z  INFO list_models{refresh_strategy=offline}: codex_models_manager::manager: models cache: no usable cache entry
+    2026-08-14T16:38:48.061924Z  INFO codex_otel.log_only: event.name="codex.tool_result" tool_name=collaborationspawn_agent call_id=spawn-call-1 arguments={"fork_turns":"none","message":"opaque-encrypted-message","model":"gpt-5.5","task_name":"worker"} duration_ms=0 success=false output=Unknown model `gpt-5.5` for spawn_agent. Available models: deepseek-v4-flash, deepseek-v4-pro mcp_server= mcp_server_origin= event.timestamp=2026-08-14T16:38:48.061Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.061941Z  INFO codex_otel.trace_safe: event.name="codex.tool_result" tool_name=collaborationspawn_agent call_id=spawn-call-1 duration_ms=0 success=false arguments_length=97 output_length=93 output_line_count=1 tool_origin="builtin" mcp_tool=false event.timestamp=2026-08-14T16:38:48.061Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.061965Z ERROR codex_core::tools::router: error=Unknown model `gpt-5.5` for spawn_agent. Available models: deepseek-v4-flash, deepseek-v4-pro
+    2026-08-14T16:38:48.062027Z  INFO session_loop{thread_id=01a00123-f195-7820-8d71-8df67780d6c6}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1b4-7220-ab28-57a90404c4e7" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f195-7820-8d71-8df67780d6c6 turn.id=01a00123-f1b4-7220-ab28-57a90404c4e7 model=gpt-5.6-sol codex.turn.reasoning_effort=low}: codex_core::tools::parallel: tool call completed event.name="codex.tool_call" trace_id= conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 turn_id=01a00123-f1b4-7220-ab28-57a90404c4e7 tool_name=collaborationspawn_agent call_id=spawn-call-1 tool_source="direct" execution_started=true dispatch_duration_ms=0 handler_duration_ms=2 total_duration_ms=2
+    2026-08-14T16:38:48.065901Z  INFO session_loop{thread_id=01a00123-f195-7820-8d71-8df67780d6c6}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1b4-7220-ab28-57a90404c4e7" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f195-7820-8d71-8df67780d6c6 turn.id=01a00123-f1b4-7220-ab28-57a90404c4e7 model=gpt-5.6-sol codex.turn.reasoning_effort=low}: feedback_tags: model="gpt-5.6-sol" approval_policy=Never sandbox_policy=DangerFullAccess effort=None auth_mode=Some(ApiKey) features=[ShellTool, ViewImage, CodexHooks, CodeModeHost, UnifiedExec, TerminalResizeReflow, EnableRequestCompression, Collab, MultiAgentV2, ToolSearchAlwaysDeferMcpTools, ToolSuggest, Plugins, InAppBrowser, InAppUpdates, BrowserUse, BrowserUseFullCdpAccess, BrowserUseExternal, ComputerUse, ImageGeneration, ResizeAllImages, ItemIds, SkillMcpDependencyInstall, SkillSearch, MentionsV2, GuardianApproval, Goals, ToolCallMcpElicitation, AuthElicitation, Personality, FastMode, RemoteCompactionV2, WorkspaceDependencies, Sqlite, Steer, CollaborationModes, TuiAppServer]
+    2026-08-14T16:38:48.071163Z  INFO session_loop{thread_id=01a00123-f195-7820-8d71-8df67780d6c6}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1b4-7220-ab28-57a90404c4e7" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f195-7820-8d71-8df67780d6c6 turn.id=01a00123-f1b4-7220-ab28-57a90404c4e7 model=gpt-5.6-sol codex.turn.reasoning_effort=low}:model_client.stream_responses_api{model=gpt-5.6-sol wire_api=responses transport="responses_http" http.method="POST" api.path="responses" turn.has_metadata_header=true}: codex_http_client::custom_ca: building HTTP client with rustls backend for custom CA bundle source_env="SSL_CERT_FILE" ca_path=/usr/lib/ssl/cert.pem
+    2026-08-14T16:38:48.074416Z  INFO session_loop{thread_id=01a00123-f195-7820-8d71-8df67780d6c6}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1b4-7220-ab28-57a90404c4e7" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f195-7820-8d71-8df67780d6c6 turn.id=01a00123-f1b4-7220-ab28-57a90404c4e7 model=gpt-5.6-sol codex.turn.reasoning_effort=low}:model_client.stream_responses_api{model=gpt-5.6-sol wire_api=responses transport="responses_http" http.method="POST" api.path="responses" turn.has_metadata_header=true}: codex_http_client::custom_ca: loaded certificates from custom CA bundle source_env="SSL_CERT_FILE" ca_path=/usr/lib/ssl/cert.pem certificate_count=121
+    2026-08-14T16:38:48.103075Z  INFO session_loop{thread_id=01a00123-f195-7820-8d71-8df67780d6c6}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1b4-7220-ab28-57a90404c4e7" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f195-7820-8d71-8df67780d6c6 turn.id=01a00123-f1b4-7220-ab28-57a90404c4e7 model=gpt-5.6-sol codex.turn.reasoning_effort=low}:model_client.stream_responses_api{model=gpt-5.6-sol wire_api=responses transport="responses_http" http.method="POST" api.path="responses" turn.has_metadata_header=true}:responses.stream_request{transport="responses_http" http.method="POST" api.path="responses"}:endpoint_session.stream_encoded_json_with{http.method=POST api.path="responses"}: codex_otel.log_only: event.name="codex.api_request" duration_ms=3 http.response.status_code=200 attempt=0 auth.header_attached=true auth.header_name="authorization" auth.retry_after_unauthorized=false endpoint="/responses" auth.env_openai_api_key_present=false auth.env_codex_api_key_present=false auth.env_codex_api_key_enabled=false auth.env_refresh_token_url_override_present=false event.timestamp=2026-08-14T16:38:48.103Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.103154Z  INFO session_loop{thread_id=01a00123-f195-7820-8d71-8df67780d6c6}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1b4-7220-ab28-57a90404c4e7" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f195-7820-8d71-8df67780d6c6 turn.id=01a00123-f1b4-7220-ab28-57a90404c4e7 model=gpt-5.6-sol codex.turn.reasoning_effort=low}:model_client.stream_responses_api{model=gpt-5.6-sol wire_api=responses transport="responses_http" http.method="POST" api.path="responses" turn.has_metadata_header=true}:responses.stream_request{transport="responses_http" http.method="POST" api.path="responses"}:endpoint_session.stream_encoded_json_with{http.method=POST api.path="responses"}: codex_otel.trace_safe: event.name="codex.api_request" duration_ms=3 http.response.status_code=200 attempt=0 auth.header_attached=true auth.header_name="authorization" auth.retry_after_unauthorized=false endpoint="/responses" auth.env_openai_api_key_present=false auth.env_codex_api_key_present=false auth.env_codex_api_key_enabled=false auth.env_refresh_token_url_override_present=false event.timestamp=2026-08-14T16:38:48.103Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.103190Z  INFO session_loop{thread_id=01a00123-f195-7820-8d71-8df67780d6c6}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1b4-7220-ab28-57a90404c4e7" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f195-7820-8d71-8df67780d6c6 turn.id=01a00123-f1b4-7220-ab28-57a90404c4e7 model=gpt-5.6-sol codex.turn.reasoning_effort=low}:model_client.stream_responses_api{model=gpt-5.6-sol wire_api=responses transport="responses_http" http.method="POST" api.path="responses" turn.has_metadata_header=true}:responses.stream_request{transport="responses_http" http.method="POST" api.path="responses"}:endpoint_session.stream_encoded_json_with{http.method=POST api.path="responses"}: feedback_tags: endpoint="/responses" auth_header_attached=true auth_header_name="authorization" auth_mode="ApiKey" auth_retry_after_unauthorized="false" auth_recovery_mode="" auth_recovery_phase="" auth_connection_reused="" auth_request_id="" auth_cf_ray="" auth_error="" auth_error_code="" auth_recovery_followup_success="" auth_recovery_followup_status="" auth_env_openai_api_key_present=false auth_env_codex_api_key_present=false auth_env_codex_api_key_enabled=false auth_env_provider_key_name="" auth_env_provider_key_present="" auth_env_refresh_token_url_override_present=false
+    2026-08-14T16:38:48.103611Z  INFO codex_otel.log_only: event.name="codex.sse_event" event.kind=response.created duration_ms=0 event.timestamp=2026-08-14T16:38:48.103Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.103707Z  INFO codex_otel.log_only: event.name="codex.sse_event" event.kind=response.output_item.done duration_ms=0 event.timestamp=2026-08-14T16:38:48.103Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.103798Z  INFO codex_otel.log_only: event.name="codex.sse_event" event.kind=response.completed duration_ms=0 event.timestamp=2026-08-14T16:38:48.103Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.103910Z  INFO feedback_tags: last_model_response_id="resp-parent-2"
+    2026-08-14T16:38:48.103926Z  INFO codex_otel.log_only: event.name="codex.sse_event" event.kind=response.completed input_token_count=0 output_token_count=0 cached_token_count=0 cache_write_token_count=0 reasoning_token_count=0 tool_token_count=0 model_reasoning_effort="low" event.timestamp=2026-08-14T16:38:48.103Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.103945Z  INFO codex_otel.trace_safe: event.name="codex.sse_event" event.kind=response.completed input_token_count=0 output_token_count=0 cached_token_count=0 cache_write_token_count=0 reasoning_token_count=0 tool_token_count=0 model_reasoning_effort="low" event.timestamp=2026-08-14T16:38:48.103Z conversation.id=01a00123-f195-7820-8d71-8df67780d6c6 app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    test suite::subagent_notifications::multi_agent_v2_spawn_sends_agent_message_to_child::legacy_encrypted_leaf ... FAILED
+
+    failures:
+
+    failures:
+        suite::subagent_notifications::multi_agent_v2_spawn_sends_agent_message_to_child::legacy_encrypted_leaf
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.39s
+
+  stderr ───
+    Error: timed out waiting for child agent message request
+
+  TRY 2 FAIL [   2.423s] ( 987/1123) codex-core::all suite::subagent_notifications::multi_agent_v2_spawn_sends_agent_message_to_child::luna_encrypted_leaf
+  stdout ───
+
+    running 1 test
+    2026-08-14T16:38:47.943102Z  INFO codex_rollout::metadata: state db backfill scanned=0, upserted=0, failed=0
+    2026-08-14T16:38:47.951825Z  INFO thread_spawn{otel.name="thread_spawn"}:list_models{refresh_strategy=online_if_uncached}: codex_models_manager::manager: models cache: evaluating cache eligibility client_version="0.147.0"
+    2026-08-14T16:38:47.951860Z  INFO thread_spawn{otel.name="thread_spawn"}:list_models{refresh_strategy=online_if_uncached}: codex_models_manager::cache: models cache: attempting load_fresh cache_path=/tmp/.tmpCS6pga/models_cache.json expected_version="0.147.0"
+    2026-08-14T16:38:47.951914Z  INFO thread_spawn{otel.name="thread_spawn"}:list_models{refresh_strategy=online_if_uncached}: codex_models_manager::manager: models cache: no usable cache entry
+    2026-08-14T16:38:47.957284Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init: codex_otel.log_only: event.name="codex.conversation_starts" provider_name=OpenAI auth.env_openai_api_key_present=false auth.env_codex_api_key_present=false auth.env_codex_api_key_enabled=false auth.env_refresh_token_url_override_present=false reasoning_summary=auto approval_policy=on-request sandbox_policy=read-only mcp_servers="" event.timestamp=2026-08-14T16:38:47.957Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:47.957323Z  INFO thread_spawn{otel.name="thread_spawn"}:session_init: codex_otel.trace_safe: event.name="codex.conversation_starts" provider_name=OpenAI auth.env_openai_api_key_present=false auth.env_codex_api_key_present=false auth.env_codex_api_key_enabled=false auth.env_refresh_token_url_override_present=false reasoning_summary=auto approval_policy=on-request sandbox_policy=read-only mcp_server_count=0 event.timestamp=2026-08-14T16:38:47.957Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:47.977401Z  WARN thread_spawn{otel.name="thread_spawn"}:session_init:session_init.plugin_skill_warmup{otel.name="session_init.plugin_skill_warmup"}:skills_for_config{otel.name="skills_for_config"}: codex_skills_extension::loader::metadata: ignoring file://<HOME>/.agents/skills/bug-killer/agents/openai.yaml: invalid openai.yaml: mapping values are not allowed in this context at line 4 column 80
+    2026-08-14T16:38:47.978887Z  WARN thread_spawn{otel.name="thread_spawn"}:session_init:session_init.plugin_skill_warmup{otel.name="session_init.plugin_skill_warmup"}:skills_for_config{otel.name="skills_for_config"}: codex_skills_extension::loader::metadata: ignoring file://<HOME>/.agents/skills/se-good-plan/agents/openai.yaml: invalid openai.yaml: mapping values are not allowed in this context at line 4 column 305
+    2026-08-14T16:38:47.979324Z  WARN thread_spawn{otel.name="thread_spawn"}:session_init:session_init.plugin_skill_warmup{otel.name="session_init.plugin_skill_warmup"}:skills_for_config{otel.name="skills_for_config"}: codex_skills_extension::loader::metadata: ignoring file://<HOME>/.agents/skills/subagent-vs-review/agents/openai.yaml: invalid openai.yaml: mapping values are not allowed in this context at line 4 column 548
+    2026-08-14T16:38:47.987477Z  INFO session_loop{thread_id=01a00123-f190-7c83-97d3-b17e4aca076b}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1ae-7b82-b850-446f3ad16d57" codex.op="user_input"}: codex_otel.log_only: event.name="codex.user_prompt" prompt_length=26 prompt=[REDACTED] event.timestamp=2026-08-14T16:38:47.987Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:47.987539Z  INFO session_loop{thread_id=01a00123-f190-7c83-97d3-b17e4aca076b}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1ae-7b82-b850-446f3ad16d57" codex.op="user_input"}: codex_otel.trace_safe: event.name="codex.user_prompt" prompt_length=26 text_input_count=1 image_input_count=0 local_image_input_count=0 event.timestamp=2026-08-14T16:38:47.987Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.004037Z  INFO session_loop{thread_id=01a00123-f190-7c83-97d3-b17e4aca076b}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1ae-7b82-b850-446f3ad16d57" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f190-7c83-97d3-b17e4aca076b turn.id=01a00123-f1ae-7b82-b850-446f3ad16d57 model=gpt-5.6-sol codex.turn.reasoning_effort=low}: feedback_tags: model="gpt-5.6-sol" approval_policy=Never sandbox_policy=DangerFullAccess effort=None auth_mode=Some(ApiKey) features=[ShellTool, ViewImage, CodexHooks, CodeModeHost, UnifiedExec, TerminalResizeReflow, EnableRequestCompression, Collab, MultiAgentV2, ToolSearchAlwaysDeferMcpTools, ToolSuggest, Plugins, InAppBrowser, InAppUpdates, BrowserUse, BrowserUseFullCdpAccess, BrowserUseExternal, ComputerUse, ImageGeneration, ResizeAllImages, ItemIds, SkillMcpDependencyInstall, SkillSearch, MentionsV2, GuardianApproval, Goals, ToolCallMcpElicitation, AuthElicitation, Personality, FastMode, RemoteCompactionV2, WorkspaceDependencies, Sqlite, Steer, CollaborationModes, TuiAppServer]
+    2026-08-14T16:38:48.010834Z  INFO session_loop{thread_id=01a00123-f190-7c83-97d3-b17e4aca076b}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1ae-7b82-b850-446f3ad16d57" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f190-7c83-97d3-b17e4aca076b turn.id=01a00123-f1ae-7b82-b850-446f3ad16d57 model=gpt-5.6-sol codex.turn.reasoning_effort=low}:model_client.stream_responses_api{model=gpt-5.6-sol wire_api=responses transport="responses_http" http.method="POST" api.path="responses" turn.has_metadata_header=true}: codex_http_client::custom_ca: building HTTP client with rustls backend for custom CA bundle source_env="SSL_CERT_FILE" ca_path=/usr/lib/ssl/cert.pem
+    2026-08-14T16:38:48.013966Z  INFO session_loop{thread_id=01a00123-f190-7c83-97d3-b17e4aca076b}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1ae-7b82-b850-446f3ad16d57" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f190-7c83-97d3-b17e4aca076b turn.id=01a00123-f1ae-7b82-b850-446f3ad16d57 model=gpt-5.6-sol codex.turn.reasoning_effort=low}:model_client.stream_responses_api{model=gpt-5.6-sol wire_api=responses transport="responses_http" http.method="POST" api.path="responses" turn.has_metadata_header=true}: codex_http_client::custom_ca: loaded certificates from custom CA bundle source_env="SSL_CERT_FILE" ca_path=/usr/lib/ssl/cert.pem certificate_count=121
+    2026-08-14T16:38:48.060972Z  INFO session_loop{thread_id=01a00123-f190-7c83-97d3-b17e4aca076b}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1ae-7b82-b850-446f3ad16d57" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f190-7c83-97d3-b17e4aca076b turn.id=01a00123-f1ae-7b82-b850-446f3ad16d57 model=gpt-5.6-sol codex.turn.reasoning_effort=low}:model_client.stream_responses_api{model=gpt-5.6-sol wire_api=responses transport="responses_http" http.method="POST" api.path="responses" turn.has_metadata_header=true}:responses.stream_request{transport="responses_http" http.method="POST" api.path="responses"}:endpoint_session.stream_encoded_json_with{http.method=POST api.path="responses"}: codex_otel.log_only: event.name="codex.api_request" duration_ms=2 http.response.status_code=200 attempt=0 auth.header_attached=true auth.header_name="authorization" auth.retry_after_unauthorized=false endpoint="/responses" auth.env_openai_api_key_present=false auth.env_codex_api_key_present=false auth.env_codex_api_key_enabled=false auth.env_refresh_token_url_override_present=false event.timestamp=2026-08-14T16:38:48.060Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.061049Z  INFO session_loop{thread_id=01a00123-f190-7c83-97d3-b17e4aca076b}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1ae-7b82-b850-446f3ad16d57" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f190-7c83-97d3-b17e4aca076b turn.id=01a00123-f1ae-7b82-b850-446f3ad16d57 model=gpt-5.6-sol codex.turn.reasoning_effort=low}:model_client.stream_responses_api{model=gpt-5.6-sol wire_api=responses transport="responses_http" http.method="POST" api.path="responses" turn.has_metadata_header=true}:responses.stream_request{transport="responses_http" http.method="POST" api.path="responses"}:endpoint_session.stream_encoded_json_with{http.method=POST api.path="responses"}: codex_otel.trace_safe: event.name="codex.api_request" duration_ms=2 http.response.status_code=200 attempt=0 auth.header_attached=true auth.header_name="authorization" auth.retry_after_unauthorized=false endpoint="/responses" auth.env_openai_api_key_present=false auth.env_codex_api_key_present=false auth.env_codex_api_key_enabled=false auth.env_refresh_token_url_override_present=false event.timestamp=2026-08-14T16:38:48.061Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.061085Z  INFO session_loop{thread_id=01a00123-f190-7c83-97d3-b17e4aca076b}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1ae-7b82-b850-446f3ad16d57" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f190-7c83-97d3-b17e4aca076b turn.id=01a00123-f1ae-7b82-b850-446f3ad16d57 model=gpt-5.6-sol codex.turn.reasoning_effort=low}:model_client.stream_responses_api{model=gpt-5.6-sol wire_api=responses transport="responses_http" http.method="POST" api.path="responses" turn.has_metadata_header=true}:responses.stream_request{transport="responses_http" http.method="POST" api.path="responses"}:endpoint_session.stream_encoded_json_with{http.method=POST api.path="responses"}: feedback_tags: endpoint="/responses" auth_header_attached=true auth_header_name="authorization" auth_mode="ApiKey" auth_retry_after_unauthorized="false" auth_recovery_mode="" auth_recovery_phase="" auth_connection_reused="" auth_request_id="" auth_cf_ray="" auth_error="" auth_error_code="" auth_recovery_followup_success="" auth_recovery_followup_status="" auth_env_openai_api_key_present=false auth_env_codex_api_key_present=false auth_env_codex_api_key_enabled=false auth_env_provider_key_name="" auth_env_provider_key_present="" auth_env_refresh_token_url_override_present=false
+    2026-08-14T16:38:48.061557Z  INFO codex_otel.log_only: event.name="codex.sse_event" event.kind=response.created duration_ms=0 event.timestamp=2026-08-14T16:38:48.061Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.061686Z  INFO codex_otel.log_only: event.name="codex.sse_event" event.kind=response.output_item.done duration_ms=0 event.timestamp=2026-08-14T16:38:48.061Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.061764Z  INFO codex_otel.log_only: event.name="codex.sse_event" event.kind=response.completed duration_ms=0 event.timestamp=2026-08-14T16:38:48.061Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.061877Z  INFO feedback_tags: last_model_response_id="resp-parent-1"
+    2026-08-14T16:38:48.061894Z  INFO codex_otel.log_only: event.name="codex.sse_event" event.kind=response.completed input_token_count=0 output_token_count=0 cached_token_count=0 cache_write_token_count=0 reasoning_token_count=0 tool_token_count=0 model_reasoning_effort="low" event.timestamp=2026-08-14T16:38:48.061Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.061914Z  INFO codex_otel.trace_safe: event.name="codex.sse_event" event.kind=response.completed input_token_count=0 output_token_count=0 cached_token_count=0 cache_write_token_count=0 reasoning_token_count=0 tool_token_count=0 model_reasoning_effort="low" event.timestamp=2026-08-14T16:38:48.061Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.062107Z  INFO session_loop{thread_id=01a00123-f190-7c83-97d3-b17e4aca076b}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1ae-7b82-b850-446f3ad16d57" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f190-7c83-97d3-b17e4aca076b turn.id=01a00123-f1ae-7b82-b850-446f3ad16d57 model=gpt-5.6-sol codex.turn.reasoning_effort=low}: codex_otel.log_only: event.name="codex.turn_ttft" duration_ms=74 event.timestamp=2026-08-14T16:38:48.062Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.062144Z  INFO session_loop{thread_id=01a00123-f190-7c83-97d3-b17e4aca076b}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1ae-7b82-b850-446f3ad16d57" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f190-7c83-97d3-b17e4aca076b turn.id=01a00123-f1ae-7b82-b850-446f3ad16d57 model=gpt-5.6-sol codex.turn.reasoning_effort=low}: codex_otel.trace_safe: event.name="codex.turn_ttft" duration_ms=74 event.timestamp=2026-08-14T16:38:48.062Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.062213Z  INFO session_loop{thread_id=01a00123-f190-7c83-97d3-b17e4aca076b}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1ae-7b82-b850-446f3ad16d57" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f190-7c83-97d3-b17e4aca076b turn.id=01a00123-f1ae-7b82-b850-446f3ad16d57 model=gpt-5.6-sol codex.turn.reasoning_effort=low}: codex_core::stream_events_utils: ToolCall: collaborationspawn_agent {"message":"opaque-encrypted-message","model":"gpt-5.6-luna","task_name":"worker"} thread_id=01a00123-f190-7c83-97d3-b17e4aca076b
+    2026-08-14T16:38:48.065273Z  INFO list_models{refresh_strategy=offline}: codex_models_manager::manager: models cache: evaluating cache eligibility client_version="0.147.0"
+    2026-08-14T16:38:48.065295Z  INFO list_models{refresh_strategy=offline}: codex_models_manager::cache: models cache: attempting load_fresh cache_path=/tmp/.tmpCS6pga/models_cache.json expected_version="0.147.0"
+    2026-08-14T16:38:48.065345Z  INFO list_models{refresh_strategy=offline}: codex_models_manager::manager: models cache: no usable cache entry
+    2026-08-14T16:38:48.065620Z  INFO codex_otel.log_only: event.name="codex.tool_result" tool_name=collaborationspawn_agent call_id=spawn-call-1 arguments={"message":"opaque-encrypted-message","model":"gpt-5.6-luna","task_name":"worker"} duration_ms=0 success=false output=Unknown model `gpt-5.6-luna` for spawn_agent. Available models: deepseek-v4-flash, deepseek-v4-pro mcp_server= mcp_server_origin= event.timestamp=2026-08-14T16:38:48.065Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.065638Z  INFO codex_otel.trace_safe: event.name="codex.tool_result" tool_name=collaborationspawn_agent call_id=spawn-call-1 duration_ms=0 success=false arguments_length=82 output_length=98 output_line_count=1 tool_origin="builtin" mcp_tool=false event.timestamp=2026-08-14T16:38:48.065Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.065664Z ERROR codex_core::tools::router: error=Unknown model `gpt-5.6-luna` for spawn_agent. Available models: deepseek-v4-flash, deepseek-v4-pro
+    2026-08-14T16:38:48.065720Z  INFO session_loop{thread_id=01a00123-f190-7c83-97d3-b17e4aca076b}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1ae-7b82-b850-446f3ad16d57" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f190-7c83-97d3-b17e4aca076b turn.id=01a00123-f1ae-7b82-b850-446f3ad16d57 model=gpt-5.6-sol codex.turn.reasoning_effort=low}: codex_core::tools::parallel: tool call completed event.name="codex.tool_call" trace_id= conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b turn_id=01a00123-f1ae-7b82-b850-446f3ad16d57 tool_name=collaborationspawn_agent call_id=spawn-call-1 tool_source="direct" execution_started=true dispatch_duration_ms=0 handler_duration_ms=2 total_duration_ms=3
+    2026-08-14T16:38:48.071058Z  INFO session_loop{thread_id=01a00123-f190-7c83-97d3-b17e4aca076b}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1ae-7b82-b850-446f3ad16d57" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f190-7c83-97d3-b17e4aca076b turn.id=01a00123-f1ae-7b82-b850-446f3ad16d57 model=gpt-5.6-sol codex.turn.reasoning_effort=low}: feedback_tags: model="gpt-5.6-sol" approval_policy=Never sandbox_policy=DangerFullAccess effort=None auth_mode=Some(ApiKey) features=[ShellTool, ViewImage, CodexHooks, CodeModeHost, UnifiedExec, TerminalResizeReflow, EnableRequestCompression, Collab, MultiAgentV2, ToolSearchAlwaysDeferMcpTools, ToolSuggest, Plugins, InAppBrowser, InAppUpdates, BrowserUse, BrowserUseFullCdpAccess, BrowserUseExternal, ComputerUse, ImageGeneration, ResizeAllImages, ItemIds, SkillMcpDependencyInstall, SkillSearch, MentionsV2, GuardianApproval, Goals, ToolCallMcpElicitation, AuthElicitation, Personality, FastMode, RemoteCompactionV2, WorkspaceDependencies, Sqlite, Steer, CollaborationModes, TuiAppServer]
+    2026-08-14T16:38:48.077944Z  INFO session_loop{thread_id=01a00123-f190-7c83-97d3-b17e4aca076b}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1ae-7b82-b850-446f3ad16d57" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f190-7c83-97d3-b17e4aca076b turn.id=01a00123-f1ae-7b82-b850-446f3ad16d57 model=gpt-5.6-sol codex.turn.reasoning_effort=low}:model_client.stream_responses_api{model=gpt-5.6-sol wire_api=responses transport="responses_http" http.method="POST" api.path="responses" turn.has_metadata_header=true}: codex_http_client::custom_ca: building HTTP client with rustls backend for custom CA bundle source_env="SSL_CERT_FILE" ca_path=/usr/lib/ssl/cert.pem
+    2026-08-14T16:38:48.083378Z  INFO session_loop{thread_id=01a00123-f190-7c83-97d3-b17e4aca076b}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1ae-7b82-b850-446f3ad16d57" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f190-7c83-97d3-b17e4aca076b turn.id=01a00123-f1ae-7b82-b850-446f3ad16d57 model=gpt-5.6-sol codex.turn.reasoning_effort=low}:model_client.stream_responses_api{model=gpt-5.6-sol wire_api=responses transport="responses_http" http.method="POST" api.path="responses" turn.has_metadata_header=true}: codex_http_client::custom_ca: loaded certificates from custom CA bundle source_env="SSL_CERT_FILE" ca_path=/usr/lib/ssl/cert.pem certificate_count=121
+    2026-08-14T16:38:48.112971Z  INFO session_loop{thread_id=01a00123-f190-7c83-97d3-b17e4aca076b}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1ae-7b82-b850-446f3ad16d57" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f190-7c83-97d3-b17e4aca076b turn.id=01a00123-f1ae-7b82-b850-446f3ad16d57 model=gpt-5.6-sol codex.turn.reasoning_effort=low}:model_client.stream_responses_api{model=gpt-5.6-sol wire_api=responses transport="responses_http" http.method="POST" api.path="responses" turn.has_metadata_header=true}:responses.stream_request{transport="responses_http" http.method="POST" api.path="responses"}:endpoint_session.stream_encoded_json_with{http.method=POST api.path="responses"}: codex_otel.log_only: event.name="codex.api_request" duration_ms=2 http.response.status_code=200 attempt=0 auth.header_attached=true auth.header_name="authorization" auth.retry_after_unauthorized=false endpoint="/responses" auth.env_openai_api_key_present=false auth.env_codex_api_key_present=false auth.env_codex_api_key_enabled=false auth.env_refresh_token_url_override_present=false event.timestamp=2026-08-14T16:38:48.112Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.113036Z  INFO session_loop{thread_id=01a00123-f190-7c83-97d3-b17e4aca076b}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1ae-7b82-b850-446f3ad16d57" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f190-7c83-97d3-b17e4aca076b turn.id=01a00123-f1ae-7b82-b850-446f3ad16d57 model=gpt-5.6-sol codex.turn.reasoning_effort=low}:model_client.stream_responses_api{model=gpt-5.6-sol wire_api=responses transport="responses_http" http.method="POST" api.path="responses" turn.has_metadata_header=true}:responses.stream_request{transport="responses_http" http.method="POST" api.path="responses"}:endpoint_session.stream_encoded_json_with{http.method=POST api.path="responses"}: codex_otel.trace_safe: event.name="codex.api_request" duration_ms=2 http.response.status_code=200 attempt=0 auth.header_attached=true auth.header_name="authorization" auth.retry_after_unauthorized=false endpoint="/responses" auth.env_openai_api_key_present=false auth.env_codex_api_key_present=false auth.env_codex_api_key_enabled=false auth.env_refresh_token_url_override_present=false event.timestamp=2026-08-14T16:38:48.113Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.113056Z  INFO session_loop{thread_id=01a00123-f190-7c83-97d3-b17e4aca076b}:submission_dispatch{otel.name="op.dispatch.user_input" submission.id="01a00123-f1ae-7b82-b850-446f3ad16d57" codex.op="user_input"}:turn{otel.name="session_task.turn" thread.id=01a00123-f190-7c83-97d3-b17e4aca076b turn.id=01a00123-f1ae-7b82-b850-446f3ad16d57 model=gpt-5.6-sol codex.turn.reasoning_effort=low}:model_client.stream_responses_api{model=gpt-5.6-sol wire_api=responses transport="responses_http" http.method="POST" api.path="responses" turn.has_metadata_header=true}:responses.stream_request{transport="responses_http" http.method="POST" api.path="responses"}:endpoint_session.stream_encoded_json_with{http.method=POST api.path="responses"}: feedback_tags: endpoint="/responses" auth_header_attached=true auth_header_name="authorization" auth_mode="ApiKey" auth_retry_after_unauthorized="false" auth_recovery_mode="" auth_recovery_phase="" auth_connection_reused="" auth_request_id="" auth_cf_ray="" auth_error="" auth_error_code="" auth_recovery_followup_success="" auth_recovery_followup_status="" auth_env_openai_api_key_present=false auth_env_codex_api_key_present=false auth_env_codex_api_key_enabled=false auth_env_provider_key_name="" auth_env_provider_key_present="" auth_env_refresh_token_url_override_present=false
+    2026-08-14T16:38:48.113374Z  INFO codex_otel.log_only: event.name="codex.sse_event" event.kind=response.created duration_ms=0 event.timestamp=2026-08-14T16:38:48.113Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.113464Z  INFO codex_otel.log_only: event.name="codex.sse_event" event.kind=response.output_item.done duration_ms=0 event.timestamp=2026-08-14T16:38:48.113Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.113521Z  INFO codex_otel.log_only: event.name="codex.sse_event" event.kind=response.completed duration_ms=0 event.timestamp=2026-08-14T16:38:48.113Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.113599Z  INFO feedback_tags: last_model_response_id="resp-parent-2"
+    2026-08-14T16:38:48.113606Z  INFO codex_otel.log_only: event.name="codex.sse_event" event.kind=response.completed input_token_count=0 output_token_count=0 cached_token_count=0 cache_write_token_count=0 reasoning_token_count=0 tool_token_count=0 model_reasoning_effort="low" event.timestamp=2026-08-14T16:38:48.113Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    2026-08-14T16:38:48.113616Z  INFO codex_otel.trace_safe: event.name="codex.sse_event" event.kind=response.completed input_token_count=0 output_token_count=0 cached_token_count=0 cache_write_token_count=0 reasoning_token_count=0 tool_token_count=0 model_reasoning_effort="low" event.timestamp=2026-08-14T16:38:48.113Z conversation.id=01a00123-f190-7c83-97d3-b17e4aca076b app.version=0.147.0 auth_mode="ApiKey" originator=Codex_Desktop terminal.type=dumb model=gpt-5.6-sol slug=gpt-5.6-sol
+    test suite::subagent_notifications::multi_agent_v2_spawn_sends_agent_message_to_child::luna_encrypted_leaf ... FAILED
+
+    failures:
+
+    failures:
+        suite::subagent_notifications::multi_agent_v2_spawn_sends_agent_message_to_child::luna_encrypted_leaf
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.41s
+
+  stderr ───
+    Error: timed out waiting for child agent message request
+
+  TRY 2 FAIL [   2.424s] ( 988/1123) codex-core::all suite::subagent_notifications::spawn_agent_preserves_configured_defaults_through_unrelated_role
+  stdout ───
+
+    running 1 test
+    test suite::subagent_notifications::spawn_agent_preserves_configured_defaults_through_unrelated_role ... FAILED
+
+    failures:
+
+    failures:
+        suite::subagent_notifications::spawn_agent_preserves_configured_defaults_through_unrelated_role
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.41s
+
+  stderr ───
+    Error: timed out waiting for spawned thread id
+
+  TRY 2 FAIL [   2.402s] ( 991/1123) codex-core::all suite::subagent_notifications::spawn_agent_requested_model_and_reasoning_override_inherited_settings_without_role
+  stdout ───
+
+    running 1 test
+    test suite::subagent_notifications::spawn_agent_requested_model_and_reasoning_override_inherited_settings_without_role ... FAILED
+
+    failures:
+
+    failures:
+        suite::subagent_notifications::spawn_agent_requested_model_and_reasoning_override_inherited_settings_without_role
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.39s
+
+  stderr ───
+    Error: timed out waiting for spawned thread id
+
+  TRY 2 FAIL [   2.437s] ( 994/1123) codex-core::all suite::subagent_notifications::spawn_agent_role_overrides_requested_model_and_reasoning_settings
+  stdout ───
+
+    running 1 test
+    test suite::subagent_notifications::spawn_agent_role_overrides_requested_model_and_reasoning_settings ... FAILED
+
+    failures:
+
+    failures:
+        suite::subagent_notifications::spawn_agent_role_overrides_requested_model_and_reasoning_settings
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.43s
+
+  stderr ───
+    Error: timed out waiting for spawned thread id
+
+  TRY 2 FAIL [   2.452s] ( 997/1123) codex-core::all suite::subagent_notifications::spawn_agent_uses_configured_subagent_defaults
+  stdout ───
+
+    running 1 test
+    test suite::subagent_notifications::spawn_agent_uses_configured_subagent_defaults ... FAILED
+
+    failures:
+
+    failures:
+        suite::subagent_notifications::spawn_agent_uses_configured_subagent_defaults
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.44s
+
+  stderr ───
+    Error: timed out waiting for spawned thread id
+
+  TRY 2 FAIL [   2.449s] ( 998/1123) codex-core::all suite::subagent_notifications::spawn_agent_uses_independent_configured_subagent_defaults::model_only
+  stdout ───
+
+    running 1 test
+    test suite::subagent_notifications::spawn_agent_uses_independent_configured_subagent_defaults::model_only ... FAILED
+
+    failures:
+
+    failures:
+        suite::subagent_notifications::spawn_agent_uses_independent_configured_subagent_defaults::model_only
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.44s
+
+  stderr ───
+    Error: timed out waiting for spawned thread id
+
+  TRY 2 FAIL [   2.446s] (1000/1123) codex-core::all suite::subagent_notifications::spawned_agent_uses_summary_support_for_final_model::supported_child
+  stdout ───
+
+    running 1 test
+    test suite::subagent_notifications::spawned_agent_uses_summary_support_for_final_model::supported_child ... FAILED
+
+    failures:
+
+    failures:
+        suite::subagent_notifications::spawned_agent_uses_summary_support_for_final_model::supported_child
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.43s
+
+  stderr ───
+    Error: timed out waiting for spawned thread id
+
+  TRY 2 FAIL [   2.462s] (1001/1123) codex-core::all suite::subagent_notifications::spawned_agent_uses_summary_support_for_final_model::unsupported_child
+  stdout ───
+
+    running 1 test
+    test suite::subagent_notifications::spawned_agent_uses_summary_support_for_final_model::unsupported_child ... FAILED
+
+    failures:
+
+    failures:
+        suite::subagent_notifications::spawned_agent_uses_summary_support_for_final_model::unsupported_child
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.45s
+
+  stderr ───
+    Error: timed out waiting for spawned thread id
+
+  TRY 2 FAIL [   2.510s] (1007/1123) codex-core::all suite::subagent_notifications::spawned_child_receives_forked_parent_context::legacy
+  stdout ───
+
+    running 1 test
+    test suite::subagent_notifications::spawned_child_receives_forked_parent_context::legacy ... FAILED
+
+    failures:
+
+    failures:
+        suite::subagent_notifications::spawned_child_receives_forked_parent_context::legacy
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.49s
+
+  stderr ───
+    Error: timed out waiting for request using model gpt-5.4
+
+  TRY 2 FAIL [   2.486s] (1010/1123) codex-core::all suite::subagent_notifications::spawned_full_history_v2_child_uses_model_precedence_without_dropping_context::configured_default_with_omitted_fork_turns
+  stdout ───
+
+    running 1 test
+    test suite::subagent_notifications::spawned_full_history_v2_child_uses_model_precedence_without_dropping_context::configured_default_with_omitted_fork_turns ... FAILED
+
+    failures:
+
+    failures:
+        suite::subagent_notifications::spawned_full_history_v2_child_uses_model_precedence_without_dropping_context::configured_default_with_omitted_fork_turns
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.47s
+
+  stderr ───
+    Error: timed out waiting for request using model gpt-5.6-terra
+
+  TRY 2 FAIL [   2.493s] (1013/1123) codex-core::all suite::subagent_notifications::spawned_full_history_v2_child_uses_model_precedence_without_dropping_context::explicit_override_with_fork_turns_all
+  stdout ───
+
+    running 1 test
+    test suite::subagent_notifications::spawned_full_history_v2_child_uses_model_precedence_without_dropping_context::explicit_override_with_fork_turns_all ... FAILED
+
+    failures:
+
+    failures:
+        suite::subagent_notifications::spawned_full_history_v2_child_uses_model_precedence_without_dropping_context::explicit_override_with_fork_turns_all
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.48s
+
+  stderr ───
+    Error: timed out waiting for request using model gpt-5.6-sol
+
+  TRY 2 FAIL [   2.573s] (1015/1123) codex-core::all suite::subagent_notifications::spawned_child_receives_forked_parent_context::paginated
+  stdout ───
+
+    running 1 test
+    test suite::subagent_notifications::spawned_child_receives_forked_parent_context::paginated ... FAILED
+
+    failures:
+
+    failures:
+        suite::subagent_notifications::spawned_child_receives_forked_parent_context::paginated
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1142 filtered out; finished in 2.56s
+
+  stderr ───
+    Error: timed out waiting for request using model gpt-5.4
+
+────────────
+     Summary [  52.602s] 1123 tests run: 1086 passed (1 flaky), 37 failed, 8 skipped
+  TRY 2 FAIL [   0.437s] ( 389/1123) codex-core::all suite::guardian_review::guardian_session_prewarms_and_is_reused_for_first_review::api_key_uses_luna_with_responses_lite
+  TRY 2 FAIL [   0.511s] ( 394/1123) codex-core::all suite::guardian_review::guardian_session_prewarms_and_is_reused_for_first_review::chatgpt_uses_codex_auto_review
+  TRY 2 FAIL [   0.424s] ( 469/1123) codex-core::all suite::injected_models_cache::injected_cache_error_falls_back_for_agent_model_selection
+  TRY 2 FAIL [   0.431s] ( 472/1123) codex-core::all suite::injected_models_cache::injected_cache_hit_drives_agent_model_selection
+  TRY 2 FAIL [   0.533s] ( 520/1123) codex-core::all suite::model_switching::model_switch_to_smaller_model_updates_token_context_window
+  TRY 2 FAIL [   0.371s] ( 527/1123) codex-core::all suite::models_cache_ttl::uses_cache_when_version_matches
+  TRY 2 FAIL [   0.426s] ( 530/1123) codex-core::all suite::models_cache_ttl::refreshes_when_cache_version_differs
+  TRY 2 FAIL [   0.473s] ( 531/1123) codex-core::all suite::models_cache_ttl::refreshes_when_cache_version_missing
+  TRY 2 FAIL [   0.502s] ( 537/1123) codex-core::all suite::models_cache_ttl::renews_cache_ttl_on_matching_models_etag
+  TRY 2 FAIL [   2.580s] ( 582/1123) codex-core::all suite::model_runtime_selectors::multi_agent_config_precedence_overrides_remote_model_selector
+  TRY 2 FAIL [   2.494s] ( 583/1123) codex-core::all suite::model_runtime_selectors::remote_code_mode_only_selector_fails_closed_when_host_is_disabled
+  TRY 2 FAIL [   2.529s] ( 584/1123) codex-core::all suite::model_runtime_selectors::remote_tool_mode_selector_overrides_feature_flags
+  TRY 2 FAIL [   2.444s] ( 587/1123) codex-core::all suite::model_runtime_selectors::unsupported_code_mode_warning_is_emitted_each_turn
+  TRY 2 FAIL [   2.403s] ( 708/1123) codex-core::all suite::personality::remote_model_friendly_personality_instructions_with_feature
+  TRY 2 FAIL [   2.394s] ( 712/1123) codex-core::all suite::personality::user_turn_personality_remote_model_template_includes_update_message
+  TRY 2 FAIL [   0.095s] ( 718/1123) codex-core::all suite::remote_models::remote_models_do_not_append_removed_builtin_presets
+  TRY 2 FAIL [   0.114s] ( 719/1123) codex-core::all suite::remote_models::remote_models_hide_picker_only_models
+  TRY 2 FAIL [   0.111s] ( 723/1123) codex-core::all suite::remote_models::remote_models_merge_adds_new_high_priority_first
+  TRY 2 FAIL [   2.479s] ( 831/1123) codex-core::all suite::remote_models::remote_models_apply_legacy_instructions
+  TRY 2 FAIL [   2.459s] ( 839/1123) codex-core::all suite::remote_models::remote_models_remote_model_uses_unified_exec
+  TRY 2 FAIL [   2.481s] ( 841/1123) codex-core::all suite::remote_models::remote_models_truncation_policy_with_tool_output_override
+  TRY 2 FAIL [   2.431s] ( 843/1123) codex-core::all suite::remote_models::remote_models_truncation_policy_without_override_preserves_remote
+  TRY 2 FAIL [   0.396s] ( 951/1123) codex-core::all suite::subagent_notifications::spawn_agent_rejects_reasoning_effort_unsupported_by_role_model
+  TRY 2 FAIL [   2.386s] ( 981/1123) codex-core::all suite::spawn_agent_description::spawn_agent_description_lists_visible_models_and_reasoning_efforts
+  TRY 2 FAIL [   2.399s] ( 986/1123) codex-core::all suite::subagent_notifications::multi_agent_v2_spawn_sends_agent_message_to_child::legacy_encrypted_leaf
+  TRY 2 FAIL [   2.423s] ( 987/1123) codex-core::all suite::subagent_notifications::multi_agent_v2_spawn_sends_agent_message_to_child::luna_encrypted_leaf
+  TRY 2 FAIL [   2.424s] ( 988/1123) codex-core::all suite::subagent_notifications::spawn_agent_preserves_configured_defaults_through_unrelated_role
+  TRY 2 FAIL [   2.402s] ( 991/1123) codex-core::all suite::subagent_notifications::spawn_agent_requested_model_and_reasoning_override_inherited_settings_without_role
+  TRY 2 FAIL [   2.437s] ( 994/1123) codex-core::all suite::subagent_notifications::spawn_agent_role_overrides_requested_model_and_reasoning_settings
+  TRY 2 FAIL [   2.452s] ( 997/1123) codex-core::all suite::subagent_notifications::spawn_agent_uses_configured_subagent_defaults
+  TRY 2 FAIL [   2.449s] ( 998/1123) codex-core::all suite::subagent_notifications::spawn_agent_uses_independent_configured_subagent_defaults::model_only
+  TRY 2 FAIL [   2.446s] (1000/1123) codex-core::all suite::subagent_notifications::spawned_agent_uses_summary_support_for_final_model::supported_child
+  TRY 2 FAIL [   2.462s] (1001/1123) codex-core::all suite::subagent_notifications::spawned_agent_uses_summary_support_for_final_model::unsupported_child
+  TRY 2 FAIL [   2.510s] (1007/1123) codex-core::all suite::subagent_notifications::spawned_child_receives_forked_parent_context::legacy
+  TRY 2 FAIL [   2.486s] (1010/1123) codex-core::all suite::subagent_notifications::spawned_full_history_v2_child_uses_model_precedence_without_dropping_context::configured_default_with_omitted_fork_turns
+  TRY 2 FAIL [   2.493s] (1013/1123) codex-core::all suite::subagent_notifications::spawned_full_history_v2_child_uses_model_precedence_without_dropping_context::explicit_override_with_fork_turns_all
+  TRY 2 FAIL [   2.573s] (1015/1123) codex-core::all suite::subagent_notifications::spawned_child_receives_forked_parent_context::paginated
+error: test run failed
+error: recipe `test` failed on line 82 with exit code 100

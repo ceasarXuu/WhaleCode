@@ -1,0 +1,585 @@
+RUST_MIN_STACK=8388608 NEXTEST_PROFILE=local cargo nextest run --no-fail-fast "$@"
+    Updating crates.io index
+   Compiling codex-core v0.147.0 (<WORKSPACE>/third_party/codex-cli/codex-rs/core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.10s
+────────────
+ Nextest run ID 91363ab7-1201-4d8d-b198-c4eb6a17dda2 with nextest profile: local
+    Starting 2178 tests across 1 binary
+  TRY 2 FAIL [   0.060s] (1079/2178) codex-core guardian::tests::guardian_review_session_config_clears_context_overrides_for_distinct_effective_model
+  stdout ───
+
+    running 1 test
+    test guardian::tests::guardian_review_session_config_clears_context_overrides_for_distinct_effective_model ... FAILED
+
+    failures:
+
+    failures:
+        guardian::tests::guardian_review_session_config_clears_context_overrides_for_distinct_effective_model
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.05s
+
+  stderr ───
+
+    thread 'guardian::tests::guardian_review_session_config_clears_context_overrides_for_distinct_effective_model' (3136028) panicked at core/src/guardian/tests.rs:3096:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+     (
+    <    Some(
+    <        900000,
+    <    ),
+    <    Some(
+    <        600000,
+    <    ),
+    >    None,
+    >    None,
+     )
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.089s] (1081/2178) codex-core guardian::tests::guardian_ephemeral_retry_preserves_parallel_trunk_and_fork_history
+  stdout ───
+
+    running 1 test
+    test guardian::tests::guardian_ephemeral_retry_preserves_parallel_trunk_and_fork_history ... FAILED
+
+    failures:
+
+    failures:
+        guardian::tests::guardian_ephemeral_retry_preserves_parallel_trunk_and_fork_history
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.07s
+
+  stderr ───
+
+    thread 'guardian_ephemeral_retry_preserves_parallel_trunk_and_fork_history' (3136017) panicked at core/src/guardian/tests.rs:2857:9:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+    <Denied {
+    <    rejection: "This action was rejected due to unacceptable risk.\nReason: Automatic approval review failed: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale.\nThe agent must not attempt to achieve the same outcome via workaround, indirect execution, or policy circumvention. Proceed only with a materially safer alternative, or if the user explicitly approves the action after being informed of the risk. Otherwise, stop and request user input.",
+    <}
+    >Approved
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    Error: guardian_ephemeral_retry_preserves_parallel_trunk_and_fork_history thread panicked
+
+  TRY 2 FAIL [   0.085s] (1084/2178) codex-core guardian::tests::guardian_review_does_not_retry_valid_denial
+  stdout ───
+
+    running 1 test
+    test guardian::tests::guardian_review_does_not_retry_valid_denial ... FAILED
+
+    failures:
+
+    failures:
+        guardian::tests::guardian_review_does_not_retry_valid_denial
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.07s
+
+  stderr ───
+
+    thread 'guardian::tests::guardian_review_does_not_retry_valid_denial' (3136067) panicked at core/src/guardian/tests.rs:2765:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+    <0
+    >1
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.098s] (1087/2178) codex-core guardian::tests::guardian_review_exhausts_three_failures_with_one_terminal_event
+  stdout ───
+
+    running 1 test
+    test guardian::tests::guardian_review_exhausts_three_failures_with_one_terminal_event ... FAILED
+
+    failures:
+
+    failures:
+        guardian::tests::guardian_review_exhausts_three_failures_with_one_terminal_event
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.08s
+
+  stderr ───
+
+    thread 'guardian::tests::guardian_review_exhausts_three_failures_with_one_terminal_event' (3136054) panicked at core/src/guardian/tests.rs:2714:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+    <0
+    >3
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.100s] (1090/2178) codex-core guardian::tests::guardian_reused_trunk_ignores_stale_prior_turn_completion
+  stdout ───
+
+    running 1 test
+    test guardian::tests::guardian_reused_trunk_ignores_stale_prior_turn_completion ... FAILED
+
+    failures:
+
+    failures:
+        guardian::tests::guardian_reused_trunk_ignores_stale_prior_turn_completion
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.09s
+
+  stderr ───
+
+    thread 'guardian::tests::guardian_reused_trunk_ignores_stale_prior_turn_completion' (3136121) panicked at core/src/guardian/tests.rs:2359:9:
+    expected first guardian assessment
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.101s] (1091/2178) codex-core guardian::tests::guardian_review_does_not_retry_missing_assessment_payload
+  stdout ───
+
+    running 1 test
+    test guardian::tests::guardian_review_does_not_retry_missing_assessment_payload ... FAILED
+
+    failures:
+
+    failures:
+        guardian::tests::guardian_review_does_not_retry_missing_assessment_payload
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.09s
+
+  stderr ───
+
+    thread 'guardian::tests::guardian_review_does_not_retry_missing_assessment_payload' (3136125) panicked at core/src/guardian/tests.rs:2610:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+    <0
+    >1
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.105s] (1092/2178) codex-core guardian::tests::guardian_review_records_missing_auto_review_model_in_analytics_metadata
+  stdout ───
+
+    running 1 test
+    test guardian::tests::guardian_review_records_missing_auto_review_model_in_analytics_metadata ... FAILED
+
+    failures:
+
+    failures:
+        guardian::tests::guardian_review_records_missing_auto_review_model_in_analytics_metadata
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.09s
+
+  stderr ───
+
+    thread 'guardian::tests::guardian_review_records_missing_auto_review_model_in_analytics_metadata' (3136117) panicked at core/src/guardian/tests.rs:1615:9:
+    expected guardian assessment
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.120s] (1095/2178) codex-core guardian::tests::guardian_review_retries_transient_session_failure_then_approves
+  stdout ───
+
+    running 1 test
+    test guardian::tests::guardian_review_retries_transient_session_failure_then_approves ... FAILED
+
+    failures:
+
+    failures:
+        guardian::tests::guardian_review_retries_transient_session_failure_then_approves
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.10s
+
+  stderr ───
+
+    thread 'guardian::tests::guardian_review_retries_transient_session_failure_then_approves' (3136157) panicked at core/src/guardian/tests.rs:2571:9:
+    expected guardian assessment
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.113s] (1097/2178) codex-core guardian::tests::guardian_review_retries_two_parse_failures_then_approves
+  stdout ───
+
+    running 1 test
+    test guardian::tests::guardian_review_retries_two_parse_failures_then_approves ... FAILED
+
+    failures:
+
+    failures:
+        guardian::tests::guardian_review_retries_two_parse_failures_then_approves
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.10s
+
+  stderr ───
+
+    thread 'guardian::tests::guardian_review_retries_two_parse_failures_then_approves' (3136174) panicked at core/src/guardian/tests.rs:2662:9:
+    expected guardian assessment
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.110s] (1115/2178) codex-core guardian::tests::guardian_review_uses_model_catalog_override_when_preferred_review_model_exists
+  stdout ───
+
+    running 1 test
+    test guardian::tests::guardian_review_uses_model_catalog_override_when_preferred_review_model_exists ... FAILED
+
+    failures:
+
+    failures:
+        guardian::tests::guardian_review_uses_model_catalog_override_when_preferred_review_model_exists
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.10s
+
+  stderr ───
+
+    thread 'guardian::tests::guardian_review_uses_model_catalog_override_when_preferred_review_model_exists' (3136424) panicked at core/src/guardian/tests.rs:1615:9:
+    expected guardian assessment
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.156s] (1119/2178) codex-core guardian::tests::guardian_review_request_layout_matches_model_visible_request_snapshot
+  stdout ───
+
+    running 1 test
+    test guardian::tests::guardian_review_request_layout_matches_model_visible_request_snapshot ... FAILED
+
+    failures:
+
+    failures:
+        guardian::tests::guardian_review_request_layout_matches_model_visible_request_snapshot
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.14s
+
+  stderr ───
+
+    thread 'guardian::tests::guardian_review_request_layout_matches_model_visible_request_snapshot' (3136322) panicked at core/src/guardian/tests.rs:1862:9:
+    expected guardian assessment
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.173s] (1120/2178) codex-core guardian::tests::guardian_reuses_prompt_cache_key_and_appends_prior_reviews
+  stdout ───
+
+    running 1 test
+    test guardian::tests::guardian_reuses_prompt_cache_key_and_appends_prior_reviews ... FAILED
+
+    failures:
+
+    failures:
+        guardian::tests::guardian_reuses_prompt_cache_key_and_appends_prior_reviews
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.15s
+
+  stderr ───
+
+    thread 'guardian::tests::guardian_reuses_prompt_cache_key_and_appends_prior_reviews' (3136285) panicked at core/src/guardian/tests.rs:2168:9:
+    expected first guardian assessment
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.107s] (1124/2178) codex-core guardian::tests::guardian_review_uses_preferred_review_model_without_model_catalog_override
+  stdout ───
+
+    running 1 test
+    test guardian::tests::guardian_review_uses_preferred_review_model_without_model_catalog_override ... FAILED
+
+    failures:
+
+    failures:
+        guardian::tests::guardian_review_uses_preferred_review_model_without_model_catalog_override
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.09s
+
+  stderr ───
+
+    thread 'guardian::tests::guardian_review_uses_preferred_review_model_without_model_catalog_override' (3136488) panicked at core/src/guardian/tests.rs:1615:9:
+    expected guardian assessment
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.149s] (1135/2178) codex-core guardian::tests::guardian_review_surfaces_responses_api_errors_in_rejection_reason
+  stdout ───
+
+    running 1 test
+    test guardian::tests::guardian_review_surfaces_responses_api_errors_in_rejection_reason ... FAILED
+
+    failures:
+
+    failures:
+        guardian::tests::guardian_review_surfaces_responses_api_errors_in_rejection_reason
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.13s
+
+  stderr ───
+
+    thread 'guardian::tests::guardian_review_surfaces_responses_api_errors_in_rejection_reason' (3136430) panicked at core/src/guardian/tests.rs:2484:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+    <0
+    >1
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.120s] (1233/2178) codex-core mcp_tool_call::tests::guardian_mode_mcp_denial_returns_rationale_message
+  stdout ───
+
+    running 1 test
+    test mcp_tool_call::tests::guardian_mode_mcp_denial_returns_rationale_message ... FAILED
+
+    failures:
+
+    failures:
+        mcp_tool_call::tests::guardian_mode_mcp_denial_returns_rationale_message
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.11s
+
+  stderr ───
+
+    thread 'mcp_tool_call::tests::guardian_mode_mcp_denial_returns_rationale_message' (3137406) panicked at core/src/mcp_tool_call_tests.rs:2748:5:
+    assertion failed: message.contains("Reason: The tool call would expose private calendar data")
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.211s] (1368/2178) codex-core plugins::discoverable::tests::list_tool_suggest_discoverable_plugins_includes_cached_remote_global_plugins
+  stdout ───
+
+    running 1 test
+    test plugins::discoverable::tests::list_tool_suggest_discoverable_plugins_includes_cached_remote_global_plugins ... FAILED
+
+    failures:
+
+    failures:
+        plugins::discoverable::tests::list_tool_suggest_discoverable_plugins_includes_cached_remote_global_plugins
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.20s
+
+  stderr ───
+
+    thread 'plugins::discoverable::tests::list_tool_suggest_discoverable_plugins_includes_cached_remote_global_plugins' (3138282) panicked at core/src/plugins/discoverable_tests.rs:279:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+    <[]
+    >[
+    >    "github@openai-curated-remote",
+    >]
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.120s] (1426/2178) codex-core session::tests::guardian_tests::request_permissions_routes_to_guardian_when_reviewer_is_enabled
+  stdout ───
+
+    running 1 test
+    test session::tests::guardian_tests::request_permissions_routes_to_guardian_when_reviewer_is_enabled ... FAILED
+
+    failures:
+
+    failures:
+        session::tests::guardian_tests::request_permissions_routes_to_guardian_when_reviewer_is_enabled
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.11s
+
+  stderr ───
+
+    thread 'session::tests::guardian_tests::request_permissions_routes_to_guardian_when_reviewer_is_enabled' (3139676) panicked at core/src/session/tests/guardian_tests.rs:150:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+     Some(
+         RequestPermissionsResponse {
+             permissions: RequestPermissionProfile {
+    <            network: None,
+    >            network: Some(
+    >                NetworkPermissions {
+    >                    enabled: Some(
+    >                        true,
+    >                    ),
+    >                },
+    >            ),
+                 file_system: None,
+             },
+             scope: Turn,
+             strict_auto_review: false,
+         },
+     )
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.121s] (1437/2178) codex-core session::tests::guardian_tests::strict_auto_review_turn_grant_forces_guardian_for_shell_command_policy_skip
+  stdout ───
+
+    running 1 test
+    test session::tests::guardian_tests::strict_auto_review_turn_grant_forces_guardian_for_shell_command_policy_skip ... FAILED
+
+    failures:
+
+    failures:
+        session::tests::guardian_tests::strict_auto_review_turn_grant_forces_guardian_for_shell_command_policy_skip
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.11s
+
+  stderr ───
+
+    thread 'session::tests::guardian_tests::strict_auto_review_turn_grant_forces_guardian_for_shell_command_policy_skip' (3139879) panicked at core/src/session/tests/guardian_tests.rs:486:43:
+    expected Ok result: RespondToModel("This action was rejected due to unacceptable risk.\nReason: Automatic approval review failed: Missing environment variable: `DEEPSEEK_API_KEY`. Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale.\nThe agent must not attempt to achieve the same outcome via workaround, indirect execution, or policy circumvention. Proceed only with a materially safer alternative, or if the user explicitly approves the action after being informed of the risk. Otherwise, stop and request user input.")
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.181s] (1626/2178) codex-core session::tests::user_shell_commands_do_not_inherit_managed_network_proxy
+  stdout ───
+
+    running 1 test
+    test session::tests::user_shell_commands_do_not_inherit_managed_network_proxy ... FAILED
+
+    failures:
+
+    failures:
+        session::tests::user_shell_commands_do_not_inherit_managed_network_proxy
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.17s
+
+  stderr ───
+
+    thread 'session::tests::user_shell_commands_do_not_inherit_managed_network_proxy' (3143075) panicked at core/src/session/tests.rs:1378:13:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+    <http://127.0.0.1:7890
+    >not-set
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.087s] (1643/2178) codex-core thread_manager::tests::new_uses_active_provider_for_model_refresh
+  stdout ───
+
+    running 1 test
+    test thread_manager::tests::new_uses_active_provider_for_model_refresh ... FAILED
+
+    failures:
+
+    failures:
+        thread_manager::tests::new_uses_active_provider_for_model_refresh
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.07s
+
+  stderr ───
+
+    thread 'thread_manager::tests::new_uses_active_provider_for_model_refresh' (3143907) panicked at core/src/thread_manager_tests.rs:1540:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+    <0
+    >1
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.105s] (1647/2178) codex-core thread_manager::tests::injected_models_manager_controls_refresh_policy
+  stdout ───
+
+    running 1 test
+    test thread_manager::tests::injected_models_manager_controls_refresh_policy ... FAILED
+
+    failures:
+
+    failures:
+        thread_manager::tests::injected_models_manager_controls_refresh_policy
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.09s
+
+  stderr ───
+
+    thread 'thread_manager::tests::injected_models_manager_controls_refresh_policy' (3143901) panicked at core/src/thread_manager_tests.rs:1592:5:
+    assertion failed: `(left == right)`
+
+    Diff < left / right > :
+    <0
+    >2
+
+
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.152s] (1846/2178) codex-core tools::handlers::multi_agents::tests::spawn_agent_service_tier_override_validates_the_effective_child_model
+  stdout ───
+
+    running 1 test
+    test tools::handlers::multi_agents::tests::spawn_agent_service_tier_override_validates_the_effective_child_model ... FAILED
+
+    failures:
+
+    failures:
+        tools::handlers::multi_agents::tests::spawn_agent_service_tier_override_validates_the_effective_child_model
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.12s
+
+  stderr ───
+
+    thread 'tools::handlers::multi_agents::tests::spawn_agent_service_tier_override_validates_the_effective_child_model' (3149041) panicked at core/src/tools/handlers/multi_agents_tests.rs:423:14:
+    spawn_agent should accept a supported explicit service tier: RespondToModel("Unknown model `gpt-5.4` for spawn_agent. Available models: deepseek-v4-flash, deepseek-v4-pro")
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.297s] (1992/2178) codex-core tools::handlers::multi_agents::tests::spawn_agent_service_tier_inheritance_preserves_supported_or_configured_tiers
+  stdout ───
+
+    running 1 test
+    test tools::handlers::multi_agents::tests::spawn_agent_service_tier_inheritance_preserves_supported_or_configured_tiers ... FAILED
+
+    failures:
+
+    failures:
+        tools::handlers::multi_agents::tests::spawn_agent_service_tier_inheritance_preserves_supported_or_configured_tiers
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.28s
+
+  stderr ───
+
+    thread 'tools::handlers::multi_agents::tests::spawn_agent_service_tier_inheritance_preserves_supported_or_configured_tiers' (3149660) panicked at core/src/tools/handlers/multi_agents_tests.rs:568:14:
+    spawn_agent should clear unsupported inherited service tier: RespondToModel("Unknown model `gpt-5.4-mini` for spawn_agent. Available models: deepseek-v4-flash, deepseek-v4-pro")
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+  TRY 2 FAIL [   0.135s] (2041/2178) codex-core tools::spec_plan::tests::hosted_web_search_and_standalone_image_generation_follow_runtime_gates
+  stdout ───
+
+    running 1 test
+    test tools::spec_plan::tests::hosted_web_search_and_standalone_image_generation_follow_runtime_gates ... FAILED
+
+    failures:
+
+    failures:
+        tools::spec_plan::tests::hosted_web_search_and_standalone_image_generation_follow_runtime_gates
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2177 filtered out; finished in 0.12s
+
+  stderr ───
+
+    thread 'tools::spec_plan::tests::hosted_web_search_and_standalone_image_generation_follow_runtime_gates' (3150974) panicked at core/src/tools/spec_plan_tests.rs:131:13:
+    expected visible tool `image_gen` in ["exec_command", "write_stdin", "update_plan", "request_user_input", "view_image", "multi_agent_v1", "web_search"]
+    note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+────────────
+     Summary [  24.910s] 2178 tests run: 2154 passed, 24 failed, 0 skipped
+  TRY 2 FAIL [   0.060s] (1079/2178) codex-core guardian::tests::guardian_review_session_config_clears_context_overrides_for_distinct_effective_model
+  TRY 2 FAIL [   0.089s] (1081/2178) codex-core guardian::tests::guardian_ephemeral_retry_preserves_parallel_trunk_and_fork_history
+  TRY 2 FAIL [   0.085s] (1084/2178) codex-core guardian::tests::guardian_review_does_not_retry_valid_denial
+  TRY 2 FAIL [   0.098s] (1087/2178) codex-core guardian::tests::guardian_review_exhausts_three_failures_with_one_terminal_event
+  TRY 2 FAIL [   0.100s] (1090/2178) codex-core guardian::tests::guardian_reused_trunk_ignores_stale_prior_turn_completion
+  TRY 2 FAIL [   0.101s] (1091/2178) codex-core guardian::tests::guardian_review_does_not_retry_missing_assessment_payload
+  TRY 2 FAIL [   0.105s] (1092/2178) codex-core guardian::tests::guardian_review_records_missing_auto_review_model_in_analytics_metadata
+  TRY 2 FAIL [   0.120s] (1095/2178) codex-core guardian::tests::guardian_review_retries_transient_session_failure_then_approves
+  TRY 2 FAIL [   0.113s] (1097/2178) codex-core guardian::tests::guardian_review_retries_two_parse_failures_then_approves
+  TRY 2 FAIL [   0.110s] (1115/2178) codex-core guardian::tests::guardian_review_uses_model_catalog_override_when_preferred_review_model_exists
+  TRY 2 FAIL [   0.156s] (1119/2178) codex-core guardian::tests::guardian_review_request_layout_matches_model_visible_request_snapshot
+  TRY 2 FAIL [   0.173s] (1120/2178) codex-core guardian::tests::guardian_reuses_prompt_cache_key_and_appends_prior_reviews
+  TRY 2 FAIL [   0.107s] (1124/2178) codex-core guardian::tests::guardian_review_uses_preferred_review_model_without_model_catalog_override
+  TRY 2 FAIL [   0.149s] (1135/2178) codex-core guardian::tests::guardian_review_surfaces_responses_api_errors_in_rejection_reason
+  TRY 2 FAIL [   0.120s] (1233/2178) codex-core mcp_tool_call::tests::guardian_mode_mcp_denial_returns_rationale_message
+  TRY 2 FAIL [   0.211s] (1368/2178) codex-core plugins::discoverable::tests::list_tool_suggest_discoverable_plugins_includes_cached_remote_global_plugins
+  TRY 2 FAIL [   0.120s] (1426/2178) codex-core session::tests::guardian_tests::request_permissions_routes_to_guardian_when_reviewer_is_enabled
+  TRY 2 FAIL [   0.121s] (1437/2178) codex-core session::tests::guardian_tests::strict_auto_review_turn_grant_forces_guardian_for_shell_command_policy_skip
+  TRY 2 FAIL [   0.181s] (1626/2178) codex-core session::tests::user_shell_commands_do_not_inherit_managed_network_proxy
+  TRY 2 FAIL [   0.087s] (1643/2178) codex-core thread_manager::tests::new_uses_active_provider_for_model_refresh
+  TRY 2 FAIL [   0.105s] (1647/2178) codex-core thread_manager::tests::injected_models_manager_controls_refresh_policy
+  TRY 2 FAIL [   0.152s] (1846/2178) codex-core tools::handlers::multi_agents::tests::spawn_agent_service_tier_override_validates_the_effective_child_model
+  TRY 2 FAIL [   0.297s] (1992/2178) codex-core tools::handlers::multi_agents::tests::spawn_agent_service_tier_inheritance_preserves_supported_or_configured_tiers
+  TRY 2 FAIL [   0.135s] (2041/2178) codex-core tools::spec_plan::tests::hosted_web_search_and_standalone_image_generation_follow_runtime_gates
+error: test run failed
+error: recipe `test` failed on line 82 with exit code 100

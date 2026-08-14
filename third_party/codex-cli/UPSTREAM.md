@@ -48,7 +48,7 @@ Current verified Whale overlay:
   extension-owned lifecycle/tools/world-state integration, experimental
   app-server RPC/events, TUI slash routing and the loopback-only viewer.
 
-The current generated overlay inventory contains 180 changed vendor paths
+The current generated overlay inventory contains 185 changed vendor paths
 relative to the immutable `rust-v0.147.0` tree. This count includes production
 overlay, tests and generated protocol artifacts; it is not a manually
 maintained patch count. OpenAI/ChatGPT login product UI, OpenAI-hosted remote

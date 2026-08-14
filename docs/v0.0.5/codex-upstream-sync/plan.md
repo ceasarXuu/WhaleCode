@@ -260,7 +260,7 @@ Phase D 的 PLD-006 采用当前 0.147 源码和以下一手资料校验扩展�
 
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| U17 | 完成发布闭环 | release | workspace metadata、`UPSTREAM.md`、最终 migration report | 来源、生成物、Linux 支持矩阵 | 已更新 provenance 文档，刷新并验证机械工件，完成 Linux Cargo/CLI/缓存矩阵并逐项归因非全绿测试 | 已形成可追溯的 0.147 substrate、180 路径 Whale overlay 与真实通过/延期清单 | 防止局部通过误报为整体完成 | Complexity：除上游测试夹具适配外无生产代码或新发布框架；Reach/Cost：全 workspace 构建/测试耗时，0 模型请求 | fmt、all-target check、CLI build/smoke、schema/lock clean、免费 cache 7/7、exec 73/73、MCP 4/4；workspace 非全绿项已按产品差异/环境限制登记 | TUI/Windows、OpenAI hosted/Bedrock、V8 非 sandbox 制品和 watcher 限制继续延期；live baseline 未晋升 | verified |
+| U17 | 完成发布闭环 | release | workspace metadata、`UPSTREAM.md`、最终 migration report | 来源、生成物、Linux 支持矩阵 | 已更新 provenance 文档，刷新并验证机械工件，完成 Linux Cargo/CLI/缓存矩阵；对抗性修复补齐旧空 map、普通 fork lineage、生产组合测试与逐失败审计 | 已形成可追溯的 0.147 substrate、185 路径 Whale overlay 与真实通过/延期清单 | 防止局部通过误报为整体完成 | Complexity：收口修复仅扩展既有 state/lifecycle seam，无新框架；Reach/Cost：全量 app-server/core 矩阵与逐项日志，0 模型请求 | 原有 fmt/all-target/CLI/schema/cache/exec/MCP 证据保持；精确提交 app-server 1089/1122、core lib 2154/2178、core integration 1086/1123；94 个失败逐项映射，代理环境项隔离复跑 1/1；production app-server/SQLite/mode-read/fork/restart/final-wire 定向测试 1/1 | TUI/Windows、OpenAI hosted/Bedrock/Guardian、V8 非 sandbox 制品继续延期；live baseline 未晋升 | verified |
 
 退出条件：U17 verified；所有修改已提交并 push；工作树 clean；延期项未被表述为通过。
 

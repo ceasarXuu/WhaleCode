@@ -65,8 +65,12 @@
 - U15 已收口：`thread/mapRuntimeMode/set` 与 `thread/taskspace/read` 继续只面向已加载线程并要求 experimental API opt-in；`thread/taskspace/updated` 仅在更高 canonical revision 成功落库后发射轻量失效通知，并经 listener FIFO 保持与 turn/resume 通知的顺序。JSON/TS 及 stable/experimental precomputed exports 已重生成；下一步进入 U16。
 - U16 第一段已恢复 `/taskspace` 与 `/task-show` 的 TUI typed RPC 路由：前者按顺序显式启用再读取，后者只读；该原子段以 canonical Map 文本摘要验证了完整路由。
 - U16 已收口：第二段恢复只绑定 loopback 随机端口的 canonical browser viewer；第三段在同一 mock 线程锁定 Standard→TaskSpace 最终 Responses body、公共工具稳定性、conversation prefix、`instructions` 与 `prompt_cache_key`，并把两组 DeepSeek final-wire 纳入完整免费缓存矩阵。Phase D 的 U11–U16 全部 verified，0 真实请求。
-- U17 已收口：当前 overlay/replay 固定为相对 0.147 的 180 条路径；fmt、all-target check、schema 重生成、CLI build/smoke、exec 73/73、MCP 4/4、Skills 87/87 和免费 cache 7/7 通过。app-server 822/858 通过，剩余项属于已延期的 OpenAI hosted/Bedrock 能力或本机 watcher 上限；非 TUI workspace 的其他非全绿项也已按 V8 制品、sandbox 网络表现、OpenAI 模型目录假设和测试波动逐项登记。TUI/Windows 未声明通过，0 真实请求，live baseline 未晋升。
+- U17 已收口并完成对抗性修复：当前 overlay/replay 相对 0.147 为 185 条路径；旧版空 TaskSpace map 可迁移并原地激活，普通 `thread/fork` 会持久化 `Fork` lineage。process-level 回归在同一真实 app-server/SQLite 链中覆盖 Standard 请求、typed mode/read RPC、fork、shutdown/restart/resume 与 TaskSpace Responses final-wire。精确生产提交上的 app-server 为 1089/1122、core lib 为 2154/2178、core integration 为 1086/1123；94 个失败名均已写入[逐项清单](evidence/u17-closure-4f4f5d4c5/failure-manifest.md)，其中 93 项映射到明确延期/范围边界，1 项宿主代理污染隔离复跑通过。TUI/Windows 未声明通过，0 真实请求，live baseline 未晋升。
 - replay ledger 和五批 DAG 已降级为非权威证据；后续不得直接按自动 disposition 或路径桶实施，应按 `plan.md` 的 U1–U17 语义闭环推进。
+
+## 历史分析快照（2026-08-01）
+
+以下第 1–12 节保留专题启动时的差异分析和路线依据；其中“当前 HEAD”“当前 overlay”等措辞只描述当时快照，不是 U17 收口后的当前状态。当前状态以本文顶部、`plan.md`、生成 inventory 和 U17 报告为准。
 
 ## 1. 执行摘要
 
@@ -80,7 +84,7 @@
 主要依据：
 
 - 当前 vendor 基线到 0.147 候选相差 3,133 个提交、4,511 个 Git diff 文件；
-- 切换前 Whale 相对初始基线修改了 730 个路径，官方和 Whale 同时修改 505 个路径，其中 504 个最终内容仍然不同；切换后当前 overlay 已收敛到 11 个路径；
+- 切换前 Whale 相对初始基线修改了 730 个路径，官方和 Whale 同时修改 505 个路径，其中 504 个最终内容仍然不同；该历史分析阶段的一次临时候选 overlay 曾收敛到 11 个路径；
 - Codex 是通过 codeload tarball 导入子目录，仓库根历史与官方 Git 历史没有 merge-base，普通 merge/cherry-pick 不是可靠同步机制；
 - DeepSeek 官方 Codex 接入当前要求 Responses API；Whale 当前向用户展示 `deepseek-v4-flash` 与 `deepseek-v4-pro`，并保持 Flash 默认；provider、catalog 与 0.147 substrate 已对齐；
 - TaskSpace 目前不是薄插件，而是贯穿协议、状态、session、provider payload、tool sequence、app-server 和 TUI 的纵向改造，必须进行语义级重放。
@@ -91,7 +95,7 @@
 
 | 边界 | 提交或版本 | 用途 |
 | --- | --- | --- |
-| Whale 当前 HEAD | `c539cbe18030727ae9c48e27246c0439ad246390` | 本次本地事实边界 |
+| Whale 历史分析 HEAD | `c539cbe18030727ae9c48e27246c0439ad246390` | 2026-08-01 分析快照边界，非当前 HEAD |
 | Whale vendor 固定基线 | `fed0a8f4faa58db3138488cca77628c1d54a2cd8` | 识别 Whale 自有修改 |
 | 当前正式候选 | `rust-v0.147.0` / `be6e8eac029b183056b7e4402879f15d2c85f61b` | U2 direction-supported；Checkpoint B/U3 后才可成为 cutover 目标 |
 | 官方 main | `ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff` | 观察稳定版之后的演进，不作为本轮目标 |

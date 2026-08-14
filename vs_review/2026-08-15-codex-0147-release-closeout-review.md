@@ -1,17 +1,17 @@
 # Subagent VS Review: Codex 0.147 主线融合发布收口
 
 - Created: 2026-08-15T00:00:00+08:00
-- Updated: 2026-08-15T00:14:26+08:00
+- Updated: 2026-08-15T00:54:58+08:00
 - Report schema: adversarial-v2
 - Task: 对已声明完成的 Codex 0.147 主线融合计划做独立、缺陷优先的对抗性审查
 - Report path: `vs_review/2026-08-15-codex-0147-release-closeout-review.md`
 - Review mode: fresh internal subagents
 - Source session policy: no inherited main-agent context; reviewer only receives the neutral review packet
-- Status: blocked
-- Control outcome: user-decision-required
+- Status: round-2-blocked-post-review-fix-applied
+- Control outcome: automatic-round-budget-exhausted
 - Automatic round budget: 2
-- Completed rounds: 1
-- Last known-good checkpoint: `3d97fed892314bb125437399ea654a8cf95931ef`
+- Completed rounds: 2
+- Last known-good production checkpoint: `4f4f5d4c55bb527fb842fa4076117ae79badf79d`
 
 ## Review Control Contract
 
@@ -355,3 +355,62 @@ Reviewer 提出的必需修复、缺失测试和日志要求均已映射到上�
 ## Final Conclusion
 
 Round 1 已完成，但发布收口审查未通过。当前不能宣称 Codex 0.147 主线融合计划全部完成：旧版空 TaskSpace map 升级和普通 `thread/fork` 存在生产正确性缺口，U17 的非全绿归因也缺少逐失败审计证据。需要用户批准修复批次后再执行唯一一次定向 closure round。
+
+## Round 2：修复后定向 closure review
+
+### Round Control
+
+- Round type: closure
+- Round number: 2
+- Closure finding IDs: `IC-B01`、`IC-B02`、`IC-B03`、`IC-M01`、`IC-M02`
+- User authorization: `修复一轮`
+- Reviewer: fresh internal subagent `/root/codex_0147_closure_review`，`fork_turns=none`，只读
+- 被测生产提交：`4f4f5d4c55bb527fb842fa4076117ae79badf79d`
+- 文档/metadata：当前 staged candidate
+- 真实模型/API 请求：0
+
+### Reviewer Verdict
+
+Round 2 verdict 为 `blocked`：`IC-B01`、`IC-B02`、`IC-B03`、`IC-M01` 通过，`IC-M02` 在审查快照时仍未关闭。
+
+| Finding | Verdict | Reviewer evidence |
+| --- | --- | --- |
+| IC-B01 | pass | decoder 支持合法 `null` placeholder；首次同 owner/revision 0 CAS 原地替换；真实旧 migration fixture 与定向测试通过 |
+| IC-B02 | pass | trusted `forked_from_thread_id` 进入 lifecycle；普通 fork 构造 `Fork`；process-level app-server + SQLite 定向测试通过 |
+| IC-B03 | pass | 三份日志的 33 + 24 + 37 = 94 个唯一失败名与 manifest 94 项集合完全相等；分类中没有 TaskSpace 或当前 DeepSeek 合同失败 |
+| IC-M01 | pass | README 后半明确标为 2026-08-01 历史快照；当前 185 paths 与 inventory/replay 一致 |
+| IC-M02 | fail | 当时的新 fork 测试仍直接 seed/read SQLite，未在同一 production composition 中走 mode/read RPC、reload 和 Responses final-wire |
+
+Reviewer 独立执行 3 项免费定向复跑，均通过；未修改文件。其完整结论由协作 mailbox 返回，main agent 没有把 `IC-M02` 的 blocker 降级或忽略。
+
+### Post-review Repair：IC-M02
+
+在 Round 2 已结束且自动 round 预算耗尽后，main agent 按 reviewer 的最小缺口扩展现有 process-level 测试，没有新增生产代码：
+
+- 首个 turn 经真实 app-server 发送 Standard Responses request；
+- canonical map 使用真实 SQLite store；
+- 激活和读取使用 typed `thread/mapRuntimeMode/set`、`thread/taskspace/read`；
+- fork 使用 typed `thread/fork`，并检查持久化 `Fork` binding；
+- app-server graceful shutdown 后重新启动并 resume fork；
+- reload 后再次 typed read，再发送 turn 并断言 Responses body 出现 `taskspace_control`、`<taskspace_map>` 和同一 map id，而 Standard body 不包含 TaskSpace。
+
+定向测试 `thread_fork_inherits_taskspace_through_production_extensions` 为 1/1 passed；`cargo fmt --all -- --check` 通过（仅 stable rustfmt 对 nightly-only 配置的既有警告）。该修复只增加测试覆盖，不改变 `4f4f5d4c5` 的生产代码或 94 项全量失败集合。
+
+### Round 2 Governor
+
+- Automatic rounds used: 2 / 2。
+- Independent closure result at review snapshot: blocked by `IC-M02`。
+- Post-review state: `IC-M02` 所要求的 production app-server + SQLite + typed RPC + fork/reload + final-wire 测试已实现并由 main agent 定向验证。
+- No third automatic reviewer launched: 自动 round 预算已耗尽；再次独立审查需要新的用户授权。
+- Scope drift: none；post-review 修复仅扩展既有测试，没有新增产品逻辑、API、schema、依赖或框架。
+
+### Current Closure Status
+
+- Accepted production blockers fixed: yes。
+- Failure evidence manifest complete: yes，94/94。
+- Documentation consistency fixed: yes。
+- Production-composition test implemented: yes。
+- Independent reviewer pass after the final IC-M02 test change: no；Round 2 在该变化前已结束且 verdict 为 blocked。
+- Control outcome: `automatic-round-budget-exhausted`。
+
+当前代码与主 Agent 验证已覆盖五项 finding，但根据对抗性审查治理合同，不能把 Round 2 的 `blocked` 改写成 `pass`。如需独立审查层面的最终通过，需要用户明确授权额外一轮仅检查 IC-M02 最终测试的 closure review。

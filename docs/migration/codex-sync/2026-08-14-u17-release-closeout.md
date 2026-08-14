@@ -11,7 +11,7 @@
 
 0.147 substrate、Whale identity/home/auth、DeepSeek 原生 Responses、缓存合同和 TaskSpace extension 主链已经形成可构建、可追溯的单一 vendor tree。U17 没有新增生产架构或发布框架，只修正上游测试夹具中仍假设 `codex` 二进制、`CODEX_HOME`、OpenAI 默认 provider 和 `0.0.0` 服务版本的部分，并完成机械工件、Linux 构建、离线 smoke 与分层回归。
 
-当前 overlay inventory 相对固定上游树共 180 条路径：48 added、128 modified、4 deleted。replay ledger 同为 180 条路径，其中 150 `adapt-semantically`、6 `reapply-exact`、20 `regenerate`、4 `defer`。这些数字包含测试和生成物，不代表 180 个手写产品补丁。
+当前 overlay inventory 相对固定上游树共 185 条路径：48 added、133 modified、4 deleted。replay ledger 同为 185 条路径，其中 155 `adapt-semantically`、6 `reapply-exact`、20 `regenerate`、4 `defer`。这些数字包含测试和生成物，不代表 185 个手写产品补丁。
 
 全 workspace 测试没有被表述为全绿。剩余失败均保留真实签名，并按已批准产品差异、平台/制品限制、宿主资源限制或上游测试波动登记；U17 没有为了绿色数字启用 OpenAI hosted、Bedrock、remote plugin/sharing 等 Whale 明确关闭或延期的能力。
 
@@ -30,7 +30,7 @@
 ### 2.2 来源与机械工件
 
 - `third_party/codex-cli/UPSTREAM.md` 已从 U4 时点更新到当前完整 Whale overlay；
-- overlay inventory 与 replay ledger 已刷新到 180 条路径；
+- overlay inventory 与 replay ledger 已刷新到 185 条路径；
 - stable/experimental app-server schema 通过 Python wrapper 重生成，工作树无 schema 差异；
 - Cargo 执行产生的 workspace package `0.147.0` lock 噪声已恢复为仓库约定的 `0.0.0`，lockfile 无差异；
 - `validate_sync_metadata.py` 通过。
@@ -62,14 +62,16 @@
 
 ### 4.1 已批准的产品差异
 
-app-server 在 `RUST_MIN_STACK=33554432` 下为 822 passed、35 failed、1 ignored。35 条失败中：
+对抗性修复提交 `4f4f5d4c55bb527fb842fa4076117ae79badf79d` 上，app-server 为 1122 run、1089 passed（1 flaky）、33 failed、1 skipped。33 条失败中：
 
 - Bedrock/default account、Bedrock static catalog：Whale 当前不交付 Bedrock 模型市场；
 - OpenAI model list/remote catalog：Whale 公共模型列表按产品合同保持 DeepSeek-only；
 - remote plugin、plugin share、recommended plugins：这些 OpenAI hosted 能力默认关闭；
-- 两条 watcher 相关用例：本机 inotify instance 已达到上限，单独重跑仍在 watcher 创建处失败，并非 RPC/TaskSpace 断言失败。
+- 本轮没有 watcher 失败；三条约 30 秒的失败均在等待被关闭的 remote plugin refresh。
 
-core lib 为 2148 passed、30 failed；core integration 为 1095 passed、40 failed、8 ignored。失败主要是 Guardian、remote model、Multi-Agent GPT 型号/effort、remote plugin 和独立 image generation 等上游 OpenAI 默认目录假设，以及同一 inotify 限制。DeepSeek/TaskSpace final-wire 与本轮恢复链路均由独立 mock 合同覆盖并通过，因此不在 U17 中反向开启这些产品面。
+core lib 为 2178 run、2154 passed、24 failed；core integration 为 1123 run、1086 passed（1 flaky）、37 failed、8 skipped。94 个失败名、命令、环境、脱敏原始输出和逐项映射见[收口失败清单](../../v0.0.5/codex-upstream-sync/evidence/u17-closure-4f4f5d4c5/failure-manifest.md)。93 项属于明确不在本轮发布合同的 Guardian、OpenAI remote model、Multi-Agent GPT 型号/effort、remote plugin、独立 image generation 或 Bedrock 前提；唯一宿主代理环境项在清除代理变量后精确复跑 1/1 通过。没有 TaskSpace 失败或未分类失败。
+
+对抗性审查发现并已修复两个 TaskSpace 边界：旧版合法 `canonical_json="null"` 记录现在可按 inactive 语义读取并在首次 CAS 时原地激活；普通 app-server `thread/fork` 现在通过可信 lifecycle lineage 继承父 map 并持久化 `Fork` relation。真实 SQLite migration、extension relation 以及 process-level app-server 回归均已通过；后者在同一用例中依次验证 Standard request、typed mode/read RPC、普通 fork、shutdown/restart/resume，以及带 `taskspace_control` 和 canonical map projection 的 Responses final-wire。
 
 CLI help 中仍有部分上游 `Codex` / `~/.codex` 说明文字。U17 只验证二进制身份和命令可用性；剩余品牌清理继续作为独立产品文案单元，避免在发布核验阶段扩大修改面。
 
