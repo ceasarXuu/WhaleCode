@@ -20,7 +20,7 @@ fn request(thread_id: ThreadId) -> EnqueueTaskSpacePendingProviderActionRequest 
         origin_thread_id: thread_id,
         map_id: None,
         provider_response_id: "response-1".to_string(),
-        provider_item_id: "web-search-1".to_string(),
+        provider_action_key: "response-1/web_search".to_string(),
         tool_name: "web_search".to_string(),
         outcome: TaskSpaceActionOutcome::Succeeded,
     }

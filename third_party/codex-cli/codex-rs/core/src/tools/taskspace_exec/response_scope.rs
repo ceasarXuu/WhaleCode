@@ -54,6 +54,16 @@ pub(crate) struct TaskSpaceExecResponseIdentity {
     pub(crate) provider_attempt_seq: Option<usize>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TaskSpacePendingProviderActionFact {
+    pub(crate) map_id: String,
+    pub(crate) action_id: String,
+    pub(crate) provider_response_id: String,
+    pub(crate) provider_action_key: String,
+    pub(crate) tool: String,
+    pub(crate) outcome: crate::action_map::rooted_dag::ActionOutcome,
+}
+
 impl TaskSpaceExecResponseScope {
     pub(crate) fn new(
         capability_identity: Arc<str>,
@@ -176,7 +186,7 @@ impl TaskSpaceExecResponseScope {
         &self,
         response_completed: bool,
         response: Option<TaskSpaceExecResponseIdentity>,
-    ) -> Result<(), String> {
+    ) -> Result<Vec<TaskSpacePendingProviderActionFact>, String> {
         let mut state = self
             .state
             .lock()
@@ -204,7 +214,8 @@ impl TaskSpaceExecResponseScope {
             hosted_tool_count = state.hosted_tools.len(),
             accepted = result.is_ok(),
         );
-        result
+        result?;
+        pending_provider_actions(&state)
     }
 
     pub(crate) fn claim_response(
@@ -295,10 +306,38 @@ fn validate_finalized(state: &ResponseScopeState) -> Result<(), String> {
     if state.exec_call_count == 1 && state.response.is_none() {
         return Err("TaskSpace response has no provider response identity".to_string());
     }
-    if !state.hosted_tools.is_empty() && state.exec_call_count != 1 {
-        return Err("provider-hosted Tools require exactly one TaskSpace Exec call".to_string());
-    }
     Ok(())
+}
+
+fn pending_provider_actions(
+    state: &ResponseScopeState,
+) -> Result<Vec<TaskSpacePendingProviderActionFact>, String> {
+    if state.hosted_tools.is_empty() {
+        return Ok(Vec::new());
+    }
+    let request = state
+        .request
+        .as_ref()
+        .ok_or_else(|| "Provider Action has no request Map snapshot".to_string())?;
+    let response = state
+        .response
+        .as_ref()
+        .ok_or_else(|| "Provider Action has no provider response identity".to_string())?;
+    Ok(state
+        .hosted_tools
+        .values()
+        .map(|fact| {
+            let provider_action_key = format!("{}/{}", response.provider_response_id, fact.tool);
+            TaskSpacePendingProviderActionFact {
+                map_id: request.map_id.clone(),
+                action_id: format!("taskspace/provider/{provider_action_key}"),
+                provider_response_id: response.provider_response_id.clone(),
+                provider_action_key,
+                tool: fact.tool.clone(),
+                outcome: fact.outcome,
+            }
+        })
+        .collect())
 }
 
 fn unexpected_client_tool(item: &ResponseItem) -> Option<String> {
@@ -360,7 +399,12 @@ mod tests {
             arguments: "{}".into(),
             call_id: "outer".into(),
         });
-        scope.finalize(true, Some(response_identity())).unwrap();
+        let pending = scope.finalize(true, Some(response_identity())).unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(
+            pending[0].action_id,
+            "taskspace/provider/response-1/web_search"
+        );
         let claim = scope.claim_response("outer").unwrap();
         assert_eq!(claim.request.map_id, "map-1");
         assert_eq!(claim.request.revision, Some(7));
@@ -411,19 +455,16 @@ mod tests {
     }
 
     #[test]
-    fn hosted_tools_require_one_exec_but_not_internal_output_identity() {
+    fn hosted_tools_are_captured_without_an_exec_call() {
         let scope = TaskSpaceExecResponseScope::default();
         scope.record_completed_item(&ResponseItem::WebSearchCall {
             id: Some("ws-1".into()),
             status: Some("completed".into()),
             action: None,
         });
-        assert!(
-            scope
-                .finalize(true, Some(response_identity()))
-                .unwrap_err()
-                .contains("exactly one")
-        );
+        let pending = scope.finalize(true, Some(response_identity())).unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].tool, "web_search");
     }
 
     #[test]

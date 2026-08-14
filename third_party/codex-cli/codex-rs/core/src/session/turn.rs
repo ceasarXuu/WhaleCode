@@ -2476,8 +2476,11 @@ async fn try_run_sampling_request(
     .await;
 
     if let Some(scope) = taskspace_response_scope.as_ref() {
-        scope
+        let pending_provider_actions = scope
             .finalize(response_completed, taskspace_response_identity)
+            .map_err(taskspace_response_reconciliation_error)?;
+        sess.persist_pending_provider_actions(pending_provider_actions)
+            .await
             .map_err(taskspace_response_reconciliation_error)?;
     }
 

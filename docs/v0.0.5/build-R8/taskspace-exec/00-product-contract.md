@@ -212,8 +212,9 @@ Runtime 在 Provider response 完成边界直接把每个原生 Hosted Tool 调�
   `ToolSpec::name()`。当前原生 Web Search ToolSpec 名为 `web_search`；
 - 原生 Web Search ToolSpec 是不可拆分的一个 Tool；`search`、`open_page`、翻页、内部失败与重试都属于 Provider 内部过程；
 - Provider 内部 action subtype、搜索步骤、翻页、内部失败和重试不进入 TaskSpace Action；
-- Provider 暴露一个原生调用身份就形成一个待归属 Action；多个独立原生调用不得按 Tool 名合并；
-- Runtime 为缺少可直接复用原生 ID 的调用机械生成稳定身份，Agent 不参与身份构造；
+- 同一 Provider response 内同一种原生 Hosted ToolSpec 的内部 items 机械聚合为一个逻辑 Action；不同 response 或不同
+  ToolSpec 不得合并；
+- Runtime 使用 `provider_response_id + 原生 Tool 名` 机械生成稳定身份，Agent 不参与身份构造；
 - outcome 直接复用 Provider 原生调用的机械终态，不改变节点生命周期。
 
 下一次 TaskSpace 请求必须忠实暴露全部待归属 Action。Agent 在 `taskspace_exec.assign_pending_actions[]` 中只回填已有

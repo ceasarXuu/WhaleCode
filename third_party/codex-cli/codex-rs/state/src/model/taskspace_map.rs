@@ -99,7 +99,7 @@ pub struct TaskSpacePendingProviderAction {
     pub origin_thread_id: ThreadId,
     pub map_id: Option<String>,
     pub provider_response_id: String,
-    pub provider_item_id: String,
+    pub provider_action_key: String,
     pub tool_name: String,
     pub outcome: TaskSpaceActionOutcome,
     pub created_at_ms: i64,
@@ -111,7 +111,7 @@ pub struct EnqueueTaskSpacePendingProviderActionRequest {
     pub origin_thread_id: ThreadId,
     pub map_id: Option<String>,
     pub provider_response_id: String,
-    pub provider_item_id: String,
+    pub provider_action_key: String,
     pub tool_name: String,
     pub outcome: TaskSpaceActionOutcome,
 }

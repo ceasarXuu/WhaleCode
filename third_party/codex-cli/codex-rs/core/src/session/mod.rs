@@ -203,6 +203,7 @@ pub(crate) mod session;
 mod taskspace_action_settlement_output_ref_tests;
 #[cfg(test)]
 mod taskspace_action_settlement_tests;
+mod taskspace_pending_provider_actions;
 mod taskspace_store;
 mod taskspace_store_read;
 #[cfg(test)]

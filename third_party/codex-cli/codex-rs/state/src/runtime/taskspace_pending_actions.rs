@@ -22,7 +22,7 @@ impl StateRuntime {
             r#"
 INSERT INTO taskspace_pending_provider_actions (
     action_id, origin_thread_id, map_id, provider_response_id,
-    provider_item_id, tool_name, outcome, created_at_ms
+    provider_action_key, tool_name, outcome, created_at_ms
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(action_id) DO NOTHING
             "#,
@@ -31,7 +31,7 @@ ON CONFLICT(action_id) DO NOTHING
         .bind(request.origin_thread_id.to_string())
         .bind(request.map_id.as_deref())
         .bind(&request.provider_response_id)
-        .bind(&request.provider_item_id)
+        .bind(&request.provider_action_key)
         .bind(&request.tool_name)
         .bind(action_outcome_name(request.outcome))
         .bind(now)
@@ -68,7 +68,7 @@ ON CONFLICT(action_id) DO NOTHING
                 sqlx::query(
                     r#"
 SELECT action_id, origin_thread_id, map_id, provider_response_id,
-       provider_item_id, tool_name, outcome, created_at_ms
+       provider_action_key, tool_name, outcome, created_at_ms
 FROM taskspace_pending_provider_actions
 WHERE map_id = ? OR (map_id IS NULL AND origin_thread_id = ?)
 ORDER BY created_at_ms, action_id
@@ -83,7 +83,7 @@ ORDER BY created_at_ms, action_id
                 sqlx::query(
                     r#"
 SELECT action_id, origin_thread_id, map_id, provider_response_id,
-       provider_item_id, tool_name, outcome, created_at_ms
+       provider_action_key, tool_name, outcome, created_at_ms
 FROM taskspace_pending_provider_actions
 WHERE map_id IS NULL AND origin_thread_id = ?
 ORDER BY created_at_ms, action_id
@@ -105,7 +105,7 @@ async fn load_by_id(
     let row = sqlx::query(
         r#"
 SELECT action_id, origin_thread_id, map_id, provider_response_id,
-       provider_item_id, tool_name, outcome, created_at_ms
+       provider_action_key, tool_name, outcome, created_at_ms
 FROM taskspace_pending_provider_actions
 WHERE action_id = ?
         "#,
@@ -122,7 +122,7 @@ fn decode_row(row: &sqlx::sqlite::SqliteRow) -> anyhow::Result<TaskSpacePendingP
         origin_thread_id: parse_thread_id(row.try_get("origin_thread_id")?, "origin_thread_id")?,
         map_id: row.try_get("map_id")?,
         provider_response_id: row.try_get("provider_response_id")?,
-        provider_item_id: row.try_get("provider_item_id")?,
+        provider_action_key: row.try_get("provider_action_key")?,
         tool_name: row.try_get("tool_name")?,
         outcome: parse_action_outcome(row.try_get("outcome")?)?,
         created_at_ms: row.try_get("created_at_ms")?,
@@ -132,7 +132,7 @@ fn decode_row(row: &sqlx::sqlite::SqliteRow) -> anyhow::Result<TaskSpacePendingP
 fn validate_enqueue(request: &EnqueueTaskSpacePendingProviderActionRequest) -> anyhow::Result<()> {
     require_nonempty("action_id", &request.action_id)?;
     require_nonempty("provider_response_id", &request.provider_response_id)?;
-    require_nonempty("provider_item_id", &request.provider_item_id)?;
+    require_nonempty("provider_action_key", &request.provider_action_key)?;
     require_nonempty("tool_name", &request.tool_name)?;
     if request.outcome == TaskSpaceActionOutcome::Pending {
         anyhow::bail!("pending Provider Action must have a terminal Tool outcome");
@@ -155,7 +155,7 @@ fn same_request(
         && existing.origin_thread_id == request.origin_thread_id
         && existing.map_id == request.map_id
         && existing.provider_response_id == request.provider_response_id
-        && existing.provider_item_id == request.provider_item_id
+        && existing.provider_action_key == request.provider_action_key
         && existing.tool_name == request.tool_name
         && existing.outcome == request.outcome
 }
