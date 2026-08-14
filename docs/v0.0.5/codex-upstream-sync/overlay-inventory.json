@@ -931,13 +931,13 @@
       "status": "added"
     },
     {
-      "additions": 135,
+      "additions": 150,
       "baseline_sha256": null,
       "binary": false,
       "categories": [
         "taskspace_domain"
       ],
-      "current_sha256": "eab55e866709b176636528fcaae4e5a326aeeb310d42130cbc750dd2ec2aa7fc",
+      "current_sha256": "695de1067326ff18dcb5cfaada27e23776edb82848536df685439daeb9953993",
       "deletions": 0,
       "evidence_commit_count": 1,
       "evidence_commits": [
@@ -951,13 +951,13 @@
       "status": "added"
     },
     {
-      "additions": 161,
+      "additions": 173,
       "baseline_sha256": null,
       "binary": false,
       "categories": [
         "taskspace_domain"
       ],
-      "current_sha256": "01a2dbbaa9841e580c33dd6a79d7b394e3c4cb349953d6603e78c15d9cdfeab6",
+      "current_sha256": "c3476128daefbcfffab538298b4d933d19a84b6061938bf7bc88aeaadd0dfabf",
       "deletions": 0,
       "evidence_commit_count": 3,
       "evidence_commits": [
@@ -993,6 +993,24 @@
       "status": "added"
     },
     {
+      "additions": 71,
+      "baseline_sha256": null,
+      "binary": false,
+      "categories": [
+        "taskspace_domain"
+      ],
+      "current_sha256": "34487a380b706c0f54bffa28c23dcf132aa6d5c9a9a8228c82b1b777afe33295",
+      "deletions": 0,
+      "evidence_commit_count": 0,
+      "evidence_commits": [],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "taskspace.domain_path"
+      ],
+      "path": "codex-rs/ext/taskspace/src/initialize_manifest.rs",
+      "status": "added"
+    },
+    {
       "additions": 386,
       "baseline_sha256": null,
       "binary": false,
@@ -1013,13 +1031,13 @@
       "status": "added"
     },
     {
-      "additions": 38,
+      "additions": 41,
       "baseline_sha256": null,
       "binary": false,
       "categories": [
         "taskspace_domain"
       ],
-      "current_sha256": "b11dbf4b7c91f2f7739d5578be3cf53d13603372696e2f0a5d175cd77cf4b81d",
+      "current_sha256": "a102ffef03cfcd636dbb2e9c45aa25e9b4f3bd0d4156d57a2aa90ad1a6060bac",
       "deletions": 0,
       "evidence_commit_count": 6,
       "evidence_commits": [
@@ -1078,13 +1096,13 @@
       "status": "added"
     },
     {
-      "additions": 104,
+      "additions": 135,
       "baseline_sha256": null,
       "binary": false,
       "categories": [
         "taskspace_domain"
       ],
-      "current_sha256": "05dfe7d340ec14e8f4be6d09c0b39594cd796d2aa5c6df55110d8ce2b87d4bfc",
+      "current_sha256": "812bd52f3604aa30fa5486af2aacf183884f5f3c09d320dcb417d86e0ebb70a8",
       "deletions": 0,
       "evidence_commit_count": 2,
       "evidence_commits": [
@@ -1139,13 +1157,13 @@
       "status": "added"
     },
     {
-      "additions": 313,
+      "additions": 378,
       "baseline_sha256": null,
       "binary": false,
       "categories": [
         "taskspace_domain"
       ],
-      "current_sha256": "3b04f7334d30287ab58b05075258072bb51372454501429fa434a01c70f9aea7",
+      "current_sha256": "a87f0694169026e9aca13105c3686a2f8bc62cd94eb38f50eb3ee6d3278b9213",
       "deletions": 0,
       "evidence_commit_count": 2,
       "evidence_commits": [
@@ -1160,13 +1178,13 @@
       "status": "added"
     },
     {
-      "additions": 495,
+      "additions": 637,
       "baseline_sha256": null,
       "binary": false,
       "categories": [
         "taskspace_domain"
       ],
-      "current_sha256": "7b3e1b4658c505796695d4b47a8929ae3a02741f519775153df0d0bd3baffc5f",
+      "current_sha256": "ddb5a5fcbbf5f8a5c6b490644300ff36c2fa8f85aa259046fb275dac00c4e6a1",
       "deletions": 0,
       "evidence_commit_count": 3,
       "evidence_commits": [
@@ -1182,13 +1200,31 @@
       "status": "added"
     },
     {
-      "additions": 170,
+      "additions": 34,
       "baseline_sha256": null,
       "binary": false,
       "categories": [
         "taskspace_domain"
       ],
-      "current_sha256": "dbb24188d33d63266453ed9d2e80e953b70af4ec1a738595b7e7382834dfc121",
+      "current_sha256": "492c27afdd4fddb5a53bb04b149e748410e236fa6c3a72c2c085c9290e3af9bc",
+      "deletions": 0,
+      "evidence_commit_count": 0,
+      "evidence_commits": [],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "taskspace.domain_path"
+      ],
+      "path": "codex-rs/ext/taskspace/src/service.rs",
+      "status": "added"
+    },
+    {
+      "additions": 208,
+      "baseline_sha256": null,
+      "binary": false,
+      "categories": [
+        "taskspace_domain"
+      ],
+      "current_sha256": "04ecab896555c974a7d99c34210cd07fefb1562bffb2c017725b34d3caf8c355",
       "deletions": 0,
       "evidence_commit_count": 2,
       "evidence_commits": [
@@ -1870,7 +1906,7 @@
       "provider_model": 18,
       "provider_transport": 5,
       "session_context": 4,
-      "taskspace_domain": 21,
+      "taskspace_domain": 23,
       "taskspace_host_hooks": 11,
       "test_fixture": 8,
       "tool_runtime": 7,
@@ -1879,11 +1915,11 @@
       "wire_sse": 3
     },
     "by_status": {
-      "added": 26,
+      "added": 28,
       "deleted": 3,
       "modified": 46
     },
-    "path_count": 75
+    "path_count": 77
   },
   "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
   "vendor_path": "third_party/codex-cli"
