@@ -1,6 +1,6 @@
 # Codex CLI 主线融合执行计划
 
-- 文档状态：有效，Phase A、Phase B、Phase C verified；Phase D in progress，U11–U15 verified
+- 文档状态：有效，Phase A、Phase B、Phase C、Phase D verified；Phase E 待重基
 - Plan Validity：`valid-with-qualifications`
 - 计划性质：覆盖已完成里程碑与剩余工作的唯一执行计划
 - 适用版本：WhaleCode v0.0.5
@@ -234,9 +234,9 @@ Phase D 的 PLD-006 采用当前 0.147 源码和以下一手资料校验扩展�
 | U13 | 恢复唯一 TaskSpace store 与 replay | persistence | `state` 的 `0047` migration 与 TaskSpace store adapter | canonical store、CAS commit、thread binding、replay | 已复用现有 `StateRuntime` pool；fresh/current DB 由 `0047` 创建三张表，经 U11 修复的旧表原地复用；写入/读取调用 U12 canonical validation；commit ID 提供幂等 replay；CAS 同时约束 owner 不变与 domain revision 单调递增 | canonical TaskSpace 状态可持久化、迁移和确定性重放，旧数据不复制到第二权威 | 保持一套 TaskSpace 状态权威，同时利用上游 state 生命周期 | Complexity：441 行生产改动、单 store adapter、不建独立 DB；Reach/Cost：state/runtime、并发 CAS、升级矩阵，0 请求 | 7 focused；state 177 passed；Clippy clean；fresh/legacy、CAS conflict、owner/binding、event replay、data preservation | 独立 revert；AgentGraphStore/WorldState 未接入；证据见 U13 报告 | verified |
 | U14 | 通过 0.147 extension seam 接回 TaskSpace runtime | extension-integration | `ext/taskspace` contributors 与 core response dispatch 汇聚点 | native control tools、tool batch/lifecycle、thread/turn lifecycle、WorldState | 五段完成 read/rehydrate、response preflight、active Map `execute`、显式启用/初始化及 terminal/reopen | 跨线程 runtime、canonical projection 与完整写循环均已恢复；extension sink 只接受已定义的 `EventMsg`，故事件定义/发射与 U15 schema 同单元完成，避免半套 wire | 以窄 extension seam 取代旧 handler/sequence/session/provider-wire 分支，canonical store 保持唯一写权威 | Complexity：五段分别为 438、229、494、321、249 行生产新增，均按原子段受控且单文件小于 500；Reach/Cost：response 批次、state CAS、tool lifecycle、mode gate 与 terminal history，0 请求 | extension registry 6、taskspace 40、state CAS 4、core zero-dispatch 1 passed；TaskSpace Clippy/fmt clean；finish sibling 拒绝零提交，close→reopen→release 端到端通过 | 五段可独立回滚；事件进入 U15 versioned wire 单元，RPC/TUI 仍留 U15/U16 | verified |
 | U15 | 恢复 app-server TaskSpace API | API | app-server protocol/source schema、`ext/taskspace` service、app-server adapter | read/mode RPC、TaskSpace events、JSON/TS schema | 三段完成 service refresh/read、兼容 method `thread/mapRuntimeMode/set` 与 `thread/taskspace/read`、版本化 `thread/taskspace/updated` notification；事件只在更高 revision 成功持久化后发射，并生成 JSON/TS/precomputed exports | 已加载线程可显式启用/关闭、读取 TaskSpace，并按 canonical revision 收到有序失效通知；Standard 默认不变；完整状态仍由 read RPC 返回 | 隔离协议兼容面，不把 RPC 再耦合进 core session；通知保持轻量，避免复制 canonical Map 或建立第二状态权威 | Complexity：service seam、约 390 行 RPC 生产代码、约 180 行 event 生产代码及机械 schema；Reach/Cost：protocol、extension sink、app-server listener、schema，0 请求 | TaskSpace 40、protocol wire 1、event FIFO 1、schema fixtures 6 passed；三 crate all-target Clippy clean | 三段可独立回滚；TUI/viewer/final-wire 保留 U16，不增加 TUI fallback 或第二 runtime | verified |
-| U16 | 恢复 TUI、viewer 与 TaskSpace wire/cache 闭环 | client/cache | TUI slash routing/viewer、TaskSpace mock final-wire、cache contracts | `/taskspace`、`/task-show`、viewer、projection payload | 第一段完成 slash→AppCommand→typed RPC 路由；第二段完成 localhost browser viewer，轮询同一 read RPC 并只展示 canonical raw facts；下一段锁定免费 final-wire/cache | 用户可显式进入并在浏览器查看实时 TaskSpace；wire/cache 证据尚未完成 | 以独立 222 行 viewer 取代旧约 400 行且依赖已淘汰 projection 字段的页面，不增加状态副本 | Complexity：第一段 113 行、第二段约 226 行生产改动；Reach/Cost：TUI/app-server typed client、localhost HTTP，0 请求 | slash 3、viewer unit 2、`codex-tui` check/all-target Clippy passed；final-wire/cache 待执行 | 两段可独立回滚；不为消除既有夹具失败改变业务；live baseline 不自动晋升 | in-progress |
+| U16 | 恢复 TUI、viewer 与 TaskSpace wire/cache 闭环 | client/cache | TUI slash routing/viewer、TaskSpace mock final-wire、cache contracts | `/taskspace`、`/task-show`、viewer、projection payload | 三段完成 typed RPC 路由、localhost canonical viewer，以及同一 mock 线程内 Standard→TaskSpace 最终 Responses body 与免费缓存合同 | 用户可显式进入并查看实时 TaskSpace；TaskSpace 只增加扩展工具和动态 WorldState，公共工具、conversation prefix、`instructions` 与 cache key 保持稳定 | 以独立 222 行 viewer 取代旧派生页面；复用 core mock 与既有 cache contract，不恢复 `provider_wire_trace` 或运行时观测层 | Complexity：第一段 113 行、第二段约 226 行生产改动、第三段仅测试/门禁；Reach/Cost：TUI、typed client、localhost HTTP、final-wire，0 请求 | slash 3、viewer 2、DeepSeek final-wire 2、cache Python 20、六组免费合同、core tests Clippy passed | 三段可独立回滚；既有夹具与 Windows 继续延期；live baseline 未晋升 | verified |
 
-退出条件：U11–U16 verified；状态权威无冲突；TaskSpace TUI 已知夹具失败未新增回归且继续明确延期。
+退出条件：已满足。U11–U16 verified；canonical store 保持唯一状态权威；TaskSpace TUI 已知夹具和 Windows 验证未新增回归且继续明确延期。证据见 U11–U16 各单元报告，U16 收口报告为 [TaskSpace final-wire 与免费缓存合同](../../migration/codex-sync/2026-08-14-u16-taskspace-final-wire-cache.md)。
 
 ### Phase E：发布收口
 
@@ -269,7 +269,7 @@ Phase D 的 PLD-006 采用当前 0.147 源码和以下一手资料校验扩展�
 | Phase A | 已完成 | U2 direction-supported-with-known-test-risks；Checkpoint B 已刷新 0.147 查询工件；U3 最小 identity/home/auth/default seam 验证通过；vendor 未变 | D2 | covered + engineering-only | 进入 Phase B rebase gate |
 | Phase B | 已完成 | vendor 对齐 0.147 且只保留 U3 seam；U4a 独立迁移免费缓存合同，cache index gate 通过；live baseline 仍保持失败状态 | D2 | covered + engineering-only | 进入 Phase C rebase gate |
 | Phase C | 已完成 | PLD-004/005 已批准；U5–U10 已恢复 provider、原生 Responses、开发期 guard、1M/755K 与 Flash→Pro 压缩、Standard final-wire/cache；U6 使 Flash/Pro 可见、公共列表仅保留 DeepSeek，并保持 Flash 默认；未触及 TaskSpace | D1、D2 | covered + engineering-only | Phase D rebase 与 PLD-006 审批已完成 |
-| Phase D | 执行中 | PLD-006 已获批准；U11–U15 verified；TaskSpace service、RPC、canonical revision notification 与 schema 已恢复；Standard 未绑定路径不变 | D2 | covered + engineering-only（compatibility/domain/persistence/extension-runtime/API） | 进入 U16：恢复 TUI/viewer，并锁定 TaskSpace final-wire/cache |
+| Phase D | 已完成 | U11–U16 verified；旧库 bridge、canonical kernel/store、extension runtime、RPC/event/schema、TUI/viewer 与免费 final-wire/cache 均已闭环；Standard 默认路径不变 | D2 | covered + engineering-only | 进入 Phase E rebase gate |
 | Phase E | 待执行 | 待记录 | D1、D2 | 待分类 | U17 后审计 |
 
 ## 7. Pending Product Decisions
@@ -283,7 +283,7 @@ Phase D 的 PLD-006 采用当前 0.147 源码和以下一手资料校验扩展�
 
 ## 8. 执行与提交边界
 
-执行顺序当前到达 `... -> U15 service/RPC/event/schema（已验证） -> U16 slash/RPC 路由 -> localhost browser viewer`。下一原子段执行 TaskSpace 免费 final-wire/cache 合同；不得恢复旧 core/session/provider 专用分支或 `provider_wire_trace`。至今未消耗真实回归预算，也未晋升 live baseline。
+执行顺序当前到达 `... -> U15 service/RPC/event/schema（已验证） -> U16 TUI/viewer/final-wire/cache（已验证）`。下一步进入 Phase E rebase gate，再按重基结果执行 U17 发布收口；不得恢复旧 core/session/provider 专用分支或 `provider_wire_trace`。至今未消耗真实回归预算，也未晋升 live baseline。
 
 - 每个 U 单元至少一个独立、可理解、已基本验证的 commit，并立即 push。
 - 单元内出现两个可独立回滚的行为主题时继续拆 commit；不得把 vendor 机械替换与产品 overlay 混为一个提交。

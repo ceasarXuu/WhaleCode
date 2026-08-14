@@ -2,9 +2,9 @@
 
 > 计划治理说明（2026-08-10）：本专题只保留一份工程计划：[plan.md](plan.md)。已完成工作统一记录在该计划的状态表中，详细证据由 execution report 和 ledger 承载；不存在并行或嵌套的历史计划。唯一产品决策权威源为 [decisions.md](decisions.md)。
 
-> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据均已完成；0.147 Phase A、Phase B、Phase C 已完成；Phase D 的 U11–U15 已验证。
+> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据均已完成；0.147 Phase A、Phase B、Phase C、Phase D 已完成。
 
-- 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成；Phase A、Phase B、Phase C verified；Phase D 执行中
+- 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成；Phase A、Phase B、Phase C、Phase D verified；Phase E 待重基
 - 分析日期：2026-08-01
 - 适用版本：WhaleCode v0.0.5
 - Checkpoint B 起始提交：`5331173f158fe6352ba69d78bcaf5038971fc7f1`
@@ -40,6 +40,7 @@
 - [U15 canonical update event 与 notification](../../migration/codex-sync/2026-08-14-u15-taskspace-events.md)
 - [U16 TUI slash 与 typed RPC 路由](../../migration/codex-sync/2026-08-14-u16-taskspace-tui-routing.md)
 - [U16 localhost browser viewer](../../migration/codex-sync/2026-08-14-u16-taskspace-viewer.md)
+- [U16 TaskSpace final-wire 与免费缓存合同](../../migration/codex-sync/2026-08-14-u16-taskspace-final-wire-cache.md)
 
 ## 当前批次状态
 
@@ -62,7 +63,7 @@
 - U14 已收口。0.147 extension sink 只能发送已有 protocol `EventMsg`，因此 TaskSpace event emission 与 U15 的版本化事件类型/schema 同单元恢复，避免在 runtime 阶段制造不可消费的半套 wire。U15 第一段已增加宿主可注入的同一 `TaskSpaceService` 及 canonical refresh/read seam。
 - U15 已收口：`thread/mapRuntimeMode/set` 与 `thread/taskspace/read` 继续只面向已加载线程并要求 experimental API opt-in；`thread/taskspace/updated` 仅在更高 canonical revision 成功落库后发射轻量失效通知，并经 listener FIFO 保持与 turn/resume 通知的顺序。JSON/TS 及 stable/experimental precomputed exports 已重生成；下一步进入 U16。
 - U16 第一段已恢复 `/taskspace` 与 `/task-show` 的 TUI typed RPC 路由：前者按顺序显式启用再读取，后者只读；该原子段以 canonical Map 文本摘要验证了完整路由。
-- U16 第二段已恢复 localhost browser viewer：只绑定 loopback 随机端口并轮询同一 canonical read RPC；页面展示 `taskspace-snapshot-v1` raw facts，不复制状态或恢复旧派生 projection。TaskSpace final-wire/cache 是 U16 剩余工作。
+- U16 已收口：第二段恢复只绑定 loopback 随机端口的 canonical browser viewer；第三段在同一 mock 线程锁定 Standard→TaskSpace 最终 Responses body、公共工具稳定性、conversation prefix、`instructions` 与 `prompt_cache_key`，并把两组 DeepSeek final-wire 纳入完整免费缓存矩阵。Phase D 的 U11–U16 全部 verified，0 真实请求。
 - replay ledger 和五批 DAG 已降级为非权威证据；后续不得直接按自动 disposition 或路径桶实施，应按 `plan.md` 的 U1–U17 语义闭环推进。
 
 ## 1. 执行摘要
