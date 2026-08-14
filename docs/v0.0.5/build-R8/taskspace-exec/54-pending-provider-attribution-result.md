@@ -2,7 +2,7 @@
 
 - Date: 2026-08-14
 - Scope: PA-00～PA-06
-- Result: 离线实现与生产链测试通过，PA-07 真实运行待验收
+- Result: 离线实现与生产链测试通过；PA-07 真实结果见 [`55-pending-provider-attribution-live-result.md`](55-pending-provider-attribution-live-result.md)
 
 ## 实施结果
 

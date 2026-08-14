@@ -1,0 +1,37 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "approved_at": "2026-08-14T22:51:06+08:00",
+  "authorization_id": "CBA-20260814-R8-PENDING-PROVIDER-ATTRIBUTION-852C65F588281F07",
+  "approval_reference": "用户在要求规划待归属队列协议后，明确指示开始执行、提前批准预算并持续到完成；本授权仅覆盖最终 provider-web-search-probe × map-request × repeat=3，零重试，执行/usage/预算异常即停止。",
+  "proposal_id": "CBP-852C65F588281F07",
+  "proposal_sha256": "d932587f0f079287d57b0d2cb3ebcf016de40d6e077c5b112dfd8bccc9701886",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "provider-web-search-probe"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 3,
+    "planned_sample_runs": 3,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 3,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "R8 pending Provider attribution final acceptance: provider-web-search-probe × map-request × repeat=3. Verify next-request pending carrier, Agent-declared node attribution, atomic queue consumption, business result, Map closure, and request/token/cache cost. User pre-approved this budget; zero retries; run/usage/budget failure stops the batch."
+  },
+  "approved_maximums": {
+    "provider_requests": 36,
+    "input_tokens": 36000000,
+    "output_tokens": 13824000,
+    "elapsed_seconds": 1620,
+    "estimated_cost": 8.91072,
+    "currency": "USD"
+  }
+}

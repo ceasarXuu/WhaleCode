@@ -1,7 +1,7 @@
 # Phase B 零基线重建计划
 
 - Created: 2026-08-06
-- Status: Active / Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 same-response pairing retired / PA-00～PA-07 active
+- Status: Active / Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 same-response pairing retired / PA-00～PA-06 verified / PA-07 partial
 - Supersedes: [`02-engineering-plan.md`](02-engineering-plan.md) 中 TX-06B 之后的兼容迁移顺序
 - Completed foundation: TX-06A (`54fc781fc`)
 - Paid Whale Agent run: 本阶段删除与离线建设不需要
@@ -431,7 +431,7 @@ Agent 通过 `taskspace_exec` 完成节点归属。该变更由 `00-product-cont
 | PA-04 | 替换 Exec 归属协议 | `sequence_schema.rs`、`plan.rs`、`protocol.rs` | 从 `tools[]` 删除 Hosted/`already_executed`；新增 `assign_pending_actions[{action_id,node_ids}]` 固定前缀和有证据的初始化归属、纯归属场景 | Provider 归属不再伪装成 Tool 执行，仍由同一个 Exec 管理 | Complexity: schema/parser 净替换；Reach: TaskSpace final wire/cache | 正反 schema、decode、无旧字段残留；不得新增 generic escape | verified |
 | PA-05 | 建立归属硬门和原子结算 | preflight、handler、canonical Store | 除 `read_map` 外，队列非空要求完整覆盖；校验 ID、重复、多节点和 Work node；Node action 写入与出队同事务；队列非空禁止 finish/end | Runtime 只维护事实和底线，Agent 独占节点选择权 | Complexity: 一个动态硬门和组合事务；Reach: Map revision/finish | partial/wrong/duplicate/multi-node/completed-node/finish/restart；零自动绑定 | verified |
 | PA-06 | 删除旧双写链并收敛反馈 | response scope、preflight error、result、tests、active docs | 删除同响应 actual/declared reconciler、Hosted `tools[]` result、配对错误和提示；反馈只列待归属事实与硬规则 | 不再同时维护两套归属路径，也不诱导 Agent 模拟 Provider Tool | Complexity: 预期净删除；Reach: observer/fixtures/docs | active-symbol audit、TaskSpace tests、observer fixtures | verified |
-| PA-07 | 完成离线与真实验收 | workspace/cache gates、Docker benchmark、run ledger | 先完成 focused/core/Standard/final-wire/cache 门禁，再执行 `provider-web-search-probe × map-request × repeat=3` | 验证归属稳定性、业务结果、请求/token/cache 成本和无新协议异常 | Complexity: tests only；Reach: 真实 API 成本 | 三轮均无双写错误、无漏绑、Map 闭合；预算/账本完整；失败即停并归因 | not-started |
+| PA-07 | 完成离线与真实验收 | workspace/cache gates、Docker benchmark、run ledger | 先完成 focused/core/Standard/final-wire/cache 门禁，再执行 `provider-web-search-probe × map-request × repeat=3` | 验证归属稳定性、业务结果、请求/token/cache 成本和无新协议异常 | Complexity: tests only；Reach: 真实 API 成本 | Provider 归属 3/3 且 pending 归零；业务和 Map 闭合 2/3。第三轮暴露 Provider-first 初始化形状缺口；旧 base 双写提示已离线删除，待产品决策和最小复验 | partial |
 
 ### PA Pre-Phase Plan Rebase Gate
 
