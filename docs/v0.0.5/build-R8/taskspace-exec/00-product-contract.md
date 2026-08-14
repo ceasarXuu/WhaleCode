@@ -203,48 +203,47 @@ outcome 也不自动完成节点。Root 和 Finish 只表达任务边界，不�
 Provider-hosted Tool 由 provider 在响应生成过程中原生执行。它的原始输出是唯一执行事实，不能被
 `taskspace_exec` 回滚、重执行或替换。
 
-Agent 在同一响应的 `taskspace_exec.tools[]` 中为每个已执行的原生 Hosted ToolSpec 声明一次固定
-`execution: "already_executed"` 和非空 `node_ids[]`。该固定值只区分“Provider 已执行结果的归属”与“请求 Runtime
-执行 client Tool”，不是 Tool outcome；Hosted 声明不提供 `input`。一次原生
-Provider ToolSpec action 可以同时供多个节点使用，但在 Map 中只形成一个 action identity。Runtime 只按原生 ToolSpec 机械核对：
+Runtime 在 Provider response 完成边界直接把每个原生 Hosted Tool 调用记录为持久化待归属 Action。该记录只保存稳定
+`action_id`、原生 Tool 名、机械 outcome 和 Provider 原生身份，不复制 Tool input/output，也不要求 Agent 在同一响应中双写。
+一次 Provider Tool action 可以同时供多个节点使用，但在 Map 中只形成一个 action identity。Runtime 只按 Provider 原生调用边界
+机械采集：
 
 - TaskSpace 不定义、翻译或规范化 Hosted Tool 名；Agent 可见名称、对账名称与 Map 记录名称都直接来自当前原生
   `ToolSpec::name()`。当前原生 Web Search ToolSpec 名为 `web_search`；
 - 原生 Web Search ToolSpec 是不可拆分的一个 Tool；`search`、`open_page`、翻页、内部失败与重试都属于 Provider 内部过程；
-- Provider 内部 output item、action subtype、`id/item_id` 和 `output_index` 不进入 TaskSpace 协议、Map、节点绑定或 outer result；
-- 同一 response scope 内同一个原生 Hosted ToolSpec 无论产生多少内部 item，都形成一个 Tool 事实；
-- Agent 对同一个原生 Hosted ToolSpec 只能声明一次，并可用同一个 `node_ids[]` 归属多个 Work node；
-- Runtime 只核对实际发生与 Agent 声明的原生 ToolSpec 集合是否一致、节点是否合法，不核对内部项数量、顺序或身份；
-- outcome 机械聚合：任一内部项成功则整体成功；否则失败优先于取消。outcome 不改变节点生命周期。
+- Provider 内部 action subtype、搜索步骤、翻页、内部失败和重试不进入 TaskSpace Action；
+- Provider 暴露一个原生调用身份就形成一个待归属 Action；多个独立原生调用不得按 Tool 名合并；
+- Runtime 为缺少可直接复用原生 ID 的调用机械生成稳定身份，Agent 不参与身份构造；
+- outcome 直接复用 Provider 原生调用的机械终态，不改变节点生命周期。
 
-Agent 不得回显、复制或另造 Provider 传输身份。Hosted action 使用 outer `call_id + tools[] index` 形成稳定 action identity，
-与 client action 使用同一身份规则。缺少原生 ToolSpec 声明、声明了未发生的 Tool、重复声明或节点非法时，该响应不被 TaskSpace
-接受，不能标记为 `unbound` 或默认写到 Root。Provider 原始结果仍按 Standard 路径忠实进入自然上下文，不复制进 Map。
-Hosted action 也只能归属于 Work node。其执行已经发生，因此 Tool outcome 不决定节点生命周期；Runtime 仍必须拒绝将
-Hosted action 记到 Root、Finish、未知节点或空归属中。
+下一次 TaskSpace 请求必须忠实暴露全部待归属 Action。Agent 在 `taskspace_exec.assign_pending_actions[]` 中只回填已有
+`action_id` 和非空 `node_ids[]`；不重复声明 Tool 名、outcome、input 或 result。一个 Action 可以归属多个 Work node。
+Runtime 只校验 Action 是否真实待归属、是否完整且仅处理一次、节点是否存在且为 Work node，不选择节点、不默认 Root、
+不推断 current node。Provider 原始结果仍按 Standard 路径忠实进入自然上下文，不复制进 Map。
 
-当前合同只接受同一 response scope 内的 Hosted 事实与 Agent 归属声明。LS-09 在线证据已确认：如果 Agent
-当轮漏写声明，下一轮没有合法的补录路径。但当前证据同时显示 Agent 会把旧 Hosted 结构误解为执行请求；
-因此必须先验证 `already_executed` 的方向判别是否消除漏写，不得过早引入跨轮 pending、Runtime 自动绑定、默认归根
-或隐式跨轮接受。证据见 [`46-ls09-logical-hosted-revalidation-result.md`](46-ls09-logical-hosted-revalidation-result.md)。
+待归属是必须在下一请求解决的暂态，不是可接受的未绑定终态。除只读 `read_map` 外，队列非空时任何 Map 变更、client Tool
+工作和最终结束都必须在同一个 `taskspace_exec` 中先完整提交归属；不知道节点结构时允许先读取 Map。归属写入目标 Node
+`actions[]` 与待归属记录删除必须原子提交。Map 关闭和最终回复必须在队列清空后发生。不得用 Runtime 自动绑定、默认归根、
+静默丢弃或仅标记未绑定代替 Agent 归属。
 
 ### 5.3 失败与结算矩阵
 
 | 响应事实 | Hosted 事实 | 尚未发生的 client/map | 原因 |
 |---|---|---|---|
-| 缺少 outer exec，或 outer plan 在 5.0.1 唯一候选检查后仍无法解码 | 保留在 provider 原始响应和诊断日志中，不写 Map | 整批拒绝，零执行、Map 零提交 | 没有可信的 Agent 节点与动作声明 |
+| Provider 原生 Action 已发生，无论同响应是否存在合法 outer exec | 立即幂等写入持久化待归属集合 | 不回滚已发生的 Provider Action；同响应合法 client/map 仍按自身合同处理 | Provider 事实不依赖 Agent 双写 |
+| 缺少 outer exec，或 outer plan 在 5.0.1 唯一候选检查后仍无法解码 | Provider Action 仍进入待归属集合 | 尚未发生的 client/map 零执行、Map 零提交 | 已发生事实与未发生计划分开结算 |
 | outer plan 仅缺一个可唯一恢复的闭合符号 | 原始 wire 留在 transport 诊断，修正版成为唯一正式 ResponseItem | 修正版继续通过完整 preflight；通过后正常执行，不通过则按具体硬规则拒绝 | 只恢复序列化闭合，不改变 Agent 声明的动作语义 |
 | plan 可解码但违反 Agent 合同或 canonical Map 硬规则 | 保留在 provider 原始响应和诊断日志中，不写 Map | 整批拒绝，零执行、Map 零提交 | 不从被拒绝的计划中选择性接受状态或归属声明 |
-| plan 合法，全部 Hosted capability 声明与同响应逻辑事实一一对应，节点存在或由合法 prelude 创建 | 每种 Hosted capability 记录一个逻辑 action，可归属 Agent 声明的多个节点 | 按预检计划执行 | Agent 决定节点，Runtime 只核对 capability 集合和节点合法性 |
-| Hosted capability 声明缺失、多出、重复或节点非法 | 保留在 provider 原始响应和诊断日志中，不默认写 Root 或未绑定池 | 整批拒绝，零执行、Map 零提交 | 未完整归属的响应不是可接受的 TaskSpace 事务 |
-| Provider fact 状态为 failed/cancelled | 仍按声明节点保存原状态 | 其他合法 client/map 正常执行 | Tool outcome 与节点生命周期正交 |
+| 队列非空，plan 完整归属全部待归属 Action | action 写入 Agent 声明的一个或多个 Work node 并原子出队 | 同批后续合法动作继续执行 | Agent 决定归属，Runtime 只做硬校验和原子结算 |
+| 队列非空但 plan 漏绑、错绑、重复或节点非法 | 待归属集合保持不变 | 除 `read_map` 外整批拒绝，零执行、Map 零提交 | 未完整归属不是可接受的 TaskSpace 事务 |
+| Provider Action 状态为 failed/cancelled | 仍进入待归属集合，归属后保存原状态 | Tool outcome 不改变节点状态 | 失败事实同样必须被管理 |
 | client Tool 执行失败 | 已结算 Hosted 事实不回滚 | 原结果按内部调用身份返回，Map 节点状态不自动改变 | 不把已发生的 Provider 事实伪装成同一事务可回滚动作 |
 
 合法计划的 Map prelude 和全部 Tool action-node declarations 必须先通过 canonical Map
-transaction 接缝验证；Hosted 节点由 prelude 创建时，只有 transaction 成功后才能把必要 action 事实写入所选节点的
+transaction 接缝验证；Provider Action 的目标节点由同批 Map prelude 创建时，只有 transaction 成功后才能把必要 action 事实写入所选节点的
 `actions[]`。Provider 原始结果继续只存在于原生 response、Standard history 和通用持久化路径，Map 不复制结果，也不创建
 result/evidence ref。一个 Hosted action 被 Agent 归属到多个节点时，各节点只保存同一真实 action identity 的必要归属事实；
-不得为此增加旁路 binding database、默认 Root owner 或未绑定池。
+待归属集合只承担短暂、持久化、不可绕过的归属恢复，不是第二份 Map 或语义账本；不得增加默认 Root owner。
 
 ### 5.4 Tool 与节点状态正交
 
@@ -307,13 +306,13 @@ fallback 或兼容读取。
 - preflight 拒绝必须指出具体条目、违反的硬规则和零执行范围，不加入下一步建议。
 - work call 命中 `waiting` 节点时，拒绝必须机械列出该节点当前状态和未完成的直接父节点 ID；不得只返回内部枚举，也不得
   替 Agent 完成父节点、选择可执行节点或改变状态。
-- provider reconciliation 失败必须区分“provider 动作已发生”和“TaskSpace 绑定未成立”。
+- 待归属反馈只列出 Runtime 已知的 `action_id`、原生 Tool 名、机械 outcome 和违反的硬规则，不重述或解释 Provider 结果。
 - 结果裁剪沿用原生 Tool 与上下文底线，不因 TaskSpace 额外摘要、改写或隐藏关键失败。
 
 ## 7. 不做什么
 
 - 不修改普通 Tool 的原生 schema、参数或 handler；
-- 不保留单独 node bind Tool、current node、Runtime 自动绑定或控制 manifest；
+- 不保留单独 node bind Tool、current node、Runtime 自动绑定或控制 manifest；归属只能是 `taskspace_exec` 的受限协议前缀；
 - 不把 exec 内调用顺序当作 Work DAG；
 - 不增加顶层 `edges[]`、Map 专属 ref、节点语义分类账本或 parent/child 双写合同；
 - 不解析 reasoning 或自然语言来恢复动作；
@@ -329,13 +328,13 @@ fallback 或兼容读取。
 | 内部 ToolSpec 派生 | 已确认 | 复用 Codex 主线机制，不手写第二份 Tool 合同 |
 | Client 原 Router 执行 | 已确认 | 复用现有 ToolRouter/registry/handler/hook |
 | 闭集合法序列 + node binding | 已实施 / 在线部分验证 | Agent 只能选择有证据的顺序形状；不再自由拼装任意 `calls[]` |
-| 统一 Tool action | 已实施 / 在线部分验证 | client 与 Provider Tool 位于同一 `tools[]`；仅 Runtime 执行适配不同 |
+| 统一 Node Action | 目标合同已确认 / 待实施 | client 与 Provider 最终都写入同一 Node `actions[]`；执行前请求与执行后归属不再共用 Agent wire |
 | Node lifecycle 收敛 | 已实施 / 在线部分验证 | 已移除无正向运行证据的 blocked 状态与相关规则 |
-| Hosted 原生执行 + 逻辑 capability 核对 | 已确认 | provider 事实不可回滚；Runtime 不拆分内部步骤，只核对 capability 集合与 Agent 归属 |
+| Hosted 原生执行 + 待归属恢复 | 已确认 / 待实施 | Provider 事实不可回滚；Runtime 按原生调用边界入队，下一请求由 Agent 归属 |
 | 静态 schema + Agent 动态实例 | 已实施 | schema 固定序列类型；Agent 决定序列内的节点、Tool、参数和归属 |
 | 完整批次预检边界 | EX-04 离线通过 | 结构、能力、node 声明、Map/DAG 边界和单 Patch 在 dispatch 前判定；失败只返回机械错误且零副作用 |
-| Hosted 内部传输身份 | 明确排除 | Provider `id/item_id/output_index` 只属于原生响应处理，不进入 TaskSpace 协议、Map 或反馈 |
-| Hosted ToolSpec 多节点归属 | 已确认 / 在线验证 | 同一个原生 Hosted ToolSpec 每个 response scope 只形成一个 action，可绑定 Agent 声明的多个 Work node |
+| Provider Action 身份 | 已确认 / 待实施 | Agent 只复制 Runtime 暴露的稳定 `action_id`；不自行构造或解释 Provider 传输身份 |
+| Provider Action 多节点归属 | 已确认 / 在线部分验证 | 同一个原生调用 action 可绑定 Agent 声明的多个 Work node |
 | Hosted 多节点持久化 | 已确认 / 在线验证 | 逻辑 action identity 可出现在 Agent 声明的多个节点 `actions[]`；Provider 原始结果不进入 Map，也不创建 ref |
 | 最简 canonical Map | Phase B1 已完成 | Node 直接包含 goal/state/content/parents/actions；children 始终可见但机械派生；无顶层 edges、平行 ledger 或 Map 自建 ref |
 
@@ -347,8 +346,8 @@ fallback 或兼容读取。
    任意 Map/Tool 排列或通用逃生分支。
 3. 每个 client call 的 `node_id` 由 Agent 声明，但原 Tool schema 和 handler 完全不知道 TaskSpace。
 4. 非法 client/map 序列在明确边界内零执行、Map 零提交；边界由 TX-04 的可证伪结果冻结。
-5. 同响应的 Hosted capability 逻辑事实与 Agent 声明的 capability 集合一一核对；一个逻辑 action 可绑定多个节点，
-   任何缺失、多出、重复或非法节点均整批拒绝，不使用内部 output 身份、默认 Root 或未绑定池降级。
+5. 每个 Provider 原生调用先幂等进入持久化待归属集合；下一次非只读 Exec 必须用稳定 `action_id` 完整归属，一个 action
+   可绑定多个节点。任何缺失、多出、重复或非法节点均整批拒绝，不默认 Root、不自动选择节点。
 6. Tool 结果完整进入 Agent context 一次；失败语义、节点状态和 provider reconciliation 不互相伪装。
 7. 旧入侵、旧容器和 sibling 生产路径已在 Phase B0 删除，后续源码不得恢复兼容分支。
 8. 确定性测试、日志、缓存门禁和获批真实样本共同证明正确性；真实样本不以一次成功宣称稳定。
@@ -370,6 +369,7 @@ fallback 或兼容读取。
 | PD2 | 合法序列按真实场景证据渐进扩展 | 首批只纳入已探明场景；每个新增类型有场景证据、明确边界和正反验收 | 不为假设中的未来需求预建大量序列，不把偶发错误直接升级为新类型 | 保持模型简单并可逐项归因收益或回归 | 无当前证据仍新增序列，或多个类型职责重叠 | user-confirmed-direct: “把我们启发式探明的场景逐步加入进去” | active |
 | PD3 | 七个已识别核心场景全部进入首批设计，但必须逐项有合法证据 | 为每个场景关联真实 trace，或确定性能力证据加已确认产品需要 | 不为空想场景创造序列，不伪称缺失的在线证据 | 覆盖已知工作需要，同时避免闭集膨胀 | 场景没有证据仍进入 schema，或把确定性测试写成在线成功 | user-confirmed-direct: “7个都做但是要避免空想创造，要有序列的合法证据” | active |
 | PD4 | Ready 节点上的 Tool action 机械启动该节点 | Agent 声明 Tool 与节点；Runtime 在执行/对账前机械执行 Ready -> InFlight | Runtime 不选节点；Tool outcome 不自动 completion | 消除必须额外声明 in-flight 的无效动作，同时保持节点完成权归 Agent | work 前仍要求 Agent 单独改 in-flight，或 Tool 结果自动完成节点 | user-confirmed-direct: “2.批准。”（对应 Ready 工作机械进入 InFlight） | active |
-| PD5 | Provider Tool 在 Exec 序列中与普通 Tool 同等表达 | 使用统一 `tools[]` 和顺序规则；Runtime 只因顶层已执行而改为对账、不重执行 | 不建立序列外 hosted work/binding 通道，不降低漏绑错绑检查 | Provider 的执行位置不应演化成第二套 Agent 工作模型 | Agent-visible schema 出现独立 hosted 序列，或 Provider 绕过节点归属 | user-confirmed-direct: “provider tools 在exec中应该被视为普通工具一样不应该特别对待” | active |
+| PD5 | Provider 与 client 统一为 Node Action，但按真实生命周期使用不同 Agent wire | Provider 原生调用由 Runtime 立即持久化为待归属 Action；下一请求由 Agent 在 Exec 受限归属前缀中声明一个或多个 Work node；归属后与 client action 使用同一 Node `actions[]` | 不再要求同响应双写，不把 Provider Action 伪装成待执行 client Tool；不得自动绑定、默认 Root、静默丢弃或允许带未归属 Action 结束 | 统一应落在 Action/Map 事实模型，而不是强迫执行前请求和执行后事实共用相反生命周期的 `tools[]` 槽位 | `already_executed` 同响应双写仍存在，或待归属 Action 可绕过 Agent 归属进入 Map/结束任务 | user-confirmed-direct: “专门放一个待归属队列，由runtime来解析加入，当不为空时，在下一次request 中要求agent 为这些action分配节点”；“开始执行” | active |
+| PD8 | 待归属是持久化且不可绕过的短暂恢复状态 | 按 Provider 原生调用边界幂等入队；下一次非只读 Exec 必须完整归属；归属写 Node 与出队原子提交；重启后继续存在 | 不复制完整 Tool 结果，不建立后台消息系统，不把 pending 当作可接受终态，不因队列存在替 Agent 选择节点 | 消除两个独立顶层 item 的脆弱双写，同时保证所有动作最终受 Map 管理 | Provider Action 因 outer Exec 缺失而丢失，队列可被跳过，或 Map 在队列非空时关闭 | user-confirmed-direct: “专门放一个待归属队列，由runtime来解析加入，当不为空时，在下一次request 中要求agent 为这些action分配节点”；“开始执行” | active |
 | PD6 | 保留受限 `update_map` 和纯 Map 更新序列 | `update_map` 只修改 canonical Map，并可独立提交或出现在合法顺序中 | 不把 `update_map` 变成万能 Tool，也不强制每次 Map 更新捆绑工作动作 | 闭集规定工作顺序，不剥夺 Agent 独立维护记账本的能力 | 纯 Map 修改被拒绝，或 update 可执行业务 Tool/关闭 Map | user-confirmed-direct: “update map 只能改map状态……应当保留用于纯map更新” | active |
 | PD7 | 在无正向收益证据时移除 blocked 状态及相关规则 | 目标生命周期收敛为 waiting/ready/in-flight/completed；外部阻碍写入 content | 不保留 blocked 兼容、迁移、隐藏分支或行动限制 | 当前审计只证明 blocked 被实现，没有证明它帮助 Agent 推理，反而增加限制 | 生产 schema、状态转移、projection、Store 或规则仍含 TaskSpace blocked | user-confirmed-conditional: “除非有证据blocked属性对推理有帮助，否则可以考虑先不要了（包括相关的规则）”；2026-08-12 审计未发现正向运行证据 | active |

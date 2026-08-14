@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 Hosted same-response pairing remains unresolved; first-turn combined example failed online
+- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 same-response pairing retired / PA pending-attribution implementation active
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
 
@@ -17,15 +17,15 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
    调用和原 Router 复用方式，但不照搬其 Freeform Tool wire。
 2. TaskSpace 请求不再向 Agent 顶层暴露普通 client Tool。普通 client Tool 的能力说明由 `taskspace_exec` 从原生
    `ToolSpec` 派生；Map 操作从 canonical Action Map transaction 原语直接定义并作为平级内部 variant 暴露。
-3. Agent 在 `taskspace_exec` 内选择一个明确合法的 Map/Tool 顺序形状，并在统一 `tools[]` 中声明 client 或 Provider Tool、
-   原生调用内容和节点归属；纯 `update_map` 继续作为受限 Map 动作合法存在。
-4. Runtime 对 client Tool 执行机械预检、解析和原生 Tool dispatch；对 Provider Tool 不重执行，也不拆分
-   `search/open_page/find_in_page` 等 Provider 内部步骤。每种实际发生的 Hosted capability 在同一响应内只形成一个逻辑
-   action；Agent 声明节点归属，Runtime 只核对 capability 集合和节点合法性。
+3. Agent 在 `taskspace_exec` 内选择一个明确合法的 Map/Tool 顺序形状；client Tool 继续在 `tools[]` 中声明。Provider
+   原生调用由 Runtime 持久化为待归属 Action，下一请求由 Agent 在受限 `assign_pending_actions[]` 前缀中声明节点归属；
+   纯 `update_map` 继续作为受限 Map 动作合法存在。
+4. Runtime 对 client Tool 执行机械预检、解析和原生 Tool dispatch；对 Provider Tool 不重执行，也不拆分其内部步骤。
+   Runtime 只记录原生调用事实并校验 Agent 后续归属，不选择节点、不默认 Root；待归属清空前不得结束 Map。
 5. `taskspace_exec` 只增加两个 TaskSpace 职责：合法序列和节点绑定。它不规划任务、不选择节点、不解释 Tool 结果，
    也不根据 Tool 成败推进节点状态。
 6. `taskspace_exec` schema 是静态能力合同，只提供一组带稳定判别值、有场景证据的合法顺序形状。Agent 不再自由拼装任意
-   `calls[]`，但仍自主决定具体序列、节点、Tool、参数和归属；Runtime 收到调用后只机械归一化、预检和路由。
+   `calls[]`，但仍自主决定具体序列、节点、Tool、参数和归属；Runtime 收到调用后只机械归一化、预检、持久化和路由。
 7. 普通 Client Tool 合同从 Standard 顶层迁移到 Exec 内部，只暴露一次；运行时 Map、node、plan、Provider output 和
    Session 状态不进入 Tool declaration。
 8. Agent 不回显协议版本、能力快照身份或内部调用 ID；Runtime 从 request-local ToolSpec、outer `call_id` 和数组位置

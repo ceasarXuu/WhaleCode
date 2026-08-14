@@ -1,7 +1,7 @@
 # Phase B 零基线重建计划
 
 - Created: 2026-08-06
-- Status: Active / Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 Hosted contract revalidation failed, product protocol decision required
+- Status: Active / Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 same-response pairing retired / PA-00～PA-07 active
 - Supersedes: [`02-engineering-plan.md`](02-engineering-plan.md) 中 TX-06B 之后的兼容迁移顺序
 - Completed foundation: TX-06A (`54fc781fc`)
 - Paid Whale Agent run: 本阶段删除与离线建设不需要
@@ -415,6 +415,29 @@ Ready -> InFlight 只由 Agent 声明的 Tool action 触发；Runtime 不选节�
 | LS-09 Hosted execution-direction repair | 2026-08-13 | 原始 rollout requests 1～3/6；TaskSpace Exec 74/74 | Hosted action 必填 `execution: "already_executed"` 且不允许 `input`；Tool description 新增同响应归属示例；`actual/declared` 调试结构改为“本响应已执行但未归属/本响应未执行但已归属”的忠实反馈。Provider outcome、逻辑聚合、Map 和 client Tool 路径不变 | 离线实现完成；运行缓存门禁。真实复验需专用预算，不在未验证前引入跨响应 pending |
 | LS-09 Hosted execution-direction revalidation | 2026-08-13 | [`47-ls09-hosted-execution-direction-result.md`](47-ls09-hosted-execution-direction-result.md)；`WAR-20260813-220517-CACHE-REGRESSION-ED5FF5CE`；12 Provider requests；302,780 input / 254,720 cached / 48,060 uncached / 7,710 output；USD 0.009600416 | Agent 已能准确解释并成功使用 `already_executed`，同响应真实搜索与归属对账成功，业务、oracle 和 Map 闭合通过；但仍有一次提前登记，以及一次真实搜索漏登后下一响应补登失败。方向判别是有效修复但不是完整根因 | 保留轻量结构，不引入 Runtime 自动绑定、默认 Root 或 pending；I03 继续 verifying，后续样本继续观察同响应漏登频率 |
 | LS-09 same-response pairing repeat=5 | 2026-08-14 | `806b29780`；[`48-ls09-same-response-pairing-repeat5-result.md`](48-ls09-same-response-pairing-repeat5-result.md)；5 runs / 60 requests；1,947,752 input / 1,772,544 cached / 175,208 uncached / 51,739 output；USD 0.0439791632 | 同响应双写合同可被 Agent 理解并完成 8 次对账，但五轮均有协议或序列错误，公开验证仅 2/5。后续纠偏确认内部 action 映射不是缺口；真实缺口是两个独立顶层 item 缺少结构性耦合，以及 Hosted 归属后同批完成 owner 的合法顺序缺失 | I03 继续 verifying；分别设计和验证两个单变量修复，不晋升缓存基线，不引入自动绑定或跨响应 pending |
+
+## 5.1 PA：Provider Action 待归属恢复
+
+2026-08-14 用户确认废弃同响应双写，改为 Runtime 按 Provider 原生调用边界持久化待归属 Action，并在下一次请求要求
+Agent 通过 `taskspace_exec` 完成节点归属。该变更由 `00-product-contract.md` 的 PD5、PD8 管辖，替换 LS-09 后续所有
+“继续强化同响应配对”方向。历史 LS-09 结果只保留为失败证据，不再是活动合同。
+
+| ID | Objective | Location / Target | Concrete Action | Resulting Behavior / Benefit | Side Effects | Verification / Stop | Status |
+|---|---|---|---|---|---|---|---|
+| PA-00 | 冻结新归属合同 | `00-product-contract.md`、本计划、README | 删除活动合同中的同响应双写与跨响应禁止，确认 Provider 事实、Agent 归属、Runtime 硬门和结束条件 | 后续实现只有一条产品权威，不在旧协议上叠加 pending | Complexity: 产品合同切换；Reach: PA 全部单元 | PD5/PD8 可追溯；活动文档无相反要求 | in-progress |
+| PA-01 | 建立持久化待归属事实 | canonical SQLite Store、TaskSpace session state | 新增最小 pending action 表/操作：稳定 action identity、原生 Tool 名、机械 outcome、Provider 原生关联；不保存 input/output | Provider Action 不依赖 outer Exec 存活，重启后仍可恢复 | Complexity: 一个关系表和窄 Store API；Reach: TaskSpace Store，不影响 Standard | round-trip、幂等、重启、blank-map fixture；若需要后台 worker 或复制结果则停止 | not-started |
+| PA-02 | 接入 Provider response 采集 | response completion lifecycle、Hosted classifier | 在 Provider 原生响应完成边界幂等入队；按原生调用身份记录，不拆内部步骤、不按 Tool 名合并独立调用 | 已发生事实不会因 Agent 漏写或 outer Exec 拒绝而丢失 | Complexity: 移动 Hosted 事实消费者；Reach: TaskSpace response lifecycle | 0/1/N、重复投递、failed/cancelled、无 outer Exec；Standard 0-diff | not-started |
+| PA-03 | 暴露待归属事实 | TaskSpace request/context constructor、outer result | 队列非空时在下一请求尾部暴露 `action_id/tool/outcome`；不复制结果、不修改稳定 base/schema 前缀 | Agent 获得完成归属所需事实且缓存影响局限于动态尾部 | Complexity: 一个机械事实块；Reach: 三种 projection 模式 | exact projection、无结果重复、缓存 source gate | not-started |
+| PA-04 | 替换 Exec 归属协议 | `sequence_schema.rs`、`plan.rs`、`protocol.rs` | 从 `tools[]` 删除 Hosted/`already_executed`；新增 `assign_pending_actions[{action_id,node_ids}]` 固定前缀和有证据的初始化归属、纯归属场景 | Provider 归属不再伪装成 Tool 执行，仍由同一个 Exec 管理 | Complexity: schema/parser 净替换；Reach: TaskSpace final wire/cache | 正反 schema、decode、无旧字段残留；不得新增 generic escape | not-started |
+| PA-05 | 建立归属硬门和原子结算 | preflight、handler、canonical Store | 除 `read_map` 外，队列非空要求完整覆盖；校验 ID、重复、多节点和 Work node；Node action 写入与出队同事务；队列非空禁止 finish/end | Runtime 只维护事实和底线，Agent 独占节点选择权 | Complexity: 一个动态硬门和组合事务；Reach: Map revision/finish | partial/wrong/duplicate/multi-node/completed-node/finish/restart；零自动绑定 | not-started |
+| PA-06 | 删除旧双写链并收敛反馈 | response scope、preflight error、result、tests、active docs | 删除同响应 actual/declared reconciler、Hosted `tools[]` result、配对错误和提示；反馈只列待归属事实与硬规则 | 不再同时维护两套归属路径，也不诱导 Agent 模拟 Provider Tool | Complexity: 预期净删除；Reach: observer/fixtures/docs | active-symbol audit、TaskSpace tests、observer fixtures | not-started |
+| PA-07 | 完成离线与真实验收 | workspace/cache gates、Docker benchmark、run ledger | 先完成 focused/core/Standard/final-wire/cache 门禁，再执行 `provider-web-search-probe × map-request × repeat=3` | 验证归属稳定性、业务结果、请求/token/cache 成本和无新协议异常 | Complexity: tests only；Reach: 真实 API 成本 | 三轮均无双写错误、无漏绑、Map 闭合；预算/账本完整；失败即停并归因 | not-started |
+
+### PA Pre-Phase Plan Rebase Gate
+
+| Before Unit | Evidence Reviewed | Delta | User Approval | Gate |
+|---|---|---|---|---|
+| PA-01 | LS-09 repeat=5、native-contract 修复与 2026-08-14 用户决策 | material：同响应配对改为跨请求持久化归属 | user-approved-plan-direct: “开始执行，提前批准预算，持续执行到完成” | ready |
 
 ## 6. 证据校准
 
