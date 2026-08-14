@@ -67,6 +67,28 @@ try {
     Assert-Equal $facts.correlated_outer_call_count 1 'outer call identity was not joined'
     Assert-Equal $facts.capability_identity $capabilityIdentity 'Exec capability identity was not observed'
     Assert-Equal $facts.wire_capability_identity $capabilityIdentity 'wire capability identity was not observed'
+
+    $referencedResult = $result | ConvertTo-Json -Compress -Depth 12
+    $referencedSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+    $referenceDir = Join-Path $temp 'home/.whale/session-store/output-refs/sha256'
+    New-Item -ItemType Directory -Path $referenceDir -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $referenceDir "$referencedSha.stdout") -Value $referencedResult -Encoding UTF8
+    $referenceOutput = "OutputReferenceV1:`nartifact_ref: output-ref://sha256/$referencedSha`nraw_output_elided: true"
+    @(
+        [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
+                type = 'function_call'; name = 'taskspace_exec'; call_id = 'outer-1'
+                arguments = ($arguments | ConvertTo-Json -Compress -Depth 12)
+            } },
+        [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
+                type = 'function_call_output'; call_id = 'outer-1'; output = $referenceOutput
+            } }
+    ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 15 } |
+        Set-Content -LiteralPath (Join-Path $temp 'rollout.jsonl') -Encoding UTF8
+    $referencedFacts = Get-TaskspaceExecObservation $temp $null
+    Assert-Equal $referencedFacts.availability 'measured' 'referenced Exec result was not resolved'
+    Assert-Equal $referencedFacts.client_result_count 2 'referenced client results were not counted'
+    Assert-Equal $referencedFacts.provider_result_count 1 'referenced Provider results were not counted'
+
     $sequenceCases = @(
         @('work', @{ type = 'work'; tools = @([pscustomobject]@{ tool = 'exec_command'; node_id = 'n'; input = @{} }) }, 'client'),
         @('update_map', @{ type = 'update_map'; update_map = @{} }, 'map'),

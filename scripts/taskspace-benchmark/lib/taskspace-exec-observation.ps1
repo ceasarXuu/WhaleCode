@@ -21,6 +21,23 @@ function Get-TaskspaceExecTraceFields {
     $fields
 }
 
+function Resolve-TaskspaceExecResultOutput {
+    param([string]$ArtifactDir, [string]$RawOutput)
+    if (-not $RawOutput.StartsWith('OutputReferenceV1:')) { return $RawOutput }
+    $match = [regex]::Match(
+        $RawOutput,
+        'artifact_ref:\s*output-ref://sha256/(?<sha>[a-fA-F0-9]{64})'
+    )
+    if (-not $match.Success) { throw 'TaskSpace Exec output reference is missing a valid artifact_ref' }
+    $path = Join-Path $ArtifactDir (
+        'home/.whale/session-store/output-refs/sha256/{0}.stdout' -f $match.Groups['sha'].Value.ToLowerInvariant()
+    )
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "TaskSpace Exec output reference artifact is missing: $path"
+    }
+    Get-Content -Raw -Encoding UTF8 -LiteralPath $path
+}
+
 function New-TaskspaceExecObservation {
     param([string]$Availability = 'missing')
     [pscustomobject]@{
@@ -128,6 +145,7 @@ function Get-TaskspaceExecObservation {
                 continue
             }
             try {
+                $rawOutput = Resolve-TaskspaceExecResultOutput $ArtifactDir $rawOutput
                 $result = $rawOutput | ConvertFrom-Json
                 if ([string]$result.kind -ne 'taskspace_exec_result') {
                     throw 'unexpected taskspace_exec result kind'
