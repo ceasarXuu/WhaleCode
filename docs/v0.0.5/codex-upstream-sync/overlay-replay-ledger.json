@@ -2,7 +2,7 @@
   "schema_version": 1,
   "baseline_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
   "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
-  "overlay_tree": "4e6e3b266eddce1381149bc0e9dab0a9996cd4e4",
+  "overlay_tree": "b318d16515629bd60ea94e2e678b86343c77c8f4",
   "cutover_batches": [
     {
       "id": "batch-1-brand-home",
@@ -949,7 +949,7 @@
       "categories": [
         "taskspace_domain"
       ],
-      "current_sha256": "c3476128daefbcfffab538298b4d933d19a84b6061938bf7bc88aeaadd0dfabf",
+      "current_sha256": "a6aee57558cb7a5183f2b2555b834b08ae31b10e1064521907a4ecd7d5bd58eb",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -1053,7 +1053,7 @@
       "categories": [
         "taskspace_domain"
       ],
-      "current_sha256": "dc5134e009afa8a02314e4420d6119c21576a546c3082cca3aaafa1926987722",
+      "current_sha256": "2c2ea7b682d646eedfffeb58af34554381154d5f7eaf4c6a34e10e9ef0744e09",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -1261,7 +1261,7 @@
       "categories": [
         "taskspace_domain"
       ],
-      "current_sha256": "777c0174ed04d19c2f29ff8cde923787c88934addc158d57bd23624011d8be02",
+      "current_sha256": "5ca4677b41dd26dad7e89a51eaa9d7328b84cc6400146da456ecac98f5b512bd",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -1287,7 +1287,7 @@
       "categories": [
         "taskspace_domain"
       ],
-      "current_sha256": "492c27afdd4fddb5a53bb04b149e748410e236fa6c3a72c2c085c9290e3af9bc",
+      "current_sha256": "b31941de1e5834070bec2ced49b4bceb60237416b8d5b4a1d2dad0dd9f7cf1b5",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
