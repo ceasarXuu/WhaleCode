@@ -2,7 +2,7 @@
 
 > 计划治理说明（2026-08-10）：本专题只保留一份工程计划：[plan.md](plan.md)。已完成工作统一记录在该计划的状态表中，详细证据由 execution report 和 ledger 承载；不存在并行或嵌套的历史计划。唯一产品决策权威源为 [decisions.md](decisions.md)。
 
-> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据均已完成；0.147 Phase A、Phase B、Phase C 已完成；Phase D 的 U11–U13 已验证，U14 已完成 read runtime、response preflight、active Map execute、显式初始化及 terminal/reopen 五个原子段。
+> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据均已完成；0.147 Phase A、Phase B、Phase C 已完成；Phase D 的 U11–U14 已验证，U15 已完成 service read/injection seam。
 
 - 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成；Phase A、Phase B、Phase C verified；Phase D 执行中
 - 分析日期：2026-08-01
@@ -35,6 +35,7 @@
 - [U14 active Map execute 写循环](../../migration/codex-sync/2026-08-14-u14-taskspace-execute-manifest.md)
 - [U14 显式启用与初始化](../../migration/codex-sync/2026-08-14-u14-taskspace-initialize-enable.md)
 - [U14 terminal 与 reopen](../../migration/codex-sync/2026-08-14-u14-taskspace-terminal-reopen.md)
+- [U15 service read seam](../../migration/codex-sync/2026-08-14-u15-taskspace-service-read.md)
 
 ## 当前批次状态
 
@@ -54,6 +55,7 @@
 - U14 第三原子段已完成：active Map 的 `execute` 会在 preflight 中校验 sibling manifest 并通过现有 state CAS 原子提交 mutation/reservation；control 返回提交 receipt，tool lifecycle 在 sibling 结束后释放 reservation 并写 result ref。错误 manifest 零提交且继续保持零 dispatch；未绑定 Standard 线程仍保持放行。初始化、finish/reopen、RPC/TUI 不在本段。
 - U14 第四原子段已完成：新增 extension-owned `TaskSpaceService` 作为显式 mode seam；Standard 默认仍不暴露工具或 WorldState，启用后 `initialize_and_execute` 通过同一 state CAS 原子创建 canonical Map、owner binding 与首批 reservation。关闭不会被 turn refresh 反转；app-server 将在 U15 持有该 service。
 - U14 第五原子段已完成：`finish_map` 要求 control 独占响应，在 preflight 中以 exact summary 和最终 work completion 原子终结 Map；`reopen_map` 复用 ordered sibling manifest 和同一 CAS store，原子恢复 terminal history、追加 work/edges 并 reservation，随后由 tool lifecycle release。非法 sibling/manifest 均零提交；仅 extension event emission 尚待收口。
+- U14 已收口。0.147 extension sink 只能发送已有 protocol `EventMsg`，因此 TaskSpace event emission 与 U15 的版本化事件类型/schema 同单元恢复，避免在 runtime 阶段制造不可消费的半套 wire。U15 第一段已增加宿主可注入的同一 `TaskSpaceService` 及 canonical refresh/read seam。
 - replay ledger 和五批 DAG 已降级为非权威证据；后续不得直接按自动 disposition 或路径桶实施，应按 `plan.md` 的 U1–U17 语义闭环推进。
 
 ## 1. 执行摘要
