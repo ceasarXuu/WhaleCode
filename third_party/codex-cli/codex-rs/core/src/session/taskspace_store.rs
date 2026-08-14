@@ -284,23 +284,13 @@ impl Session {
             .await
     }
 
-    pub(crate) async fn mutate_canonical_action_map_consuming_pending<T>(
-        &self,
-        operation: &'static str,
-        consumed_pending_action_ids: Vec<String>,
-        mutate: impl FnOnce(&mut ActionMapRuntimeState, ThreadId) -> (T, Vec<MapRuntimeEvent>),
-    ) -> Result<(T, Vec<MapRuntimeEvent>), String> {
-        self.mutate_canonical_action_map_inner(operation, None, consumed_pending_action_ids, mutate)
-            .await
-    }
-
     pub(crate) async fn mutate_canonical_action_map_with_binding<T>(
         &self,
         operation: &'static str,
         binding: Option<BindTaskSpaceMapRequest>,
         mutate: impl FnOnce(&mut ActionMapRuntimeState, ThreadId) -> (T, Vec<MapRuntimeEvent>),
     ) -> Result<(T, Vec<MapRuntimeEvent>), String> {
-        self.mutate_canonical_action_map_inner(operation, binding, Vec::new(), mutate)
+        self.mutate_canonical_action_map_inner(operation, binding, mutate)
             .await
     }
 
@@ -308,7 +298,6 @@ impl Session {
         &self,
         operation: &'static str,
         binding: Option<BindTaskSpaceMapRequest>,
-        consumed_pending_action_ids: Vec<String>,
         mutate: impl FnOnce(&mut ActionMapRuntimeState, ThreadId) -> (T, Vec<MapRuntimeEvent>),
     ) -> Result<(T, Vec<MapRuntimeEvent>), String> {
         let _write_permit = self
@@ -354,10 +343,7 @@ impl Session {
             (candidate, handle, result, events, before_canonical_map)
         };
         let after_canonical_map = canonical_map_for_store(&candidate);
-        if after_canonical_map == before_canonical_map
-            && binding.is_none()
-            && consumed_pending_action_ids.is_empty()
-        {
+        if after_canonical_map == before_canonical_map && binding.is_none() {
             let mut state = self.state.lock().await;
             state.action_map_runtime = candidate;
             return Ok((result, events));
@@ -374,7 +360,6 @@ impl Session {
                 operation: operation.to_string(),
                 actor_thread_id: self.conversation_id,
                 binding,
-                consumed_pending_action_ids,
             })
             .await;
         let (record, installed_runtime) = match outcome {

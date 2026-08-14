@@ -1,6 +1,5 @@
 use std::collections::BTreeSet;
 
-use codex_state::TaskSpacePendingProviderAction;
 use codex_tools::ToolSpecCapabilityInput;
 
 use crate::action_map::TaskSpaceMapView;
@@ -26,20 +25,11 @@ pub(crate) struct PreparedClientCall {
     pub(crate) call: ClientCall,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PreparedPendingAttribution {
-    pub(crate) tool: String,
-    pub(crate) outcome: rooted_dag::ActionOutcome,
-    pub(crate) action_id: String,
-    pub(crate) node_ids: Vec<String>,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TaskSpaceExecPreflightResult {
     pub(crate) candidate_map: Option<TaskSpaceMap>,
     pub(crate) read_maps: Vec<(usize, TaskSpaceMapView)>,
     pub(crate) client_calls: Vec<PreparedClientCall>,
-    pub(crate) pending_attributions: Vec<PreparedPendingAttribution>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,24 +79,11 @@ pub(crate) enum TaskSpaceExecPreflightError {
     ResponseWorkMissing {
         sequence_type: String,
     },
-    PendingAttributionSetMismatch {
-        pending: Vec<String>,
-        declared: Vec<String>,
-    },
-    PendingAttributionDuplicate {
-        action_id: String,
-    },
-    PendingAttributionNodeInvalid {
-        action_id: String,
-        node_id: String,
-        reason: &'static str,
-    },
 }
 
 pub(crate) fn preflight_taskspace_exec(
     envelope: &TaskSpaceExecEnvelope,
     current_map: Option<&TaskSpaceMap>,
-    pending_actions: &[TaskSpacePendingProviderAction],
     has_provider_work: bool,
 ) -> Result<TaskSpaceExecPreflightResult, TaskSpaceExecPreflightError> {
     envelope
@@ -153,12 +130,6 @@ pub(crate) fn preflight_taskspace_exec(
             indices: patch_indices,
         });
     }
-    let pending_attributions = reconcile_pending_attributions(
-        &envelope.plan().pending_attributions,
-        pending_actions,
-        candidate_map.as_ref(),
-        envelope.plan().sequence_type == "read_map",
-    )?;
     candidate_map = activate_ready_tool_nodes(candidate_map, &client_calls)?;
 
     if let Some(operation) = envelope.plan().terminal_map.as_ref() {
@@ -174,7 +145,6 @@ pub(crate) fn preflight_taskspace_exec(
         candidate_map,
         read_maps,
         client_calls,
-        pending_attributions,
     })
 }
 
@@ -293,76 +263,6 @@ fn is_apply_patch(call: &ClientCall) -> bool {
     call.tool_name.namespace.is_none() && call.tool_name.name == "apply_patch"
 }
 
-fn reconcile_pending_attributions(
-    declarations: &[super::plan::PendingActionAttribution],
-    pending_actions: &[TaskSpacePendingProviderAction],
-    candidate_map: Option<&TaskSpaceMap>,
-    allow_deferred_read: bool,
-) -> Result<Vec<PreparedPendingAttribution>, TaskSpaceExecPreflightError> {
-    if allow_deferred_read && declarations.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut declared_ids = BTreeSet::new();
-    for declaration in declarations {
-        if !declared_ids.insert(declaration.action_id.as_str()) {
-            return Err(TaskSpaceExecPreflightError::PendingAttributionDuplicate {
-                action_id: declaration.action_id.clone(),
-            });
-        }
-    }
-    let pending_ids = pending_actions
-        .iter()
-        .map(|action| action.action_id.as_str())
-        .collect::<BTreeSet<_>>();
-    if pending_ids != declared_ids {
-        return Err(TaskSpaceExecPreflightError::PendingAttributionSetMismatch {
-            pending: pending_ids.into_iter().map(str::to_string).collect(),
-            declared: declared_ids.into_iter().map(str::to_string).collect(),
-        });
-    }
-    declarations
-        .iter()
-        .map(|declaration| {
-            let fact = pending_actions
-                .iter()
-                .find(|action| action.action_id == declaration.action_id)
-                .expect("pending Action sets were checked above");
-            let mut node_ids = BTreeSet::new();
-            for node_id in &declaration.node_ids {
-                if node_id.trim().is_empty() || !node_ids.insert(node_id.as_str()) {
-                    return Err(TaskSpaceExecPreflightError::PendingAttributionNodeInvalid {
-                        action_id: declaration.action_id.clone(),
-                        node_id: node_id.clone(),
-                        reason: "empty_or_duplicate_node",
-                    });
-                }
-                if candidate_map.is_none_or(|map| rooted_dag::node(map, node_id).is_none()) {
-                    return Err(TaskSpaceExecPreflightError::PendingAttributionNodeInvalid {
-                        action_id: declaration.action_id.clone(),
-                        node_id: node_id.clone(),
-                        reason: "unknown_node",
-                    });
-                }
-                if candidate_map.and_then(|map| rooted_dag::node_role(map, node_id))
-                    != Some(NodeRole::Work)
-                {
-                    return Err(TaskSpaceExecPreflightError::PendingAttributionNodeInvalid {
-                        action_id: declaration.action_id.clone(),
-                        node_id: node_id.clone(),
-                        reason: "boundary_node",
-                    });
-                }
-            }
-            Ok(PreparedPendingAttribution {
-                tool: fact.tool_name.clone(),
-                outcome: protocol_outcome(fact.outcome),
-                action_id: fact.action_id.clone(),
-                node_ids: declaration.node_ids.clone(),
-            })
-        })
-        .collect()
-}
-
 fn activate_ready_tool_nodes(
     candidate_map: Option<TaskSpaceMap>,
     clients: &[PreparedClientCall],
@@ -398,23 +298,4 @@ fn activate_ready_tool_nodes(
     )
     .map(|commit| Some(commit.map))
     .map_err(|error| TaskSpaceExecPreflightError::ToolActivationRejected { error })
-}
-
-fn protocol_outcome(
-    outcome: codex_protocol::taskspace::TaskSpaceActionOutcome,
-) -> rooted_dag::ActionOutcome {
-    match outcome {
-        codex_protocol::taskspace::TaskSpaceActionOutcome::Pending => {
-            rooted_dag::ActionOutcome::Pending
-        }
-        codex_protocol::taskspace::TaskSpaceActionOutcome::Succeeded => {
-            rooted_dag::ActionOutcome::Succeeded
-        }
-        codex_protocol::taskspace::TaskSpaceActionOutcome::Failed => {
-            rooted_dag::ActionOutcome::Failed
-        }
-        codex_protocol::taskspace::TaskSpaceActionOutcome::Cancelled => {
-            rooted_dag::ActionOutcome::Cancelled
-        }
-    }
 }

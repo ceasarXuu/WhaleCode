@@ -12,7 +12,6 @@ use super::schema_validation::validate_json_schema;
 pub(crate) struct TaskSpaceExecPlan {
     pub(crate) sequence_type: String,
     pub(crate) pre_map: Vec<MapOperation>,
-    pub(crate) pending_attributions: Vec<PendingActionAttribution>,
     pub(crate) tools: Vec<ClientCall>,
     pub(crate) terminal_map: Option<MapOperation>,
 }
@@ -30,12 +29,6 @@ pub(crate) struct ClientCall {
 pub(crate) enum ClientCallInput {
     Function(Value),
     Freeform(String),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PendingActionAttribution {
-    pub(crate) action_id: String,
-    pub(crate) node_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,7 +62,6 @@ impl TaskSpaceExecPlan {
 
         let sequence_type = string_field(&value, "type")?;
         let mut pre_map = Vec::new();
-        let pending_attributions = decode_pending_attributions(&value)?;
         let mut tools = Vec::new();
         let mut terminal_map = None;
         match sequence_type {
@@ -99,17 +91,11 @@ impl TaskSpaceExecPlan {
             "finish_map" => {
                 terminal_map = Some(decode_map("finish_map", field(&value, "finish_map")?)?)
             }
-            "attribute_actions" => {}
-            "initialize_and_attribute" => pre_map.push(decode_map(
-                "initialize_map",
-                field(&value, "initialize_map")?,
-            )?),
             _ => unreachable!("sequence type was validated by the closed schema"),
         }
         Ok(Self {
             sequence_type: sequence_type.to_string(),
             pre_map,
-            pending_attributions,
             tools,
             terminal_map,
         })
@@ -165,35 +151,6 @@ fn decode_tool(
             tool: tool_label(&tool_name),
         }),
     }
-}
-
-fn decode_pending_attributions(
-    plan: &Value,
-) -> Result<Vec<PendingActionAttribution>, TaskSpaceExecPlanDecodeError> {
-    let Some(entries) = plan.get("assign_pending_actions") else {
-        return Ok(Vec::new());
-    };
-    entries
-        .as_array()
-        .ok_or_else(|| invalid_envelope("`assign_pending_actions` must be an array"))?
-        .iter()
-        .map(|entry| {
-            let node_ids = field(entry, "node_ids")?
-                .as_array()
-                .ok_or_else(|| invalid_envelope("`node_ids` must be an array"))?
-                .iter()
-                .map(|node| {
-                    node.as_str()
-                        .map(str::to_string)
-                        .ok_or_else(|| invalid_envelope("node id must be a string"))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(PendingActionAttribution {
-                action_id: string_field(entry, "action_id")?.to_string(),
-                node_ids,
-            })
-        })
-        .collect()
 }
 
 fn decode_client(

@@ -22,7 +22,6 @@ pub(super) struct TaskSpaceExecResult {
     map_revision_at_dispatch: Option<u64>,
     reads: Vec<MapReadResult>,
     client_results: Vec<ClientResult>,
-    provider_attributions: Vec<ProviderAttributionResult>,
 }
 
 #[derive(Debug, Serialize)]
@@ -46,14 +45,6 @@ pub(super) struct ClientResult {
     pub(super) settlement_error: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-pub(super) struct ProviderAttributionResult {
-    pub(super) action_id: String,
-    pub(super) tool: String,
-    pub(super) outcome: &'static str,
-    pub(super) node_ids: Vec<String>,
-}
-
 impl TaskSpaceExecResult {
     pub(super) fn new(
         outer_call_id: String,
@@ -61,7 +52,6 @@ impl TaskSpaceExecResult {
         map_revision_at_dispatch: Option<u64>,
         reads: Vec<MapReadResult>,
         client_results: Vec<ClientResult>,
-        provider_attributions: Vec<ProviderAttributionResult>,
     ) -> Self {
         Self {
             kind: RESULT_KIND,
@@ -71,7 +61,6 @@ impl TaskSpaceExecResult {
             map_revision_at_dispatch,
             reads,
             client_results,
-            provider_attributions,
         }
     }
 }
@@ -101,10 +90,6 @@ pub(super) fn result_schema<'a>(
                 "client_results",
                 JsonSchema::array(client_result_schema(&clients), None),
             ),
-            (
-                "provider_attributions",
-                JsonSchema::array(provider_attribution_result_schema(), None),
-            ),
         ],
         &[
             "kind",
@@ -114,7 +99,6 @@ pub(super) fn result_schema<'a>(
             "map_revision_at_dispatch",
             "reads",
             "client_results",
-            "provider_attributions",
         ],
     )
 }
@@ -235,24 +219,6 @@ fn client_result_schema(clients: &[&ToolSpecCapability]) -> JsonSchema {
             ("settlement_error", JsonSchema::string(None)),
         ],
         &["call_index", "action_id", "node_id", "tool", "outcome"],
-    )
-}
-
-fn provider_attribution_result_schema() -> JsonSchema {
-    strict_object(
-        [
-            ("action_id", JsonSchema::string(None)),
-            ("tool", JsonSchema::string(None)),
-            (
-                "outcome",
-                string_enum(["pending", "succeeded", "failed", "cancelled"]),
-            ),
-            (
-                "node_ids",
-                JsonSchema::array(JsonSchema::string(None), None).with_min_items(1),
-            ),
-        ],
-        &["action_id", "tool", "outcome", "node_ids"],
     )
 }
 

@@ -39,7 +39,6 @@ pub(super) fn request_sha256(
     operation: &str,
     actor_thread_id: ThreadId,
     binding: Option<&BindTaskSpaceMapRequest>,
-    consumed_pending_action_ids: &[String],
 ) -> anyhow::Result<String> {
     let binding = binding.map(|binding| {
         (
@@ -56,7 +55,6 @@ pub(super) fn request_sha256(
         operation,
         actor_thread_id.to_string(),
         binding,
-        consumed_pending_action_ids,
     ))?;
     Ok(sha256(&bytes))
 }

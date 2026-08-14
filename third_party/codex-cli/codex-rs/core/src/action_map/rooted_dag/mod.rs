@@ -1,6 +1,7 @@
 mod actions;
 mod invariants;
 mod model;
+mod provider_tools;
 mod transactions;
 mod transitions;
 
@@ -22,6 +23,8 @@ pub(crate) use model::node;
 pub(crate) use model::node_role;
 pub(crate) use model::nodes;
 pub(crate) use model::state_sha256;
+pub(crate) use provider_tools::ProviderToolAction;
+pub(crate) use provider_tools::record_provider_tool_actions;
 pub(crate) use transactions::Commit;
 pub(crate) use transactions::ExecuteTransaction;
 pub(crate) use transactions::FinishMap;

@@ -78,7 +78,6 @@ pub struct CommitTaskSpaceMapRequest {
     pub operation: String,
     pub actor_thread_id: ThreadId,
     pub binding: Option<BindTaskSpaceMapRequest>,
-    pub consumed_pending_action_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,35 +91,6 @@ pub struct SettleTaskSpaceActionRequest {
     pub outcome: TaskSpaceActionOutcome,
     pub operation: String,
     pub actor_thread_id: ThreadId,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TaskSpacePendingProviderAction {
-    pub action_id: String,
-    pub origin_thread_id: ThreadId,
-    pub map_id: Option<String>,
-    pub provider_response_id: String,
-    pub provider_action_key: String,
-    pub tool_name: String,
-    pub outcome: TaskSpaceActionOutcome,
-    pub created_at_ms: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EnqueueTaskSpacePendingProviderActionRequest {
-    pub action_id: String,
-    pub origin_thread_id: ThreadId,
-    pub map_id: Option<String>,
-    pub provider_response_id: String,
-    pub provider_action_key: String,
-    pub tool_name: String,
-    pub outcome: TaskSpaceActionOutcome,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TaskSpacePendingActionWriteOutcome {
-    Inserted,
-    IdempotentReplay,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

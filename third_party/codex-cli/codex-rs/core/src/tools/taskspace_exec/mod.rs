@@ -36,7 +36,6 @@ pub(crate) use plan::ClientCallInput;
 pub(crate) use plan::TaskSpaceExecPlan;
 pub(crate) use plan::TaskSpaceExecPlanDecodeError;
 pub(crate) use preflight::PreparedClientCall;
-pub(crate) use preflight::PreparedPendingAttribution;
 #[cfg(test)]
 pub(crate) use preflight::TaskSpaceExecPreflightError;
 pub(crate) use preflight::preflight_taskspace_exec;
@@ -50,7 +49,7 @@ pub(crate) use protocol::canonical_handoff_example;
 pub(crate) use protocol::canonical_read_example;
 pub(crate) use response_scope::TaskSpaceExecResponseIdentity;
 pub(crate) use response_scope::TaskSpaceExecResponseScope;
-pub(crate) use response_scope::TaskSpacePendingProviderActionFact;
+pub(crate) use response_scope::TaskSpaceProviderActionFact;
 pub(crate) use self_heal::TaskSpaceExecSelfHeal;
 pub(crate) use self_heal::self_heal_taskspace_exec_response_item;
 
@@ -69,10 +68,6 @@ mod envelope_tests;
 #[cfg(test)]
 #[path = "../taskspace_exec_preflight_tests.rs"]
 mod preflight_tests;
-
-#[cfg(test)]
-#[path = "../taskspace_exec_pending_attribution_tests.rs"]
-mod pending_attribution_tests;
 
 #[cfg(test)]
 #[path = "../taskspace_exec_dispatch_tests.rs"]

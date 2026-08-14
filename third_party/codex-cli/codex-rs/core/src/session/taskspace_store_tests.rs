@@ -3,6 +3,7 @@ use super::taskspace_store::hydrate_action_map_store;
 use crate::action_map::ActionMapRuntimeState;
 use crate::action_map::ProjectionEnvelope;
 use crate::session::TaskSpaceActionSettlementFact;
+use crate::tools::taskspace_exec::TaskSpaceProviderActionFact;
 use codex_protocol::AgentPath;
 use codex_protocol::ThreadId;
 use codex_protocol::protocol::InitialHistory;
@@ -96,6 +97,63 @@ fn completed_multi_parent_map(map_id: &str, reopened: bool) -> TaskSpaceCanonica
 }
 
 #[tokio::test]
+async fn provider_action_creates_a_native_named_root_aggregation_node() {
+    let home =
+        std::env::temp_dir().join(format!("codex-taskspace-provider-test-{}", Uuid::new_v4()));
+    let state_db = codex_state::StateRuntime::init(home, "test-provider".to_string())
+        .await
+        .expect("initialize state runtime");
+    let (mut session, _) = super::tests::make_session_and_context().await;
+    session.services.state_db = Some(Arc::clone(&state_db));
+    let session = Arc::new(session);
+
+    let (activation, _) = session
+        .set_persisted_action_map_mode(MapRuntimeMode::Experiment)
+        .await
+        .expect("activate persisted TaskSpace Map");
+    let map_id = activation.active_map_id.expect("mechanical Map identity");
+    let initial = multi_parent_map(&map_id);
+    let install_map_id = map_id.clone();
+    session
+        .mutate_canonical_action_map("test_install_map", move |runtime, owner| {
+            runtime
+                .restore_store_map(&install_map_id, owner, Some(initial))
+                .expect("install test Map");
+            ((), Vec::new())
+        })
+        .await
+        .expect("persist initial Map");
+
+    session
+        .record_provider_actions(vec![TaskSpaceProviderActionFact {
+            map_id: map_id.clone(),
+            action_id: "taskspace/provider/response-1/web_search".into(),
+            tool: "web_search".into(),
+            outcome: crate::action_map::rooted_dag::ActionOutcome::Succeeded,
+        }])
+        .await
+        .expect("record Provider action");
+
+    let map = state_db
+        .load_taskspace_map(&map_id)
+        .await
+        .expect("load Map")
+        .expect("Map record")
+        .canonical_map
+        .expect("canonical Map");
+    let provider = map
+        .work_nodes
+        .iter()
+        .find(|node| node.node_id == "web_search")
+        .expect("native-named Provider node");
+    assert_eq!(provider.goal, "web_search");
+    assert_eq!(provider.parents, ["root"]);
+    assert_eq!(provider.state, TaskSpaceNodeState::Completed);
+    assert_eq!(provider.actions.len(), 1);
+    assert!(map.finish.parents.contains(&"web_search".into()));
+}
+
+#[tokio::test]
 #[traced_test]
 async fn factual_action_settlement_commits_once_on_latest_head_without_losing_other_changes() {
     let home = std::env::temp_dir().join(format!("codex-taskspace-rebase-test-{}", Uuid::new_v4()));
@@ -145,7 +203,6 @@ async fn factual_action_settlement_commits_once_on_latest_head_without_losing_ot
             operation: "test_concurrent_update".into(),
             actor_thread_id: session.conversation_id,
             binding: None,
-            consumed_pending_action_ids: Vec::new(),
         })
         .await
         .expect("commit concurrent Map change");

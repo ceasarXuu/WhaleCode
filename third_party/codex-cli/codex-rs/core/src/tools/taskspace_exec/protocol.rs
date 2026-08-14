@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use serde_json::Value;
 use serde_json::json;
 
@@ -19,8 +17,6 @@ const PROTOCOL: &str = r#"Use `taskspace_exec` as the sole top-level Function To
 Tool contract:
 - Put only client Tool actions in the sequence's `tools` array. For a work sequence, `tools` may be omitted or empty only when the current response contains a native Provider Tool action; the Runtime checks work across the complete response.
 - Each client action keeps its native Tool input in `input` and declares one owner `node_id`; namespaced Tools also declare `namespace`.
-- Native Provider Tools execute outside `taskspace_exec`. After a Provider response, the Runtime exposes their stable facts in `TaskSpacePendingProviderActionsR8V1` on the next request.
-- When pending facts are present, copy every exact `action_id` into `assign_pending_actions` and select one or more owner Work-node `node_ids`. Do not repeat Provider Tool input or result. Except for `read_map`, a sequence must assign the complete pending set; unknown, duplicate, or partial assignment is rejected before side effects.
 - Tool array order supplies stable action identity. It does not create Tool dependencies; result-dependent work belongs in a later request.
 
 Map contract:
@@ -30,12 +26,9 @@ Map contract:
 - The complete sequence is preflighted before unexecuted side effects. The Runtime does not add, infer, reorder, or repair Agent actions.
 
 Feedback contract:
-- The outer result reports every client action and accepted pending attribution, preserves native client results and errors without summarization, and returns the complete Map for `read_map`."#;
+- The outer result reports every client action, preserves native client results and errors without summarization, and returns the complete Map for `read_map`."#;
 
-pub(super) fn build_description<'a>(
-    client_tool_names: impl Iterator<Item = &'a str>,
-    hosted_tools: &BTreeSet<String>,
-) -> String {
+pub(super) fn build_description<'a>(client_tool_names: impl Iterator<Item = &'a str>) -> String {
     let has_exec_command = client_tool_names
         .into_iter()
         .any(|name| name == "exec_command");
@@ -58,12 +51,6 @@ pub(super) fn build_description<'a>(
         "Final work-node completion and explicit Map finish example:\n```json\n{}\n```",
         canonical_finish_example()
     ));
-    if !hosted_tools.is_empty() {
-        sections.push(format!(
-            "Provider-hosted ToolSpec names, exposed unchanged: {}. They remain native Provider Tools and never appear in `tools`. Attribute only action IDs later exposed by `TaskSpacePendingProviderActionsR8V1`.",
-            hosted_tools.iter().cloned().collect::<Vec<_>>().join(", "),
-        ));
-    }
     sections.join("\n\n")
 }
 

@@ -122,8 +122,7 @@ fn persisted_feedback_with_identity(
                     "node_id": node_id,
                     "tool": "inspect",
                     "outcome": outcome
-                }],
-                "provider_attributions": []
+                }]
             })
             .to_string(),
         ),

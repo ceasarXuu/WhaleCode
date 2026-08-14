@@ -47,20 +47,6 @@ fn waiting_preflight_feedback_names_parents_and_mechanical_batch_boundary() {
 }
 
 #[test]
-fn pending_attribution_mismatch_feedback_names_the_exact_recovery_contract() {
-    let feedback = super::handler::render_preflight_rejection(
-        &TaskSpaceExecPreflightError::PendingAttributionSetMismatch {
-            pending: vec!["provider-action-1".into()],
-            declared: Vec::new(),
-        },
-    );
-    assert!(feedback.contains("exact current set"));
-    assert!(feedback.contains("TaskSpacePendingProviderActionsR8V1"));
-    assert!(feedback.contains("assign_pending_actions"));
-    assert!(feedback.contains("No Map or Tool actions were executed"));
-}
-
-#[test]
 fn missing_response_work_feedback_names_both_legal_sources() {
     let feedback = super::handler::render_preflight_rejection(
         &TaskSpaceExecPreflightError::ResponseWorkMissing {
@@ -289,7 +275,7 @@ async fn begin_scope(harness: &Harness) {
         .unwrap();
     harness
         .response_scope
-        .begin_request(map_id, map.as_ref().map(|map| map.revision), Vec::new())
+        .begin_request(map_id, map.as_ref().map(|map| map.revision))
         .unwrap();
 }
 

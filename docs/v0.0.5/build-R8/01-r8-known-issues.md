@@ -237,6 +237,11 @@
 > [`taskspace-exec/56-response-level-work-validation-result.md`](taskspace-exec/56-response-level-work-validation-result.md)。
 > 详见 [`taskspace-exec/55-pending-provider-attribution-live-result.md`](taskspace-exec/55-pending-provider-attribution-live-result.md)。
 
+> **Provider 归属路线撤销（2026-08-15）**：用户明确当前阶段不再要求 Agent 管理 Provider-hosted Tool。active code 删除
+> 同响应双写、跨响应 pending Store、上下文暴露、Exec 归属字段及结束硬门。Runtime 只在真实调用发生后按原生 Tool 名，
+> 在 Root 下按需建立 Completed 聚合节点并追加机械 Action；无 Map 或同名 Agent 节点冲突时允许 escape 并记录诊断。
+> 因此 I03 不再包含“Agent 稳定完成 Provider 归属”这一验收目标，旧 PA 结果仅为历史证据。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。
@@ -286,7 +291,7 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 旧 carrier 与专属 Event Store 已由 zero-base 删除；Exec 源码不存在额外 developer 注入。静态关闭候选，待 final-wire trace 复核 | verifying | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 快照机械生成 Runtime-only SHA-256，并由 dispatch、request scope、Provider/Exec trace 和性能报告共用；缺失或冲突时报告不可比较。离线实现已验证，待当前生产 trace 验收 | [verifying](I10/00-i10-capability-identity-repair-plan.md) | GI-010 |
 | 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | 最新三轮 request/usage/cache/Exec/client/Patch/Map 均可复算；第三轮正确计为 2 次 patch 声明、1 次 preflight reject、1 次执行结果。完整跨模式验收仍未执行 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map、client 与 Provider 动作归属 | 稳定生成初始化并执行、完成并继续、完成并结束；Provider 原生 Action 在下一请求被准确归属且不可绕过 | PA-07 中 Provider 归属 3/3、pending 归零；业务和 Map 闭合 2/3。PA-08 离线 77/77；真实第 4 请求已共现 Provider/Exec，但仍带 `pwd`，另有 4 次 work 合同拒绝和 1 次 Waiting 节点拒绝，12 requests 未闭合 | [verifying](taskspace-exec/56-response-level-work-validation-result.md) | GI-003 |
+| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与 client 动作 | 稳定生成初始化并执行、完成并继续、完成并结束；Provider-hosted Tool 当前不参与 Agent 归属协议 | Provider 双写/pending 已由产品决策撤销；闭集 client/Map 协议离线通过，仍需后续真实 trace 评价 Agent 动作稳定性 | verifying | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | Run C 未复现 Waiting 误选，支持分支适用合同已生效；单次未闭环样本不足以关闭问题 | verifying | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 最新三次 TaskSpace-only 有效运行共 21 requests、344,635 input、93.78% 全量 cache、62.093s Agent wall；没有 Standard 臂，不形成相对成本结论 | queued | GI-008 |
 

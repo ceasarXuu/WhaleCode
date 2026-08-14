@@ -1,9 +1,9 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 same-response pairing retired / PA-00～PA-06 verified / PA-07 partial / PA-08 partial
+- Status: Phase B0～B5 engineering complete / Provider-hosted Agent attribution retired / Runtime aggregation implemented offline
 - Priority: Foundation / blocks the existing R8 issue queue
-- Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Provider 待归属事实结算
+- Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、client 节点归属与 Provider-hosted 最小机械归纳
 
 > [`00-product-contract.md`](00-product-contract.md) 是唯一产品决策基线，
 > [`12-phase-b-zero-base-plan.md`](12-phase-b-zero-base-plan.md) 是唯一活动工程计划。
@@ -18,10 +18,10 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 2. TaskSpace 请求不再向 Agent 顶层暴露普通 client Tool。普通 client Tool 的能力说明由 `taskspace_exec` 从原生
    `ToolSpec` 派生；Map 操作从 canonical Action Map transaction 原语直接定义并作为平级内部 variant 暴露。
 3. Agent 在 `taskspace_exec` 内选择一个明确合法的 Map/Tool 顺序形状；client Tool 继续在 `tools[]` 中声明。Provider
-   原生调用由 Runtime 持久化为待归属 Action，下一请求由 Agent 在受限 `assign_pending_actions[]` 前缀中声明节点归属；
-   纯 `update_map` 继续作为受限 Map 动作合法存在。
+   原生调用不进入 Exec 参数或 Agent 归属协议；纯 `update_map` 继续作为受限 Map 动作合法存在。
 4. Runtime 对 client Tool 执行机械预检、解析和原生 Tool dispatch；对 Provider Tool 不重执行，也不拆分其内部步骤。
-   Runtime 只记录原生调用事实并校验 Agent 后续归属，不选择节点、不默认 Root；待归属清空前不得结束 Map。
+   Provider 实际发生后，Runtime 按原生名称在 Root 下按需创建 Completed 聚合节点并追加机械 Action；不提前建空节点，
+   不提示 Agent，不阻塞 Map 结束。
 5. `taskspace_exec` 只增加两个 TaskSpace 职责：合法序列和节点绑定。它不规划任务、不选择节点、不解释 Tool 结果，
    也不根据 Tool 成败推进节点状态。
 6. `taskspace_exec` schema 是静态能力合同，只提供一组带稳定判别值、有场景证据的合法顺序形状。Agent 不再自由拼装任意
@@ -41,16 +41,13 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 
 ## 2. 当前事实
 
-- PA-00～PA-06 已把 Provider 归属从同响应双写切换为持久化待归属队列：Provider 原生响应完成后立即按逻辑 Tool
-  入队，下一请求只暴露 `action_id/tool/outcome`；Agent 通过 `assign_pending_actions[{action_id,node_ids}]` 选择归属。
-  `tools[]` 现只承载待执行 client Tool。除 `read_map` 外，所有序列必须完整消费请求开始时可见的 pending 集合；Node
-  action 写入与出队使用同一 SQLite CAS 事务，队列非空不能绕过 Exec 直接结束。Runtime 不推断节点、不默认 Root，也不因
-  Tool outcome 改变 Node state。PA-07
-  `repeat=3` 中 Provider 归属和 pending 清空 3/3 通过，业务与 Map 闭合 2/3；第三轮暴露 Provider-first 初始化形状缺口，
-  当前不晋升缓存基线。PA-08 已把 work 存在性提升到完整 Provider 请求 preflight：Provider facts 与 Exec client actions
-  任一非空即合法。真实复验第 4 个请求已同时出现原生 `web_search` 和 Exec，但 Agent 仍主动添加 `pwd`；前三个真正空的
-  初始化请求正确拒绝，随后又发生一次纯归属序列误选和一次 Waiting 节点拒绝，最终耗尽 12 请求。实现边界正确，
-  Provider-only 分支和减少占位的产品收益尚未被真实 trace 单独证明。
+- 2026-08-15 的产品取舍废弃了 Provider 同响应双写与跨响应待归属路线。active code 已删除 pending SQLite migration、
+  Store API、context 投影、Exec schema/parser/preflight/result 和 Agent 提示；历史 PA/LS 报告只保留为路线证据。
+- 当前 Runtime 在 response 完成后从原生 Hosted ResponseItem 机械采集事实；同一响应内同一种原生 ToolSpec 聚合为一个
+  Action。首次真实调用时才创建同名 Root 子节点，后续调用追加到同一节点；节点保持 Completed 并连接 Finish。无 Map 或
+  与 Agent 同名节点冲突时记录 `taskspace.provider_actions_escaped`，允许 Provider 调用暂时从 Map 逃逸。
+- 工作型序列仍按完整 Provider 响应检查 work：Provider facts 与 Exec client actions 任一非空即合法。`initialize_map`
+  始终必须提交完整 Map；仅允许 client `tools[]` 在存在真实 Provider work 时为空，不能把该规则解释为允许空初始化。
 
 - 最新 Codex 主线仍使用一个 `exec` 入口，将 Function、Freeform 和 Namespace Tool 从原 `ToolSpec` 派生为内部
   ToolDefinition，并把嵌套调用送回统一 Tool runtime。
@@ -213,9 +210,10 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     原子 Map 结算和离线生产链验收结果。
 56. [`55-pending-provider-attribution-live-result.md`](55-pending-provider-attribution-live-result.md)：待归属队列三轮真实验收、
     归属 3/3、业务 2/3、成本缓存及 Provider-first 初始化决策缺口。
-57. [`56-response-level-work-validation-result.md`](56-response-level-work-validation-result.md)：Provider-first 缺口的回归定位、
-    响应级 work 校验、真实 12-request 失败路径与待确认的 Agent-turn 边界。
-
+57. [`56-response-level-work-validation-result.md`](56-response-level-work-validation-result.md)：完整响应 work 检查的离线实现与
+    Provider-first 真实路径证据；其 pending 结论已由 PD10 取代。
+58. [`57-provider-hosted-runtime-aggregation-result.md`](57-provider-hosted-runtime-aggregation-result.md)：撤销双写与待归属后，
+    Provider 按原生名称在 Root 下按需机械归纳的产品边界、删除范围和离线证据。
 ## 4. 推进规则
 
 - R8 已知问题队列继续暂停，直到该主方案完成生产接入并重新盘点 I01～I10。

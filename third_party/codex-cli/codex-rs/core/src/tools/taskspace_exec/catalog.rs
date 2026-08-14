@@ -299,13 +299,6 @@ fn build_declaration<'a>(
             TaskSpaceToolCapability::Hosted(_) => None,
         })
         .collect::<Vec<_>>();
-    let hosted_tools = tool_capabilities
-        .values()
-        .filter_map(|capability| match capability {
-            TaskSpaceToolCapability::Hosted(identity) => Some(identity.native_name.clone()),
-            TaskSpaceToolCapability::Client(_) => None,
-        })
-        .collect::<BTreeSet<_>>();
     let client_labels = clients
         .iter()
         .map(|client| client_tool_label(&client.capability.tool_name))
@@ -313,7 +306,7 @@ fn build_declaration<'a>(
     let output_schema = result_schema(clients.iter().map(|client| &client.capability));
     let output_schema =
         serde_json::to_value(output_schema).expect("TaskSpace Exec output schema must serialize");
-    let description = build_description(client_labels.iter().map(String::as_str), &hosted_tools);
+    let description = build_description(client_labels.iter().map(String::as_str));
     let structured_parameters = build_sequence_schema(tool_capabilities, map_operations);
     ResponsesApiTool {
         name: TASKSPACE_EXEC_TOOL_NAME.to_string(),

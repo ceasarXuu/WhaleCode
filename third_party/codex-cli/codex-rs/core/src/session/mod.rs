@@ -203,7 +203,7 @@ pub(crate) mod session;
 mod taskspace_action_settlement_output_ref_tests;
 #[cfg(test)]
 mod taskspace_action_settlement_tests;
-mod taskspace_pending_provider_actions;
+mod taskspace_provider_tools;
 mod taskspace_store;
 mod taskspace_store_read;
 #[cfg(test)]
@@ -3354,15 +3354,6 @@ impl Session {
             }
         };
         let taskspace_request_map = provider_visible_taskspace_map(policy, &items)?;
-        items = remove_taskspace_pending_provider_action_items(items);
-        if let Some(pending) = self
-            .pending_provider_actions_context(&taskspace_request_map.map_id)
-            .await?
-            && let Some(item) =
-                crate::context_manager::updates::build_contextual_user_message(vec![pending])
-        {
-            items.push(item);
-        }
         Ok(PreparedProviderPromptItems {
             items,
             projection_identity,
@@ -4050,26 +4041,6 @@ fn remove_taskspace_map_handle_items(items: Vec<ResponseItem>) -> Vec<ResponseIt
     items
         .into_iter()
         .filter(|item| taskspace_map_handle_context(Some(item)).is_none())
-        .collect()
-}
-
-fn remove_taskspace_pending_provider_action_items(items: Vec<ResponseItem>) -> Vec<ResponseItem> {
-    items
-        .into_iter()
-        .filter(|item| {
-            let ResponseItem::Message { content, .. } = item else {
-                return true;
-            };
-            !content.iter().any(|entry| {
-                matches!(
-                    entry,
-                    ContentItem::InputText { text } | ContentItem::OutputText { text }
-                        if text.contains(
-                            taskspace_pending_provider_actions::TASKSPACE_PENDING_PROVIDER_ACTIONS_MARKER
-                        )
-                )
-            })
-        })
         .collect()
 }
 

@@ -38,29 +38,6 @@ pub(super) fn build_sequence_schema(
             ),
         ),
     );
-    definitions.insert(
-        "pending_action_attribution".into(),
-        strict_object(
-            [
-                (
-                    "action_id",
-                    JsonSchema::string(Some(
-                        "Exact action_id from TaskSpacePendingProviderActionsR8V1.".into(),
-                    )),
-                ),
-                (
-                    "node_ids",
-                    JsonSchema::array(
-                        JsonSchema::string(None),
-                        Some("Agent-declared owner work nodes.".into()),
-                    )
-                    .with_min_items(1),
-                ),
-            ],
-            &["action_id", "node_ids"],
-        ),
-    );
-
     JsonSchema::object_any_of(
         vec![
             work_sequence(
@@ -73,25 +50,23 @@ pub(super) fn build_sequence_schema(
                 "Perform work when every client Tool owner is already Ready or InFlight in the current Map. Work may be a native Provider Tool action in the response or one or more client actions in `tools`. A prior Tool outcome does not complete its owner. If a Map update must complete or change a parent first, use update_and_work instead.",
                 [],
             ),
-            sequence_with_optional(
+            sequence(
                 "update_map",
                 "Update the current Map without Tool work or Map finish.",
                 [("update_map", map_ref("update_map"))],
-                attribution_field(),
             ),
             work_sequence(
                 "update_and_work",
                 "Update the Map first, then perform work in this response. Work may be a native Provider Tool action in the response or one or more executable client actions in `tools`. Use this to complete or change parent nodes before working on their direct dependents. Only this preceding Map update can unlock client Tool owners; Tool outcomes in this sequence do not unlock descendants.",
                 [("update_map", map_ref("update_map"))],
             ),
-            sequence_with_optional(
+            sequence(
                 "update_and_finish",
                 "Update the Map first, then finish it. Use only when that update completes the remaining work and makes the Finish node Ready.",
                 [
                     ("update_map", map_ref("update_map")),
                     ("finish_map", map_ref("finish_map")),
                 ],
-                attribution_field(),
             ),
             sequence(
                 "read_map",
@@ -106,44 +81,15 @@ pub(super) fn build_sequence_schema(
                     ("update_map", map_ref("update_map")),
                 ],
             ),
-            sequence_with_optional(
+            sequence(
                 "finish_map",
                 "Finish an open Map whose Finish node is already Ready; use update_and_finish when a preceding Map update is still required.",
                 [("finish_map", map_ref("finish_map"))],
-                attribution_field(),
-            ),
-            sequence(
-                "attribute_actions",
-                "Assign every currently pending Provider action to Agent-selected Work nodes without other work.",
-                [("assign_pending_actions", attribution_ref())],
-            ),
-            sequence(
-                "initialize_and_attribute",
-                "Initialize a blank Map, then assign every currently pending Provider action to Work nodes created by that initialization.",
-                [
-                    ("initialize_map", map_ref("initialize_map")),
-                    ("assign_pending_actions", attribution_ref()),
-                ],
             ),
         ],
         Some("Choose exactly one legal TaskSpace sequence shape.".into()),
     )
     .with_definitions(definitions)
-}
-
-fn sequence_with_optional<const N: usize>(
-    sequence_type: &str,
-    description: &str,
-    fields: [(&'static str, JsonSchema); N],
-    optional: (&'static str, JsonSchema),
-) -> JsonSchema {
-    let mut schema = sequence(sequence_type, description, fields);
-    schema
-        .properties
-        .as_mut()
-        .expect("sequence schema is an object")
-        .insert(optional.0.into(), optional.1);
-    schema
 }
 
 fn work_sequence<const N: usize>(
@@ -157,8 +103,6 @@ fn work_sequence<const N: usize>(
         .as_mut()
         .expect("sequence schema is an object");
     properties.insert("tools".into(), tools_ref());
-    let attribution = attribution_field();
-    properties.insert(attribution.0.into(), attribution.1);
     schema
 }
 
@@ -184,18 +128,6 @@ fn sequence<const N: usize>(
 
 fn tools_ref() -> JsonSchema {
     JsonSchema::array(JsonSchema::reference("#/$defs/tool_action"), None)
-}
-
-fn attribution_field() -> (&'static str, JsonSchema) {
-    ("assign_pending_actions", attribution_ref())
-}
-
-fn attribution_ref() -> JsonSchema {
-    JsonSchema::array(
-        JsonSchema::reference("#/$defs/pending_action_attribution"),
-        None,
-    )
-    .with_min_items(1)
 }
 
 fn map_ref(operation: &str) -> JsonSchema {
@@ -239,18 +171,4 @@ fn client_action_schema(client: &TaskSpaceClientCapability) -> JsonSchema {
 
 fn exact_name(name: &str) -> JsonSchema {
     JsonSchema::string_enum(vec![json!(name)], None)
-}
-
-fn strict_object<const N: usize>(
-    properties: [(&'static str, JsonSchema); N],
-    required: &[&str],
-) -> JsonSchema {
-    JsonSchema::object(
-        properties
-            .into_iter()
-            .map(|(name, schema)| (name.to_string(), schema))
-            .collect(),
-        Some(required.iter().map(|name| (*name).to_string()).collect()),
-        Some(AdditionalProperties::Boolean(false)),
-    )
 }

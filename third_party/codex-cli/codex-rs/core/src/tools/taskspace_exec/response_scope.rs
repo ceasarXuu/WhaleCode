@@ -37,7 +37,6 @@ pub(crate) struct TaskSpaceExecRequestSnapshot {
     pub(crate) map_id: String,
     pub(crate) revision: Option<u64>,
     pub(crate) capability_identity: Arc<str>,
-    pub(crate) pending_provider_actions: Vec<codex_state::TaskSpacePendingProviderAction>,
 }
 
 #[derive(Debug, Clone)]
@@ -56,11 +55,9 @@ pub(crate) struct TaskSpaceExecResponseIdentity {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct TaskSpacePendingProviderActionFact {
+pub(crate) struct TaskSpaceProviderActionFact {
     pub(crate) map_id: String,
     pub(crate) action_id: String,
-    pub(crate) provider_response_id: String,
-    pub(crate) provider_action_key: String,
     pub(crate) tool: String,
     pub(crate) outcome: crate::action_map::rooted_dag::ActionOutcome,
 }
@@ -85,7 +82,6 @@ impl TaskSpaceExecResponseScope {
         &self,
         map_id: impl Into<String>,
         revision: Option<u64>,
-        pending_provider_actions: Vec<codex_state::TaskSpacePendingProviderAction>,
     ) -> Result<(), String> {
         let map_id = map_id.into();
         if map_id.trim().is_empty() {
@@ -99,7 +95,6 @@ impl TaskSpaceExecResponseScope {
                 map_id,
                 revision,
                 capability_identity: Arc::clone(&self.capability_identity),
-                pending_provider_actions,
             }),
             ..ResponseScopeState::default()
         };
@@ -189,7 +184,7 @@ impl TaskSpaceExecResponseScope {
         &self,
         response_completed: bool,
         response: Option<TaskSpaceExecResponseIdentity>,
-    ) -> Result<Vec<TaskSpacePendingProviderActionFact>, String> {
+    ) -> Result<Vec<TaskSpaceProviderActionFact>, String> {
         let mut state = self
             .state
             .lock()
@@ -218,7 +213,7 @@ impl TaskSpaceExecResponseScope {
             accepted = result.is_ok(),
         );
         result?;
-        pending_provider_actions(&state)
+        provider_actions(&state)
     }
 
     pub(crate) fn claim_response(
@@ -303,16 +298,6 @@ fn validate_finalized(state: &ResponseScopeState) -> Result<(), String> {
     if state.exec_call_count > 1 {
         return Err("TaskSpace response contains more than one Exec call".to_string());
     }
-    if state.exec_call_count == 0
-        && state
-            .request
-            .as_ref()
-            .is_some_and(|request| !request.pending_provider_actions.is_empty())
-    {
-        return Err(
-            "TaskSpace response left request-visible Provider Actions unattributed".to_string(),
-        );
-    }
     if state.exec_call_count == 1 && state.request.is_none() {
         return Err("TaskSpace response has no request Map snapshot".to_string());
     }
@@ -322,9 +307,9 @@ fn validate_finalized(state: &ResponseScopeState) -> Result<(), String> {
     Ok(())
 }
 
-fn pending_provider_actions(
+fn provider_actions(
     state: &ResponseScopeState,
-) -> Result<Vec<TaskSpacePendingProviderActionFact>, String> {
+) -> Result<Vec<TaskSpaceProviderActionFact>, String> {
     if state.hosted_tools.is_empty() {
         return Ok(Vec::new());
     }
@@ -341,11 +326,9 @@ fn pending_provider_actions(
         .values()
         .map(|fact| {
             let provider_action_key = format!("{}/{}", response.provider_response_id, fact.tool);
-            TaskSpacePendingProviderActionFact {
+            TaskSpaceProviderActionFact {
                 map_id: request.map_id.clone(),
                 action_id: format!("taskspace/provider/{provider_action_key}"),
-                provider_response_id: response.provider_response_id.clone(),
-                provider_action_key,
                 tool: fact.tool.clone(),
                 outcome: fact.outcome,
             }
@@ -372,9 +355,7 @@ fn unexpected_client_tool(item: &ResponseItem) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codex_protocol::ThreadId;
     use codex_protocol::models::WebSearchAction;
-    use codex_protocol::taskspace::TaskSpaceActionOutcome;
     use tracing_test::traced_test;
 
     fn response_identity() -> TaskSpaceExecResponseIdentity {
@@ -390,7 +371,7 @@ mod tests {
     #[traced_test]
     fn scope_preserves_response_identity_and_native_hosted_outcome() {
         let scope = TaskSpaceExecResponseScope::default();
-        scope.begin_request("map-1", Some(7), Vec::new()).unwrap();
+        scope.begin_request("map-1", Some(7)).unwrap();
         scope.record_completed_item(&ResponseItem::WebSearchCall {
             id: Some("ws-1".into()),
             status: Some("completed".into()),
@@ -442,7 +423,7 @@ mod tests {
     #[test]
     fn incomplete_response_is_not_accepted() {
         let scope = TaskSpaceExecResponseScope::default();
-        scope.begin_request("map-1", Some(7), Vec::new()).unwrap();
+        scope.begin_request("map-1", Some(7)).unwrap();
         scope.record_completed_item(&ResponseItem::FunctionCall {
             id: None,
             name: TASKSPACE_EXEC_TOOL_NAME.into(),
@@ -469,44 +450,21 @@ mod tests {
     #[test]
     fn hosted_tools_are_captured_without_an_exec_call() {
         let scope = TaskSpaceExecResponseScope::default();
-        scope.begin_request("map-1", Some(7), Vec::new()).unwrap();
+        scope.begin_request("map-1", Some(7)).unwrap();
         scope.record_completed_item(&ResponseItem::WebSearchCall {
             id: Some("ws-1".into()),
             status: Some("completed".into()),
             action: None,
         });
-        let pending = scope.finalize(true, Some(response_identity())).unwrap();
-        assert_eq!(pending.len(), 1);
-        assert_eq!(pending[0].tool, "web_search");
-    }
-
-    #[test]
-    fn request_visible_pending_action_requires_an_exec_before_final_content() {
-        let scope = TaskSpaceExecResponseScope::default();
-        scope
-            .begin_request(
-                "map-1",
-                Some(7),
-                vec![codex_state::TaskSpacePendingProviderAction {
-                    action_id: "provider-action-1".into(),
-                    origin_thread_id: ThreadId::new(),
-                    map_id: Some("map-1".into()),
-                    provider_response_id: "response-0".into(),
-                    provider_action_key: "response-0/web_search".into(),
-                    tool_name: "web_search".into(),
-                    outcome: TaskSpaceActionOutcome::Succeeded,
-                    created_at_ms: 1,
-                }],
-            )
-            .unwrap();
-        let error = scope.finalize(true, Some(response_identity())).unwrap_err();
-        assert!(error.contains("left request-visible Provider Actions unattributed"));
+        let actions = scope.finalize(true, Some(response_identity())).unwrap();
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].tool, "web_search");
     }
 
     #[test]
     fn response_rejects_multiple_exec_calls_and_requires_one_claim() {
         let scope = TaskSpaceExecResponseScope::default();
-        scope.begin_request("map-1", Some(7), Vec::new()).unwrap();
+        scope.begin_request("map-1", Some(7)).unwrap();
         for call_id in ["outer-1", "outer-2"] {
             scope.record_completed_item(&ResponseItem::FunctionCall {
                 id: None,
@@ -524,7 +482,7 @@ mod tests {
         );
 
         let scope = TaskSpaceExecResponseScope::default();
-        scope.begin_request("map-1", Some(7), Vec::new()).unwrap();
+        scope.begin_request("map-1", Some(7)).unwrap();
         scope.record_completed_item(&ResponseItem::FunctionCall {
             id: None,
             name: TASKSPACE_EXEC_TOOL_NAME.into(),
@@ -541,7 +499,7 @@ mod tests {
     #[test]
     fn response_rejects_forbidden_top_level_client_call_before_exec_claim() {
         let scope = TaskSpaceExecResponseScope::default();
-        scope.begin_request("map-1", Some(7), Vec::new()).unwrap();
+        scope.begin_request("map-1", Some(7)).unwrap();
         scope.record_completed_item(&ResponseItem::FunctionCall {
             id: None,
             name: "inspect".into(),

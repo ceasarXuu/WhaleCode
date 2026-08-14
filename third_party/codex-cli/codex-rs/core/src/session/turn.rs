@@ -1953,16 +1953,8 @@ async fn try_run_sampling_request(
                 "TaskSpace provider request is missing its visible Map snapshot".to_string(),
             )
         })?;
-        let pending_provider_actions = sess
-            .load_pending_provider_actions(&snapshot.map_id)
-            .await
-            .map_err(CodexErr::Fatal)?;
         scope
-            .begin_request(
-                snapshot.map_id.clone(),
-                snapshot.revision,
-                pending_provider_actions,
-            )
+            .begin_request(snapshot.map_id.clone(), snapshot.revision)
             .map_err(CodexErr::Fatal)?;
         tracing::info!(
             target: "codex_core::taskspace_exec",
@@ -2483,16 +2475,19 @@ async fn try_run_sampling_request(
     )
     .await;
 
-    if let Some(scope) = taskspace_response_scope.as_ref() {
-        let pending_provider_actions = scope
+    let provider_actions = if let Some(scope) = taskspace_response_scope.as_ref() {
+        scope
             .finalize(response_completed, taskspace_response_identity)
-            .map_err(taskspace_response_reconciliation_error)?;
-        sess.persist_pending_provider_actions(pending_provider_actions)
-            .await
-            .map_err(taskspace_response_reconciliation_error)?;
-    }
+            .map_err(taskspace_response_reconciliation_error)?
+    } else {
+        Vec::new()
+    };
 
     drain_in_flight(&mut in_flight, sess.clone(), turn_context.clone()).await?;
+
+    sess.record_provider_actions(provider_actions)
+        .await
+        .map_err(taskspace_response_reconciliation_error)?;
 
     if let Some(scope) = taskspace_response_scope.as_ref() {
         scope

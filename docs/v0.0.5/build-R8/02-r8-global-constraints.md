@@ -1,7 +1,7 @@
 # R8 TaskSpace 全局约束
 
 - Created: 2026-07-31
-- Updated: 2026-08-14
+- Updated: 2026-08-15
 - Status: Active
 - Scope: 产品、设计、实现、测试和评测
 
@@ -37,17 +37,17 @@
 
 ## 2. Agent 与 Runtime 边界
 
-1. Agent 负责目标、拆解、依赖、节点选择、动作归属、完成判断、重规划和总结。
+1. Agent 负责目标、拆解、依赖、client 动作归属、完成判断、重规划和总结。Provider-hosted Tool 当前采用第 5 条的明确例外。
 2. Runtime 只验证图结构、请求关联的 revision、节点可执行状态、Agent 声明的动作对应、原子性和底线安全规则。
 3. Runtime 不自动初始化、不代选节点、不补动作、不修改参数、不解释任务语义，也不因 Agent 可能犯错增加语义约束。
 4. TaskSpace 下 Agent 只通过 Function Call 形态的 `taskspace_exec` 提交 client/map 动作；普通 client Tool 和
    canonical Map operations 都由该工具内部声明，不再作为 TaskSpace 顶层 sibling Tool 暴露。
-5. Client 与 Provider-hosted Tool 在 Agent-visible `taskspace_exec.tools[]` 中使用同一动作位置和顺序规则。Provider 保持
-   原生执行路径；Runtime 只在适配阶段将其与同响应顶层已执行事实逐项核对、记录且不重执行。不得建立序列外
-   `hosted_work[]`、`hosted_bindings[]` 或其他平行协议；漏项、错配、重复和未知引用仍 fail closed。
-6. Agent 在 `taskspace_exec` 外层 invocation metadata 中为每个普通 client call 显式声明单个 `node_id`，为每项
-   Provider-hosted fact 显式声明非空 `node_ids[]`。Map call 不声明外层 owner，其节点引用只来自对应 canonical Map
-   operation 参数。Runtime 只解析和校验，不推断或选择归属，TaskSpace metadata 不得进入普通 Tool 原生参数。
+5. Provider-hosted Tool 保持原生执行路径，当前不进入 Agent-visible `taskspace_exec` 参数、双写或延迟归属协议。Runtime
+   只对已实际发生的原生调用做机械归纳：按原生 Tool 名在 Root 下按需创建 Completed 专用节点并追加 Action；没有调用时
+   不创建空节点。无 Map 或同名节点冲突时允许该调用从 Map 逃逸并记录诊断，不阻止 Agent 推进。
+6. Agent 在 `taskspace_exec` 外层 invocation metadata 中为每个普通 client call 显式声明单个 `node_id`。Map call 不声明
+   外层 owner，其节点引用只来自对应 canonical Map operation 参数。Runtime 只解析和校验，不推断或选择 client 归属，
+   TaskSpace metadata 不得进入普通 Tool 原生参数。
 7. `taskspace_exec` 只负责承载合法顺序和节点绑定；canonical Map operations 只提供 Map 操作和读取能力，在内部执行路径中
    地位不高于普通 Tool。`update_map` 是受限 Map 动作，可作为纯 Map 更新单独提交，不能执行 Tool 或关闭 Map。
 8. 普通 Tool 的 schema、参数、handler、权限、sandbox、hook 和原生结果对 TaskSpace 完全无感；内部 Tool 合同必须
@@ -74,9 +74,9 @@
     Agent 回显。它们可以进入内部 envelope、日志和结果关联字段，但不得成为 Agent-visible 必填参数。
 14. Tool schema 入侵、独立顶层序列容器和 control manifest + sibling calls 均为封存候选，不得与主方案双轨实现；
    只有主方案被证据否定且用户重新决策后才能恢复评估。
-15. Hosted 绑定不是可选记账。任一事实缺少唯一、合法的 Agent 节点声明时，整个 TaskSpace 响应不被接受；原始结果只
-    保留为失败证据，不得以 `unbound`、默认 Root owner 或其他默认节点形式进入 canonical Map 后继续推进。Root 与
-    Finish 不是合法 action owner。
+15. Provider-hosted 聚合节点是当前唯一的 Runtime 机械归纳例外，不代表 Agent 工作节点归属，也不参与节点完成判断。
+    节点名和 goal 必须逐字复用原生 ToolSpec 名，父节点为 Root，状态固定 Completed，并连接到 Finish；Action 只保存稳定
+    identity、原生 Tool 名和机械 outcome。不得复制输入输出、创建别名、提前建空节点或恢复 pending/双写硬门。
 16. TaskSpace Exec 从 Standard 的原生 ToolSpec、ToolRouter、Provider response lifecycle 和 canonical Action Map
     原语零基础建设。旧 `taskspace_control.actions[] + sibling calls` 的 schema、parser、handler glue、sequence、context、
     response gate、feedback carrier 和测试不得作为过渡层、adapter 或兼容路径保留。
@@ -117,7 +117,7 @@
 6. projection 必须保留全局路径；局部细节可以按距离和证据效用调整，但不能把旧节点直接变成不可见。
 7. 不得为了缓存或 token 指标删除 Agent 完成正确工作所需的事实。
 8. Standard 如何保留、裁剪、压缩和持久化 Tool 过程，TaskSpace 就如何处理；Map 只额外保存 Agent 明确写入的节点
-   `content` 和必要 action 归属，不增加 TaskSpace 专属 ref 或渐进暴露协议。
+   `content`、client action 归属和最小 Provider 聚合 Action，不增加 TaskSpace 专属 ref 或渐进暴露协议。
 
 ## 5. 工程与评测
 
@@ -136,7 +136,7 @@
 9. 成本报告至少包含 request、input、cached/uncached input、output、wall time 和费用。
 10. Tool 成本比较必须使用同一能力集合并拆分原有 Tool 合同、TaskSpace metadata 和序列化形式差值。Standard 在顶层
    暴露 Client Tool；TaskSpace 将同一合同迁移到 `taskspace_exec` 内部，并只增加节点归属、合法顺序和必要容器字段。
-   Provider-hosted Tool 在 Exec 的统一 Tool catalog 中只表达 Agent 需要构造的动作和归属，不复制 Provider 顶层传输身份。
+   Provider-hosted Tool 不进入 Exec 内部 catalog 或 Agent 归属参数，继续以原生顶层 ToolSpec 暴露。
 11. 单一 `taskspace_exec` 入口沿用 Codex `exec/code-mode` 的 Tool 暴露和嵌套执行形态，并完整保留原生 Tool 名称、
     描述、参数、结果及多 Tool 组合能力。行为测试用于验证具体实现和 Provider 兼容性。
 12. 涉及用户体验或重大技术路线时暂停实施，给出源码证据、外部依据和方案代价后由用户决策。
@@ -164,7 +164,7 @@
 - 同一 Client Tool 合同同时出现在 TaskSpace 顶层和 `taskspace_exec` 内部，或被多个 Prompt/Tool 层完整复述；
 - 同一事实出现第二个权威来源；
 - Map 重新出现顶层 `edges[]`、任何 `*_ref`、独立语义分类账本，或要求 Agent 同时双写 parent/child；
-- Agent-visible Exec 重新出现独立 hosted action/binding 通道，或 Node lifecycle 恢复无正向证据的 `blocked`；
+- Agent-visible Exec 出现 hosted action/binding/pending 通道，或 Node lifecycle 恢复无正向证据的 `blocked`；
 - 为旧 Map 代码增加改名、兼容、转接、保留注释或 dormant 分支，而不是删除无效设计及其消费者；
 - Standard 路径发生非必要变化；
 - Map Store 与 Session/rollout 形成双事实源；

@@ -37,7 +37,6 @@ impl StateRuntime {
             &request.operation,
             request.owner_thread_id,
             None,
-            &[],
         )?;
         let now = chrono::Utc::now().timestamp_millis();
         let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
@@ -172,7 +171,6 @@ WHERE b.thread_id = ?
             &request.operation,
             request.actor_thread_id,
             request.binding.as_ref(),
-            &request.consumed_pending_action_ids,
         )?;
         let next_revision = request
             .expected_store_revision
@@ -197,13 +195,6 @@ WHERE b.thread_id = ?
             tx.commit().await?;
             return Ok(TaskSpaceMapWriteOutcome::Conflict { current: None });
         };
-        super::taskspace_pending_actions::validate_pending_provider_action_set(
-            &mut tx,
-            request.actor_thread_id,
-            &request.map_id,
-            &request.consumed_pending_action_ids,
-        )
-        .await?;
         if current.store_revision != request.expected_store_revision
             || !compare_and_swap_map(
                 &mut tx,
@@ -237,11 +228,6 @@ WHERE b.thread_id = ?
             &request.operation,
             request.actor_thread_id,
             now,
-        )
-        .await?;
-        super::taskspace_pending_actions::delete_pending_provider_actions(
-            &mut tx,
-            &request.consumed_pending_action_ids,
         )
         .await?;
         let record = load_map_in_tx(&mut tx, &request.map_id)
