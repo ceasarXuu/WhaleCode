@@ -39,6 +39,7 @@
 - [U15 read/mode RPC 与 schema](../../migration/codex-sync/2026-08-14-u15-taskspace-rpc-schema.md)
 - [U15 canonical update event 与 notification](../../migration/codex-sync/2026-08-14-u15-taskspace-events.md)
 - [U16 TUI slash 与 typed RPC 路由](../../migration/codex-sync/2026-08-14-u16-taskspace-tui-routing.md)
+- [U16 localhost browser viewer](../../migration/codex-sync/2026-08-14-u16-taskspace-viewer.md)
 
 ## 当前批次状态
 
@@ -60,7 +61,8 @@
 - U14 第五原子段已完成：`finish_map` 要求 control 独占响应，在 preflight 中以 exact summary 和最终 work completion 原子终结 Map；`reopen_map` 复用 ordered sibling manifest 和同一 CAS store，原子恢复 terminal history、追加 work/edges 并 reservation，随后由 tool lifecycle release。非法 sibling/manifest 均零提交；仅 extension event emission 尚待收口。
 - U14 已收口。0.147 extension sink 只能发送已有 protocol `EventMsg`，因此 TaskSpace event emission 与 U15 的版本化事件类型/schema 同单元恢复，避免在 runtime 阶段制造不可消费的半套 wire。U15 第一段已增加宿主可注入的同一 `TaskSpaceService` 及 canonical refresh/read seam。
 - U15 已收口：`thread/mapRuntimeMode/set` 与 `thread/taskspace/read` 继续只面向已加载线程并要求 experimental API opt-in；`thread/taskspace/updated` 仅在更高 canonical revision 成功落库后发射轻量失效通知，并经 listener FIFO 保持与 turn/resume 通知的顺序。JSON/TS 及 stable/experimental precomputed exports 已重生成；下一步进入 U16。
-- U16 第一段已恢复 `/taskspace` 与 `/task-show` 的 TUI typed RPC 路由：前者按顺序显式启用再读取，后者只读；当前先显示 canonical Map 文本摘要。浏览器 viewer 与 TaskSpace final-wire/cache 仍在后续原子段。
+- U16 第一段已恢复 `/taskspace` 与 `/task-show` 的 TUI typed RPC 路由：前者按顺序显式启用再读取，后者只读；该原子段以 canonical Map 文本摘要验证了完整路由。
+- U16 第二段已恢复 localhost browser viewer：只绑定 loopback 随机端口并轮询同一 canonical read RPC；页面展示 `taskspace-snapshot-v1` raw facts，不复制状态或恢复旧派生 projection。TaskSpace final-wire/cache 是 U16 剩余工作。
 - replay ledger 和五批 DAG 已降级为非权威证据；后续不得直接按自动 disposition 或路径桶实施，应按 `plan.md` 的 U1–U17 语义闭环推进。
 
 ## 1. 执行摘要
