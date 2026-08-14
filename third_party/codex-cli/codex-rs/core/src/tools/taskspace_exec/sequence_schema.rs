@@ -149,7 +149,7 @@ fn tool_action_schema(capability: &TaskSpaceToolCapability) -> JsonSchema {
                 &["tool", "execution", "node_ids"],
             );
             schema.description = Some(format!(
-                "The TaskSpace half of one indivisible `{}` pair. If this assistant response contains the native top-level Provider Tool item, include exactly one matching entry here with `execution` set to `already_executed` and every Agent-declared owner in `node_ids`. If the response contains no matching native item, include no entry. The native item performs the work; this entry only records node ownership. Never emit either side alone, emit this entry early, or defer it to a later response. Do not include native Tool input. Use the Provider ToolSpec name exactly as exposed: `{}`.",
+                "Node-ownership record for a native `{}` Provider result already present in this assistant response. This entry does not call, request, or trigger the Tool. `{}` remains a native Provider ToolSpec, not a Function Tool; never construct or imitate a Function Call with this name. Include exactly one matching entry with `execution` set to `already_executed` and every Agent-declared owner in `node_ids` only when the current response contains the matching native result. Otherwise include no entry. Do not record ownership early, defer it to a later response, or include native Tool input.",
                 identity.native_name, identity.native_name
             ));
             schema

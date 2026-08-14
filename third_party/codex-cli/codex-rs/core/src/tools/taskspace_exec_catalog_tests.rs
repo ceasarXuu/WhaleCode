@@ -149,16 +149,16 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
         .unwrap();
     let hosted_contract = web_search["description"].as_str().unwrap();
     for required in [
-        "one indivisible `web_search` pair",
-        "this assistant response contains the native",
-        "include exactly one matching entry",
-        "response contains no matching native item",
-        "native item performs the work",
-        "only records node ownership",
-        "Never emit either side alone",
+        "native `web_search` Provider result already present",
+        "does not call, request, or trigger the Tool",
+        "not a Function Tool",
+        "never construct or imitate a Function Call",
+        "Include exactly one matching entry",
+        "current response contains the matching native result",
+        "Otherwise include no entry",
+        "record ownership early",
         "defer it to a later response",
         "include native Tool input",
-        "Provider ToolSpec name exactly as exposed: `web_search`",
     ] {
         assert!(hosted_contract.contains(required), "missing {required}");
     }
@@ -204,11 +204,9 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
     );
     let description = declaration["description"].as_str().unwrap();
     assert!(description.contains("Provider-hosted ToolSpec names, exposed unchanged"));
-    assert!(description.contains("Provider-hosted Tools are the only exception"));
-    assert!(description.contains("native top-level Provider Tool item"));
-    assert!(description.contains("in that same assistant response"));
-    assert!(description.contains("Never emit either side alone or defer attribution"));
-    assert!(description.contains("\"execution\":\"already_executed\""));
+    assert!(description.contains("native Provider ToolSpecs; they are not Function Tools"));
+    assert!(description.contains("Never construct a Function Call with one of these names"));
+    assert!(description.contains("does not invoke the Tool"));
     let first_turn = description
         .split_once("First-turn initialization and work example:")
         .unwrap()
@@ -219,10 +217,17 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
     for required in [
         "\"type\":\"initialize_and_work\"",
         "\"tool\":\"exec_command\"",
-        "\"tool\":\"web_search\"",
-        "\"execution\":\"already_executed\"",
     ] {
         assert!(first_turn.contains(required), "missing {required}");
+    }
+    assert!(!first_turn.contains("\"tool\":\"web_search\""));
+    assert!(!first_turn.contains("\"execution\":\"already_executed\""));
+    for forbidden in [
+        "emit both",
+        "native top-level Provider Tool item",
+        "Never emit either side alone",
+    ] {
+        assert!(!description.contains(forbidden), "found {forbidden}");
     }
     assert!(!description.contains("\"type\":\"work\",\"tools\":[{\"tool\":\"web_search\""));
     assert!(!description.contains("single top-level entry point"));

@@ -14,12 +14,13 @@ use super::map_operations::NodePatchArgs;
 use super::map_operations::UpdateMapArgs;
 use super::map_operations::WorkNodeArgs;
 
-const PROTOCOL: &str = r#"Use `taskspace_exec` as the sole top-level Function Tool for TaskSpace Map operations and client Tool actions. Provider-hosted Tools are the only exception. Treat a native top-level Provider Tool item and its TaskSpace node attribution as one indivisible action: emit both in the same assistant response, never either side alone. Choose exactly one sequence `type` allowed by the schema.
+const PROTOCOL: &str = r#"Use `taskspace_exec` as the sole top-level Function Tool for TaskSpace Map operations and client Tool actions. Provider-hosted Tools remain native Provider ToolSpecs; they are not Function Tools. Choose exactly one sequence `type` allowed by the schema.
 
 Tool contract:
-- Put client and provider-hosted Tool actions in the sequence's single `tools` array.
+- Put client Tool actions and provider-hosted ownership records in the sequence's single `tools` array.
 - Each client action keeps its native Tool input in `input` and declares one owner `node_id`; namespaced Tools also declare `namespace`.
-- Pairing is an if-and-only-if contract. If this response contains a native provider-hosted Tool item, its one `taskspace_exec` call must contain exactly one matching entry with `execution: "already_executed"` and all owner `node_ids`. If this response contains no matching native item, include no such entry. The native item performs the work; the entry only records node ownership. Never emit only one side or defer attribution to another response.
+- A provider-hosted entry never calls, requests, or triggers a Tool. It only records Agent-declared Work-node ownership for a matching native Provider result already present in this response. Never construct or imitate a Function Call using a Provider ToolSpec name.
+- Pairing is an if-and-only-if ownership contract. For each native provider-hosted result in this response, the one `taskspace_exec` call must contain exactly one matching entry with `execution: "already_executed"` and all owner `node_ids`. If this response contains no matching native result, include no such entry. Do not record ownership before the native result exists or defer it to another response.
 - Tool array order supplies stable action identity. It does not create Tool dependencies; result-dependent work belongs in a later request.
 
 Map contract:
@@ -38,17 +39,11 @@ pub(super) fn build_description<'a>(
     let has_exec_command = client_tool_names
         .into_iter()
         .any(|name| name == "exec_command");
-    let example_hosted = hosted_tools
-        .get("web_search")
-        .or_else(|| hosted_tools.first());
     let mut sections = vec![PROTOCOL.to_string()];
     if has_exec_command {
-        let first_turn_example = example_hosted.map_or_else(canonical_first_turn_example, |tool| {
-            canonical_first_turn_with_hosted_example(tool)
-        });
         sections.push(format!(
             "First-turn initialization and work example:\n```json\n{}\n```",
-            first_turn_example
+            canonical_first_turn_example()
         ));
         sections.push(format!(
             "Parent completion and direct-child work example:\n```json\n{}\n```",
@@ -63,26 +58,13 @@ pub(super) fn build_description<'a>(
         "Final work-node completion and explicit Map finish example:\n```json\n{}\n```",
         canonical_finish_example()
     ));
-    if let Some(first_hosted) = example_hosted {
+    if !hosted_tools.is_empty() {
         sections.push(format!(
-            "Provider-hosted ToolSpec names, exposed unchanged: {}. The first-turn example records `{first_hosted}` only because its native Provider Tool item has already executed in that same assistant response. The native item performs the work; its `taskspace_exec` entry only records node ownership. Never emit either side alone or defer attribution to another response.",
+            "Provider-hosted ToolSpec names, exposed unchanged: {}. These are native Provider Tools, not Function Tools. Never construct a Function Call with one of these names. A matching `taskspace_exec` entry only records node ownership for a native result already present in the current response; it does not invoke the Tool and must not be added before that result exists.",
             hosted_tools.iter().cloned().collect::<Vec<_>>().join(", "),
         ));
     }
     sections.join("\n\n")
-}
-
-fn canonical_first_turn_with_hosted_example(tool: &str) -> Value {
-    let mut example = canonical_first_turn_example();
-    example["tools"]
-        .as_array_mut()
-        .expect("canonical first-turn tools must be an array")
-        .push(json!({
-            "tool": tool,
-            "execution": "already_executed",
-            "node_ids": ["inspect"]
-        }));
-    example
 }
 
 pub(crate) fn canonical_first_turn_example() -> Value {
