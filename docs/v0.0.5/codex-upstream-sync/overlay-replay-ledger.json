@@ -2,7 +2,7 @@
   "schema_version": 1,
   "baseline_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
   "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
-  "overlay_tree": "82f5884ec36ac6ffb48c608c583d929ee1028160",
+  "overlay_tree": "2461a93f282af04557676b95b55293ce89246a90",
   "cutover_batches": [
     {
       "id": "batch-1-brand-home",
@@ -1272,6 +1272,259 @@
     {
       "categories": [
         "app_server_protocol",
+        "brand_home",
+        "test_fixture"
+      ],
+      "current_sha256": "a007f30c6e1330751e45435ee5ce9901c363c20acc69a2aac4f3ae4b8e37a90e",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/app-server/tests/common/json_logging.rs",
+      "target_sha256": "f64775d07fc6f39d58ff063c879d2203c83f6836c1671418193b64b822b417b4",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "brand_home",
+        "test_fixture"
+      ],
+      "current_sha256": "f59f9c90019e92dc0be6b6b15a2291c4038dd0436dd237859c8c65182a77c84a",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/app-server/tests/common/local_websocket_exec_server.rs",
+      "target_sha256": "98d82e524edf3fd5b75e7a0b8327dde281b0c69bbf402739156dfb2e6bacddd4",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "brand_home",
+        "test_fixture"
+      ],
+      "current_sha256": "9b9edbb08eb78aa3360974ba72ed81eff2d3e5865ccfa616bbcfb79d1de63bd6",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/app-server/tests/common/test_app_server.rs",
+      "target_sha256": "1e5d79a05b4596611809d456bcab564b4e1a686863dd4077d91299d8759cface",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "test_fixture"
+      ],
+      "current_sha256": "8141904bcd37ffd25213af405c9afb8d8c6e03f530c8118168a922dc33804d90",
+      "cutover_batch": "batch-2-substrate",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [
+        "batch-1-brand-home"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server/tests/suite/auth.rs",
+      "target_sha256": "7cdb2eb4b76ed4649c6886c88a99bf02af97879fa9126923de34b8f85c3a769c",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "brand_home",
+        "test_fixture"
+      ],
+      "current_sha256": "72960987827868d982507dedf629b2b79f73687d143a1666d81b092a97b0500f",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/app-server/tests/suite/strict_config.rs",
+      "target_sha256": "2847f4c6132d1b1331099df86bc2463d636bdc6dc7b4601ccc9d64a8719a94c0",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "brand_home",
+        "test_fixture"
+      ],
+      "current_sha256": "779dc63426159a20a150909bc7fbe7cad7010173ce17dc036f0a551579fc49c4",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/app-server/tests/suite/v2/command_exec.rs",
+      "target_sha256": "7531887bd4b4dc2d79bb723ecdae5c241da59fb9500a1a2a21cbdc00506c0c8e",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "brand_home",
+        "test_fixture"
+      ],
+      "current_sha256": "f8e7c835cea2a08983c26edc3136b5557fab03259528e086a618040a51ddc9dc",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/app-server/tests/suite/v2/connection_handling_websocket.rs",
+      "target_sha256": "d8427947347be4c0f5d1932760cfcaf27cba1ac4d2c7ab0899b3ccf6dbdc05cb",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "brand_home",
+        "test_fixture"
+      ],
+      "current_sha256": "3cd1a28ac8c04bb3c17267fb676667c456468d1d9b63e168d46b453c40c64a9b",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/app-server/tests/suite/v2/remote_control.rs",
+      "target_sha256": "a63ebe256c9e3a78ff481c1ee070ad5d2ad44dc2133e069c5d83f8557e25af70",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "brand_home",
+        "test_fixture"
+      ],
+      "current_sha256": "015966cb57839ad427a368bf2a955e371691c0f69399aa3ff8ea32962a0b8222",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/app-server/tests/suite/v2/selected_capability_stack.rs",
+      "target_sha256": "5b61c44342bed72407bf50c154691b2bd7df3cafd6825969b608b9cb2279c8d9",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "provider_model",
+        "test_fixture"
+      ],
+      "current_sha256": "a574ba8e2685a0a4e8c9ec8ace38dd67ae58ed4895c3e126d4308a4c1b83a092",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/app-server/tests/suite/v2/turn_start.rs",
+      "target_sha256": "a4a35574fd9f99647e163ee4978949a8ea710bb522cef93a51ae861bd1a0c915",
+      "upstream_status": "modified",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
         "provider_model",
         "taskspace_domain",
         "test_fixture"
@@ -1339,6 +1592,460 @@
       "path": "codex-rs/cli/src/main.rs",
       "target_sha256": "1ca67a651488dd9af26b1328531dfaf68cc4cd3290afeec9dd9ca6f04bcd8091",
       "upstream_status": "modified",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "cli_surface",
+        "test_fixture"
+      ],
+      "current_sha256": "a3d3e489e0df173d030cd127d9a9222b37ffc9941af2a98dcbe60ae7f8da58e1",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/app_server.rs",
+      "target_sha256": "e83705e03f16b1c9afa0ce9e34be26817e89f372a680f03ca0eb99dbc2defc66",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "cli_surface",
+        "test_fixture"
+      ],
+      "current_sha256": "35f2889337d2bf2262fa845cabedcff58ab1629b2b3c6ac8513f579fc3db109c",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/debug_clear_memories.rs",
+      "target_sha256": "9f21f42e1f292b921d33cbbf5e70117582686f8d778562e862e23d444b079d11",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "cli_surface",
+        "provider_model",
+        "test_fixture"
+      ],
+      "current_sha256": "7adc2d7d4697993ab7727e667ed807e32d347ae7c300ea00e99df78977f5d944",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/cli/tests/debug_models.rs",
+      "target_sha256": "168f1e940aa4d513d9a0cc57a36bad7cb592c614bfcc41b067867b0cc279453d",
+      "upstream_status": "unchanged",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "cli_surface",
+        "test_fixture"
+      ],
+      "current_sha256": "6d3b168a8caaadc6f9d9468b4c2adf22f8a217577c696c6cab4d5dc8b460e384",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/delete.rs",
+      "target_sha256": "f2b88a3768283f62c75bd2f2c9f9e2d6cde6973ad4d6ffdfdc0aa9de7394880c",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "cli_surface",
+        "test_fixture"
+      ],
+      "current_sha256": "2ee688541e428f4f0930f27de4f2f9d435f3947c113e1c0af4518aa82b9c7ce0",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/exec_server.rs",
+      "target_sha256": "ee9b9ae6d78bf26d609c9884d6c7381b63c662c0efc9b6dbc37a3ee4a1871700",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "cli_surface",
+        "test_fixture"
+      ],
+      "current_sha256": "9767e1139abd2b36c39a324328ca6c5fef7ad56f57504bf6f4439154926a938b",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "target leaves the baseline path unchanged"
+      ],
+      "depends_on": [],
+      "disposition": "reapply-exact",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/execpolicy.rs",
+      "target_sha256": "98edf7cc70dfa79ae25ed688b590c323a826bcdd6f2c3cfc37969a0f4018936c",
+      "upstream_status": "unchanged",
+      "verification": [
+        "cargo test -p codex-cli",
+        "replayed blob SHA-256 matches current Whale blob",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "cli_surface",
+        "test_fixture"
+      ],
+      "current_sha256": "53f0a0f4ddae950fcb409eb334665fe6fd86d83360d469b786625fd12a7bc563",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/features.rs",
+      "target_sha256": "2c439a5a4c020c3ef4531ee76c14741ff5c1569503c24b99ecfd00d2115b967c",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "cli_surface",
+        "test_fixture"
+      ],
+      "current_sha256": "36d54c2452e5c47da1b3e7804dafb7c6d6c27ff876af36588bc3ae46de5afa10",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/login.rs",
+      "target_sha256": "44eda8829cf7bb4f369305622020892dbb6e3b941989c109f0b422de1e5dff38",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "cli_surface",
+        "test_fixture"
+      ],
+      "current_sha256": "d142f0276044c464e93f08ade3758aff01850f22c37adc4abb383ef8f50f9bb4",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/marketplace_add.rs",
+      "target_sha256": "732f8df22dc0d78307e0d6af960357aed5b4908772339a65332d7c8dc003e8cc",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "cli_surface",
+        "test_fixture"
+      ],
+      "current_sha256": "0e28ada0aa8907b32e002021a036beb98a2a48bd2d922765f66f1b75d6aa7c1b",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/marketplace_remove.rs",
+      "target_sha256": "82bd06e83dbbe3d6fec22a42e3ecd95fc2d077667fe61ebb9c9e7c7b230da0d7",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "cli_surface",
+        "test_fixture"
+      ],
+      "current_sha256": "8d1a2afede44c9c27a20378f1a087c76c1b084d18767e79bd3e81235a5247c6f",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/marketplace_upgrade.rs",
+      "target_sha256": "4eb5ed01193fc744f8595b9035c38f0c2685a504d67f1349d79a4a77d7a38cdf",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "cli_surface",
+        "test_fixture"
+      ],
+      "current_sha256": "4a3cfaa62343568e08a3f2ba28ba4da52f7cebef0eea5b4292dd1f4da2cfca84",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/mcp_add_remove.rs",
+      "target_sha256": "0b22464a9e895870ee89021351e27d4c5cb5bf5872cb1a7b1439986b43f0cb91",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "cli_surface",
+        "test_fixture"
+      ],
+      "current_sha256": "d3765884ed22a58231754f019523051145cd61c6fe0ff5d556cffc213f0763ab",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/mcp_cloud_config.rs",
+      "target_sha256": "96a7e301247a69d9b39f4563ef69058b567b3fa3071e4e3d8b3e385a29fbf30d",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "cli_surface",
+        "test_fixture"
+      ],
+      "current_sha256": "e3a650be18d4a66a179cd3384a1ce7dca8a5499595636b3b546726e304247683",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/mcp_list.rs",
+      "target_sha256": "493105aa748f4072ec61b7d66e2d4500f11060410927a8ff65a907c8ccb33142",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "cli_surface",
+        "test_fixture"
+      ],
+      "current_sha256": "4beca2f5b362176bd4c199e6df27ddf5861a3248b8828d385009c07c149e31b9",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/plugin_cli.rs",
+      "target_sha256": "12ac1bf34b18a61ba721197d6613b5caddf42722b64935cac2ea715ec7b90792",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "cli_surface",
+        "test_fixture"
+      ],
+      "current_sha256": "90149c01876564d823527a5d7783777783c520e5d1e423b6919f8cac44f657ef",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/sandbox_cloud_config.rs",
+      "target_sha256": "766c7d2b7740cd49936d16c1f4654fbbc0e7319f9c80ffd68e492c3ccc8a0157",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "cli_surface",
+        "test_fixture"
+      ],
+      "current_sha256": "44e8f10323eccdbd18b8134a0a3a611582b92a91861606d5c6426c2cc44a96c7",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/sandbox_network_proxy.rs",
+      "target_sha256": "ddc8bcad07460d3502cba05f7629ee4cdc0e096bbe3858b67a0607067405d1f4",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "cli_surface",
+        "test_fixture"
+      ],
+      "current_sha256": "59389772da5f1331d5976ab3544f837eaf79147f3648e01fca7f07fdd43a70be",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/update.rs",
+      "target_sha256": "bce97406190ac756d93a83f273c6947ec2a7a7c2dd853f8304e4287d3d134f87",
+      "upstream_status": "added",
       "verification": [
         "cargo test -p codex-cli",
         "sync metadata validator"
@@ -1715,6 +2422,54 @@
     },
     {
       "categories": [
+        "brand_home",
+        "test_fixture"
+      ],
+      "current_sha256": "3b0f3a11d3dc353896111f45690823b35d3dcbd86ece34873dc127e5d593eab3",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/core/tests/common/test_codex_exec.rs",
+      "target_sha256": "eedf3eb43f5568e3a5d14c4cb55d679d380564e3a6841ec0ba0925985e5c0f21",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "test_fixture"
+      ],
+      "current_sha256": "f9a536803c4193ca45aa91c5dd251ec5c13095f48fa763487efe61128b6c3c3a",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/core/tests/suite/cli_stream.rs",
+      "target_sha256": "07ed80963631bc738dc6bbb1a02117179810fe5917b7e26f9e99ee8276817123",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
         "provider_model",
         "test_fixture"
       ],
@@ -1735,6 +2490,30 @@
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "test_fixture"
+      ],
+      "current_sha256": "72bc7d0b4dff28fa0446fcf27e0fcd04a785ea6047bdae76494218b8e0c8aafa",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/core/tests/suite/live_cli.rs",
+      "target_sha256": "0b71e0e53ce214312bcbdf047146510a46226dcc445bb068d8bdbf70457c9e90",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo test -p codex-cli",
         "sync metadata validator"
       ],
       "whale_status": "modified"
@@ -1766,6 +2545,54 @@
     },
     {
       "categories": [
+        "brand_home",
+        "test_fixture"
+      ],
+      "current_sha256": "b13cc6cd90b9de241076b6cb68df69bd74ec9c5a981a376ab75572cb67c6c506",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/core/tests/suite/multi_exec_server_sandbox.rs",
+      "target_sha256": "111a49150d672e1c26daeb44166f0c2dcff6fc047434d2fcaf623187216f69d2",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "test_fixture"
+      ],
+      "current_sha256": "fd4c62d9b7e974f2c4a543a19bab1f3a3eacb8cdb2e383f76cb2335a0d56b318",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/core/tests/suite/rmcp_client.rs",
+      "target_sha256": "08c888379e86c9f66ce0decf0b590f40e44a6123475ad4dbca504b7ac655a341",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
         "test_fixture"
       ],
       "current_sha256": "7e767aa559866715f761e17c4b7baf54cc0715cc7198cef336c779bbbe9ae252",
@@ -1789,6 +2616,80 @@
         "sync metadata validator"
       ],
       "whale_status": "added"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "sandbox_exec"
+      ],
+      "current_sha256": "4676657dd6e439cbaecbfe5784ed393b9d396d1728107c1f439d03d8851210b5",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/exec-server/testing/wine_exec_server.rs",
+      "target_sha256": "45de0304f5ebef4acd17d45f38a005006bdd3390a1bf70b6ab6141965acf0130",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "sandbox_exec",
+        "test_fixture"
+      ],
+      "current_sha256": "eca0137152ae6fd5dabac280c38a2b90ee1a0833d997a3941f2d4f51354ace68",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/exec-server/tests/common/exec_server.rs",
+      "target_sha256": "f9f0d50af13f0b5100b6090399d0fe47623fa5d5c3cf819c3630404bf9053c1c",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "sandbox_exec",
+        "test_fixture"
+      ],
+      "current_sha256": "388d9ea52fa1ddd1e96d88122b8f7f99fb11a6692b22fff306a1b66e2a23fb2f",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/exec-server/tests/relay/version_skew.rs",
+      "target_sha256": "4d40fd72a9f4c8e401d6274dab727970eb08e95acec246d1bbdcf3622f77b9b5",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
     },
     {
       "categories": [
@@ -2641,6 +3542,31 @@
     },
     {
       "categories": [
+        "brand_home",
+        "mcp",
+        "test_fixture"
+      ],
+      "current_sha256": "b4cb49876d858c51764d97ba623f3e213dc92a10b60ea60750adb310b3b83aa8",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/mcp-server/tests/common/mcp_process.rs",
+      "target_sha256": "e437b90dac12fda18291c79d326c7e1a41974d7b208d65bf17b1c600ba143fe9",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
         "provider_model"
       ],
       "current_sha256": "88d1a2edf4da1af1e4291d5b7e3ef53e04fd98c1b41329bacce9813a37aa4265",
@@ -2812,6 +3738,130 @@
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "mcp"
+      ],
+      "current_sha256": "40f2e1adefe912f996e38359e7b0e71c5b2783728dce92f85a6791a17dd0d20e",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/rmcp-client/src/oauth/test_support.rs",
+      "target_sha256": "1a4dbf3497211326150bb4984dd77964ced0b173e910a735ce84c8790bf3704d",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "mcp",
+        "test_fixture"
+      ],
+      "current_sha256": "24a4f63cae73866ea52f7e23c13302e1bf021310f9332e74f89d92ca41a0a6f0",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/rmcp-client/src/oauth/tests/store_lock_tests.rs",
+      "target_sha256": "7a8783707ff8b80a289f017fe65d52f399f45fa82c105791897fd7a2b9315066",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "mcp",
+        "test_fixture"
+      ],
+      "current_sha256": "2c398d94fde5897c070b76865641642c3f016c29a1b01120798f72364d8abeef",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/rmcp-client/tests/streamable_http_oauth_startup.rs",
+      "target_sha256": "0b7c7bac88f1f4f9ab20efc3580f5a20e8f505c5e8b2323997fe24edcb3bdf11",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "mcp",
+        "test_fixture"
+      ],
+      "current_sha256": "973bc877b1d32d491ea1a53d614f3715c0185e954352f6c3e188f3f8a8986f7a",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/rmcp-client/tests/streamable_http_oauth_store_pinning.rs",
+      "target_sha256": "8d444861ba2da310d82c68fcb0cde0640fa160735eab04aaaf7f8d17457220ca",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "mcp",
+        "test_fixture"
+      ],
+      "current_sha256": "83701c5f8dd618f0836b9e898ee07b1b0b5f5544b56259b00981f9683336e516",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/rmcp-client/tests/streamable_http_test_support.rs",
+      "target_sha256": "c7cb6532d1fff792733dbce11f5aa1da09a5153f529adfacf32931d1c0953f1b",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo test -p codex-cli",
         "sync metadata validator"
       ],
       "whale_status": "modified"
@@ -3179,6 +4229,30 @@
       "upstream_status": "added",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home"
+      ],
+      "current_sha256": "a5dc13c41ac6c53ea35f9feb14dc70792eec8ec6b9e052ccb2642462d4d49c0a",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "target leaves the baseline path unchanged"
+      ],
+      "depends_on": [],
+      "disposition": "reapply-exact",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/test-binary-support/lib.rs",
+      "target_sha256": "4fb67850b78b8f84d7cec475b30a40f8120a2d180531814b174c47a37540c482",
+      "upstream_status": "unchanged",
+      "verification": [
+        "cargo test -p codex-cli",
+        "replayed blob SHA-256 matches current Whale blob",
         "sync metadata validator"
       ],
       "whale_status": "modified"
@@ -3567,6 +4641,56 @@
     },
     {
       "categories": [
+        "brand_home",
+        "test_fixture",
+        "tui_experience"
+      ],
+      "current_sha256": "8a88ef90f53d86aeea395c1cfb49d1ca7724eb93144a58533de74202041f4109",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/tui/tests/suite/focus_palette.rs",
+      "target_sha256": "d9c25a961687ca1186560010d05752e76fccdb803ecb4279d9477aee3937c16f",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "test_fixture",
+        "tui_experience"
+      ],
+      "current_sha256": "b1a347b6e5fa4de61fd49099ebb798923abe1237f4e0a7aebd042e855b40e5f3",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/tui/tests/suite/resize_reflow.rs",
+      "target_sha256": "13da1b217611d3e07a99a46a87ca10a80e0e1c34656ccf9bedc74affb5742685",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
         "brand_home"
       ],
       "current_sha256": "e119e29ae67ef579f3b1657905cf3c15bc5abf71bbbd1b6b0a58fd9407d3b738",
@@ -3591,17 +4715,17 @@
     }
   ],
   "summary": {
-    "path_count": 129,
+    "path_count": 174,
     "by_disposition": {
-      "adapt-semantically": 103,
+      "adapt-semantically": 146,
       "defer": 2,
-      "reapply-exact": 4,
+      "reapply-exact": 6,
       "regenerate": 20
     },
     "by_cutover_batch": {
-      "batch-1-brand-home": 10,
-      "batch-2-substrate": 15,
-      "batch-3-deepseek-wire": 19,
+      "batch-1-brand-home": 52,
+      "batch-2-substrate": 16,
+      "batch-3-deepseek-wire": 21,
       "batch-4-taskspace-multi-agent": 63,
       "batch-5-generated-release": 22
     }
