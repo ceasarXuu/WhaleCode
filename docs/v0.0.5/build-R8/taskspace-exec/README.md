@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 same-response pairing retired / PA-00～PA-06 verified / PA-07 partial / PA-08 verified offline
+- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 same-response pairing retired / PA-00～PA-06 verified / PA-07 partial / PA-08 partial
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Provider 待归属事实结算
 
@@ -47,8 +47,9 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   action 写入与出队使用同一 SQLite CAS 事务，队列非空不能绕过 Exec 直接结束。Runtime 不推断节点、不默认 Root，也不因
   Tool outcome 改变 Node state。PA-07
   `repeat=3` 中 Provider 归属和 pending 清空 3/3 通过，业务与 Map 闭合 2/3；第三轮暴露 Provider-first 初始化形状缺口，
-  当前不晋升缓存基线。PA-08 已把 work 存在性提升到完整响应 preflight：Provider facts 与 Exec client actions 任一非空即
-  合法，真正空 work 才拒绝；77 项 TaskSpace Exec 聚焦测试通过，真实复验尚未执行。
+  当前不晋升缓存基线。PA-08 已把 work 存在性提升到单个 assistant response preflight：Provider facts 与 Exec client
+  actions 任一非空即合法。真实复验中 Provider 与 Exec 没有同响应共现，前三次空初始化被正确拒绝，Agent 随后仍使用
+  `pwd` 占位并耗尽 12 请求；实现边界正确但产品收益未成立，需确认 response 与完整 Agent turn 的边界定义。
 
 - 最新 Codex 主线仍使用一个 `exec` 入口，将 Function、Freeform 和 Namespace Tool 从原 `ToolSpec` 派生为内部
   ToolDefinition，并把嵌套调用送回统一 Tool runtime。
@@ -212,7 +213,7 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 56. [`55-pending-provider-attribution-live-result.md`](55-pending-provider-attribution-live-result.md)：待归属队列三轮真实验收、
     归属 3/3、业务 2/3、成本缓存及 Provider-first 初始化决策缺口。
 57. [`56-response-level-work-validation-result.md`](56-response-level-work-validation-result.md)：Provider-first 缺口的回归定位、
-    完整响应 work 校验实现和离线证据。
+    响应级 work 校验、真实 12-request 失败路径与待确认的 Agent-turn 边界。
 
 ## 4. 推进规则
 

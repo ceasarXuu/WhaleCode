@@ -1,0 +1,38 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "approved_at": "2026-08-15T00:30:54+08:00",
+  "authorization_id": "CBA-20260815-R8-PA08-RESPONSE-WORK-123E3332CF1D43EC",
+  "approval_reference": "用户于 2026-08-15 在收到完整预算说明后明确回复‘批准预算’；本授权仅覆盖 deepseek-v4-flash、provider-web-search-probe × map-request × repeat=1，最多 12 个 Provider 请求、400,000 input 与 12,000 output 观测阈值、720 秒，零自动重试，任一业务、usage、预算或运行异常立即停止。",
+  "proposal_id": "CBP-123E3332CF1D43EC",
+  "proposal_sha256": "b00092a5e23b5414235bfa5a7c2d8ac4ed33ca41743bffa914dbd97405c5bdf4",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "provider-web-search-probe"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 1,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 1,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "验证 PA-08 整轮响应 work 判定：Provider-first 初始化无需无意义 client Tool 占位，同时观察当前 TaskSpace final-wire 的真实缓存行为；用户批准单样本单臂 repeat=1，零重试。"
+  },
+  "approved_maximums": {
+    "provider_requests": 12,
+    "input_tokens": 12000000,
+    "output_tokens": 4608000,
+    "elapsed_seconds": 840,
+    "estimated_cost": 2.97024,
+    "currency": "USD"
+  }
+}
