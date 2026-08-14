@@ -15,7 +15,7 @@ use crate::tools::registry::ToolKind;
 use crate::tools::router::ToolRouter;
 use futures::StreamExt;
 
-use super::PreparedProviderAction;
+use super::PreparedPendingAttribution;
 use super::TaskSpaceExecCatalog;
 use super::TaskSpaceExecEnvelopeError;
 use super::TaskSpaceExecPlanDecodeError;
@@ -27,8 +27,8 @@ use super::preflight::TaskSpaceExecPreflightError;
 use super::preflight_taskspace_exec;
 use super::prepare_client_calls;
 use super::result::ClientResult;
-use super::result::HostedResult;
 use super::result::MapReadResult;
+use super::result::ProviderAttributionResult;
 use super::result::TaskSpaceExecResult;
 
 pub(crate) struct TaskSpaceExecHandler {
@@ -84,6 +84,7 @@ impl ToolHandler for TaskSpaceExecHandler {
         let response = &claim.response;
         let (map_id, current_map) =
             read_current_map(invocation.session.as_ref(), &invocation.call_id).await?;
+        let pending_actions = claim.request.pending_provider_actions.clone();
         let request = TaskSpaceExecRequestContext::from_request_snapshot(
             claim.request.map_id,
             claim.request.revision,
@@ -105,15 +106,14 @@ impl ToolHandler for TaskSpaceExecHandler {
                     render_envelope_rejection(&error),
                 )
             })?;
-        let prepared =
-            preflight_taskspace_exec(&envelope, current_map.as_ref(), &claim.hosted_facts)
-                .map_err(|error| {
-                    taskspace_rejection(
-                        "preflight_rejected",
-                        Some(&invocation.call_id),
-                        render_preflight_rejection(&error),
-                    )
-                })?;
+        let prepared = preflight_taskspace_exec(&envelope, current_map.as_ref(), &pending_actions)
+            .map_err(|error| {
+                taskspace_rejection(
+                    "preflight_rejected",
+                    Some(&invocation.call_id),
+                    render_preflight_rejection(&error),
+                )
+            })?;
         tracing::info!(
             target: "codex_core::taskspace_exec",
             event_name = "taskspace.exec.preflight_accepted",
@@ -126,7 +126,7 @@ impl ToolHandler for TaskSpaceExecHandler {
             request_revision = ?envelope.request().request_revision(),
             capability_identity = self.catalog.capability_identity(),
             client_call_count = prepared.client_calls.len(),
-            provider_action_count = prepared.provider_actions.len(),
+            provider_action_count = prepared.pending_attributions.len(),
             read_count = prepared.read_maps.len(),
         );
         let native_calls =
@@ -142,7 +142,7 @@ impl ToolHandler for TaskSpaceExecHandler {
 
         let action_bindings = client_action_bindings(&prepared.client_calls)
             .into_iter()
-            .chain(provider_action_bindings(&prepared.provider_actions))
+            .chain(provider_action_bindings(&prepared.pending_attributions))
             .collect::<Vec<_>>();
         let candidate_map = attach_preflight_actions(prepared.candidate_map, &action_bindings)
             .map_err(|error| {
@@ -160,6 +160,11 @@ impl ToolHandler for TaskSpaceExecHandler {
             current_map.as_ref(),
             candidate_map.as_ref(),
             &invocation.call_id,
+            prepared
+                .pending_attributions
+                .iter()
+                .map(|attribution| attribution.action_id.clone())
+                .collect(),
         )
         .await?;
         tracing::info!(
@@ -175,10 +180,10 @@ impl ToolHandler for TaskSpaceExecHandler {
             capability_identity = self.catalog.capability_identity(),
             action_count = action_bindings.len(),
         );
-        for action in &prepared.provider_actions {
+        for action in &prepared.pending_attributions {
             tracing::info!(
                 target: "codex_core::taskspace_exec",
-                event_name = "taskspace.exec.hosted_action_attributed",
+                event_name = "taskspace.exec.provider_action_attributed",
                 provider_request_id = response.provider_request_id.as_deref().unwrap_or(""),
                 provider_logical_request_id = response.provider_logical_request_id.as_deref().unwrap_or(""),
                 provider_attempt_seq = ?response.provider_attempt_seq,
@@ -187,8 +192,7 @@ impl ToolHandler for TaskSpaceExecHandler {
                 map_id = %map_id,
                 map_revision = ?candidate_revision,
                 capability_identity = self.catalog.capability_identity(),
-                tool_index = action.tool_index,
-                action_id = %action.identity.transport_id(),
+                action_id = %action.action_id,
                 node_ids = ?action.node_ids,
                 tool = %action.tool,
                 outcome = outcome_name(action.outcome),
@@ -239,10 +243,10 @@ impl ToolHandler for TaskSpaceExecHandler {
             });
         }
         client_results.sort_by_key(|result| result.call_index);
-        let hosted_results = prepared
-            .provider_actions
+        let provider_attributions = prepared
+            .pending_attributions
             .into_iter()
-            .map(hosted_result)
+            .map(provider_attribution_result)
             .collect::<Vec<_>>();
         let reads = prepared
             .read_maps
@@ -252,18 +256,18 @@ impl ToolHandler for TaskSpaceExecHandler {
         let all_succeeded = client_results
             .iter()
             .all(|result| result.outcome == "succeeded" && result.settlement_error.is_none())
-            && hosted_results
+            && provider_attributions
                 .iter()
                 .all(|result| result.outcome == "succeeded");
         let client_result_count = client_results.len();
-        let hosted_result_count = hosted_results.len();
+        let provider_attribution_count = provider_attributions.len();
         let output = TaskSpaceExecResult::new(
             invocation.call_id.clone(),
             map_id.clone(),
             candidate_revision,
             reads,
             client_results,
-            hosted_results,
+            provider_attributions,
         );
         let text = serde_json::to_string(&output).map_err(|error| {
             FunctionCallError::Fatal(format!(
@@ -282,7 +286,7 @@ impl ToolHandler for TaskSpaceExecHandler {
             map_revision = ?candidate_revision,
             capability_identity = self.catalog.capability_identity(),
             client_result_count,
-            hosted_result_count,
+            provider_attribution_count,
             success = all_succeeded,
         );
         Ok(FunctionToolOutput::from_text(text, Some(all_succeeded)))
@@ -326,10 +330,10 @@ fn client_action_bindings(calls: &[super::PreparedClientCall]) -> Vec<ActionBind
 }
 
 fn provider_action_bindings(
-    actions: &[PreparedProviderAction],
+    actions: &[PreparedPendingAttribution],
 ) -> impl Iterator<Item = ActionBinding> + '_ {
     actions.iter().map(|action| ActionBinding {
-        action_id: action.identity.transport_id(),
+        action_id: action.action_id.clone(),
         tool_name: action.tool.clone(),
         outcome: action.outcome,
         node_ids: action.node_ids.clone(),
@@ -356,31 +360,35 @@ async fn persist_candidate(
     before: Option<&TaskSpaceMap>,
     candidate: Option<&TaskSpaceMap>,
     outer_call_id: &str,
+    consumed_pending_action_ids: Vec<String>,
 ) -> Result<(), FunctionCallError> {
-    if before == candidate {
+    if before == candidate && consumed_pending_action_ids.is_empty() {
         return Ok(());
     }
     let request = request.clone();
     let map_id = map_id.to_string();
     let candidate = candidate.cloned();
     let (result, _) = session
-        .mutate_canonical_action_map("taskspace_exec_prepare", move |runtime, owner| {
-            let current = runtime.canonical_map_for_store();
-            let result = request
-                .validate_current_map(current.as_ref())
-                .map_err(|error| format!("stale request context: {error:?}"))
-                .and_then(|()| runtime.restore_store_map(&map_id, owner, candidate.clone()));
-            (result, Vec::new())
-        })
+        .mutate_canonical_action_map_consuming_pending(
+            "taskspace_exec_prepare",
+            consumed_pending_action_ids,
+            move |runtime, owner| {
+                let current = runtime.canonical_map_for_store();
+                let result = request
+                    .validate_current_map(current.as_ref())
+                    .map_err(|error| format!("stale request context: {error:?}"))
+                    .and_then(|()| runtime.restore_store_map(&map_id, owner, candidate.clone()));
+                (result, Vec::new())
+            },
+        )
         .await
         .map_err(|error| taskspace_fatal("map_persist_failed", Some(outer_call_id), error))?;
     result.map_err(|error| taskspace_rejection("map_persist_rejected", Some(outer_call_id), error))
 }
 
-fn hosted_result(binding: PreparedProviderAction) -> HostedResult {
-    HostedResult {
-        tool_index: binding.tool_index,
-        action_id: binding.identity.transport_id(),
+fn provider_attribution_result(binding: PreparedPendingAttribution) -> ProviderAttributionResult {
+    ProviderAttributionResult {
+        action_id: binding.action_id,
         tool: binding.tool,
         outcome: outcome_name(binding.outcome),
         node_ids: binding.node_ids,
@@ -441,23 +449,11 @@ pub(super) fn render_preflight_rejection(error: &TaskSpaceExecPreflightError) ->
             "Tool action {index} targeted work node `{node_id}` in state `{}`; incomplete direct parent nodes: {incomplete_parent_ids:?}. Only the sequence's preceding Map operation can unlock work; Tool outcomes do not change node state. No Map or Tool actions were executed.",
             node_state_label(*state)
         ),
-        TaskSpaceExecPreflightError::HostedToolSetMismatch { actual, declared }
-            if !actual.is_empty() && declared.is_empty() =>
-        {
+        TaskSpaceExecPreflightError::PendingAttributionSetMismatch { pending, declared } => {
             format!(
-                "This assistant response invoked native provider-hosted Tool(s) {actual:?}, but its taskspace_exec call did not record their Work-node ownership. In one assistant response, emit each native Provider Tool item together with exactly one matching `tools` entry using `execution: \"already_executed\"` and `node_ids`. Do not defer the entry to a later response. No Map or client Tool actions were executed."
+                "Pending Provider Action attribution must cover the exact current set: pending={pending:?}, declared={declared:?}. Copy each action_id from TaskSpacePendingProviderActionsR8V1 into assign_pending_actions and select its Work-node owners. No Map or Tool actions were executed."
             )
         }
-        TaskSpaceExecPreflightError::HostedToolSetMismatch { actual, declared }
-            if actual.is_empty() && !declared.is_empty() =>
-        {
-            format!(
-                "This taskspace_exec recorded provider-hosted Tool(s) {declared:?}, but this assistant response did not invoke matching native Provider Tool items. `execution: \"already_executed\"` only records node ownership for a native Provider Tool item emitted in this same response; it does not invoke the Tool and cannot be sent early or later. No Map or client Tool actions were executed."
-            )
-        }
-        TaskSpaceExecPreflightError::HostedToolSetMismatch { actual, declared } => format!(
-            "Provider-hosted Tool pairing does not match within this assistant response: native Provider Tool item(s) {actual:?}; taskspace_exec attribution(s) {declared:?}. Emit both sides together in one response and record each native Provider ToolSpec exactly once with `execution: \"already_executed\"` and `node_ids`. No Map or client Tool actions were executed."
-        ),
         _ => format!("preflight: {error:?}. No Map or Tool actions were executed."),
     }
 }

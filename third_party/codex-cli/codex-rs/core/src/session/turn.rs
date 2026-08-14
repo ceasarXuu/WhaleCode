@@ -1953,8 +1953,16 @@ async fn try_run_sampling_request(
                 "TaskSpace provider request is missing its visible Map snapshot".to_string(),
             )
         })?;
+        let pending_provider_actions = sess
+            .load_pending_provider_actions(&snapshot.map_id)
+            .await
+            .map_err(CodexErr::Fatal)?;
         scope
-            .begin_request(snapshot.map_id.clone(), snapshot.revision)
+            .begin_request(
+                snapshot.map_id.clone(),
+                snapshot.revision,
+                pending_provider_actions,
+            )
             .map_err(CodexErr::Fatal)?;
         tracing::info!(
             target: "codex_core::taskspace_exec",

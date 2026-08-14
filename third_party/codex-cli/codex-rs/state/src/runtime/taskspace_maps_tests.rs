@@ -114,6 +114,7 @@ async fn create_load_bind_and_commit_taskspace_map() {
             operation: "initialize_and_execute".to_string(),
             actor_thread_id: fork,
             binding: None,
+            consumed_pending_action_ids: Vec::new(),
         })
         .await
         .expect("commit map");
@@ -157,6 +158,7 @@ async fn taskspace_map_commit_is_idempotent_and_rejects_key_reuse() {
         operation: "initialize_and_execute".to_string(),
         actor_thread_id: owner,
         binding: None,
+        consumed_pending_action_ids: Vec::new(),
     };
     runtime
         .compare_and_swap_taskspace_map(commit.clone())
@@ -178,6 +180,7 @@ async fn taskspace_map_commit_is_idempotent_and_rejects_key_reuse() {
             operation: "advance_map".to_string(),
             actor_thread_id: owner,
             binding: None,
+            consumed_pending_action_ids: Vec::new(),
         })
         .await
         .expect("advance after original commit");
@@ -234,6 +237,7 @@ async fn concurrent_taskspace_map_writers_have_one_winner() {
         operation: "concurrent_test".to_string(),
         actor_thread_id: owner,
         binding: None,
+        consumed_pending_action_ids: Vec::new(),
     };
     let (left, right) = tokio::join!(
         runtime.compare_and_swap_taskspace_map(request("left", 1)),
@@ -294,6 +298,7 @@ async fn unchanged_canonical_commit_still_applies_atomic_child_binding() {
                 relation: TaskSpaceMapRelation::Child,
                 parent_thread_id: Some(owner),
             }),
+            consumed_pending_action_ids: Vec::new(),
         })
         .await
         .expect("commit child binding");
@@ -341,6 +346,7 @@ async fn failed_child_binding_rolls_back_map_and_binding_together() {
                 relation: TaskSpaceMapRelation::Child,
                 parent_thread_id: Some(owner),
             }),
+            consumed_pending_action_ids: Vec::new(),
         })
         .await
         .expect_err("cross-map binding must abort the transaction");

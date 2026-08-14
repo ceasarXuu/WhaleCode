@@ -50,7 +50,7 @@ async fn recovery_follows_large_feedback_output_reference() {
             "tool": "inspect",
             "outcome": "succeeded"
         }],
-        "hosted_results": [],
+        "provider_attributions": [],
         "large_native_tool_output": "x".repeat(64 * 1024)
     })
     .to_string();

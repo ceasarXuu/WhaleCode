@@ -1,9 +1,9 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 same-response pairing retired / PA pending-attribution implementation active
+- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 same-response pairing retired / PA-00～PA-06 verified offline / PA-07 validation active
 - Priority: Foundation / blocks the existing R8 issue queue
-- Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Hosted 结果核对
+- Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Provider 待归属事实结算
 
 > [`00-product-contract.md`](00-product-contract.md) 是唯一产品决策基线，
 > [`12-phase-b-zero-base-plan.md`](12-phase-b-zero-base-plan.md) 是唯一活动工程计划。
@@ -38,6 +38,12 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 `taskspace_control` schema/parser/handler 派生新合同。
 
 ## 2. 当前事实
+
+- PA-00～PA-06 已把 Provider 归属从同响应双写切换为持久化待归属队列：Provider 原生响应完成后立即按逻辑 Tool
+  入队，下一请求只暴露 `action_id/tool/outcome`；Agent 通过 `assign_pending_actions[{action_id,node_ids}]` 选择归属。
+  `tools[]` 现只承载待执行 client Tool。除 `read_map` 外，所有序列必须完整消费请求开始时可见的 pending 集合；Node
+  action 写入与出队使用同一 SQLite CAS 事务，队列非空不能绕过 Exec 直接结束。Runtime 不推断节点、不默认 Root，也不因
+  Tool outcome 改变 Node state。74 项 TaskSpace Exec、19 项 State TaskSpace 和 final-wire 快照已离线通过；PA-07 真实验收待执行。
 
 - 最新 Codex 主线仍使用一个 `exec` 入口，将 Function、Freeform 和 Namespace Tool 从原 `ToolSpec` 派生为内部
   ToolDefinition，并把嵌套调用送回统一 Tool runtime。
@@ -196,6 +202,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     单变量真实失败、成本和顶层 client Function Call 误读证据。
 54. [`53-hosted-native-contract-fix-result.md`](53-hosted-native-contract-fix-result.md)：删除原生 Provider Tool 的错误 Function
     Call 指令和首轮预填登记后的真实结果、成本、首次漏登与第二响应成功归属证据。
+55. [`54-pending-provider-attribution-result.md`](54-pending-provider-attribution-result.md)：Provider 待归属队列、下一请求归属、
+    原子 Map 结算和离线生产链验收结果。
 
 ## 4. 推进规则
 

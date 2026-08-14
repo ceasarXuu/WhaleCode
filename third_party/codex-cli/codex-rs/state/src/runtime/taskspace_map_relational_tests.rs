@@ -187,6 +187,7 @@ async fn action_outcome_commit_updates_only_the_matching_action_row() {
             operation: "settle_action".to_string(),
             actor_thread_id: owner,
             binding: None,
+            consumed_pending_action_ids: Vec::new(),
         })
         .await
         .expect("settle action");
@@ -296,6 +297,7 @@ async fn action_row_diff_handles_add_delete_and_reorder_without_reinserting_surv
             operation: "update_actions".to_string(),
             actor_thread_id: owner,
             binding: None,
+            consumed_pending_action_ids: Vec::new(),
         })
         .await
         .expect("update actions");
@@ -390,6 +392,7 @@ async fn node_row_diff_handles_reorder_without_unique_conflict_or_reinserting_su
             operation: "update_nodes".to_string(),
             actor_thread_id: owner,
             binding: None,
+            consumed_pending_action_ids: Vec::new(),
         })
         .await
         .expect("reorder nodes");

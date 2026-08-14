@@ -6,7 +6,6 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use codex_protocol::models::ResponseItem;
-use codex_protocol::models::WebSearchAction;
 use codex_protocol::protocol::MapRuntimeMode;
 use codex_tools::AdditionalProperties;
 use codex_tools::JsonSchema;
@@ -48,29 +47,17 @@ fn waiting_preflight_feedback_names_parents_and_mechanical_batch_boundary() {
 }
 
 #[test]
-fn hosted_mismatch_feedback_states_response_facts_and_execution_direction() {
-    let missing_attribution = super::handler::render_preflight_rejection(
-        &TaskSpaceExecPreflightError::HostedToolSetMismatch {
-            actual: vec!["web_search".into()],
+fn pending_attribution_mismatch_feedback_names_the_exact_recovery_contract() {
+    let feedback = super::handler::render_preflight_rejection(
+        &TaskSpaceExecPreflightError::PendingAttributionSetMismatch {
+            pending: vec!["provider-action-1".into()],
             declared: Vec::new(),
         },
     );
-    assert!(missing_attribution.contains("assistant response invoked"));
-    assert!(missing_attribution.contains("did not record their Work-node ownership"));
-    assert!(missing_attribution.contains("emit each native Provider Tool item together"));
-    assert!(missing_attribution.contains("`execution: \"already_executed\"`"));
-
-    let unsupported_attribution = super::handler::render_preflight_rejection(
-        &TaskSpaceExecPreflightError::HostedToolSetMismatch {
-            actual: Vec::new(),
-            declared: vec!["web_search".into()],
-        },
-    );
-    assert!(unsupported_attribution.contains("did not invoke matching native Provider Tool items"));
-    assert!(unsupported_attribution.contains("does not invoke the Tool"));
-    assert!(unsupported_attribution.contains("cannot be sent early or later"));
-    assert!(!unsupported_attribution.contains("actual:"));
-    assert!(!unsupported_attribution.contains("declared:"));
+    assert!(feedback.contains("exact current set"));
+    assert!(feedback.contains("TaskSpacePendingProviderActionsR8V1"));
+    assert!(feedback.contains("assign_pending_actions"));
+    assert!(feedback.contains("No Map or Tool actions were executed"));
 }
 use crate::tools::registry::ToolHandler;
 use crate::tools::registry::ToolKind;
@@ -291,7 +278,7 @@ async fn begin_scope(harness: &Harness) {
         .unwrap();
     harness
         .response_scope
-        .begin_request(map_id, map.as_ref().map(|map| map.revision))
+        .begin_request(map_id, map.as_ref().map(|map| map.revision), Vec::new())
         .unwrap();
 }
 
@@ -710,108 +697,6 @@ async fn response_uses_request_time_revision_and_rejects_a_stale_plan() {
         .await
         .unwrap();
     assert_eq!(current.unwrap().revision, 1);
-}
-
-#[tokio::test]
-async fn hosted_internal_steps_are_one_native_tool_action_without_changing_node_state() {
-    let harness = harness(true).await;
-    begin_scope(&harness).await;
-    harness
-        .response_scope
-        .record_completed_item(&ResponseItem::WebSearchCall {
-            id: Some("provider-search-1".into()),
-            status: Some("completed".into()),
-            action: Some(WebSearchAction::Search {
-                query: Some("evidence".into()),
-                queries: None,
-            }),
-        });
-    harness
-        .response_scope
-        .record_completed_item(&ResponseItem::WebSearchCall {
-            id: Some("provider-open-page-1".into()),
-            status: Some("failed".into()),
-            action: Some(WebSearchAction::OpenPage {
-                url: Some("https://example.com".into()),
-            }),
-        });
-    finalize_scope(&harness);
-    let output = harness
-        .handler
-        .handle(invocation(
-            &harness,
-            initialize_work(vec![
-                json!({"tool": "web_search", "execution": "already_executed", "node_ids": ["work"]}),
-                inspect_action(json!({})),
-            ]),
-        ))
-        .await
-        .unwrap();
-
-    assert_eq!(output.success, Some(true));
-    let feedback: Value = serde_json::from_str(&output.into_text()).unwrap();
-    assert_feedback_matches_declared_result(&harness, &feedback);
-    assert_eq!(feedback["hosted_results"].as_array().unwrap().len(), 1);
-    assert_eq!(
-        feedback["hosted_results"][0]["action_id"],
-        "outer/taskspace/call/0"
-    );
-    assert_eq!(feedback["hosted_results"][0]["tool_index"], 0);
-    assert!(feedback["hosted_results"][0].get("provider_id").is_none());
-    assert!(feedback["hosted_results"][0].get("output_index").is_none());
-    let map = harness
-        .session
-        .canonical_action_map_snapshot()
-        .await
-        .unwrap()
-        .map
-        .unwrap();
-    let work = map.nodes.iter().find(|node| node.id == "work").unwrap();
-    assert_eq!(work.state, "in_flight");
-    assert!(work.actions.iter().any(|action| {
-        action.action_id == "outer/taskspace/call/0" && action.outcome == "succeeded"
-    }));
-    assert!(
-        work.actions
-            .iter()
-            .any(|action| action.action_id == "outer/taskspace/call/1")
-    );
-}
-
-#[tokio::test]
-async fn failed_hosted_result_preserves_failure_without_changing_node_state() {
-    let harness = harness(true).await;
-    begin_scope(&harness).await;
-    harness
-        .response_scope
-        .record_completed_item(&ResponseItem::WebSearchCall {
-            id: Some("provider-search-failed".into()),
-            status: Some("failed".into()),
-            action: None,
-        });
-    finalize_scope(&harness);
-    let output = harness
-        .handler
-        .handle(invocation(
-            &harness,
-            initialize_work(vec![json!({"tool": "web_search", "execution": "already_executed", "node_ids": ["work"]})]),
-        ))
-        .await
-        .unwrap();
-
-    let feedback: Value = serde_json::from_str(&output.into_text()).unwrap();
-    assert_eq!(feedback["hosted_results"][0]["outcome"], "failed");
-    let map = harness
-        .session
-        .canonical_action_map_snapshot()
-        .await
-        .unwrap()
-        .map
-        .unwrap();
-    let work = map.nodes.iter().find(|node| node.id == "work").unwrap();
-    assert_eq!(work.state, "in_flight");
-    assert_eq!(work.actions[0].action_id, "outer/taskspace/call/0");
-    assert_eq!(work.actions[0].outcome, "failed");
 }
 
 #[tokio::test]

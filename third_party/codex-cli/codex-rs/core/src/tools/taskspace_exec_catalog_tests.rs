@@ -108,7 +108,7 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
 
     let declaration = serde_json::to_value(first.declaration()).unwrap();
     let parameters = &declaration["parameters"];
-    assert_eq!(parameters["anyOf"].as_array().unwrap().len(), 8);
+    assert_eq!(parameters["anyOf"].as_array().unwrap().len(), 10);
     let sequence_descriptions = parameters["anyOf"]
         .as_array()
         .unwrap()
@@ -120,7 +120,7 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
             )
         })
         .collect::<BTreeMap<_, _>>();
-    assert_eq!(sequence_descriptions.len(), 8);
+    assert_eq!(sequence_descriptions.len(), 10);
     assert!(sequence_descriptions["initialize_and_work"].contains("Map is blank"));
     assert!(sequence_descriptions["work"].contains("already Ready or InFlight"));
     assert!(sequence_descriptions["work"].contains("does not complete its owner"));
@@ -133,44 +133,24 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
     assert!(sequence_descriptions["read_map"].contains("without changing it"));
     assert!(sequence_descriptions["reopen_update_and_work"].contains("user feedback"));
     assert!(sequence_descriptions["finish_map"].contains("already Ready"));
+    assert!(sequence_descriptions["attribute_actions"].contains("currently pending"));
+    assert!(sequence_descriptions["initialize_and_attribute"].contains("blank Map"));
     assert!(parameters["$defs"]["tool_action"].is_object());
     assert_eq!(
         parameters["$defs"]["tool_action"]["anyOf"]
             .as_array()
             .unwrap()
             .len(),
-        7
-    );
-    let web_search = parameters["$defs"]["tool_action"]["anyOf"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|variant| variant["properties"]["tool"]["enum"][0].as_str() == Some("web_search"))
-        .unwrap();
-    let hosted_contract = web_search["description"].as_str().unwrap();
-    for required in [
-        "native `web_search` Provider result already present",
-        "does not call, request, or trigger the Tool",
-        "not a Function Tool",
-        "never construct or imitate a Function Call",
-        "Include exactly one matching entry",
-        "current response contains the matching native result",
-        "Otherwise include no entry",
-        "record ownership early",
-        "defer it to a later response",
-        "include native Tool input",
-    ] {
-        assert!(hosted_contract.contains(required), "missing {required}");
-    }
-    assert_eq!(
-        web_search["required"],
-        json!(["tool", "execution", "node_ids"])
+        5
     );
     assert_eq!(
-        web_search["properties"]["execution"]["enum"],
-        json!(["already_executed"])
+        parameters["$defs"]["pending_action_attribution"]["required"],
+        json!(["action_id", "node_ids"])
     );
-    assert_eq!(web_search["additionalProperties"], false);
+    assert_eq!(
+        parameters["$defs"]["pending_action_attribution"]["additionalProperties"],
+        false
+    );
     let rendered = declaration.to_string();
     for name in [
         "initialize_and_work",
@@ -194,7 +174,7 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
         declaration["description"]
             .as_str()
             .unwrap()
-            .contains("single `tools` array")
+            .contains("only client Tool actions")
     );
     assert!(
         declaration["description"]
@@ -204,9 +184,9 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
     );
     let description = declaration["description"].as_str().unwrap();
     assert!(description.contains("Provider-hosted ToolSpec names, exposed unchanged"));
-    assert!(description.contains("native Provider ToolSpecs; they are not Function Tools"));
-    assert!(description.contains("Never construct a Function Call with one of these names"));
-    assert!(description.contains("does not invoke the Tool"));
+    assert!(description.contains("TaskSpacePendingProviderActionsR8V1"));
+    assert!(description.contains("assign_pending_actions"));
+    assert!(description.contains("never appear in `tools`"));
     let first_turn = description
         .split_once("First-turn initialization and work example:")
         .unwrap()
@@ -234,7 +214,7 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
 }
 
 #[test]
-fn all_eight_legal_sequences_decode_and_old_wire_is_rejected() {
+fn all_ten_legal_sequences_decode_and_old_wire_is_rejected() {
     let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
     let legal = [
         canonical_first_turn_example(),
@@ -250,6 +230,15 @@ fn all_eight_legal_sequences_decode_and_old_wire_is_rejected() {
             "tools": [client_tool()]
         }),
         json!({"type": "finish_map", "finish_map": {"content": "done"}}),
+        json!({
+            "type": "attribute_actions",
+            "assign_pending_actions": [{"action_id": "provider-1", "node_ids": ["work"]}]
+        }),
+        json!({
+            "type": "initialize_and_attribute",
+            "initialize_map": canonical_first_turn_example()["initialize_map"].clone(),
+            "assign_pending_actions": [{"action_id": "provider-1", "node_ids": ["work"]}]
+        }),
     ];
     for value in legal {
         catalog
@@ -270,36 +259,34 @@ fn all_eight_legal_sequences_decode_and_old_wire_is_rejected() {
 }
 
 #[test]
-fn unified_tools_preserve_client_freeform_namespace_and_hosted_actions() {
+fn client_tools_and_pending_attribution_decode_without_wire_overlap() {
     let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
     let plan = catalog
         .decode_plan(
             &json!({
                 "type": "work",
+                "assign_pending_actions": [
+                    {"action_id": "provider-1", "node_ids": ["work", "fix"]}
+                ],
                 "tools": [
                     client_tool(),
                     {"tool": "apply_patch", "node_id": "fix", "input": "*** Begin Patch"},
-                    {"tool": "lookup", "namespace": "mcp__sample__", "node_id": "work", "input": {"value": "b"}},
-                    {"tool": "web_search", "execution": "already_executed", "node_ids": ["work", "fix"]},
-                    {"tool": "image_generation", "execution": "already_executed", "node_ids": ["work"]}
+                    {"tool": "lookup", "namespace": "mcp__sample__", "node_id": "work", "input": {"value": "b"}}
                 ]
             })
             .to_string(),
         )
         .unwrap();
     assert_eq!(plan.sequence_type, "work");
-    assert_eq!(plan.tools.len(), 5);
-    let ToolAction::Client(namespace) = &plan.tools[2] else {
-        panic!("expected namespaced client Tool")
-    };
+    assert_eq!(plan.tools.len(), 3);
+    let namespace = &plan.tools[2];
     assert_eq!(
         namespace.tool_name,
         ToolName::namespaced("mcp__sample__", "lookup")
     );
-    let ToolAction::Hosted(hosted) = &plan.tools[3] else {
-        panic!("expected hosted Tool")
-    };
-    assert_eq!(hosted.node_ids, vec!["work", "fix"]);
+    assert_eq!(plan.pending_attributions.len(), 1);
+    assert_eq!(plan.pending_attributions[0].action_id, "provider-1");
+    assert_eq!(plan.pending_attributions[0].node_ids, vec!["work", "fix"]);
 }
 
 #[test]

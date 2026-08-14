@@ -1,8 +1,15 @@
 use super::StateRuntime;
+use crate::CommitTaskSpaceMapRequest;
+use crate::CreateTaskSpaceMapRequest;
 use crate::EnqueueTaskSpacePendingProviderActionRequest;
 use crate::TaskSpacePendingActionWriteOutcome;
 use codex_protocol::ThreadId;
+use codex_protocol::taskspace::TASKSPACE_CANONICAL_SCHEMA_VERSION;
 use codex_protocol::taskspace::TaskSpaceActionOutcome;
+use codex_protocol::taskspace::TaskSpaceCanonicalMap;
+use codex_protocol::taskspace::TaskSpaceMapNode;
+use codex_protocol::taskspace::TaskSpaceNodeAction;
+use codex_protocol::taskspace::TaskSpaceNodeState;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -76,4 +83,129 @@ async fn pending_provider_action_rejects_identity_reuse_with_different_facts() {
         .expect_err("identity reuse must fail");
     assert!(error.to_string().contains("reused with different facts"));
     let _ = tokio::fs::remove_dir_all(home).await;
+}
+
+#[tokio::test]
+async fn map_commit_and_pending_attribution_are_one_transaction() {
+    let (home, runtime) = runtime().await;
+    let owner = ThreadId::new();
+    let map_id = format!("map-{owner}");
+    runtime
+        .create_taskspace_map(CreateTaskSpaceMapRequest {
+            map_id: map_id.clone(),
+            owner_thread_id: owner,
+            canonical_map: None,
+            commit_id: "create-map".into(),
+            operation: "activate_taskspace".into(),
+        })
+        .await
+        .expect("create Map");
+    let mut pending = request(owner);
+    pending.map_id = Some(map_id.clone());
+    runtime
+        .enqueue_taskspace_pending_provider_action(pending)
+        .await
+        .expect("enqueue pending action");
+
+    let map = map_with_provider_action(&map_id);
+    let rejected = runtime
+        .compare_and_swap_taskspace_map(CommitTaskSpaceMapRequest {
+            map_id: map_id.clone(),
+            expected_store_revision: 1,
+            canonical_map: Some(map.clone()),
+            commit_id: "wrong-attribution".into(),
+            operation: "taskspace_exec_prepare".into(),
+            actor_thread_id: owner,
+            binding: None,
+            consumed_pending_action_ids: vec!["unknown-action".into()],
+        })
+        .await
+        .expect_err("mismatched pending set must reject");
+    assert!(
+        rejected
+            .to_string()
+            .contains("changed before attribution commit")
+    );
+    assert!(
+        runtime
+            .load_taskspace_map(&map_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .canonical_map
+            .is_none()
+    );
+    assert_eq!(
+        runtime
+            .load_taskspace_pending_provider_actions(owner, Some(&map_id))
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+
+    runtime
+        .compare_and_swap_taskspace_map(CommitTaskSpaceMapRequest {
+            map_id: map_id.clone(),
+            expected_store_revision: 1,
+            canonical_map: Some(map.clone()),
+            commit_id: "attribute-provider-action".into(),
+            operation: "taskspace_exec_prepare".into(),
+            actor_thread_id: owner,
+            binding: None,
+            consumed_pending_action_ids: vec!["provider-action-1".into()],
+        })
+        .await
+        .expect("commit attribution");
+    assert!(
+        runtime
+            .load_taskspace_pending_provider_actions(owner, Some(&map_id))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        runtime
+            .load_taskspace_map(&map_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .canonical_map,
+        Some(map)
+    );
+
+    let _ = tokio::fs::remove_dir_all(home).await;
+}
+
+fn map_with_provider_action(map_id: &str) -> TaskSpaceCanonicalMap {
+    let node = |node_id: &str, state, parents: Vec<String>, actions| TaskSpaceMapNode {
+        node_id: node_id.into(),
+        goal: node_id.into(),
+        state,
+        content: String::new(),
+        parents,
+        actions,
+    };
+    TaskSpaceCanonicalMap {
+        schema_version: TASKSPACE_CANONICAL_SCHEMA_VERSION.into(),
+        map_id: map_id.into(),
+        root: node("root", TaskSpaceNodeState::InFlight, Vec::new(), Vec::new()),
+        work_nodes: vec![node(
+            "work",
+            TaskSpaceNodeState::Ready,
+            vec!["root".into()],
+            vec![TaskSpaceNodeAction {
+                action_id: "provider-action-1".into(),
+                tool_name: "web_search".into(),
+                outcome: TaskSpaceActionOutcome::Succeeded,
+            }],
+        )],
+        finish: node(
+            "finish",
+            TaskSpaceNodeState::Waiting,
+            vec!["work".into()],
+            Vec::new(),
+        ),
+        revision: 1,
+    }
 }

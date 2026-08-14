@@ -17,10 +17,10 @@ use super::map_operations::WorkNodeArgs;
 const PROTOCOL: &str = r#"Use `taskspace_exec` as the sole top-level Function Tool for TaskSpace Map operations and client Tool actions. Provider-hosted Tools remain native Provider ToolSpecs; they are not Function Tools. Choose exactly one sequence `type` allowed by the schema.
 
 Tool contract:
-- Put client Tool actions and provider-hosted ownership records in the sequence's single `tools` array.
+- Put only client Tool actions in the sequence's `tools` array.
 - Each client action keeps its native Tool input in `input` and declares one owner `node_id`; namespaced Tools also declare `namespace`.
-- A provider-hosted entry never calls, requests, or triggers a Tool. It only records Agent-declared Work-node ownership for a matching native Provider result already present in this response. Never construct or imitate a Function Call using a Provider ToolSpec name.
-- Pairing is an if-and-only-if ownership contract. For each native provider-hosted result in this response, the one `taskspace_exec` call must contain exactly one matching entry with `execution: "already_executed"` and all owner `node_ids`. If this response contains no matching native result, include no such entry. Do not record ownership before the native result exists or defer it to another response.
+- Native Provider Tools execute outside `taskspace_exec`. After a Provider response, the Runtime exposes their stable facts in `TaskSpacePendingProviderActionsR8V1` on the next request.
+- When pending facts are present, copy every exact `action_id` into `assign_pending_actions` and select one or more owner Work-node `node_ids`. Do not repeat Provider Tool input or result. Except for `read_map`, a sequence must assign the complete pending set; unknown, duplicate, or partial assignment is rejected before side effects.
 - Tool array order supplies stable action identity. It does not create Tool dependencies; result-dependent work belongs in a later request.
 
 Map contract:
@@ -30,7 +30,7 @@ Map contract:
 - The complete sequence is preflighted before unexecuted side effects. The Runtime does not add, infer, reorder, or repair Agent actions.
 
 Feedback contract:
-- The outer result reports every client and hosted action, preserves native client results and errors without summarization, and returns the complete Map for `read_map`."#;
+- The outer result reports every client action and accepted pending attribution, preserves native client results and errors without summarization, and returns the complete Map for `read_map`."#;
 
 pub(super) fn build_description<'a>(
     client_tool_names: impl Iterator<Item = &'a str>,
@@ -60,7 +60,7 @@ pub(super) fn build_description<'a>(
     ));
     if !hosted_tools.is_empty() {
         sections.push(format!(
-            "Provider-hosted ToolSpec names, exposed unchanged: {}. These are native Provider Tools, not Function Tools. Never construct a Function Call with one of these names. A matching `taskspace_exec` entry only records node ownership for a native result already present in the current response; it does not invoke the Tool and must not be added before that result exists.",
+            "Provider-hosted ToolSpec names, exposed unchanged: {}. They remain native Provider Tools and never appear in `tools`. Attribute only action IDs later exposed by `TaskSpacePendingProviderActionsR8V1`.",
             hosted_tools.iter().cloned().collect::<Vec<_>>().join(", "),
         ));
     }

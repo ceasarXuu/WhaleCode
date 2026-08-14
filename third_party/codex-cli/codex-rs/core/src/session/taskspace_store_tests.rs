@@ -145,6 +145,7 @@ async fn factual_action_settlement_commits_once_on_latest_head_without_losing_ot
             operation: "test_concurrent_update".into(),
             actor_thread_id: session.conversation_id,
             binding: None,
+            consumed_pending_action_ids: Vec::new(),
         })
         .await
         .expect("commit concurrent Map change");

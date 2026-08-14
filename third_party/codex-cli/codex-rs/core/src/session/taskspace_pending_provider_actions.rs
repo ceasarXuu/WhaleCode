@@ -9,6 +9,16 @@ pub(crate) const TASKSPACE_PENDING_PROVIDER_ACTIONS_MARKER: &str =
     "TaskSpacePendingProviderActionsR8V1:";
 
 impl Session {
+    pub(crate) async fn load_pending_provider_actions(
+        &self,
+        map_id: &str,
+    ) -> Result<Vec<codex_state::TaskSpacePendingProviderAction>, String> {
+        self.require_taskspace_state_db()?
+            .load_taskspace_pending_provider_actions(self.conversation_id, Some(map_id))
+            .await
+            .map_err(|error| format!("TaskSpace pending Provider Action read failed: {error}"))
+    }
+
     pub(crate) async fn persist_pending_provider_actions(
         &self,
         facts: Vec<TaskSpacePendingProviderActionFact>,
@@ -52,11 +62,7 @@ impl Session {
         &self,
         map_id: &str,
     ) -> Result<Option<String>, String> {
-        let pending = self
-            .require_taskspace_state_db()?
-            .load_taskspace_pending_provider_actions(self.conversation_id, Some(map_id))
-            .await
-            .map_err(|error| format!("TaskSpace pending Provider Action read failed: {error}"))?;
+        let pending = self.load_pending_provider_actions(map_id).await?;
         if pending.is_empty() {
             return Ok(None);
         }

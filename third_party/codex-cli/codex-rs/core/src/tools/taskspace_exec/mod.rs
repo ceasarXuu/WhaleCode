@@ -26,7 +26,6 @@ pub(crate) use envelope::TaskSpaceExecEnvelopeError;
 pub(crate) use envelope::TaskSpaceExecInternalCallId;
 pub(crate) use envelope::TaskSpaceExecRequestContext;
 pub(crate) use handler::TaskSpaceExecHandler;
-pub(crate) use hosted::HostedToolFact;
 pub(crate) use map_operations::MapOperation;
 pub(crate) use map_operations::MapOperationApplyError;
 pub(crate) use map_operations::MapOperationEffect;
@@ -36,9 +35,8 @@ pub(crate) use plan::ClientCall;
 pub(crate) use plan::ClientCallInput;
 pub(crate) use plan::TaskSpaceExecPlan;
 pub(crate) use plan::TaskSpaceExecPlanDecodeError;
-pub(crate) use plan::ToolAction;
 pub(crate) use preflight::PreparedClientCall;
-pub(crate) use preflight::PreparedProviderAction;
+pub(crate) use preflight::PreparedPendingAttribution;
 #[cfg(test)]
 pub(crate) use preflight::TaskSpaceExecPreflightError;
 pub(crate) use preflight::preflight_taskspace_exec;
@@ -73,8 +71,8 @@ mod envelope_tests;
 mod preflight_tests;
 
 #[cfg(test)]
-#[path = "../taskspace_exec_hosted_preflight_tests.rs"]
-mod hosted_preflight_tests;
+#[path = "../taskspace_exec_pending_attribution_tests.rs"]
+mod pending_attribution_tests;
 
 #[cfg(test)]
 #[path = "../taskspace_exec_dispatch_tests.rs"]

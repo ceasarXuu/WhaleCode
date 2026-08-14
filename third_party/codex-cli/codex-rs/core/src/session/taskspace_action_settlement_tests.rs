@@ -123,7 +123,7 @@ fn persisted_feedback_with_identity(
                     "tool": "inspect",
                     "outcome": outcome
                 }],
-                "hosted_results": []
+                "provider_attributions": []
             })
             .to_string(),
         ),

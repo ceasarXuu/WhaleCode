@@ -275,7 +275,7 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 旧 carrier 与专属 Event Store 已由 zero-base 删除；Exec 源码不存在额外 developer 注入。静态关闭候选，待 final-wire trace 复核 | verifying | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 快照机械生成 Runtime-only SHA-256，并由 dispatch、request scope、Provider/Exec trace 和性能报告共用；缺失或冲突时报告不可比较。离线实现已验证，待当前生产 trace 验收 | [verifying](I10/00-i10-capability-identity-repair-plan.md) | GI-010 |
 | 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | 最新三轮 request/usage/cache/Exec/client/Patch/Map 均可复算；第三轮正确计为 2 次 patch 声明、1 次 preflight reject、1 次执行结果。完整跨模式验收仍未执行 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map、client 与 Hosted 动作的同轮提交 | 稳定生成初始化并执行、完成并继续、完成并结束，以及同响应 Hosted 执行与归属 | 同响应合同仍未稳定；复合门禁成立，但首轮合并示例诱发顶层 `web_search` Function Call，候选未通过 | [verifying](taskspace-exec/52-hosted-first-turn-example-stage2-result.md) | GI-003 |
+| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map、client 与 Provider 动作归属 | 稳定生成初始化并执行、完成并继续、完成并结束；Provider 原生 Action 在下一请求被准确归属且不可绕过 | 同响应双写已废弃；PA-00～PA-06 已离线建立持久化 pending、下一请求归属和原子结算，等待 PA-07 repeat=3 真实验收 | [verifying](taskspace-exec/54-pending-provider-attribution-result.md) | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | Run C 未复现 Waiting 误选，支持分支适用合同已生效；单次未闭环样本不足以关闭问题 | verifying | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 最新三次 TaskSpace-only 有效运行共 21 requests、344,635 input、93.78% 全量 cache、62.093s Agent wall；没有 Standard 臂，不形成相对成本结论 | queued | GI-008 |
 

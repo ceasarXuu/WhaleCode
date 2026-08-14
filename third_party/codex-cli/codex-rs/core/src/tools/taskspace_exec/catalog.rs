@@ -223,13 +223,6 @@ impl TaskSpaceExecCatalog {
         }
     }
 
-    pub(super) fn tool_capability(
-        &self,
-        tool_name: &codex_tools::ToolName,
-    ) -> Option<&TaskSpaceToolCapability> {
-        self.tool_capabilities.get(tool_name)
-    }
-
     pub(super) fn input_schema(&self) -> &JsonSchema {
         &self.declaration.parameters
     }

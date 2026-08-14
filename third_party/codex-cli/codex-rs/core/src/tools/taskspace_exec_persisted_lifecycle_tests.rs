@@ -101,7 +101,9 @@ async fn persisted_exec_reaches_map_rollout_and_provider_preparation() {
             .expect("build production TaskSpace router"),
     );
     let response_scope = router.taskspace_response_scope().expect("response scope");
-    response_scope.begin_request(map_id.clone(), None).unwrap();
+    response_scope
+        .begin_request(map_id.clone(), None, Vec::new())
+        .unwrap();
     response_scope.record_completed_item(&ResponseItem::FunctionCall {
         id: None,
         name: TASKSPACE_EXEC_TOOL_NAME.into(),
@@ -235,7 +237,9 @@ async fn provider_action_is_persisted_without_an_outer_exec_call() {
         .into_taskspace(&[])
         .expect("build TaskSpace router");
     let response_scope = router.taskspace_response_scope().expect("response scope");
-    response_scope.begin_request(map_id.clone(), None).unwrap();
+    response_scope
+        .begin_request(map_id.clone(), None, Vec::new())
+        .unwrap();
     response_scope.record_completed_item(&ResponseItem::WebSearchCall {
         id: Some("search-step".into()),
         status: Some("completed".into()),
@@ -305,5 +309,138 @@ async fn provider_action_is_persisted_without_an_outer_exec_call() {
     assert!(rendered.contains("taskspace/provider/response-hosted/web_search"));
     assert!(rendered.contains("\"tool\":\"web_search\""));
     assert!(!rendered.contains("https://example.com"));
+    let _ = tokio::fs::remove_dir_all(home).await;
+}
+
+#[tokio::test]
+async fn next_exec_atomically_assigns_and_removes_pending_provider_action() {
+    let home = std::env::temp_dir().join(format!("taskspace-provider-assign-{}", Uuid::new_v4()));
+    let state_db = codex_state::StateRuntime::init(home.clone(), "test-provider".into())
+        .await
+        .expect("initialize state DB");
+    let (mut session, turn) = make_session_and_context().await;
+    session.services.state_db = Some(Arc::clone(&state_db));
+    let session = Arc::new(session);
+    let turn = Arc::new(turn);
+    let (activation, _) = session
+        .set_persisted_action_map_mode(MapRuntimeMode::Experiment)
+        .await
+        .expect("activate persisted TaskSpace");
+    let map_id = activation.active_map_id.expect("active Map identity");
+    state_db
+        .enqueue_taskspace_pending_provider_action(
+            codex_state::EnqueueTaskSpacePendingProviderActionRequest {
+                action_id: "provider-action-1".into(),
+                origin_thread_id: session.conversation_id,
+                map_id: Some(map_id.clone()),
+                provider_response_id: "response-0".into(),
+                provider_action_key: "response-0/web_search".into(),
+                tool_name: "web_search".into(),
+                outcome: TaskSpaceActionOutcome::Succeeded,
+            },
+        )
+        .await
+        .expect("enqueue pending Provider Action");
+    let pending = session
+        .load_pending_provider_actions(&map_id)
+        .await
+        .expect("load request-visible pending facts");
+
+    let mut builder = ToolRegistryBuilder::new();
+    builder.push_spec_with_parallel_support(inspect_spec(), true);
+    builder.push_spec_with_parallel_support(
+        ToolSpec::WebSearch {
+            external_web_access: Some(true),
+            filters: None,
+            user_location: None,
+            search_context_size: None,
+            search_content_types: None,
+        },
+        true,
+    );
+    builder.register_handler(
+        "inspect",
+        Arc::new(InspectHandler {
+            calls: AtomicUsize::new(0),
+        }),
+    );
+    let router = Arc::new(
+        ToolRouter::from_builder_for_test(builder)
+            .into_taskspace(&[])
+            .expect("build TaskSpace router"),
+    );
+    let response_scope = router.taskspace_response_scope().expect("response scope");
+    response_scope
+        .begin_request(map_id.clone(), None, pending)
+        .unwrap();
+    response_scope.record_completed_item(&ResponseItem::FunctionCall {
+        id: None,
+        name: TASKSPACE_EXEC_TOOL_NAME.into(),
+        namespace: None,
+        arguments: "{}".into(),
+        call_id: "outer-assign".into(),
+    });
+    response_scope
+        .finalize(
+            true,
+            Some(TaskSpaceExecResponseIdentity {
+                provider_response_id: "response-1".into(),
+                provider_request_id: Some("request-1".into()),
+                provider_logical_request_id: Some("logical-1".into()),
+                provider_attempt_seq: Some(1),
+            }),
+        )
+        .unwrap();
+    let plan = json!({
+        "type": "initialize_and_attribute",
+        "initialize_map": {
+            "root": {"node_id": "root", "goal": "deliver", "content": "", "parents": []},
+            "work_nodes": [{"node_id": "research", "goal": "research", "content": "", "parents": ["root"]}],
+            "finish": {"node_id": "finish", "goal": "close", "content": "", "parents": ["research"]}
+        },
+        "assign_pending_actions": [{"action_id": "provider-action-1", "node_ids": ["research"]}]
+    });
+    router
+        .dispatch_tool_call_with_code_mode_result(
+            Arc::clone(&session),
+            turn,
+            CancellationToken::new(),
+            Arc::new(Mutex::new(TurnDiffTracker::new())),
+            ToolCall {
+                provider_tool_name: ToolName::plain(TASKSPACE_EXEC_TOOL_NAME),
+                dispatch_tool_name: ToolName::plain(TASKSPACE_EXEC_TOOL_NAME),
+                call_id: "outer-assign".into(),
+                payload: ToolPayload::Function {
+                    arguments: plan.to_string(),
+                },
+            },
+            ToolCallSource::Direct,
+        )
+        .await
+        .expect("assign pending Provider Action");
+
+    assert!(
+        state_db
+            .load_taskspace_pending_provider_actions(session.conversation_id, Some(&map_id))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let stored = state_db
+        .load_taskspace_map(&map_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .canonical_map
+        .unwrap();
+    assert_eq!(
+        stored.work_nodes[0].actions[0].action_id,
+        "provider-action-1"
+    );
+    assert_eq!(stored.work_nodes[0].actions[0].tool_name, "web_search");
+    assert_eq!(
+        stored.work_nodes[0].state,
+        codex_protocol::taskspace::TaskSpaceNodeState::Ready
+    );
     let _ = tokio::fs::remove_dir_all(home).await;
 }

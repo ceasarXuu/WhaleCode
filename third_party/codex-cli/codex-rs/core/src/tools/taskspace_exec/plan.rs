@@ -6,21 +6,15 @@ use super::MapOperation;
 use super::TaskSpaceExecCatalog;
 use super::catalog::TaskSpaceClientCapability;
 use super::catalog::TaskSpaceClientTransport;
-use super::catalog::TaskSpaceToolCapability;
 use super::schema_validation::validate_json_schema;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct TaskSpaceExecPlan {
     pub(crate) sequence_type: String,
     pub(crate) pre_map: Vec<MapOperation>,
-    pub(crate) tools: Vec<ToolAction>,
+    pub(crate) pending_attributions: Vec<PendingActionAttribution>,
+    pub(crate) tools: Vec<ClientCall>,
     pub(crate) terminal_map: Option<MapOperation>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum ToolAction {
-    Client(ClientCall),
-    Hosted(ProviderAction),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -39,8 +33,8 @@ pub(crate) enum ClientCallInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ProviderAction {
-    pub(crate) tool: String,
+pub(crate) struct PendingActionAttribution {
+    pub(crate) action_id: String,
     pub(crate) node_ids: Vec<String>,
 }
 
@@ -75,6 +69,7 @@ impl TaskSpaceExecPlan {
 
         let sequence_type = string_field(&value, "type")?;
         let mut pre_map = Vec::new();
+        let pending_attributions = decode_pending_attributions(&value)?;
         let mut tools = Vec::new();
         let mut terminal_map = None;
         match sequence_type {
@@ -104,11 +99,17 @@ impl TaskSpaceExecPlan {
             "finish_map" => {
                 terminal_map = Some(decode_map("finish_map", field(&value, "finish_map")?)?)
             }
+            "attribute_actions" => {}
+            "initialize_and_attribute" => pre_map.push(decode_map(
+                "initialize_map",
+                field(&value, "initialize_map")?,
+            )?),
             _ => unreachable!("sequence type was validated by the closed schema"),
         }
         Ok(Self {
             sequence_type: sequence_type.to_string(),
             pre_map,
+            pending_attributions,
             tools,
             terminal_map,
         })
@@ -132,7 +133,7 @@ fn decode_map(
 fn decode_tools(
     plan: &Value,
     catalog: &TaskSpaceExecCatalog,
-) -> Result<Vec<ToolAction>, TaskSpaceExecPlanDecodeError> {
+) -> Result<Vec<ClientCall>, TaskSpaceExecPlanDecodeError> {
     let tools = field(plan, "tools")?
         .as_array()
         .ok_or_else(|| invalid_envelope("`tools` must be an array"))?;
@@ -147,19 +148,34 @@ fn decode_tool(
     index: usize,
     value: &Value,
     catalog: &TaskSpaceExecCatalog,
-) -> Result<ToolAction, TaskSpaceExecPlanDecodeError> {
+) -> Result<ClientCall, TaskSpaceExecPlanDecodeError> {
     let namespace = value
         .get("namespace")
         .and_then(Value::as_str)
         .map(str::to_string);
     let name = string_field(value, "tool")?.to_string();
     let tool_name = ToolName::new(namespace, name);
-    match catalog.tool_capability(&tool_name) {
-        Some(TaskSpaceToolCapability::Client(capability)) => {
-            decode_client(value, capability, tool_name).map(ToolAction::Client)
-        }
-        Some(TaskSpaceToolCapability::Hosted(_)) => {
-            let node_ids = field(value, "node_ids")?
+    match catalog.client_capability(&tool_name) {
+        Some(capability) => decode_client(value, capability, tool_name),
+        None => Err(TaskSpaceExecPlanDecodeError::UnknownTool {
+            index,
+            tool: tool_label(&tool_name),
+        }),
+    }
+}
+
+fn decode_pending_attributions(
+    plan: &Value,
+) -> Result<Vec<PendingActionAttribution>, TaskSpaceExecPlanDecodeError> {
+    let Some(entries) = plan.get("assign_pending_actions") else {
+        return Ok(Vec::new());
+    };
+    entries
+        .as_array()
+        .ok_or_else(|| invalid_envelope("`assign_pending_actions` must be an array"))?
+        .iter()
+        .map(|entry| {
+            let node_ids = field(entry, "node_ids")?
                 .as_array()
                 .ok_or_else(|| invalid_envelope("`node_ids` must be an array"))?
                 .iter()
@@ -169,16 +185,12 @@ fn decode_tool(
                         .ok_or_else(|| invalid_envelope("node id must be a string"))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(ToolAction::Hosted(ProviderAction {
-                tool: tool_name.name,
+            Ok(PendingActionAttribution {
+                action_id: string_field(entry, "action_id")?.to_string(),
                 node_ids,
-            }))
-        }
-        None => Err(TaskSpaceExecPlanDecodeError::UnknownTool {
-            index,
-            tool: tool_label(&tool_name),
-        }),
-    }
+            })
+        })
+        .collect()
 }
 
 fn decode_client(

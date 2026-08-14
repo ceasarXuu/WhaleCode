@@ -22,7 +22,7 @@ pub(super) struct TaskSpaceExecResult {
     map_revision_at_dispatch: Option<u64>,
     reads: Vec<MapReadResult>,
     client_results: Vec<ClientResult>,
-    hosted_results: Vec<HostedResult>,
+    provider_attributions: Vec<ProviderAttributionResult>,
 }
 
 #[derive(Debug, Serialize)]
@@ -47,8 +47,7 @@ pub(super) struct ClientResult {
 }
 
 #[derive(Debug, Serialize)]
-pub(super) struct HostedResult {
-    pub(super) tool_index: usize,
+pub(super) struct ProviderAttributionResult {
     pub(super) action_id: String,
     pub(super) tool: String,
     pub(super) outcome: &'static str,
@@ -62,7 +61,7 @@ impl TaskSpaceExecResult {
         map_revision_at_dispatch: Option<u64>,
         reads: Vec<MapReadResult>,
         client_results: Vec<ClientResult>,
-        hosted_results: Vec<HostedResult>,
+        provider_attributions: Vec<ProviderAttributionResult>,
     ) -> Self {
         Self {
             kind: RESULT_KIND,
@@ -72,7 +71,7 @@ impl TaskSpaceExecResult {
             map_revision_at_dispatch,
             reads,
             client_results,
-            hosted_results,
+            provider_attributions,
         }
     }
 }
@@ -103,8 +102,8 @@ pub(super) fn result_schema<'a>(
                 JsonSchema::array(client_result_schema(&clients), None),
             ),
             (
-                "hosted_results",
-                JsonSchema::array(hosted_result_schema(), None),
+                "provider_attributions",
+                JsonSchema::array(provider_attribution_result_schema(), None),
             ),
         ],
         &[
@@ -115,7 +114,7 @@ pub(super) fn result_schema<'a>(
             "map_revision_at_dispatch",
             "reads",
             "client_results",
-            "hosted_results",
+            "provider_attributions",
         ],
     )
 }
@@ -239,10 +238,9 @@ fn client_result_schema(clients: &[&ToolSpecCapability]) -> JsonSchema {
     )
 }
 
-fn hosted_result_schema() -> JsonSchema {
+fn provider_attribution_result_schema() -> JsonSchema {
     strict_object(
         [
-            ("tool_index", JsonSchema::integer(None).with_minimum(0)),
             ("action_id", JsonSchema::string(None)),
             ("tool", JsonSchema::string(None)),
             (
@@ -254,7 +252,7 @@ fn hosted_result_schema() -> JsonSchema {
                 JsonSchema::array(JsonSchema::string(None), None).with_min_items(1),
             ),
         ],
-        &["tool_index", "action_id", "tool", "outcome", "node_ids"],
+        &["action_id", "tool", "outcome", "node_ids"],
     )
 }
 

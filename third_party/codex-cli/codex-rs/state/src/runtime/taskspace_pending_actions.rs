@@ -9,6 +9,8 @@ use crate::TaskSpacePendingProviderAction;
 use codex_protocol::ThreadId;
 use codex_protocol::taskspace::TaskSpaceActionOutcome;
 use sqlx::Row;
+use sqlx::Sqlite;
+use sqlx::Transaction;
 
 impl StateRuntime {
     pub async fn enqueue_taskspace_pending_provider_action(
@@ -96,6 +98,61 @@ ORDER BY created_at_ms, action_id
         };
         rows.iter().map(decode_row).collect()
     }
+}
+
+pub(super) async fn validate_pending_provider_action_set(
+    tx: &mut Transaction<'_, Sqlite>,
+    thread_id: ThreadId,
+    map_id: &str,
+    action_ids: &[String],
+) -> anyhow::Result<()> {
+    if action_ids.is_empty() {
+        return Ok(());
+    }
+    let mut declared = action_ids.to_vec();
+    declared.sort();
+    if declared.windows(2).any(|pair| pair[0] == pair[1]) {
+        anyhow::bail!("pending Provider Action attribution contains duplicate ids");
+    }
+    for action_id in &declared {
+        let exists = sqlx::query(
+            r#"
+SELECT 1
+FROM taskspace_pending_provider_actions
+WHERE action_id = ? AND (map_id = ? OR (map_id IS NULL AND origin_thread_id = ?))
+            "#,
+        )
+        .bind(action_id)
+        .bind(map_id)
+        .bind(thread_id.to_string())
+        .fetch_optional(&mut **tx)
+        .await?
+        .is_some();
+        if !exists {
+            anyhow::bail!(
+                "pending Provider Action `{action_id}` changed before attribution commit"
+            );
+        }
+    }
+    Ok(())
+}
+
+pub(super) async fn delete_pending_provider_actions(
+    tx: &mut Transaction<'_, Sqlite>,
+    action_ids: &[String],
+) -> anyhow::Result<()> {
+    for action_id in action_ids {
+        let deleted =
+            sqlx::query("DELETE FROM taskspace_pending_provider_actions WHERE action_id = ?")
+                .bind(action_id)
+                .execute(&mut **tx)
+                .await?
+                .rows_affected();
+        if deleted != 1 {
+            anyhow::bail!("pending Provider Action `{action_id}` disappeared before commit");
+        }
+    }
+    Ok(())
 }
 
 async fn load_by_id(
