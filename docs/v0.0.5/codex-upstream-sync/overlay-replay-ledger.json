@@ -2,7 +2,7 @@
   "schema_version": 1,
   "baseline_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
   "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
-  "overlay_tree": "ef97d830356d817c2d02fa558624562e9d7a179d",
+  "overlay_tree": "68143ce3860e9f5b64af7eac04458068c9834779",
   "cutover_batches": [
     {
       "id": "batch-1-brand-home",
@@ -2585,6 +2585,33 @@
     },
     {
       "categories": [
+        "mcp",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "ff298c2e01d1fd6b1ce4b95f3b71325c7712be18b910983f1d38e441216a6c73",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/mcp-server/src/codex_tool_runner.rs",
+      "target_sha256": "2b509d0bcf652893c8d20c47010abad8164f2ca800e371933ba5ecd0d7023d39",
+      "upstream_status": "modified",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
         "provider_model"
       ],
       "current_sha256": "88d1a2edf4da1af1e4291d5b7e3ef53e04fd98c1b41329bacce9813a37aa4265",
@@ -3129,6 +3156,168 @@
     },
     {
       "categories": [
+        "taskspace_host_hooks",
+        "tui_experience"
+      ],
+      "current_sha256": "ec791a3fcca74c392a512b6f8e5e40504c74b65160ff6e0465b10b84fb7ac6ba",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/tui/src/app/app_server_event_targets.rs",
+      "target_sha256": "86ef4ceec96397090380d5eb376ee93413a4f4522b2394444ef1e80355040982",
+      "upstream_status": "added",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "taskspace_host_hooks",
+        "tui_experience"
+      ],
+      "current_sha256": "c0a194332cc89c28f95e97776ce5457dd34e75bad29d0b18ccc4e561e41e8bd7",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/tui/src/app/thread_routing.rs",
+      "target_sha256": "022cf1ff1d8bf425b149ca01889213b8adf594145e7c4a4e3ba2aa5fc98afed9",
+      "upstream_status": "modified",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "taskspace_host_hooks",
+        "tui_experience"
+      ],
+      "current_sha256": "eaa5926e2163fb6b7c08167f365c44a2695b81ee1587af216bc2f71384cc22dd",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/tui/src/app_command.rs",
+      "target_sha256": "243c2c1acd16580e39095ae2f0f54109ee62d52b5caeaff8e0e8bc5e0678f57b",
+      "upstream_status": "modified",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "taskspace_host_hooks",
+        "tui_experience"
+      ],
+      "current_sha256": "aa3f1bea9a449efe78827dff704ea88721d63b4a4389ee688962ec3b47f4a681",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/tui/src/app_server_session.rs",
+      "target_sha256": "f1dad1ce65c43b6a48c93e12c3169fa17c26261ace86a5f8d97c9081dd1a2f0b",
+      "upstream_status": "modified",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "taskspace_host_hooks",
+        "tui_experience"
+      ],
+      "current_sha256": "f23aca58f619464a55c320d8e0e337d319e4cf1e64c8d71d6ecf64c6aa31bb84",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/tui/src/chatwidget/protocol.rs",
+      "target_sha256": "e87cf6968d35110f3c4f23c4fe48c288aa6f100d6c2beced17a8c53f4f5b4d21",
+      "upstream_status": "added",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "taskspace_host_hooks",
+        "tui_experience"
+      ],
+      "current_sha256": "8bc705c03e550df898b62fe475e8a8d97e8f3cdf3789429ee0e6a568793ce3cd",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/tui/src/chatwidget/slash_dispatch.rs",
+      "target_sha256": "ffdb85bb40a8715f5b0d98aa2d14f0d41ad3413a50641b5691787dc4a723c0fc",
+      "upstream_status": "modified",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
         "generated_artifact",
         "provider_model",
         "tui_experience"
@@ -3186,6 +3375,61 @@
     },
     {
       "categories": [
+        "taskspace_host_hooks",
+        "test_fixture",
+        "tui_experience"
+      ],
+      "current_sha256": "07538e34fb3813bc113d3d565a0cd71e066651df5f41edfbee172e9a1c253c7b",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/tui/src/chatwidget/tests/slash_commands.rs",
+      "target_sha256": "f7bfeebd45aef8c8eb3e12412a73eab974bd54b46163cd173b23aa388e5d4eb5",
+      "upstream_status": "modified",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "taskspace_host_hooks",
+        "tui_experience"
+      ],
+      "current_sha256": "296feeec9cb8d833575f66b9c08530c32febcf19f73b8c3238322c38642faaed",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/tui/src/slash_command.rs",
+      "target_sha256": "27581fdfce391ac0fd6d49bf2b04963ecf8b559c49b7bb4e8a09d7952227e506",
+      "upstream_status": "modified",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
         "brand_home"
       ],
       "current_sha256": "e119e29ae67ef579f3b1657905cf3c15bc5abf71bbbd1b6b0a58fd9407d3b738",
@@ -3210,9 +3454,9 @@
     }
   ],
   "summary": {
-    "path_count": 115,
+    "path_count": 124,
     "by_disposition": {
-      "adapt-semantically": 89,
+      "adapt-semantically": 98,
       "defer": 2,
       "reapply-exact": 4,
       "regenerate": 20
@@ -3221,7 +3465,7 @@
       "batch-1-brand-home": 10,
       "batch-2-substrate": 15,
       "batch-3-deepseek-wire": 19,
-      "batch-4-taskspace-multi-agent": 49,
+      "batch-4-taskspace-multi-agent": 58,
       "batch-5-generated-release": 22
     }
   }

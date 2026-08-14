@@ -2291,6 +2291,31 @@
       "status": "modified"
     },
     {
+      "additions": 1,
+      "baseline_sha256": "2b509d0bcf652893c8d20c47010abad8164f2ca800e371933ba5ecd0d7023d39",
+      "binary": false,
+      "categories": [
+        "mcp",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "ff298c2e01d1fd6b1ce4b95f3b71325c7712be18b910983f1d38e441216a6c73",
+      "deletions": 0,
+      "evidence_commit_count": 4,
+      "evidence_commits": [
+        "59048854fb3b3e9b28f2a121766c3c1dddc1cf0b",
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8",
+        "d2c6a504f9d4ae9fa593cebc120f31ef11bfec92",
+        "a2d1ae816d0ec7075c415f9a06d8aed6f025080b"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "subsystem.mcp",
+        "taskspace.changed_symbol"
+      ],
+      "path": "codex-rs/mcp-server/src/codex_tool_runner.rs",
+      "status": "modified"
+    },
+    {
       "additions": 37,
       "baseline_sha256": "12ef4e32bb47b44baac517848e2e07c6ea660250fdcadfb8e37e42b8121eb53c",
       "binary": false,
@@ -2810,6 +2835,162 @@
     },
     {
       "additions": 1,
+      "baseline_sha256": "86ef4ceec96397090380d5eb376ee93413a4f4522b2394444ef1e80355040982",
+      "binary": false,
+      "categories": [
+        "taskspace_host_hooks",
+        "tui_experience"
+      ],
+      "current_sha256": "ec791a3fcca74c392a512b6f8e5e40504c74b65160ff6e0465b10b84fb7ac6ba",
+      "deletions": 0,
+      "evidence_commit_count": 2,
+      "evidence_commits": [
+        "59048854fb3b3e9b28f2a121766c3c1dddc1cf0b",
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "subsystem.tui",
+        "taskspace.changed_symbol"
+      ],
+      "path": "codex-rs/tui/src/app/app_server_event_targets.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 23,
+      "baseline_sha256": "022cf1ff1d8bf425b149ca01889213b8adf594145e7c4a4e3ba2aa5fc98afed9",
+      "binary": false,
+      "categories": [
+        "taskspace_host_hooks",
+        "tui_experience"
+      ],
+      "current_sha256": "c0a194332cc89c28f95e97776ce5457dd34e75bad29d0b18ccc4e561e41e8bd7",
+      "deletions": 0,
+      "evidence_commit_count": 5,
+      "evidence_commits": [
+        "59048854fb3b3e9b28f2a121766c3c1dddc1cf0b",
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8",
+        "d87d1af3575419b2b1c71e2f4de5c96d4e0da638",
+        "7623802696a0de2d7a515668f43aaf5e1b29607f",
+        "e52bcc8d1077a5fa212f1022e5e7a692ca9fddc5"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "subsystem.tui",
+        "taskspace.changed_symbol"
+      ],
+      "path": "codex-rs/tui/src/app/thread_routing.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 13,
+      "baseline_sha256": "243c2c1acd16580e39095ae2f0f54109ee62d52b5caeaff8e0e8bc5e0678f57b",
+      "binary": false,
+      "categories": [
+        "taskspace_host_hooks",
+        "tui_experience"
+      ],
+      "current_sha256": "eaa5926e2163fb6b7c08167f365c44a2695b81ee1587af216bc2f71384cc22dd",
+      "deletions": 0,
+      "evidence_commit_count": 6,
+      "evidence_commits": [
+        "59048854fb3b3e9b28f2a121766c3c1dddc1cf0b",
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8",
+        "d87d1af3575419b2b1c71e2f4de5c96d4e0da638",
+        "6229fd5d5056abbefc1a555c84c81f11216731eb",
+        "1c203d14ac378e133c65d367f0f05eae206d52e9",
+        "2338f5aa90b9b74e0dd3fba7b7b1aa2d4721375b"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "subsystem.tui",
+        "taskspace.changed_symbol"
+      ],
+      "path": "codex-rs/tui/src/app_command.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 39,
+      "baseline_sha256": "f1dad1ce65c43b6a48c93e12c3169fa17c26261ace86a5f8d97c9081dd1a2f0b",
+      "binary": false,
+      "categories": [
+        "taskspace_host_hooks",
+        "tui_experience"
+      ],
+      "current_sha256": "aa3f1bea9a449efe78827dff704ea88721d63b4a4389ee688962ec3b47f4a681",
+      "deletions": 0,
+      "evidence_commit_count": 6,
+      "evidence_commits": [
+        "59048854fb3b3e9b28f2a121766c3c1dddc1cf0b",
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8",
+        "d87d1af3575419b2b1c71e2f4de5c96d4e0da638",
+        "06d949f695de24a4190101ef6e53e03329117215",
+        "907d7ae5132bedb53cc21510aeddbd64e4db26c2",
+        "e52bcc8d1077a5fa212f1022e5e7a692ca9fddc5"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "subsystem.tui",
+        "taskspace.changed_symbol"
+      ],
+      "path": "codex-rs/tui/src/app_server_session.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "baseline_sha256": "e87cf6968d35110f3c4f23c4fe48c288aa6f100d6c2beced17a8c53f4f5b4d21",
+      "binary": false,
+      "categories": [
+        "taskspace_host_hooks",
+        "tui_experience"
+      ],
+      "current_sha256": "f23aca58f619464a55c320d8e0e337d319e4cf1e64c8d71d6ecf64c6aa31bb84",
+      "deletions": 0,
+      "evidence_commit_count": 2,
+      "evidence_commits": [
+        "59048854fb3b3e9b28f2a121766c3c1dddc1cf0b",
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "subsystem.tui",
+        "taskspace.changed_symbol"
+      ],
+      "path": "codex-rs/tui/src/chatwidget/protocol.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 12,
+      "baseline_sha256": "ffdb85bb40a8715f5b0d98aa2d14f0d41ad3413a50641b5691787dc4a723c0fc",
+      "binary": false,
+      "categories": [
+        "taskspace_host_hooks",
+        "tui_experience"
+      ],
+      "current_sha256": "8bc705c03e550df898b62fe475e8a8d97e8f3cdf3789429ee0e6a568793ce3cd",
+      "deletions": 0,
+      "evidence_commit_count": 9,
+      "evidence_commits": [
+        "59048854fb3b3e9b28f2a121766c3c1dddc1cf0b",
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8",
+        "d87d1af3575419b2b1c71e2f4de5c96d4e0da638",
+        "c2385ba7b96a21244da724bddd025faf4385fc30",
+        "907d7ae5132bedb53cc21510aeddbd64e4db26c2",
+        "6229fd5d5056abbefc1a555c84c81f11216731eb",
+        "1c203d14ac378e133c65d367f0f05eae206d52e9",
+        "2338f5aa90b9b74e0dd3fba7b7b1aa2d4721375b",
+        "a2d1ae816d0ec7075c415f9a06d8aed6f025080b"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "subsystem.tui",
+        "taskspace.changed_symbol"
+      ],
+      "path": "codex-rs/tui/src/chatwidget/slash_dispatch.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
       "baseline_sha256": "8330eb7ea592317176de8f06f18ab945d41918fab56b01d6a6caae65c3c014c0",
       "binary": false,
       "categories": [
@@ -2861,6 +3042,71 @@
       "status": "modified"
     },
     {
+      "additions": 32,
+      "baseline_sha256": "f7bfeebd45aef8c8eb3e12412a73eab974bd54b46163cd173b23aa388e5d4eb5",
+      "binary": false,
+      "categories": [
+        "taskspace_host_hooks",
+        "test_fixture",
+        "tui_experience"
+      ],
+      "current_sha256": "07538e34fb3813bc113d3d565a0cd71e066651df5f41edfbee172e9a1c253c7b",
+      "deletions": 0,
+      "evidence_commit_count": 8,
+      "evidence_commits": [
+        "59048854fb3b3e9b28f2a121766c3c1dddc1cf0b",
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8",
+        "d87d1af3575419b2b1c71e2f4de5c96d4e0da638",
+        "c2385ba7b96a21244da724bddd025faf4385fc30",
+        "907d7ae5132bedb53cc21510aeddbd64e4db26c2",
+        "6229fd5d5056abbefc1a555c84c81f11216731eb",
+        "1c203d14ac378e133c65d367f0f05eae206d52e9",
+        "2338f5aa90b9b74e0dd3fba7b7b1aa2d4721375b"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "subsystem.tui",
+        "taskspace.changed_symbol",
+        "test.path"
+      ],
+      "path": "codex-rs/tui/src/chatwidget/tests/slash_commands.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 23,
+      "baseline_sha256": "27581fdfce391ac0fd6d49bf2b04963ecf8b559c49b7bb4e8a09d7952227e506",
+      "binary": false,
+      "categories": [
+        "taskspace_host_hooks",
+        "tui_experience"
+      ],
+      "current_sha256": "296feeec9cb8d833575f66b9c08530c32febcf19f73b8c3238322c38642faaed",
+      "deletions": 0,
+      "evidence_commit_count": 13,
+      "evidence_commits": [
+        "59048854fb3b3e9b28f2a121766c3c1dddc1cf0b",
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8",
+        "d87d1af3575419b2b1c71e2f4de5c96d4e0da638",
+        "f03ee683d92dabd2c882f3d840f9f8968880e0de",
+        "c2385ba7b96a21244da724bddd025faf4385fc30",
+        "907d7ae5132bedb53cc21510aeddbd64e4db26c2",
+        "7623802696a0de2d7a515668f43aaf5e1b29607f",
+        "6229fd5d5056abbefc1a555c84c81f11216731eb",
+        "1c203d14ac378e133c65d367f0f05eae206d52e9",
+        "2338f5aa90b9b74e0dd3fba7b7b1aa2d4721375b",
+        "78101e19c86286e000901a6447540130b9e3ce2f",
+        "a2d1ae816d0ec7075c415f9a06d8aed6f025080b",
+        "343e4a32886170b382315558fa8d7dc80b4aa87f"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "subsystem.tui",
+        "taskspace.changed_symbol"
+      ],
+      "path": "codex-rs/tui/src/slash_command.rs",
+      "status": "modified"
+    },
+    {
       "additions": 93,
       "baseline_sha256": "1338259489ade54b01caa1468b6d25fc5a183657fa94cca0add8b91865635ef5",
       "binary": false,
@@ -2899,24 +3145,25 @@
       "developer_tooling": 3,
       "documentation": 1,
       "generated_artifact": 23,
+      "mcp": 1,
       "protocol_contract": 1,
       "provider_model": 18,
       "provider_transport": 5,
       "session_context": 6,
       "taskspace_domain": 25,
-      "taskspace_host_hooks": 44,
-      "test_fixture": 8,
+      "taskspace_host_hooks": 53,
+      "test_fixture": 9,
       "tool_runtime": 7,
-      "tui_experience": 2,
+      "tui_experience": 10,
       "upstream_backport": 2,
       "wire_sse": 3
     },
     "by_status": {
       "added": 45,
       "deleted": 3,
-      "modified": 67
+      "modified": 76
     },
-    "path_count": 115
+    "path_count": 124
   },
   "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
   "vendor_path": "third_party/codex-cli"
