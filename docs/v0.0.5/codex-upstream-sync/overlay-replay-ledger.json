@@ -2,7 +2,7 @@
   "schema_version": 1,
   "baseline_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
   "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
-  "overlay_tree": "2461a93f282af04557676b95b55293ce89246a90",
+  "overlay_tree": "e1eed83a31714faac734ba540b42d1448eb74e4f",
   "cutover_batches": [
     {
       "id": "batch-1-brand-home",
@@ -1448,6 +1448,32 @@
     {
       "categories": [
         "app_server_protocol",
+        "test_fixture"
+      ],
+      "current_sha256": "caa7b535e892ca98a84c2599bf5ac4c260466fe49ffbef953665daa51da6fad5",
+      "cutover_batch": "batch-2-substrate",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [
+        "batch-1-brand-home"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server/tests/suite/v2/executor_mcp.rs",
+      "target_sha256": "bb746f2d8febea75e9f9eac8e7ed3bfb530f975876cb08f0a834cc3fe30782ff",
+      "upstream_status": "added",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
         "brand_home",
         "test_fixture"
       ],
@@ -1476,7 +1502,7 @@
         "brand_home",
         "test_fixture"
       ],
-      "current_sha256": "015966cb57839ad427a368bf2a955e371691c0f69399aa3ff8ea32962a0b8222",
+      "current_sha256": "92af581e8aad52be33f928b477462a1df6c4916496b5f38b5c3175c66139e72d",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1579,7 +1605,88 @@
       "categories": [
         "cli_surface"
       ],
-      "current_sha256": "8d18abb50e4f39c1ffd85b561620ad5653eee0692f51070a7cb5264f55641eb6",
+      "current_sha256": "e8e7ef1ac603bae293c0b6605c1b52961edee3b46f6e042310967f5f6c09573b",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/e2e_benches/codex_help.rs",
+      "target_sha256": "8e0ba7f7d30a50b59bbb0b6cd83ef676a217fa4d392be1f6e9138cbc1313c53f",
+      "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "cli_surface",
+        "generated_artifact"
+      ],
+      "current_sha256": null,
+      "cutover_batch": "batch-5-generated-release",
+      "decision_basis": [
+        "insta-snapshot requires cutover-source integration before regeneration"
+      ],
+      "depends_on": [
+        "batch-1-brand-home",
+        "batch-2-substrate",
+        "batch-3-deepseek-wire",
+        "batch-4-taskspace-multi-agent"
+      ],
+      "disposition": "defer",
+      "generated_kind": "insta-snapshot",
+      "generated_lineage": null,
+      "owner_domain": "generated-release",
+      "path": "codex-rs/cli/src/doctor/snapshots/codex__doctor__output__tests__doctor_human_report_environment_rows.snap",
+      "target_sha256": "a5e49e40ea36795e5b62ed1b83685d91aa0e2f42b404854cc70edff4151169c3",
+      "upstream_status": "added",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "sync metadata validator"
+      ],
+      "whale_status": "deleted"
+    },
+    {
+      "categories": [
+        "cli_surface",
+        "generated_artifact"
+      ],
+      "current_sha256": "a5e49e40ea36795e5b62ed1b83685d91aa0e2f42b404854cc70edff4151169c3",
+      "cutover_batch": "batch-5-generated-release",
+      "decision_basis": [
+        "insta-snapshot requires cutover-source integration before regeneration"
+      ],
+      "depends_on": [
+        "batch-1-brand-home",
+        "batch-2-substrate",
+        "batch-3-deepseek-wire",
+        "batch-4-taskspace-multi-agent"
+      ],
+      "disposition": "defer",
+      "generated_kind": "insta-snapshot",
+      "generated_lineage": null,
+      "owner_domain": "generated-release",
+      "path": "codex-rs/cli/src/doctor/snapshots/whale__doctor__output__tests__doctor_human_report_environment_rows.snap",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "cli_surface"
+      ],
+      "current_sha256": "c48da578c8cfc4d889f56ca7ecc62568dccc1d33e9b63c187aa58fcdc0facd9b",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1604,7 +1711,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "a3d3e489e0df173d030cd127d9a9222b37ffc9941af2a98dcbe60ae7f8da58e1",
+      "current_sha256": "504d88185fe6bb161cfd8d6ac1b2969b0ddc0b78282162f5b2b518171a3c83e8",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1629,7 +1736,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "35f2889337d2bf2262fa845cabedcff58ab1629b2b3c6ac8513f579fc3db109c",
+      "current_sha256": "e02a5b81482a364933a869dc8a536fed699a9d2208acd9257e4a5c5110552fe3",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1655,7 +1762,7 @@
         "provider_model",
         "test_fixture"
       ],
-      "current_sha256": "7adc2d7d4697993ab7727e667ed807e32d347ae7c300ea00e99df78977f5d944",
+      "current_sha256": "b9f906cdd1add762d1edbba7fc51bda4887f045f57a1a413245d44676e099719",
       "cutover_batch": "batch-3-deepseek-wire",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -1682,7 +1789,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "6d3b168a8caaadc6f9d9468b4c2adf22f8a217577c696c6cab4d5dc8b460e384",
+      "current_sha256": "2f03a9f2b00efa78ddc402e49422113f3e8af7334cd46c7272bdf8261e6784b9",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1707,7 +1814,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "2ee688541e428f4f0930f27de4f2f9d435f3947c113e1c0af4518aa82b9c7ce0",
+      "current_sha256": "2e8c683859ca7583d68a02582d6141d0b939e088da2ea7d94cdc8ce72a2e5f15",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1732,7 +1839,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "9767e1139abd2b36c39a324328ca6c5fef7ad56f57504bf6f4439154926a938b",
+      "current_sha256": "5d710e14a26ae31529454b00da256294307ade9ab6e78a1ef698ed86977432cc",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "target leaves the baseline path unchanged"
@@ -1758,7 +1865,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "53f0a0f4ddae950fcb409eb334665fe6fd86d83360d469b786625fd12a7bc563",
+      "current_sha256": "7bb868047eb5ddbc8581a1cbf901fc2b61a498a7000c3577a0ba59c64db2829e",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1783,7 +1890,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "36d54c2452e5c47da1b3e7804dafb7c6d6c27ff876af36588bc3ae46de5afa10",
+      "current_sha256": "0a142cded0e54042e429b438b7b8505ab65e26e3043bf0b9218f2b31472797c6",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1808,7 +1915,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "d142f0276044c464e93f08ade3758aff01850f22c37adc4abb383ef8f50f9bb4",
+      "current_sha256": "3ee50deb62656f17e2b081885fa7fb1735038ae5824112e4bb7c919a83375fa8",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1833,7 +1940,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "0e28ada0aa8907b32e002021a036beb98a2a48bd2d922765f66f1b75d6aa7c1b",
+      "current_sha256": "2b24102f8145ad8df188eb9b2184ec3a8021c0f13a3a1ee2bfb01d216b77fa71",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1858,7 +1965,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "8d1a2afede44c9c27a20378f1a087c76c1b084d18767e79bd3e81235a5247c6f",
+      "current_sha256": "32de90c7d794a2a462cdc9e639d5c9a1dfcd33b8a66ec2c3f80a84550ce4ca65",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1883,7 +1990,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "4a3cfaa62343568e08a3f2ba28ba4da52f7cebef0eea5b4292dd1f4da2cfca84",
+      "current_sha256": "f553bfcb919b3d056b7b7f03dd6b1727e6b07ff8f79c3f0d78958ec500ce5e91",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1908,7 +2015,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "d3765884ed22a58231754f019523051145cd61c6fe0ff5d556cffc213f0763ab",
+      "current_sha256": "cfce03be29616436543cfe4aa6ef4b2d020d50f131e1c7bb0289ea5fb2e5e849",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1933,7 +2040,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "e3a650be18d4a66a179cd3384a1ce7dca8a5499595636b3b546726e304247683",
+      "current_sha256": "ca9f59c4cbcc25d19e267c6bb530cefd2f451597d1f726ed5498f2120e6f666f",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1958,7 +2065,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "4beca2f5b362176bd4c199e6df27ddf5861a3248b8828d385009c07c149e31b9",
+      "current_sha256": "517750145748f789bd9550e4b23e724777fe0b09faf27cf0f42513d63d1115c4",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1983,7 +2090,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "90149c01876564d823527a5d7783777783c520e5d1e423b6919f8cac44f657ef",
+      "current_sha256": "240cd9b1cb416f82ed118d14143bc2761268c87670e9c35246b44afc74f07b18",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -2008,7 +2115,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "44e8f10323eccdbd18b8134a0a3a611582b92a91861606d5c6426c2cc44a96c7",
+      "current_sha256": "179be891ba99154757741c42bcb899e06dcd872074f278cebbcbd96b9d748e95",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -2033,7 +2140,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "59389772da5f1331d5976ab3544f837eaf79147f3648e01fca7f07fdd43a70be",
+      "current_sha256": "28f84b949f318d389b85207fbb5852f3705e8780054e99c3b4ca3724dcf7d705",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -2422,24 +2529,52 @@
     },
     {
       "categories": [
-        "brand_home",
         "test_fixture"
       ],
-      "current_sha256": "3b0f3a11d3dc353896111f45690823b35d3dcbd86ece34873dc127e5d593eab3",
-      "cutover_batch": "batch-1-brand-home",
+      "current_sha256": "464727975c00667aae6f190bffb6d7f988f5ef9c6f6aa0fbd35cfc3fd68fb3ba",
+      "cutover_batch": "batch-2-substrate",
       "decision_basis": [
         "upstream and Whale both change the path"
       ],
-      "depends_on": [],
+      "depends_on": [
+        "batch-1-brand-home"
+      ],
       "disposition": "adapt-semantically",
       "generated_kind": null,
       "generated_lineage": null,
-      "owner_domain": "brand-home",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/tests/common/test_codex.rs",
+      "target_sha256": "2407a5cd93c7376b46f8ad20e1310cc0ecf92e4ed3183fe14f43cfd4eb8629c2",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "provider_model",
+        "test_fixture"
+      ],
+      "current_sha256": "96c76a055906ad3704956d15fabedb00d2a89f6cfad8b2ff1369b08f1b7c5672",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "deepseek-wire",
       "path": "codex-rs/core/tests/common/test_codex_exec.rs",
       "target_sha256": "eedf3eb43f5568e3a5d14c4cb55d679d380564e3a6841ec0ba0925985e5c0f21",
       "upstream_status": "modified",
       "verification": [
-        "cargo test -p codex-cli",
+        "provider wire fixtures and cache regression gate",
         "sync metadata validator"
       ],
       "whale_status": "modified"
@@ -2449,7 +2584,7 @@
         "brand_home",
         "test_fixture"
       ],
-      "current_sha256": "f9a536803c4193ca45aa91c5dd251ec5c13095f48fa763487efe61128b6c3c3a",
+      "current_sha256": "889e4cdda0e9d399f7d51b76e45672eb05cc832edf3e150defdc372b55ccf305",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -2548,7 +2683,7 @@
         "brand_home",
         "test_fixture"
       ],
-      "current_sha256": "b13cc6cd90b9de241076b6cb68df69bd74ec9c5a981a376ab75572cb67c6c506",
+      "current_sha256": "985ccbb6e473f071e9949971f50afd8d0d6f6fc77369a70d47dc530d66443aa1",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -2685,6 +2820,30 @@
       "path": "codex-rs/exec-server/tests/relay/version_skew.rs",
       "target_sha256": "4d40fd72a9f4c8e401d6274dab727970eb08e95acec246d1bbdcf3622f77b9b5",
       "upstream_status": "added",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "cli_surface",
+        "test_fixture"
+      ],
+      "current_sha256": "7b8b1e7138e8f9d6fd81dd600e7a80b86ee7cb35c936e942e50b1a29f0970afb",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/exec/tests/suite/resume.rs",
+      "target_sha256": "9029561aa052df273746cc7bf6dc7a3b4b307a211e4bb970a7f3cc1bee0b3f3c",
+      "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
         "sync metadata validator"
@@ -3546,7 +3705,7 @@
         "mcp",
         "test_fixture"
       ],
-      "current_sha256": "b4cb49876d858c51764d97ba623f3e213dc92a10b60ea60750adb310b3b83aa8",
+      "current_sha256": "f3b7457432b4f9d43bcf48b472803e4b105f0283d198e9695d115fd72c3c924b",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -3847,7 +4006,7 @@
         "mcp",
         "test_fixture"
       ],
-      "current_sha256": "83701c5f8dd618f0836b9e898ee07b1b0b5f5544b56259b00981f9683336e516",
+      "current_sha256": "7245fec00c55bfdb2a09bc1aec2f72ef5d2fe1485bd7f20b5e153d1a3b64bdeb",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -4645,7 +4804,7 @@
         "test_fixture",
         "tui_experience"
       ],
-      "current_sha256": "8a88ef90f53d86aeea395c1cfb49d1ca7724eb93144a58533de74202041f4109",
+      "current_sha256": "5c5154e821960a1d966d14abbde1f276bf4a8ae13c4c9dba8bfccc6870b02efb",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -4670,7 +4829,7 @@
         "test_fixture",
         "tui_experience"
       ],
-      "current_sha256": "b1a347b6e5fa4de61fd49099ebb798923abe1237f4e0a7aebd042e855b40e5f3",
+      "current_sha256": "e938d05a8d920cba824875f9ec5c3ef966af0941b50cf46d6f33cb08f4131361",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -4715,19 +4874,19 @@
     }
   ],
   "summary": {
-    "path_count": 174,
+    "path_count": 180,
     "by_disposition": {
-      "adapt-semantically": 146,
-      "defer": 2,
+      "adapt-semantically": 150,
+      "defer": 4,
       "reapply-exact": 6,
       "regenerate": 20
     },
     "by_cutover_batch": {
-      "batch-1-brand-home": 52,
-      "batch-2-substrate": 16,
-      "batch-3-deepseek-wire": 21,
+      "batch-1-brand-home": 53,
+      "batch-2-substrate": 18,
+      "batch-3-deepseek-wire": 22,
       "batch-4-taskspace-multi-agent": 63,
-      "batch-5-generated-release": 22
+      "batch-5-generated-release": 24
     }
   }
 }

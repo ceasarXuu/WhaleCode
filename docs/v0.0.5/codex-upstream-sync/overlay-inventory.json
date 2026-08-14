@@ -1193,6 +1193,29 @@
     },
     {
       "additions": 1,
+      "baseline_sha256": "bb746f2d8febea75e9f9eac8e7ed3bfb530f975876cb08f0a834cc3fe30782ff",
+      "binary": false,
+      "categories": [
+        "app_server_protocol",
+        "test_fixture"
+      ],
+      "current_sha256": "caa7b535e892ca98a84c2599bf5ac4c260466fe49ffbef953665daa51da6fad5",
+      "deletions": 1,
+      "evidence_commit_count": 2,
+      "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "subsystem.app_server",
+        "test.path"
+      ],
+      "path": "codex-rs/app-server/tests/suite/v2/executor_mcp.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
       "baseline_sha256": "a63ebe256c9e3a78ff481c1ee070ad5d2ad44dc2133e069c5d83f8557e25af70",
       "binary": false,
       "categories": [
@@ -1217,7 +1240,7 @@
       "status": "modified"
     },
     {
-      "additions": 2,
+      "additions": 3,
       "baseline_sha256": "5b61c44342bed72407bf50c154691b2bd7df3cafd6825969b608b9cb2279c8d9",
       "binary": false,
       "categories": [
@@ -1225,10 +1248,11 @@
         "brand_home",
         "test_fixture"
       ],
-      "current_sha256": "015966cb57839ad427a368bf2a955e371691c0f69399aa3ff8ea32962a0b8222",
-      "deletions": 1,
-      "evidence_commit_count": 2,
+      "current_sha256": "92af581e8aad52be33f928b477462a1df6c4916496b5f38b5c3175c66139e72d",
+      "deletions": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -1317,16 +1341,83 @@
       "status": "modified"
     },
     {
-      "additions": 6,
+      "additions": 1,
+      "baseline_sha256": "8e0ba7f7d30a50b59bbb0b6cd83ef676a217fa4d392be1f6e9138cbc1313c53f",
+      "binary": false,
+      "categories": [
+        "cli_surface"
+      ],
+      "current_sha256": "e8e7ef1ac603bae293c0b6605c1b52961edee3b46f6e042310967f5f6c09573b",
+      "deletions": 1,
+      "evidence_commit_count": 2,
+      "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "subsystem.cli"
+      ],
+      "path": "codex-rs/cli/e2e_benches/codex_help.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 0,
+      "baseline_sha256": "a5e49e40ea36795e5b62ed1b83685d91aa0e2f42b404854cc70edff4151169c3",
+      "binary": false,
+      "categories": [
+        "cli_surface",
+        "generated_artifact"
+      ],
+      "current_sha256": null,
+      "deletions": 56,
+      "evidence_commit_count": 2,
+      "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "generated.path",
+        "subsystem.cli"
+      ],
+      "path": "codex-rs/cli/src/doctor/snapshots/codex__doctor__output__tests__doctor_human_report_environment_rows.snap",
+      "status": "deleted"
+    },
+    {
+      "additions": 56,
+      "baseline_sha256": null,
+      "binary": false,
+      "categories": [
+        "cli_surface",
+        "generated_artifact"
+      ],
+      "current_sha256": "a5e49e40ea36795e5b62ed1b83685d91aa0e2f42b404854cc70edff4151169c3",
+      "deletions": 0,
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "generated.path",
+        "subsystem.cli"
+      ],
+      "path": "codex-rs/cli/src/doctor/snapshots/whale__doctor__output__tests__doctor_human_report_environment_rows.snap",
+      "status": "added"
+    },
+    {
+      "additions": 13,
       "baseline_sha256": "1ca67a651488dd9af26b1328531dfaf68cc4cd3290afeec9dd9ca6f04bcd8091",
       "binary": false,
       "categories": [
         "cli_surface"
       ],
-      "current_sha256": "8d18abb50e4f39c1ffd85b561620ad5653eee0692f51070a7cb5264f55641eb6",
-      "deletions": 5,
-      "evidence_commit_count": 12,
+      "current_sha256": "c48da578c8cfc4d889f56ca7ecc62568dccc1d33e9b63c187aa58fcdc0facd9b",
+      "deletions": 12,
+      "evidence_commit_count": 13,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8",
         "302ea5db386bf7a69b7d77c9cadf0bdaab41164b",
         "f5aaf25a43b9844a179dcfd1f503ba53c0691128",
@@ -1348,7 +1439,7 @@
       "status": "modified"
     },
     {
-      "additions": 1,
+      "additions": 3,
       "baseline_sha256": "e83705e03f16b1c9afa0ce9e34be26817e89f372a680f03ca0eb99dbc2defc66",
       "binary": false,
       "categories": [
@@ -1356,10 +1447,11 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "a3d3e489e0df173d030cd127d9a9222b37ffc9941af2a98dcbe60ae7f8da58e1",
-      "deletions": 1,
-      "evidence_commit_count": 2,
+      "current_sha256": "504d88185fe6bb161cfd8d6ac1b2969b0ddc0b78282162f5b2b518171a3c83e8",
+      "deletions": 3,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -1373,7 +1465,7 @@
       "status": "modified"
     },
     {
-      "additions": 1,
+      "additions": 2,
       "baseline_sha256": "9f21f42e1f292b921d33cbbf5e70117582686f8d778562e862e23d444b079d11",
       "binary": false,
       "categories": [
@@ -1381,10 +1473,11 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "35f2889337d2bf2262fa845cabedcff58ab1629b2b3c6ac8513f579fc3db109c",
-      "deletions": 1,
-      "evidence_commit_count": 2,
+      "current_sha256": "e02a5b81482a364933a869dc8a536fed699a9d2208acd9257e4a5c5110552fe3",
+      "deletions": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -1398,7 +1491,7 @@
       "status": "modified"
     },
     {
-      "additions": 1,
+      "additions": 2,
       "baseline_sha256": "168f1e940aa4d513d9a0cc57a36bad7cb592c614bfcc41b067867b0cc279453d",
       "binary": false,
       "categories": [
@@ -1407,10 +1500,11 @@
         "provider_model",
         "test_fixture"
       ],
-      "current_sha256": "7adc2d7d4697993ab7727e667ed807e32d347ae7c300ea00e99df78977f5d944",
-      "deletions": 1,
-      "evidence_commit_count": 3,
+      "current_sha256": "b9f906cdd1add762d1edbba7fc51bda4887f045f57a1a413245d44676e099719",
+      "deletions": 2,
+      "evidence_commit_count": 4,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8",
         "92c7449203a57dd9fce162bab5badec008a8a3fa"
@@ -1426,7 +1520,7 @@
       "status": "modified"
     },
     {
-      "additions": 1,
+      "additions": 2,
       "baseline_sha256": "f2b88a3768283f62c75bd2f2c9f9e2d6cde6973ad4d6ffdfdc0aa9de7394880c",
       "binary": false,
       "categories": [
@@ -1434,10 +1528,11 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "6d3b168a8caaadc6f9d9468b4c2adf22f8a217577c696c6cab4d5dc8b460e384",
-      "deletions": 1,
-      "evidence_commit_count": 2,
+      "current_sha256": "2f03a9f2b00efa78ddc402e49422113f3e8af7334cd46c7272bdf8261e6784b9",
+      "deletions": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -1451,7 +1546,7 @@
       "status": "modified"
     },
     {
-      "additions": 4,
+      "additions": 8,
       "baseline_sha256": "ee9b9ae6d78bf26d609c9884d6c7381b63c662c0efc9b6dbc37a3ee4a1871700",
       "binary": false,
       "categories": [
@@ -1459,10 +1554,11 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "2ee688541e428f4f0930f27de4f2f9d435f3947c113e1c0af4518aa82b9c7ce0",
-      "deletions": 4,
-      "evidence_commit_count": 2,
+      "current_sha256": "2e8c683859ca7583d68a02582d6141d0b939e088da2ea7d94cdc8ce72a2e5f15",
+      "deletions": 8,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -1476,7 +1572,7 @@
       "status": "modified"
     },
     {
-      "additions": 2,
+      "additions": 4,
       "baseline_sha256": "98edf7cc70dfa79ae25ed688b590c323a826bcdd6f2c3cfc37969a0f4018936c",
       "binary": false,
       "categories": [
@@ -1484,10 +1580,11 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "9767e1139abd2b36c39a324328ca6c5fef7ad56f57504bf6f4439154926a938b",
-      "deletions": 2,
-      "evidence_commit_count": 1,
+      "current_sha256": "5d710e14a26ae31529454b00da256294307ade9ab6e78a1ef698ed86977432cc",
+      "deletions": 4,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a"
       ],
       "evidence_truncated": false,
@@ -1500,7 +1597,7 @@
       "status": "modified"
     },
     {
-      "additions": 1,
+      "additions": 2,
       "baseline_sha256": "2c439a5a4c020c3ef4531ee76c14741ff5c1569503c24b99ecfd00d2115b967c",
       "binary": false,
       "categories": [
@@ -1508,10 +1605,11 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "53f0a0f4ddae950fcb409eb334665fe6fd86d83360d469b786625fd12a7bc563",
-      "deletions": 1,
-      "evidence_commit_count": 2,
+      "current_sha256": "7bb868047eb5ddbc8581a1cbf901fc2b61a498a7000c3577a0ba59c64db2829e",
+      "deletions": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -1525,7 +1623,7 @@
       "status": "modified"
     },
     {
-      "additions": 1,
+      "additions": 2,
       "baseline_sha256": "44eda8829cf7bb4f369305622020892dbb6e3b941989c109f0b422de1e5dff38",
       "binary": false,
       "categories": [
@@ -1533,10 +1631,11 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "36d54c2452e5c47da1b3e7804dafb7c6d6c27ff876af36588bc3ae46de5afa10",
-      "deletions": 1,
-      "evidence_commit_count": 2,
+      "current_sha256": "0a142cded0e54042e429b438b7b8505ab65e26e3043bf0b9218f2b31472797c6",
+      "deletions": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -1550,7 +1649,7 @@
       "status": "modified"
     },
     {
-      "additions": 1,
+      "additions": 2,
       "baseline_sha256": "732f8df22dc0d78307e0d6af960357aed5b4908772339a65332d7c8dc003e8cc",
       "binary": false,
       "categories": [
@@ -1558,10 +1657,11 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "d142f0276044c464e93f08ade3758aff01850f22c37adc4abb383ef8f50f9bb4",
-      "deletions": 1,
-      "evidence_commit_count": 2,
+      "current_sha256": "3ee50deb62656f17e2b081885fa7fb1735038ae5824112e4bb7c919a83375fa8",
+      "deletions": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -1575,7 +1675,7 @@
       "status": "modified"
     },
     {
-      "additions": 1,
+      "additions": 2,
       "baseline_sha256": "82bd06e83dbbe3d6fec22a42e3ecd95fc2d077667fe61ebb9c9e7c7b230da0d7",
       "binary": false,
       "categories": [
@@ -1583,10 +1683,11 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "0e28ada0aa8907b32e002021a036beb98a2a48bd2d922765f66f1b75d6aa7c1b",
-      "deletions": 1,
-      "evidence_commit_count": 2,
+      "current_sha256": "2b24102f8145ad8df188eb9b2184ec3a8021c0f13a3a1ee2bfb01d216b77fa71",
+      "deletions": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -1600,7 +1701,7 @@
       "status": "modified"
     },
     {
-      "additions": 1,
+      "additions": 2,
       "baseline_sha256": "4eb5ed01193fc744f8595b9035c38f0c2685a504d67f1349d79a4a77d7a38cdf",
       "binary": false,
       "categories": [
@@ -1608,10 +1709,11 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "8d1a2afede44c9c27a20378f1a087c76c1b084d18767e79bd3e81235a5247c6f",
-      "deletions": 1,
-      "evidence_commit_count": 2,
+      "current_sha256": "32de90c7d794a2a462cdc9e639d5c9a1dfcd33b8a66ec2c3f80a84550ce4ca65",
+      "deletions": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -1625,7 +1727,7 @@
       "status": "modified"
     },
     {
-      "additions": 1,
+      "additions": 2,
       "baseline_sha256": "0b22464a9e895870ee89021351e27d4c5cb5bf5872cb1a7b1439986b43f0cb91",
       "binary": false,
       "categories": [
@@ -1633,10 +1735,11 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "4a3cfaa62343568e08a3f2ba28ba4da52f7cebef0eea5b4292dd1f4da2cfca84",
-      "deletions": 1,
-      "evidence_commit_count": 2,
+      "current_sha256": "f553bfcb919b3d056b7b7f03dd6b1727e6b07ff8f79c3f0d78958ec500ce5e91",
+      "deletions": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -1650,7 +1753,7 @@
       "status": "modified"
     },
     {
-      "additions": 1,
+      "additions": 2,
       "baseline_sha256": "96a7e301247a69d9b39f4563ef69058b567b3fa3071e4e3d8b3e385a29fbf30d",
       "binary": false,
       "categories": [
@@ -1658,10 +1761,11 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "d3765884ed22a58231754f019523051145cd61c6fe0ff5d556cffc213f0763ab",
-      "deletions": 1,
-      "evidence_commit_count": 2,
+      "current_sha256": "cfce03be29616436543cfe4aa6ef4b2d020d50f131e1c7bb0289ea5fb2e5e849",
+      "deletions": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -1675,7 +1779,7 @@
       "status": "modified"
     },
     {
-      "additions": 1,
+      "additions": 2,
       "baseline_sha256": "493105aa748f4072ec61b7d66e2d4500f11060410927a8ff65a907c8ccb33142",
       "binary": false,
       "categories": [
@@ -1683,10 +1787,11 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "e3a650be18d4a66a179cd3384a1ce7dca8a5499595636b3b546726e304247683",
-      "deletions": 1,
-      "evidence_commit_count": 2,
+      "current_sha256": "ca9f59c4cbcc25d19e267c6bb530cefd2f451597d1f726ed5498f2120e6f666f",
+      "deletions": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -1700,7 +1805,7 @@
       "status": "modified"
     },
     {
-      "additions": 1,
+      "additions": 2,
       "baseline_sha256": "12ac1bf34b18a61ba721197d6613b5caddf42722b64935cac2ea715ec7b90792",
       "binary": false,
       "categories": [
@@ -1708,10 +1813,11 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "4beca2f5b362176bd4c199e6df27ddf5861a3248b8828d385009c07c149e31b9",
-      "deletions": 1,
-      "evidence_commit_count": 2,
+      "current_sha256": "517750145748f789bd9550e4b23e724777fe0b09faf27cf0f42513d63d1115c4",
+      "deletions": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -1725,7 +1831,7 @@
       "status": "modified"
     },
     {
-      "additions": 1,
+      "additions": 4,
       "baseline_sha256": "766c7d2b7740cd49936d16c1f4654fbbc0e7319f9c80ffd68e492c3ccc8a0157",
       "binary": false,
       "categories": [
@@ -1733,10 +1839,11 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "90149c01876564d823527a5d7783777783c520e5d1e423b6919f8cac44f657ef",
-      "deletions": 1,
-      "evidence_commit_count": 2,
+      "current_sha256": "240cd9b1cb416f82ed118d14143bc2761268c87670e9c35246b44afc74f07b18",
+      "deletions": 4,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -1750,7 +1857,7 @@
       "status": "modified"
     },
     {
-      "additions": 2,
+      "additions": 4,
       "baseline_sha256": "ddc8bcad07460d3502cba05f7629ee4cdc0e096bbe3858b67a0607067405d1f4",
       "binary": false,
       "categories": [
@@ -1758,10 +1865,11 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "44e8f10323eccdbd18b8134a0a3a611582b92a91861606d5c6426c2cc44a96c7",
-      "deletions": 2,
-      "evidence_commit_count": 2,
+      "current_sha256": "179be891ba99154757741c42bcb899e06dcd872074f278cebbcbd96b9d748e95",
+      "deletions": 4,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -1775,7 +1883,7 @@
       "status": "modified"
     },
     {
-      "additions": 1,
+      "additions": 2,
       "baseline_sha256": "bce97406190ac756d93a83f273c6947ec2a7a7c2dd853f8304e4287d3d134f87",
       "binary": false,
       "categories": [
@@ -1783,10 +1891,11 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "59389772da5f1331d5976ab3544f837eaf79147f3648e01fca7f07fdd43a70be",
-      "deletions": 1,
-      "evidence_commit_count": 2,
+      "current_sha256": "28f84b949f318d389b85207fbb5852f3705e8780054e99c3b4ca3724dcf7d705",
+      "deletions": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -2251,39 +2360,65 @@
     },
     {
       "additions": 1,
+      "baseline_sha256": "2407a5cd93c7376b46f8ad20e1310cc0ecf92e4ed3183fe14f43cfd4eb8629c2",
+      "binary": false,
+      "categories": [
+        "test_fixture"
+      ],
+      "current_sha256": "464727975c00667aae6f190bffb6d7f988f5ef9c6f6aa0fbd35cfc3fd68fb3ba",
+      "deletions": 1,
+      "evidence_commit_count": 2,
+      "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "test.path"
+      ],
+      "path": "codex-rs/core/tests/common/test_codex.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 6,
       "baseline_sha256": "eedf3eb43f5568e3a5d14c4cb55d679d380564e3a6841ec0ba0925985e5c0f21",
       "binary": false,
       "categories": [
         "brand_home",
+        "provider_model",
         "test_fixture"
       ],
-      "current_sha256": "3b0f3a11d3dc353896111f45690823b35d3dcbd86ece34873dc127e5d593eab3",
-      "deletions": 1,
-      "evidence_commit_count": 2,
+      "current_sha256": "96c76a055906ad3704956d15fabedb00d2a89f6cfad8b2ff1369b08f1b7c5672",
+      "deletions": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "a02c6eb714edbb4d1cb03a34b012cfdb5730f60a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "brand.strong_path_or_symbol",
+        "provider.strong_path_or_symbol",
         "test.path"
       ],
       "path": "codex-rs/core/tests/common/test_codex_exec.rs",
       "status": "modified"
     },
     {
-      "additions": 8,
+      "additions": 26,
       "baseline_sha256": "07ed80963631bc738dc6bbb1a02117179810fe5917b7e26f9e99ee8276817123",
       "binary": false,
       "categories": [
         "brand_home",
         "test_fixture"
       ],
-      "current_sha256": "f9a536803c4193ca45aa91c5dd251ec5c13095f48fa763487efe61128b6c3c3a",
-      "deletions": 8,
-      "evidence_commit_count": 2,
+      "current_sha256": "889e4cdda0e9d399f7d51b76e45672eb05cc832edf3e150defdc372b55ccf305",
+      "deletions": 16,
+      "evidence_commit_count": 4,
       "evidence_commits": [
+        "394aac90082421351c11f6dc263ebc5c28ef0eba",
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -2376,17 +2511,18 @@
       "status": "modified"
     },
     {
-      "additions": 1,
+      "additions": 2,
       "baseline_sha256": "111a49150d672e1c26daeb44166f0c2dcff6fc047434d2fcaf623187216f69d2",
       "binary": false,
       "categories": [
         "brand_home",
         "test_fixture"
       ],
-      "current_sha256": "b13cc6cd90b9de241076b6cb68df69bd74ec9c5a981a376ab75572cb67c6c506",
-      "deletions": 1,
-      "evidence_commit_count": 2,
+      "current_sha256": "985ccbb6e473f071e9949971f50afd8d0d6f6fc77369a70d47dc530d66443aa1",
+      "deletions": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -2513,6 +2649,29 @@
         "test.path"
       ],
       "path": "codex-rs/exec-server/tests/relay/version_skew.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 2,
+      "baseline_sha256": "9029561aa052df273746cc7bf6dc7a3b4b307a211e4bb970a7f3cc1bee0b3f3c",
+      "binary": false,
+      "categories": [
+        "cli_surface",
+        "test_fixture"
+      ],
+      "current_sha256": "7b8b1e7138e8f9d6fd81dd600e7a80b86ee7cb35c936e942e50b1a29f0970afb",
+      "deletions": 0,
+      "evidence_commit_count": 2,
+      "evidence_commits": [
+        "a02c6eb714edbb4d1cb03a34b012cfdb5730f60a",
+        "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "subsystem.cli",
+        "test.path"
+      ],
+      "path": "codex-rs/exec/tests/suite/resume.rs",
       "status": "modified"
     },
     {
@@ -3232,7 +3391,7 @@
       "status": "modified"
     },
     {
-      "additions": 1,
+      "additions": 2,
       "baseline_sha256": "e437b90dac12fda18291c79d326c7e1a41974d7b208d65bf17b1c600ba143fe9",
       "binary": false,
       "categories": [
@@ -3240,10 +3399,11 @@
         "mcp",
         "test_fixture"
       ],
-      "current_sha256": "b4cb49876d858c51764d97ba623f3e213dc92a10b60ea60750adb310b3b83aa8",
-      "deletions": 1,
-      "evidence_commit_count": 4,
+      "current_sha256": "f3b7457432b4f9d43bcf48b472803e4b105f0283d198e9695d115fd72c3c924b",
+      "deletions": 2,
+      "evidence_commit_count": 5,
       "evidence_commits": [
+        "a02c6eb714edbb4d1cb03a34b012cfdb5730f60a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8",
         "d2c6a504f9d4ae9fa593cebc120f31ef11bfec92",
@@ -3552,7 +3712,7 @@
       "status": "modified"
     },
     {
-      "additions": 1,
+      "additions": 2,
       "baseline_sha256": "c7cb6532d1fff792733dbce11f5aa1da09a5153f529adfacf32931d1c0953f1b",
       "binary": false,
       "categories": [
@@ -3560,10 +3720,11 @@
         "mcp",
         "test_fixture"
       ],
-      "current_sha256": "83701c5f8dd618f0836b9e898ee07b1b0b5f5544b56259b00981f9683336e516",
-      "deletions": 1,
-      "evidence_commit_count": 2,
+      "current_sha256": "7245fec00c55bfdb2a09bc1aec2f72ef5d2fe1485bd7f20b5e153d1a3b64bdeb",
+      "deletions": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -4297,7 +4458,7 @@
       "status": "modified"
     },
     {
-      "additions": 1,
+      "additions": 2,
       "baseline_sha256": "d9c25a961687ca1186560010d05752e76fccdb803ecb4279d9477aee3937c16f",
       "binary": false,
       "categories": [
@@ -4305,10 +4466,11 @@
         "test_fixture",
         "tui_experience"
       ],
-      "current_sha256": "8a88ef90f53d86aeea395c1cfb49d1ca7724eb93144a58533de74202041f4109",
-      "deletions": 1,
-      "evidence_commit_count": 2,
+      "current_sha256": "5c5154e821960a1d966d14abbde1f276bf4a8ae13c4c9dba8bfccc6870b02efb",
+      "deletions": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -4322,7 +4484,7 @@
       "status": "modified"
     },
     {
-      "additions": 3,
+      "additions": 4,
       "baseline_sha256": "13da1b217611d3e07a99a46a87ca10a80e0e1c34656ccf9bedc74affb5742685",
       "binary": false,
       "categories": [
@@ -4330,10 +4492,11 @@
         "test_fixture",
         "tui_experience"
       ],
-      "current_sha256": "b1a347b6e5fa4de61fd49099ebb798923abe1237f4e0a7aebd042e855b40e5f3",
-      "deletions": 3,
-      "evidence_commit_count": 2,
+      "current_sha256": "e938d05a8d920cba824875f9ec5c3ef966af0941b50cf46d6f33cb08f4131361",
+      "deletions": 4,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "6820bf661576f577ec01f6ba017506fe91dbb79a",
         "a3da3306857309de49890fdeff4c60627a06fe9a",
         "ca7a0b50503110f1dc1b6b41e97eb0776ddad4a8"
       ],
@@ -4376,35 +4539,35 @@
   "source": "git-index",
   "summary": {
     "by_category": {
-      "app_server_protocol": 46,
+      "app_server_protocol": 47,
       "brand_home": 47,
       "build_release": 9,
       "cache_observability": 3,
-      "cli_surface": 20,
+      "cli_surface": 24,
       "configuration": 5,
       "developer_tooling": 3,
       "documentation": 1,
-      "generated_artifact": 23,
+      "generated_artifact": 25,
       "mcp": 7,
       "protocol_contract": 1,
-      "provider_model": 21,
+      "provider_model": 22,
       "provider_transport": 5,
       "sandbox_exec": 3,
       "session_context": 6,
       "taskspace_domain": 26,
       "taskspace_host_hooks": 57,
-      "test_fixture": 52,
+      "test_fixture": 55,
       "tool_runtime": 7,
       "tui_experience": 16,
       "upstream_backport": 2,
       "wire_sse": 3
     },
     "by_status": {
-      "added": 47,
-      "deleted": 3,
-      "modified": 124
+      "added": 48,
+      "deleted": 4,
+      "modified": 128
     },
-    "path_count": 174
+    "path_count": 180
   },
   "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
   "vendor_path": "third_party/codex-cli"

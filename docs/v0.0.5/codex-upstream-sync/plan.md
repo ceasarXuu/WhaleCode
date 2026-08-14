@@ -1,13 +1,13 @@
 # Codex CLI 主线融合执行计划
 
-- 文档状态：有效，Phase A、Phase B、Phase C、Phase D verified；Phase E 待重基
+- 文档状态：有效，Phase A、Phase B、Phase C、Phase D、Phase E verified
 - Plan Validity：`valid-with-qualifications`
 - 计划性质：覆盖已完成里程碑与剩余工作的唯一执行计划
 - 适用版本：WhaleCode v0.0.5
 - 工作空间：仅 `/home/zhangxu/whalecode-codex`
 - Product Authority：[./decisions.md](decisions.md)
 - Applicable Decisions：D1、D2
-- 当前生产 vendor：Codex CLI `rust-v0.147.0` / `be6e8eac029b183056b7e4402879f15d2c85f61b` + U3 最小 Whale substrate overlay（U4 已验证）
+- 当前生产 vendor：Codex CLI `rust-v0.147.0` / `be6e8eac029b183056b7e4402879f15d2c85f61b` + 已验证 Whale identity、DeepSeek Responses/cache 与 TaskSpace overlay（U17 已收口）
 - 当前候选：U2 资格结论 `direction-supported-with-known-test-risks`；U4 免费 cache final-wire 门禁通过
 - 官方发布依据：[OpenAI Codex Changelog：0.147.0（2026-08-07）](https://learn.chatgpt.com/docs/changelog)
 
@@ -39,7 +39,7 @@
 | 0.147 vendor substrate | U4 verified | vendor 替换只含 8 个 U3 修改路径；U4a 已独立迁移免费缓存合同，U4 cache index gate 通过 | Phase C 按独立工作单元重放 DeepSeek；TaskSpace 保留到 Phase D | 已纳入 U4 原子交付；0 模型请求 |
 | 计划治理 | 1/1 verified | 唯一产品权威、唯一执行计划、历史工件降级和闭环工作单元 | 约束 U1–U17 的范围和停止条件 | 已完成 |
 
-因此，U2 已按纠正后的官方构建合同完成，U3、U4、U5、U7 均已验证；其余单元尚未执行，不表示整个 Codex 主线追赶从零开始。历史工作、已完成单元与剩余工作目标、单位和验收标准不同，不做失真的简单平均百分比。
+因此，U1–U17 均已执行并按各自证据收口。历史工作、已完成单元与延期验证的目标、单位和验收标准不同，不做失真的简单平均百分比。
 
 当前状态应读取为：
 
@@ -48,7 +48,7 @@
 - 0.146 候选初次资格审查：已完成，结论 no-go；
 - no-go 原因的最小增量复核：已完成（U1）；
 - 0.147 候选正式资格：已完成（U2）；结论为 `direction-supported-with-known-test-risks`；
-- 生产 vendor cutover：实现与门禁验证均已完成（U4）；DeepSeek provider、原生 Responses、长上下文、final-wire/cache 与模型目录闭环均已恢复/验证（U5–U10）；TaskSpace 尚未执行。
+- 生产 vendor cutover：实现与门禁验证均已完成（U4）；DeepSeek provider、原生 Responses、长上下文、final-wire/cache 与模型目录闭环均已恢复/验证（U5–U10）；TaskSpace extension、state、RPC、TUI/viewer 与 final-wire 已恢复/验证（U11–U16）；发布闭环已完成（U17）。
 
 ### 2.2 治理后的权威关系
 
@@ -260,7 +260,7 @@ Phase D 的 PLD-006 采用当前 0.147 源码和以下一手资料校验扩展�
 
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| U17 | 完成发布闭环 | release | workspace metadata、`UPSTREAM.md`、最终 migration report | 来源、生成物、Linux 支持矩阵 | 更新 provenance 文档，刷新/验证机械工件，跑官方 Cargo 全量无模型回归和 CLI smoke，明确 TUI/Windows deferred | 形成可追溯的 0.147 substrate、Whale overlay 与真实通过/延期清单 | 防止局部通过误报为整体完成 | Complexity：无生产代码或新发布框架；Reach/Cost：全 workspace 构建/测试耗时，0 模型请求 | fmt、workspace all-target check/test、CLI build/smoke、schema/lock clean、免费 cache gate、provenance、Git clean | 跨产品失败回到归属 U 单元，不在收口阶段扩张；live baseline 不晋升 | not-started |
+| U17 | 完成发布闭环 | release | workspace metadata、`UPSTREAM.md`、最终 migration report | 来源、生成物、Linux 支持矩阵 | 已更新 provenance 文档，刷新并验证机械工件，完成 Linux Cargo/CLI/缓存矩阵并逐项归因非全绿测试 | 已形成可追溯的 0.147 substrate、180 路径 Whale overlay 与真实通过/延期清单 | 防止局部通过误报为整体完成 | Complexity：除上游测试夹具适配外无生产代码或新发布框架；Reach/Cost：全 workspace 构建/测试耗时，0 模型请求 | fmt、all-target check、CLI build/smoke、schema/lock clean、免费 cache 7/7、exec 73/73、MCP 4/4；workspace 非全绿项已按产品差异/环境限制登记 | TUI/Windows、OpenAI hosted/Bedrock、V8 非 sandbox 制品和 watcher 限制继续延期；live baseline 未晋升 | verified |
 
 退出条件：U17 verified；所有修改已提交并 push；工作树 clean；延期项未被表述为通过。
 
@@ -278,7 +278,7 @@ Phase D 的 PLD-006 采用当前 0.147 源码和以下一手资料校验扩展�
 | Phase B | 已完成 | vendor 对齐 0.147 且只保留 U3 seam；U4a 独立迁移免费缓存合同，cache index gate 通过；live baseline 仍保持失败状态 | D2 | covered + engineering-only | 进入 Phase C rebase gate |
 | Phase C | 已完成 | PLD-004/005 已批准；U5–U10 已恢复 provider、原生 Responses、开发期 guard、1M/755K 与 Flash→Pro 压缩、Standard final-wire/cache；U6 使 Flash/Pro 可见、公共列表仅保留 DeepSeek，并保持 Flash 默认；未触及 TaskSpace | D1、D2 | covered + engineering-only | Phase D rebase 与 PLD-006 审批已完成 |
 | Phase D | 已完成 | U11–U16 verified；旧库 bridge、canonical kernel/store、extension runtime、RPC/event/schema、TUI/viewer 与免费 final-wire/cache 均已闭环；Standard 默认路径不变 | D2 | covered + engineering-only | 进入 Phase E rebase gate |
-| Phase E | 待执行 | 待记录 | D1、D2 | 待分类 | U17 后审计 |
+| Phase E | 已完成 | U17 已刷新 provenance/overlay/replay，完成 Linux 构建、离线 CLI、schema、免费 cache 与分层测试；非全绿项均保留真实签名和延期边界 | D1、D2 | covered + engineering-only | 主线 0.147 融合计划收口；后续延期项进入各自产品/平台单元 |
 
 ## 7. Pending Product Decisions
 
@@ -291,7 +291,7 @@ Phase D 的 PLD-006 采用当前 0.147 源码和以下一手资料校验扩展�
 
 ## 8. 执行与提交边界
 
-执行顺序当前到达 `... -> U15 service/RPC/event/schema（已验证） -> U16 TUI/viewer/final-wire/cache（已验证）`。下一步进入 Phase E rebase gate，再按重基结果执行 U17 发布收口；不得恢复旧 core/session/provider 专用分支或 `provider_wire_trace`。至今未消耗真实回归预算，也未晋升 live baseline。
+执行顺序已到达 `... -> U15 service/RPC/event/schema（已验证） -> U16 TUI/viewer/final-wire/cache（已验证） -> U17 发布收口（已验证）`。本轮 0.147 主线融合计划至此完成；不得恢复旧 core/session/provider 专用分支或 `provider_wire_trace`。全程未消耗真实回归预算，也未晋升 live baseline。详细证据见 [U17 发布收口报告](../../migration/codex-sync/2026-08-14-u17-release-closeout.md)。
 
 - 每个 U 单元至少一个独立、可理解、已基本验证的 commit，并立即 push。
 - 单元内出现两个可独立回滚的行为主题时继续拆 commit；不得把 vendor 机械替换与产品 overlay 混为一个提交。

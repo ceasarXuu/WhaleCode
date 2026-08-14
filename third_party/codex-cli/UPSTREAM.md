@@ -14,7 +14,7 @@ Imported for WhaleCode as a whole-repo upstream substrate.
 | Immutable baseline tarball | https://codeload.github.com/openai/codex/tar.gz/fed0a8f4faa58db3138488cca77628c1d54a2cd8 |
 | Local vendor path | `third_party/codex-cli/` |
 | Nested Git metadata | Not imported |
-| Current vendor state | `rust-v0.147.0` substrate + U3 minimal Whale identity/home/auth/default overlay |
+| Current vendor state | `rust-v0.147.0` substrate + verified Whale identity, DeepSeek Responses, cache and TaskSpace overlay |
 | Overlay inventory | [`overlay-inventory.json`](../../docs/v0.0.5/codex-upstream-sync/overlay-inventory.json) |
 | Authoritative backport ledger | [`backport-ledger.json`](../../docs/v0.0.5/codex-upstream-sync/backport-ledger.json) |
 | Provenance backlog | [`backport-provenance-backlog.json`](../../docs/v0.0.5/codex-upstream-sync/backport-provenance-backlog.json) |
@@ -31,18 +31,30 @@ maintained patch count. The authoritative ledger records confirmed selective
 backports. Inferred upstream provenance remains separate until its source and
 verification evidence are proved.
 
-Current U4 substrate overlay:
+Current verified Whale overlay:
 
 - `whale` primary CLI binary and top-level command identity.
 - `WHALE_HOME` / `~/.whale` runtime home isolation.
 - Whale-scoped direct and encrypted auth keyring services.
 - `remote_plugin` and `plugin_sharing` remain disabled by default while the
   existing local `plugins` capability remains enabled.
+- Built-in DeepSeek Responses API provider, `DEEPSEEK_API_KEY`, Flash default,
+  visible Flash/Pro catalog, provider accounting, 1M context and Pro-backed
+  compaction.
+- Free final-wire/cache contracts for DeepSeek Standard and TaskSpace; the
+  accepted live cache baseline remains unchanged because no real model run was
+  authorized or required for this refresh.
+- TaskSpace canonical domain and replay state, the single state-runtime store,
+  extension-owned lifecycle/tools/world-state integration, experimental
+  app-server RPC/events, TUI slash routing and the loopback-only viewer.
 
-DeepSeek Responses API, cache, TaskSpace, remaining user-facing branding,
-helper binary names, and release/install behavior are intentionally not part of
-U4. They are replayed and verified by their later closed-loop plan units before
-release.
+The current generated overlay inventory contains 180 changed vendor paths
+relative to the immutable `rust-v0.147.0` tree. This count includes production
+overlay, tests and generated protocol artifacts; it is not a manually
+maintained patch count. OpenAI/ChatGPT login product UI, OpenAI-hosted remote
+plugin sharing and recommendations, Bedrock-specific model catalogs, remaining
+user-facing branding cleanup, Windows validation and the known TaskSpace TUI
+fixture remain outside the verified release matrix.
 
 Every future upstream refresh must update this file and add a matching sync log
 under `docs/migration/codex-sync/`. Validate the current state from the
@@ -51,3 +63,6 @@ repository root with:
 ```text
 python3 scripts/codex-upstream/validate_sync_metadata.py
 ```
+
+The release-closeout evidence is recorded in
+[`2026-08-14-u17-release-closeout.md`](../../docs/migration/codex-sync/2026-08-14-u17-release-closeout.md).

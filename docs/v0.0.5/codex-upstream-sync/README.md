@@ -2,9 +2,9 @@
 
 > 计划治理说明（2026-08-10）：本专题只保留一份工程计划：[plan.md](plan.md)。已完成工作统一记录在该计划的状态表中，详细证据由 execution report 和 ledger 承载；不存在并行或嵌套的历史计划。唯一产品决策权威源为 [decisions.md](decisions.md)。
 
-> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据均已完成；0.147 Phase A、Phase B、Phase C、Phase D 已完成。
+> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据均已完成；0.147 Phase A–E 已完成，平台/产品延期项保持独立登记。
 
-- 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成；Phase A、Phase B、Phase C、Phase D verified；Phase E 待重基
+- 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成；Phase A–E verified
 - 分析日期：2026-08-01
 - 适用版本：WhaleCode v0.0.5
 - Checkpoint B 起始提交：`5331173f158fe6352ba69d78bcaf5038971fc7f1`
@@ -41,6 +41,7 @@
 - [U16 TUI slash 与 typed RPC 路由](../../migration/codex-sync/2026-08-14-u16-taskspace-tui-routing.md)
 - [U16 localhost browser viewer](../../migration/codex-sync/2026-08-14-u16-taskspace-viewer.md)
 - [U16 TaskSpace final-wire 与免费缓存合同](../../migration/codex-sync/2026-08-14-u16-taskspace-final-wire-cache.md)
+- [U17 0.147 发布收口报告](../../migration/codex-sync/2026-08-14-u17-release-closeout.md)
 
 ## 当前批次状态
 
@@ -53,7 +54,7 @@
 - 0.147 U2 首轮 no-go 已撤回并完成重验：官方 sandbox V8、CLI、code-mode-host、app-server 均通过；core 剩余 5 个 `/tmp` 路径用例和 1 个 MCP 时序超时，TUI 剩余 33 个 release snapshot，结论为 `direction-supported-with-known-test-risks`。Checkpoint B 已把 delta/replay 查询工件刷新到 0.147；U3 已证明 6 个生产文件的最小 identity/home/auth/default overlay 可构建，且无需 DeepSeek/TaskSpace stub。
 - U4 已把 vendor 切换到 0.147，只重放 U3 的 8 个修改路径，其中 3 个删除来自官方 Git archive 的 `export-ignore`。U4a 已独立迁移免费缓存合同，U4 cache index gate 通过；accepted live baseline 未晋升。
 - U5 已恢复 DeepSeek provider、环境鉴权与 Flash 默认；U7 已通过无网络 fixture 验证 Pro 原生 `/responses` 请求和 reasoning/text/function-call SSE，未增加生产适配层。
-- U8 已恢复默认关闭、仅供获批开发回归启用的 transport-exact 请求硬门禁，并验证 provider usage 可在 completed terminal 时进入 rollout。U9 已恢复 DeepSeek Flash/Pro 运行时元数据、1M/755K 合同及 Flash→Pro compaction 请求。U10 已锁定 `standard` final-wire 并通过五组免费缓存合同；U6 已恢复 Flash/Pro 可见性、DeepSeek-only 公共列表和 Flash 默认。Phase C 已完成，TaskSpace 尚未执行。
+- U8 已恢复默认关闭、仅供获批开发回归启用的 transport-exact 请求硬门禁，并验证 provider usage 可在 completed terminal 时进入 rollout。U9 已恢复 DeepSeek Flash/Pro 运行时元数据、1M/755K 合同及 Flash→Pro compaction 请求。U10 已锁定 `standard` final-wire 并通过五组免费缓存合同；U6 已恢复 Flash/Pro 可见性、DeepSeek-only 公共列表和 Flash 默认。Phase C 已完成，TaskSpace 随后由 Phase D 收口。
 - U11 已在 state 初始化入口增加精确 checksum 保护的迁移桥：已知旧 Whale `0030/0031` 可保留 TaskSpace 数据并升级到 0.147 migration history；fresh/current 数据库 no-op，未知或部分历史继续由 SQLx fail-closed。没有读取或改写真实用户数据库。
 - U12 已完成：独立 `ext/taskspace` 恢复 canonical model、DAG invariants、transitions、events/replay 与 transactions；34 条测试和 Clippy `-D warnings` 通过，生产代码 1,691 行，低于获批硬上限且无 host/store/protocol 依赖。下一步是 U13 的唯一 state store/CAS/replay adapter。
 - U13 已完成：在现有 `StateRuntime` state DB 上恢复唯一 canonical store、thread binding、commit-id replay 与并发 CAS；fresh/current 使用新 `0047` migration，经 U11 修复的旧表原地复用。生产代码 424 行，`codex-state` 176 条测试和 Clippy 通过。
@@ -64,6 +65,7 @@
 - U15 已收口：`thread/mapRuntimeMode/set` 与 `thread/taskspace/read` 继续只面向已加载线程并要求 experimental API opt-in；`thread/taskspace/updated` 仅在更高 canonical revision 成功落库后发射轻量失效通知，并经 listener FIFO 保持与 turn/resume 通知的顺序。JSON/TS 及 stable/experimental precomputed exports 已重生成；下一步进入 U16。
 - U16 第一段已恢复 `/taskspace` 与 `/task-show` 的 TUI typed RPC 路由：前者按顺序显式启用再读取，后者只读；该原子段以 canonical Map 文本摘要验证了完整路由。
 - U16 已收口：第二段恢复只绑定 loopback 随机端口的 canonical browser viewer；第三段在同一 mock 线程锁定 Standard→TaskSpace 最终 Responses body、公共工具稳定性、conversation prefix、`instructions` 与 `prompt_cache_key`，并把两组 DeepSeek final-wire 纳入完整免费缓存矩阵。Phase D 的 U11–U16 全部 verified，0 真实请求。
+- U17 已收口：当前 overlay/replay 固定为相对 0.147 的 180 条路径；fmt、all-target check、schema 重生成、CLI build/smoke、exec 73/73、MCP 4/4、Skills 87/87 和免费 cache 7/7 通过。app-server 822/858 通过，剩余项属于已延期的 OpenAI hosted/Bedrock 能力或本机 watcher 上限；非 TUI workspace 的其他非全绿项也已按 V8 制品、sandbox 网络表现、OpenAI 模型目录假设和测试波动逐项登记。TUI/Windows 未声明通过，0 真实请求，live baseline 未晋升。
 - replay ledger 和五批 DAG 已降级为非权威证据；后续不得直接按自动 disposition 或路径桶实施，应按 `plan.md` 的 U1–U17 语义闭环推进。
 
 ## 1. 执行摘要
