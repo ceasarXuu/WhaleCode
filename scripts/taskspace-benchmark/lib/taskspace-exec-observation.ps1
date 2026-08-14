@@ -97,7 +97,7 @@ function Get-TaskspaceExecObservation {
                         $mapCalls++
                         continue
                     }
-                    if ([string]$declared.kind -eq 'hosted') {
+                    if ([string]$declared.kind -eq 'provider_attribution') {
                         $providerActions++
                         $nodeBindings += @($declared.value.node_ids).Count
                         continue
@@ -136,9 +136,9 @@ function Get-TaskspaceExecObservation {
                     $findings.Add("exec_result_outer_call_mismatch:$callId")
                 }
                 $clientResults += @($result.client_results).Count
-                $providerResults += @($result.hosted_results).Count
+                $providerResults += @($result.provider_attributions).Count
                 $failedActions += @($result.client_results | Where-Object { [string]$_.outcome -ne 'succeeded' }).Count
-                $failedActions += @($result.hosted_results | Where-Object { [string]$_.outcome -ne 'succeeded' }).Count
+                $failedActions += @($result.provider_attributions | Where-Object { [string]$_.outcome -ne 'succeeded' }).Count
             } catch {
                 $findings.Add("exec_result_invalid:$callId")
                 $integrityFindings.Add("exec_result_invalid:$callId")

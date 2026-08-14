@@ -16,8 +16,10 @@ try {
         initialize_map = [pscustomobject]@{}
         tools = @(
             [pscustomobject]@{ tool = 'exec_command'; node_id = 'inspect'; input = [pscustomobject]@{ cmd = 'pwd' } },
-            [pscustomobject]@{ tool = 'apply_patch'; node_id = 'fix'; input = 'x' },
-            [pscustomobject]@{ tool = 'web_search'; node_ids = @('inspect', 'fix') }
+            [pscustomobject]@{ tool = 'apply_patch'; node_id = 'fix'; input = 'x' }
+        )
+        assign_pending_actions = @(
+            [pscustomobject]@{ action_id = 'provider-action-1'; node_ids = @('inspect', 'fix') }
         )
     }
     $result = [pscustomobject]@{
@@ -26,7 +28,7 @@ try {
             [pscustomobject]@{ outcome = 'succeeded' },
             [pscustomobject]@{ outcome = 'failed' }
         )
-        hosted_results = @([pscustomobject]@{ outcome = 'succeeded' })
+        provider_attributions = @([pscustomobject]@{ outcome = 'succeeded' })
     }
     @(
         [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
@@ -68,7 +70,7 @@ try {
     $sequenceCases = @(
         @('work', @{ type = 'work'; tools = @([pscustomobject]@{ tool = 'exec_command'; node_id = 'n'; input = @{} }) }, 'client'),
         @('update_map', @{ type = 'update_map'; update_map = @{} }, 'map'),
-        @('update_and_work', @{ type = 'update_and_work'; update_map = @{}; tools = @([pscustomobject]@{ tool = 'web_search'; node_ids = @('n') }) }, 'map,hosted'),
+        @('update_and_work', @{ type = 'update_and_work'; update_map = @{}; tools = @([pscustomobject]@{ tool = 'exec_command'; node_id = 'n'; input = @{} }); assign_pending_actions = @([pscustomobject]@{ action_id = 'provider-action-1'; node_ids = @('n') }) }, 'map,client,provider_attribution'),
         @('update_and_finish', @{ type = 'update_and_finish'; update_map = @{}; finish_map = @{} }, 'map,map'),
         @('read_map', @{ type = 'read_map'; read_map = @{} }, 'map'),
         @('reopen_update_and_work', @{ type = 'reopen_update_and_work'; reopen_map = @{}; update_map = @{}; tools = @([pscustomobject]@{ tool = 'exec_command'; node_id = 'n'; input = @{} }) }, 'map,map,client'),
@@ -101,7 +103,7 @@ try {
     $zeroHostedResult = [pscustomobject]@{
         kind = 'taskspace_exec_result'; status = 'completed'; outer_call_id = 'outer-1'
         client_results = @([pscustomobject]@{ outcome = 'succeeded' })
-        hosted_results = @()
+        provider_attributions = @()
     }
     @(
         [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
