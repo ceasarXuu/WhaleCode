@@ -1,7 +1,7 @@
 # Phase B 零基线重建计划
 
 - Created: 2026-08-06
-- Status: Active / Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 same-response pairing retired / PA-00～PA-06 verified / PA-07 partial
+- Status: Active / Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 same-response pairing retired / PA-00～PA-06 verified / PA-07 partial / PA-08 verified offline
 - Supersedes: [`02-engineering-plan.md`](02-engineering-plan.md) 中 TX-06B 之后的兼容迁移顺序
 - Completed foundation: TX-06A (`54fc781fc`)
 - Paid Whale Agent run: 本阶段删除与离线建设不需要
@@ -432,6 +432,7 @@ Agent 通过 `taskspace_exec` 完成节点归属。该变更由 `00-product-cont
 | PA-05 | 建立归属硬门和原子结算 | preflight、handler、canonical Store | 除 `read_map` 外，队列非空要求完整覆盖；校验 ID、重复、多节点和 Work node；Node action 写入与出队同事务；队列非空禁止 finish/end | Runtime 只维护事实和底线，Agent 独占节点选择权 | Complexity: 一个动态硬门和组合事务；Reach: Map revision/finish | partial/wrong/duplicate/multi-node/completed-node/finish/restart；零自动绑定 | verified |
 | PA-06 | 删除旧双写链并收敛反馈 | response scope、preflight error、result、tests、active docs | 删除同响应 actual/declared reconciler、Hosted `tools[]` result、配对错误和提示；反馈只列待归属事实与硬规则 | 不再同时维护两套归属路径，也不诱导 Agent 模拟 Provider Tool | Complexity: 预期净删除；Reach: observer/fixtures/docs | active-symbol audit、TaskSpace tests、observer fixtures | verified |
 | PA-07 | 完成离线与真实验收 | workspace/cache gates、Docker benchmark、run ledger | 先完成 focused/core/Standard/final-wire/cache 门禁，再执行 `provider-web-search-probe × map-request × repeat=3` | 验证归属稳定性、业务结果、请求/token/cache 成本和无新协议异常 | Complexity: tests only；Reach: 真实 API 成本 | Provider 归属 3/3 且 pending 归零；业务和 Map 闭合 2/3。第三轮暴露 Provider-first 初始化形状缺口；旧 base 双写提示已离线删除，待产品决策和最小复验 | partial |
+| PA-08 | 按完整响应校验工作存在性 | sequence schema、response scope、preflight、handler、active docs | 工作型序列的 client `tools[]` 改为可选；Runtime 在统一 preflight 中检查本响应 Provider facts 与 Exec client actions 的并集，任一非空即满足 work | Provider-first 响应可同步初始化/更新 Map，不再要求 `pwd` 等占位 client Tool；真正空 work 仍零副作用拒绝 | Complexity: 复用既有 response scope 的一个机械布尔事实；Reach: 仅 TaskSpace 工作型序列和 Tool schema，Standard 不变 | 结构正反例、preflight OR、response claim、handler 生产链；77/77 focused PASS。真实稳定性与成本待新预算复验 | verified offline |
 
 ### PA Pre-Phase Plan Rebase Gate
 

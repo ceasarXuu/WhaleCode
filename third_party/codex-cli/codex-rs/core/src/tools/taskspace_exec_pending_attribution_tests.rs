@@ -107,9 +107,13 @@ fn pending_actions_are_assigned_by_stable_id_to_agent_selected_nodes() {
         Some(&current),
     );
 
-    let prepared =
-        preflight_taskspace_exec(&envelope, Some(&current), &[pending("provider-action-1")])
-            .unwrap();
+    let prepared = preflight_taskspace_exec(
+        &envelope,
+        Some(&current),
+        &[pending("provider-action-1")],
+        false,
+    )
+    .unwrap();
     assert_eq!(prepared.pending_attributions.len(), 1);
     assert_eq!(
         prepared.pending_attributions[0].action_id,
@@ -133,7 +137,12 @@ fn mutating_sequences_require_the_exact_pending_set() {
         Some(&current),
     );
     assert!(matches!(
-        preflight_taskspace_exec(&envelope, Some(&current), &[pending("provider-action-1")]),
+        preflight_taskspace_exec(
+            &envelope,
+            Some(&current),
+            &[pending("provider-action-1")],
+            false,
+        ),
         Err(TaskSpaceExecPreflightError::PendingAttributionSetMismatch { .. })
     ));
 }
@@ -142,9 +151,13 @@ fn mutating_sequences_require_the_exact_pending_set() {
 fn read_map_may_leave_pending_actions_for_the_next_sequence() {
     let current = open_map();
     let envelope = envelope(json!({"type": "read_map", "read_map": {}}), Some(&current));
-    let prepared =
-        preflight_taskspace_exec(&envelope, Some(&current), &[pending("provider-action-1")])
-            .unwrap();
+    let prepared = preflight_taskspace_exec(
+        &envelope,
+        Some(&current),
+        &[pending("provider-action-1")],
+        false,
+    )
+    .unwrap();
     assert!(prepared.pending_attributions.is_empty());
     assert_eq!(prepared.read_maps.len(), 1);
 }
@@ -173,9 +186,13 @@ fn unknown_duplicate_and_boundary_attributions_are_rejected() {
             json!({"type": "attribute_actions", "assign_pending_actions": entries}),
             Some(&current),
         );
-        let error =
-            preflight_taskspace_exec(&envelope, Some(&current), &[pending("provider-action-1")])
-                .unwrap_err();
+        let error = preflight_taskspace_exec(
+            &envelope,
+            Some(&current),
+            &[pending("provider-action-1")],
+            false,
+        )
+        .unwrap_err();
         match expected_reason {
             "set" => assert!(matches!(
                 error,

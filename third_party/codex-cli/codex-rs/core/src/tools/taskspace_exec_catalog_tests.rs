@@ -122,6 +122,7 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
         .collect::<BTreeMap<_, _>>();
     assert_eq!(sequence_descriptions.len(), 10);
     assert!(sequence_descriptions["initialize_and_work"].contains("Map is blank"));
+    assert!(sequence_descriptions["initialize_and_work"].contains("native Provider Tool action"));
     assert!(sequence_descriptions["work"].contains("already Ready or InFlight"));
     assert!(sequence_descriptions["work"].contains("does not complete its owner"));
     assert!(sequence_descriptions["work"].contains("use update_and_work instead"));
@@ -249,12 +250,26 @@ fn all_ten_legal_sequences_decode_and_old_wire_is_rejected() {
         json!({"calls": []}),
         json!({"hosted_bindings": [{"tool": "web_search", "node_ids": ["work"]}]}),
         json!({"type": "custom", "tools": [client_tool()]}),
-        json!({"type": "work", "tools": []}),
     ] {
         assert!(
             catalog.decode_plan(&old.to_string()).is_err(),
             "accepted {old}"
         );
+    }
+    for provider_only in [
+        json!({
+            "type": "initialize_and_work",
+            "initialize_map": canonical_first_turn_example()["initialize_map"].clone()
+        }),
+        json!({"type": "work"}),
+        json!({"type": "work", "tools": []}),
+    ] {
+        let plan = catalog
+            .decode_plan(&provider_only.to_string())
+            .unwrap_or_else(|error| {
+                panic!("rejected provider-only shape {provider_only}: {error:?}")
+            });
+        assert!(plan.tools.is_empty());
     }
 }
 

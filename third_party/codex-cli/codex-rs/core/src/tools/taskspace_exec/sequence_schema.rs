@@ -63,20 +63,15 @@ pub(super) fn build_sequence_schema(
 
     JsonSchema::object_any_of(
         vec![
-            sequence_with_optional(
+            work_sequence(
                 "initialize_and_work",
-                "Use only when the TaskSpace Map is blank. Initialize the Map, then perform the first Tool work on nodes made Ready by that initialization.",
-                [
-                    ("initialize_map", map_ref("initialize_map")),
-                    ("tools", tools_ref()),
-                ],
-                attribution_field(),
+                "Use only when the TaskSpace Map is blank. Initialize the Map, then perform the first work in this response. Work may be a native Provider Tool action in the response or one or more client actions in `tools`.",
+                [("initialize_map", map_ref("initialize_map"))],
             ),
-            sequence_with_optional(
+            work_sequence(
                 "work",
-                "Use only when every Tool owner is already Ready or InFlight in the current Map. A prior Tool outcome does not complete its owner. If a Map update must complete or change a parent first, use update_and_work instead.",
-                [("tools", tools_ref())],
-                attribution_field(),
+                "Perform work when every client Tool owner is already Ready or InFlight in the current Map. Work may be a native Provider Tool action in the response or one or more client actions in `tools`. A prior Tool outcome does not complete its owner. If a Map update must complete or change a parent first, use update_and_work instead.",
+                [],
             ),
             sequence_with_optional(
                 "update_map",
@@ -84,14 +79,10 @@ pub(super) fn build_sequence_schema(
                 [("update_map", map_ref("update_map"))],
                 attribution_field(),
             ),
-            sequence_with_optional(
+            work_sequence(
                 "update_and_work",
-                "Update the Map first, then perform Tool work that is executable in the resulting Map. Use this to complete or change parent nodes before working on their direct dependents. Only this preceding Map update can unlock Tool owners; Tool outcomes in this sequence do not unlock descendants.",
-                [
-                    ("update_map", map_ref("update_map")),
-                    ("tools", tools_ref()),
-                ],
-                attribution_field(),
+                "Update the Map first, then perform work in this response. Work may be a native Provider Tool action in the response or one or more executable client actions in `tools`. Use this to complete or change parent nodes before working on their direct dependents. Only this preceding Map update can unlock client Tool owners; Tool outcomes in this sequence do not unlock descendants.",
+                [("update_map", map_ref("update_map"))],
             ),
             sequence_with_optional(
                 "update_and_finish",
@@ -107,15 +98,13 @@ pub(super) fn build_sequence_schema(
                 "Read the complete current Map without changing it or performing Tool work.",
                 [("read_map", map_ref("read_map"))],
             ),
-            sequence_with_optional(
+            work_sequence(
                 "reopen_update_and_work",
-                "Use after user feedback requires continuing a finished Map. Reopen it, update the Agent-authored work structure, then perform executable Tool work.",
+                "Use after user feedback requires continuing a finished Map. Reopen it, update the Agent-authored work structure, then perform work in this response. Work may be a native Provider Tool action in the response or one or more executable client actions in `tools`.",
                 [
                     ("reopen_map", map_ref("reopen_map")),
                     ("update_map", map_ref("update_map")),
-                    ("tools", tools_ref()),
                 ],
-                attribution_field(),
             ),
             sequence_with_optional(
                 "finish_map",
@@ -157,6 +146,22 @@ fn sequence_with_optional<const N: usize>(
     schema
 }
 
+fn work_sequence<const N: usize>(
+    sequence_type: &str,
+    description: &str,
+    fields: [(&'static str, JsonSchema); N],
+) -> JsonSchema {
+    let mut schema = sequence(sequence_type, description, fields);
+    let properties = schema
+        .properties
+        .as_mut()
+        .expect("sequence schema is an object");
+    properties.insert("tools".into(), tools_ref());
+    let attribution = attribution_field();
+    properties.insert(attribution.0.into(), attribution.1);
+    schema
+}
+
 fn sequence<const N: usize>(
     sequence_type: &str,
     description: &str,
@@ -178,7 +183,7 @@ fn sequence<const N: usize>(
 }
 
 fn tools_ref() -> JsonSchema {
-    JsonSchema::array(JsonSchema::reference("#/$defs/tool_action"), None).with_min_items(1)
+    JsonSchema::array(JsonSchema::reference("#/$defs/tool_action"), None)
 }
 
 fn attribution_field() -> (&'static str, JsonSchema) {

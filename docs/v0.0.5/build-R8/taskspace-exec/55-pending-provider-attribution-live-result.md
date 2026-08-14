@@ -61,6 +61,10 @@ final-wire 门禁通过。该提示词修复发生在本轮 Subject 之后，尚
 - 缓存基线：不晋升；当前变更继续保持 candidate/release blocked；
 - 后续停点：确认 Provider-first 初始化的合法序列后，才申请最小真实复验预算。
 
+> 2026-08-15 follow-up：该停点已由用户确认并在 PA-08 离线实现。工作存在性改为对完整响应机械检查，当前响应有 Provider
+> fact 或 Exec 内有 client action，任一成立即可；不再要求占位 client Tool。详见
+> [`56-response-level-work-validation-result.md`](56-response-level-work-validation-result.md)。本文件的三轮数据仍保持历史原值。
+
 证据：
 
 - Result: `benchmarks/cache-regression/results/WAR-20260814-225157-CACHE-REGRESSION-3F802FA5.json`

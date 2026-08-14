@@ -106,14 +106,19 @@ impl ToolHandler for TaskSpaceExecHandler {
                     render_envelope_rejection(&error),
                 )
             })?;
-        let prepared = preflight_taskspace_exec(&envelope, current_map.as_ref(), &pending_actions)
-            .map_err(|error| {
-                taskspace_rejection(
-                    "preflight_rejected",
-                    Some(&invocation.call_id),
-                    render_preflight_rejection(&error),
-                )
-            })?;
+        let prepared = preflight_taskspace_exec(
+            &envelope,
+            current_map.as_ref(),
+            &pending_actions,
+            claim.has_provider_work,
+        )
+        .map_err(|error| {
+            taskspace_rejection(
+                "preflight_rejected",
+                Some(&invocation.call_id),
+                render_preflight_rejection(&error),
+            )
+        })?;
         tracing::info!(
             target: "codex_core::taskspace_exec",
             event_name = "taskspace.exec.preflight_accepted",
@@ -440,6 +445,9 @@ fn render_envelope_rejection(error: &TaskSpaceExecEnvelopeError) -> String {
 
 pub(super) fn render_preflight_rejection(error: &TaskSpaceExecPreflightError) -> String {
     match error {
+        TaskSpaceExecPreflightError::ResponseWorkMissing { sequence_type } => format!(
+            "`{sequence_type}` requires work in the current response: use a native Provider Tool or include at least one client action in `taskspace_exec.tools`"
+        ),
         TaskSpaceExecPreflightError::ClientNodeNotExecutable {
             index,
             node_id,

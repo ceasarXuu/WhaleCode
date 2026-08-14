@@ -17,7 +17,7 @@ use super::map_operations::WorkNodeArgs;
 const PROTOCOL: &str = r#"Use `taskspace_exec` as the sole top-level Function Tool for TaskSpace Map operations and client Tool actions. Provider-hosted Tools remain native Provider ToolSpecs; they are not Function Tools. Choose exactly one sequence `type` allowed by the schema.
 
 Tool contract:
-- Put only client Tool actions in the sequence's `tools` array.
+- Put only client Tool actions in the sequence's `tools` array. For a work sequence, `tools` may be omitted or empty only when the current response contains a native Provider Tool action; the Runtime checks work across the complete response.
 - Each client action keeps its native Tool input in `input` and declares one owner `node_id`; namespaced Tools also declare `namespace`.
 - Native Provider Tools execute outside `taskspace_exec`. After a Provider response, the Runtime exposes their stable facts in `TaskSpacePendingProviderActionsR8V1` on the next request.
 - When pending facts are present, copy every exact `action_id` into `assign_pending_actions` and select one or more owner Work-node `node_ids`. Do not repeat Provider Tool input or result. Except for `read_map`, a sequence must assign the complete pending set; unknown, duplicate, or partial assignment is rejected before side effects.

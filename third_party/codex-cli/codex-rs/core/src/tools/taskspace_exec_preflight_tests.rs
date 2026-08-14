@@ -127,9 +127,13 @@ fn complete(node_id: &str) -> Value {
 
 #[test]
 fn l1_initialize_and_work_starts_the_agent_selected_ready_node() {
-    let prepared =
-        preflight_taskspace_exec(&envelope(canonical_first_turn_example(), None), None, &[])
-            .unwrap();
+    let prepared = preflight_taskspace_exec(
+        &envelope(canonical_first_turn_example(), None),
+        None,
+        &[],
+        false,
+    )
+    .unwrap();
     assert_eq!(prepared.client_calls.len(), 1);
     assert_eq!(prepared.client_calls[0].identity.index, 0);
     let map = prepared.candidate_map.unwrap();
@@ -149,6 +153,7 @@ fn l2_work_starts_ready_but_preserves_inflight_nodes() {
         ),
         Some(&current),
         &[],
+        false,
     )
     .unwrap();
     assert_eq!(
@@ -169,6 +174,7 @@ fn l3_pure_update_is_valid_without_forced_followup_work() {
         ),
         Some(&current),
         &[],
+        false,
     )
     .unwrap();
     assert!(prepared.client_calls.is_empty());
@@ -187,6 +193,7 @@ fn l4_parent_completion_unlocks_and_starts_direct_child_work() {
         &envelope(canonical_handoff_example(), Some(&current)),
         Some(&current),
         &[],
+        false,
     )
     .unwrap();
     assert_eq!(
@@ -216,6 +223,7 @@ fn l5_update_and_finish_closes_only_a_ready_finish() {
         &envelope(canonical_finish_example(), Some(&current)),
         Some(&current),
         &[],
+        false,
     )
     .unwrap();
     let map = prepared.candidate_map.unwrap();
@@ -230,6 +238,7 @@ fn l6_read_returns_the_complete_agent_visible_map() {
         &envelope(canonical_read_example(), Some(&current)),
         Some(&current),
         &[],
+        false,
     )
     .unwrap();
     assert_eq!(prepared.read_maps.len(), 1);
@@ -252,7 +261,8 @@ fn l7_reopen_update_and_work_keeps_recovery_agent_authored() {
         "tools": [read_tool("repair")]
     });
     let prepared =
-        preflight_taskspace_exec(&envelope(value, Some(&current)), Some(&current), &[]).unwrap();
+        preflight_taskspace_exec(&envelope(value, Some(&current)), Some(&current), &[], false)
+            .unwrap();
     assert_eq!(
         rooted_dag::node(prepared.candidate_map.as_ref().unwrap(), "repair")
             .unwrap()
@@ -276,6 +286,7 @@ fn l8_finish_closes_a_map_already_ready_to_finish() {
         ),
         Some(&current),
         &[],
+        false,
     )
     .unwrap();
     assert_eq!(
@@ -296,7 +307,7 @@ fn dynamic_node_arguments_patch_and_revision_errors_fail_before_dispatch() {
         ]}),
     ] {
         let envelope = envelope(value, Some(&current));
-        assert!(preflight_taskspace_exec(&envelope, Some(&current), &[]).is_err());
+        assert!(preflight_taskspace_exec(&envelope, Some(&current), &[], false).is_err());
     }
 
     assert!(
@@ -320,7 +331,7 @@ fn dynamic_node_arguments_patch_and_revision_errors_fail_before_dispatch() {
         Some(&request),
     );
     assert!(matches!(
-        preflight_taskspace_exec(&stale, Some(&changed), &[]),
+        preflight_taskspace_exec(&stale, Some(&changed), &[], false),
         Err(TaskSpaceExecPreflightError::RequestContext(_))
     ));
 }
@@ -334,13 +345,31 @@ fn noop_update_and_invalid_finish_are_rejected_without_mutation() {
         Some(&current),
     );
     assert!(matches!(
-        preflight_taskspace_exec(&noop, Some(&current), &[]),
+        preflight_taskspace_exec(&noop, Some(&current), &[], false),
         Err(TaskSpaceExecPreflightError::NoEffectMapUpdate { .. })
     ));
     let finish = envelope(
         json!({"type": "finish_map", "finish_map": {"content": "too soon"}}),
         Some(&current),
     );
-    assert!(preflight_taskspace_exec(&finish, Some(&current), &[]).is_err());
+    assert!(preflight_taskspace_exec(&finish, Some(&current), &[], false).is_err());
     assert_eq!(current, before);
+}
+
+#[test]
+fn provider_work_satisfies_a_work_sequence_across_the_complete_response() {
+    let provider_only = json!({
+        "type": "initialize_and_work",
+        "initialize_map": canonical_first_turn_example()["initialize_map"].clone()
+    });
+
+    let accepted =
+        preflight_taskspace_exec(&envelope(provider_only.clone(), None), None, &[], true).unwrap();
+    assert!(accepted.client_calls.is_empty());
+    assert!(accepted.candidate_map.is_some());
+
+    assert!(matches!(
+        preflight_taskspace_exec(&envelope(provider_only, None), None, &[], false),
+        Err(TaskSpaceExecPreflightError::ResponseWorkMissing { .. })
+    ));
 }

@@ -59,6 +59,17 @@ fn pending_attribution_mismatch_feedback_names_the_exact_recovery_contract() {
     assert!(feedback.contains("assign_pending_actions"));
     assert!(feedback.contains("No Map or Tool actions were executed"));
 }
+
+#[test]
+fn missing_response_work_feedback_names_both_legal_sources() {
+    let feedback = super::handler::render_preflight_rejection(
+        &TaskSpaceExecPreflightError::ResponseWorkMissing {
+            sequence_type: "initialize_and_work".into(),
+        },
+    );
+    assert!(feedback.contains("native Provider Tool"));
+    assert!(feedback.contains("taskspace_exec.tools"));
+}
 use crate::tools::registry::ToolHandler;
 use crate::tools::registry::ToolKind;
 use crate::tools::registry::ToolRegistryBuilder;
@@ -394,6 +405,49 @@ async fn other_top_level_contract_errors_do_not_inject_wrapper_guidance() {
     assert!(!message.contains("do not wrap it in an `arguments` field"));
     assert!(!message.contains("invalid JSON syntax:"));
     assert_eq!(harness.client_handler.calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn provider_work_allows_initialization_without_placeholder_client_work() {
+    let harness = harness(true).await;
+    begin_scope(&harness).await;
+    harness
+        .response_scope
+        .record_completed_item(&ResponseItem::WebSearchCall {
+            id: Some("provider-work".into()),
+            status: Some("completed".into()),
+            action: None,
+        });
+    finalize_scope(&harness);
+
+    harness
+        .handler
+        .handle(invocation(
+            &harness,
+            json!({
+                "type": "initialize_and_work",
+                "initialize_map": initialize_input()
+            }),
+        ))
+        .await
+        .expect("current-response Provider work must satisfy the work sequence");
+
+    assert_eq!(harness.client_handler.calls.load(Ordering::SeqCst), 0);
+    let map = harness
+        .session
+        .canonical_action_map_snapshot()
+        .await
+        .unwrap()
+        .map
+        .expect("Map initialized by Provider-first response");
+    assert_eq!(
+        map.nodes
+            .iter()
+            .find(|node| node.id == "work")
+            .unwrap()
+            .state,
+        "ready"
+    );
 }
 
 #[tokio::test]

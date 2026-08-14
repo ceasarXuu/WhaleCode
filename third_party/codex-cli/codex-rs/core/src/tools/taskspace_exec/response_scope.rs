@@ -44,6 +44,7 @@ pub(crate) struct TaskSpaceExecRequestSnapshot {
 pub(crate) struct TaskSpaceExecResponseClaim {
     pub(crate) request: TaskSpaceExecRequestSnapshot,
     pub(crate) response: TaskSpaceExecResponseIdentity,
+    pub(crate) has_provider_work: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -244,6 +245,7 @@ impl TaskSpaceExecResponseScope {
             response: state.response.clone().ok_or_else(|| {
                 "TaskSpace response has no provider response identity".to_string()
             })?,
+            has_provider_work: !state.hosted_tools.is_empty(),
         })
     }
 
@@ -421,6 +423,7 @@ mod tests {
         assert_eq!(claim.request.map_id, "map-1");
         assert_eq!(claim.request.revision, Some(7));
         assert_eq!(claim.response, response_identity());
+        assert!(claim.has_provider_work);
         logs_assert(|lines: &[&str]| {
             lines
                 .iter()

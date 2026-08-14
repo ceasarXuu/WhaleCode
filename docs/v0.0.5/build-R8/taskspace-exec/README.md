@@ -1,7 +1,7 @@
 # R8 TaskSpace Exec 主方案
 
 - Created: 2026-08-05
-- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 same-response pairing retired / PA-00～PA-06 verified / PA-07 partial
+- Status: Phase B0～B5 engineering complete / Phase B6 LS-01～LS-08 verified offline / LS-09 same-response pairing retired / PA-00～PA-06 verified / PA-07 partial / PA-08 verified offline
 - Priority: Foundation / blocks the existing R8 issue queue
 - Scope: TaskSpace 的唯一 client Tool 入口、合法动作序列、节点归属与 Provider 待归属事实结算
 
@@ -32,6 +32,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
    机械维护这些关联信息。
 9. Agent 在 Ready 节点声明 Tool action 后，Runtime 只机械转为 InFlight；Tool outcome 不自动完成节点。无正向运行证据的
    `blocked` 状态和相关规则从目标模型删除。
+10. 工作型序列按完整响应校验 work：本响应存在原生 Provider Tool action，或 Exec 内存在 client Tool action，满足任一即
+    合法；`tools[]` 不再承担 Provider-first 场景的占位职责。
 
 旧的普通 Tool schema 入侵、顶层结构化序列容器和 `taskspace_control.actions[] + sibling calls` 三条路线只保留历史
 文档证据，active code 直接删除。新方案不维护旧 TaskSpace 可运行性、不增加 adapter 或兼容分支，也不从旧
@@ -43,9 +45,10 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
   入队，下一请求只暴露 `action_id/tool/outcome`；Agent 通过 `assign_pending_actions[{action_id,node_ids}]` 选择归属。
   `tools[]` 现只承载待执行 client Tool。除 `read_map` 外，所有序列必须完整消费请求开始时可见的 pending 集合；Node
   action 写入与出队使用同一 SQLite CAS 事务，队列非空不能绕过 Exec 直接结束。Runtime 不推断节点、不默认 Root，也不因
-  Tool outcome 改变 Node state。74 项 TaskSpace Exec、19 项 State TaskSpace 和 final-wire 快照已离线通过。PA-07
+  Tool outcome 改变 Node state。PA-07
   `repeat=3` 中 Provider 归属和 pending 清空 3/3 通过，业务与 Map 闭合 2/3；第三轮暴露 Provider-first 初始化形状缺口，
-  当前暂停在产品决策点，不晋升缓存基线。
+  当前不晋升缓存基线。PA-08 已把 work 存在性提升到完整响应 preflight：Provider facts 与 Exec client actions 任一非空即
+  合法，真正空 work 才拒绝；77 项 TaskSpace Exec 聚焦测试通过，真实复验尚未执行。
 
 - 最新 Codex 主线仍使用一个 `exec` 入口，将 Function、Freeform 和 Namespace Tool 从原 `ToolSpec` 派生为内部
   ToolDefinition，并把嵌套调用送回统一 Tool runtime。
@@ -208,6 +211,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     原子 Map 结算和离线生产链验收结果。
 56. [`55-pending-provider-attribution-live-result.md`](55-pending-provider-attribution-live-result.md)：待归属队列三轮真实验收、
     归属 3/3、业务 2/3、成本缓存及 Provider-first 初始化决策缺口。
+57. [`56-response-level-work-validation-result.md`](56-response-level-work-validation-result.md)：Provider-first 缺口的回归定位、
+    完整响应 work 校验实现和离线证据。
 
 ## 4. 推进规则
 
