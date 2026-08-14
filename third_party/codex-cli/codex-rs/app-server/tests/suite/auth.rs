@@ -49,18 +49,7 @@ fn create_config_toml_custom_provider(
 }
 
 fn create_config_toml(codex_home: &Path) -> std::io::Result<()> {
-    let config_toml = codex_home.join("config.toml");
-    std::fs::write(
-        config_toml,
-        r#"
-model = "mock-model"
-approval_policy = "never"
-sandbox_mode = "danger-full-access"
-
-[features]
-shell_snapshot = false
-"#,
-    )
+    create_config_toml_custom_provider(codex_home, /*requires_openai_auth*/ true)
 }
 
 fn create_config_toml_forced_login(codex_home: &Path, forced_method: &str) -> std::io::Result<()> {
@@ -144,9 +133,16 @@ async fn get_auth_status_with_api_key() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn personal_access_token_without_email_supports_auth_status_and_account_read() -> Result<()> {
     let codex_home = TempDir::new()?;
-    create_config_toml(codex_home.path())?;
-
     let server = MockServer::start().await;
+    MockResponsesConfig::new("http://127.0.0.1:0")
+        .with_sandbox_mode("danger-full-access")
+        .disable_feature(Feature::ShellSnapshot)
+        .with_root_config(&format!(
+            "chatgpt_base_url = \"{}/backend-api\"",
+            server.uri()
+        ))
+        .with_provider_config("requires_openai_auth = true")
+        .write(codex_home.path())?;
     Mock::given(method("GET"))
         .and(path("/v1/user-auth-credential/whoami"))
         .and(header("Authorization", "Bearer at-test-token"))
@@ -158,6 +154,11 @@ async fn personal_access_token_without_email_supports_auth_status_and_account_re
             "chatgpt_account_is_fedramp": false,
         })))
         .expect(1..)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/backend-api/wham/config/bundle"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
         .mount(&server)
         .await;
 

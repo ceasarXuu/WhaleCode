@@ -3284,8 +3284,8 @@ async fn turn_start_emits_spawn_agent_item_with_model_metadata_v2() -> Result<()
     const CHILD_PROMPT: &str = "child: do work";
     const PARENT_PROMPT: &str = "spawn a child and continue";
     const SPAWN_CALL_ID: &str = "spawn-call-1";
-    const REQUESTED_MODEL: &str = "gpt-5.2";
-    const REQUESTED_REASONING_EFFORT: ReasoningEffort = ReasoningEffort::Low;
+    const REQUESTED_MODEL: &str = "deepseek-v4-flash";
+    const REQUESTED_REASONING_EFFORT: ReasoningEffort = ReasoningEffort::High;
 
     let server = responses::start_mock_server().await;
     let spawn_args = serde_json::to_string(&json!({
@@ -3343,7 +3343,7 @@ async fn turn_start_emits_spawn_agent_item_with_model_metadata_v2() -> Result<()
 
     let ThreadStartResponse { thread, .. } = mcp
         .start_thread(ThreadStartParams {
-            model: Some("gpt-5.4".to_string()),
+            model: Some("deepseek-v4-flash".to_string()),
             ..Default::default()
         })
         .await?;
@@ -3653,9 +3653,9 @@ async fn turn_start_emits_spawn_agent_item_with_effective_role_model_metadata_v2
     const CHILD_PROMPT: &str = "child: do work";
     const PARENT_PROMPT: &str = "spawn a child and continue";
     const SPAWN_CALL_ID: &str = "spawn-call-1";
-    const REQUESTED_MODEL: &str = "gpt-5.2";
-    const REQUESTED_REASONING_EFFORT: ReasoningEffort = ReasoningEffort::Low;
-    const ROLE_MODEL: &str = "gpt-5.4";
+    const REQUESTED_MODEL: &str = "deepseek-v4-flash";
+    const REQUESTED_REASONING_EFFORT: ReasoningEffort = ReasoningEffort::High;
+    const ROLE_MODEL: &str = "deepseek-v4-pro";
     const ROLE_REASONING_EFFORT: ReasoningEffort = ReasoningEffort::High;
 
     let server = responses::start_mock_server().await;
@@ -3732,7 +3732,7 @@ config_file = "./custom-role.toml"
 
     let ThreadStartResponse { thread, .. } = mcp
         .start_thread(ThreadStartParams {
-            model: Some("gpt-5.4".to_string()),
+            model: Some("deepseek-v4-flash".to_string()),
             ..Default::default()
         })
         .await?;

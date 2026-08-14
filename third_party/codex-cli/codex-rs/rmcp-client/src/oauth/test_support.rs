@@ -24,7 +24,7 @@ impl TempCodexHome {
             .unwrap_or_else(PoisonError::into_inner);
         let dir = tempdir().expect("create CODEX_HOME temp dir");
         unsafe {
-            std::env::set_var("CODEX_HOME", dir.path());
+            std::env::set_var("WHALE_HOME", dir.path());
         }
         Self {
             _guard: guard,
