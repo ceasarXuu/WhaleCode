@@ -2,7 +2,7 @@
   "schema_version": 1,
   "baseline_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
   "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
-  "overlay_tree": "e785b9972be0dac48efb940454e88dd49322549c",
+  "overlay_tree": "82f5884ec36ac6ffb48c608c583d929ee1028160",
   "cutover_batches": [
     {
       "id": "batch-1-brand-home",
@@ -1268,6 +1268,35 @@
         "sync metadata validator"
       ],
       "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "provider_model",
+        "taskspace_domain",
+        "test_fixture"
+      ],
+      "current_sha256": "cb72d8391a0f7ce4488308250302995253b29dfc6e0e68dcc9d00d5c10cdeb1f",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/app-server/tests/taskspace_final_wire.rs",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
     },
     {
       "categories": [
@@ -3562,9 +3591,9 @@
     }
   ],
   "summary": {
-    "path_count": 128,
+    "path_count": 129,
     "by_disposition": {
-      "adapt-semantically": 102,
+      "adapt-semantically": 103,
       "defer": 2,
       "reapply-exact": 4,
       "regenerate": 20
@@ -3573,7 +3602,7 @@
       "batch-1-brand-home": 10,
       "batch-2-substrate": 15,
       "batch-3-deepseek-wire": 19,
-      "batch-4-taskspace-multi-agent": 62,
+      "batch-4-taskspace-multi-agent": 63,
       "batch-5-generated-release": 22
     }
   }

@@ -1018,6 +1018,32 @@
       "status": "modified"
     },
     {
+      "additions": 198,
+      "baseline_sha256": null,
+      "binary": false,
+      "categories": [
+        "app_server_protocol",
+        "provider_model",
+        "taskspace_domain",
+        "test_fixture"
+      ],
+      "current_sha256": "cb72d8391a0f7ce4488308250302995253b29dfc6e0e68dcc9d00d5c10cdeb1f",
+      "deletions": 0,
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "3a4138453f16ff7c7ace2cdc0ff93fefaf9bbc45"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "provider.strong_path_or_symbol",
+        "subsystem.app_server",
+        "taskspace.domain_path",
+        "test.path"
+      ],
+      "path": "codex-rs/app-server/tests/taskspace_final_wire.rs",
+      "status": "added"
+    },
+    {
       "additions": 2,
       "baseline_sha256": "37a433be6835d07b4ac0241ec99b79ff73905bbd6b1b043db1d459f5f7152de2",
       "binary": false,
@@ -3240,7 +3266,7 @@
   "source": "git-index",
   "summary": {
     "by_category": {
-      "app_server_protocol": 35,
+      "app_server_protocol": 36,
       "brand_home": 4,
       "build_release": 9,
       "cache_observability": 3,
@@ -3251,23 +3277,23 @@
       "generated_artifact": 23,
       "mcp": 1,
       "protocol_contract": 1,
-      "provider_model": 18,
+      "provider_model": 19,
       "provider_transport": 5,
       "session_context": 6,
-      "taskspace_domain": 25,
+      "taskspace_domain": 26,
       "taskspace_host_hooks": 57,
-      "test_fixture": 9,
+      "test_fixture": 10,
       "tool_runtime": 7,
       "tui_experience": 14,
       "upstream_backport": 2,
       "wire_sse": 3
     },
     "by_status": {
-      "added": 46,
+      "added": 47,
       "deleted": 3,
       "modified": 79
     },
-    "path_count": 128
+    "path_count": 129
   },
   "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
   "vendor_path": "third_party/codex-cli"
