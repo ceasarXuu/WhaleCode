@@ -2051,6 +2051,7 @@ mod tests {
 
         for (subcommand, usage) in [
             ("add", "Usage: whale plugin marketplace add"),
+            ("list", "Usage: whale plugin marketplace list"),
             ("upgrade", "Usage: whale plugin marketplace upgrade"),
             ("remove", "Usage: whale plugin marketplace remove"),
         ] {
