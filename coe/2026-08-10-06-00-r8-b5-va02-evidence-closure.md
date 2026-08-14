@@ -1811,3 +1811,29 @@
   - 计划 repeat=3 在首轮业务失败后按用户停点停止；实际 1 request、12,761 input、3,968 cached、8,793 uncached、1,702 output，估算 USD 0.0017186904。
 - Interpretation: Exec description 内的所谓完整示例只能展示归属登记一侧，无法展示 Provider 原生 response item；模型把缺失一侧补成普通 Function Call。该结果复现 E-046/历史不可拆分措辞中的同类误读，是对第 2 点方向的负向证据，不应通过追加文字或继续 repeat 掩盖。候选不晋升缓存基线，不进入第 3 点。
 - Time: 2026-08-14
+
+## Evidence E-051: 原生 Tool 合同纠正消除伪造 Function Call，但首次归属仍漏登
+- Related hypotheses:
+  - H-022
+  - H-021
+- Direction: supports
+- Type: production-revalidation
+- Source: `WAR-20260814-205255-CACHE-REGRESSION-B97F06E2`
+- Prediction or plan link:
+  - 删除首轮 Hosted 预填示例与“主动 emit 原生 Provider item”指令，应消除
+    `FunctionCall(name=web_search)`，但不预设同响应归属稳定性已经解决。
+- Matched signal:
+  - 提交 `b77663e438bf54d60e729f6f9eb8495537426fcf` 只修改 Agent 可见合同和对应测试；Runtime、对账、
+    Map 和 Provider ToolSpec 未改变，TaskSpace Exec 75/75 通过。
+  - 7 个真实请求中没有顶层 `FunctionCall(name=web_search)`；三项 Provider 原始事实均为
+    `web_search_call`。
+  - 第一响应的 `search succeeded + open_page failed` 被 Runtime 聚合为一个逻辑 `web_search`，但 Agent
+    未在 Exec 中登记，整批按 Hosted mismatch 零副作用拒绝。
+  - 第二响应的原生 `web_search_call(search)` 与一条
+    `web_search + execution=already_executed + node_ids=[search]` 同响应出现并成功对账。
+  - 业务、公开验证、隐藏 oracle 和 5 节点 Map 均闭合；7 requests、191,823 input、156,800 cached、
+    35,023 uncached、6,247 output，估算 USD 0.00709142。
+- Interpretation: E-050 的伪造 Function Call 由错误协议和示例直接诱发，本次修复在真实路径消除了对应形态；
+  但两个独立 response item 的首次共现仍未稳定，I03 不能关闭。证据不支持 Runtime 自动绑定、跨响应 pending、
+  默认 Root 或 Web Search 内部 action 映射，当前缓存候选不晋升。
+- Time: 2026-08-14

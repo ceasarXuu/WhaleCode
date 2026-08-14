@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "run_validity": "valid",
+  "whale_bin_requested": "/home/zhangxu/whalecode-alpha/target/r8-hosted-contract-fix/bin/whale",
+  "whale_bin_resolved": "/home/zhangxu/whalecode-alpha/target/r8-hosted-contract-fix/bin/whale",
+  "whale_binary_exists": true,
+  "whale_binary_last_write_utc": "2026-08-14T12:52:44.1010483Z",
+  "whale_binary_sha256": "9d71abfe54b9ef60c85849536efab271fab8ab0ed2f6695ce1a4ded761cd8d4e",
+  "whale_binary_epoch": 1786711964,
+  "current_git_head": "b77663e438bf54d60e729f6f9eb8495537426fcf",
+  "codex_source_latest_commit": {
+    "hash": "b77663e438bf54d60e729f6f9eb8495537426fcf",
+    "epoch": 1786711719,
+    "time_utc": "2026-08-14T12:48:39.0000000Z",
+    "pathspec": "third_party/codex-cli"
+  },
+  "stale_for_codex_source": false,
+  "stale_allowed": false,
+  "build_attestation_path": "/home/zhangxu/whalecode-alpha/target/r8-hosted-contract-fix/bin/whale.build-attestation.json",
+  "build_attestation_status": "pass",
+  "build_attestation_reason": "",
+  "findings": [],
+  "generated_at": "2026-08-14T20:52:56.6163534+08:00"
+}

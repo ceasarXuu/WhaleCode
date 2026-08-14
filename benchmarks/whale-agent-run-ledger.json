@@ -1,7 +1,122 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-14T05:03:01+08:00",
+  "updated_at": "2026-08-14T20:54:24+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260814-205255-CACHE-REGRESSION-B97F06E2",
+      "record_type": "run_batch",
+      "status": "settled",
+      "started_at": "2026-08-14T20:53:03+08:00",
+      "ended_at": "2026-08-14T20:54:24+08:00",
+      "elapsed_calendar_seconds": 80.968,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "验证修复后 Agent 不再把原生 web_search 伪造为顶层 Function Call，并观察原生 Provider 结果与 taskspace_exec 节点归属双写；用户已明确批准修复后再运行一轮，repeat=1、零重试、任一失败即停止。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260814-R8-HOSTED-CONTRACT-FIX-8C7CDEEF5CAEC7B8",
+        "reference": "用户在要求先修复明确错误后，明确批准再运行一轮；本授权仅覆盖 provider-web-search-probe × map-request × repeat=1，零重试，任一失败即停止。",
+        "budget_summary": {
+          "provider_requests": 12,
+          "input_tokens": 12000000,
+          "output_tokens": 4608000,
+          "elapsed_seconds": 420,
+          "estimated_cost": 2.97024,
+          "currency": "USD"
+        },
+        "note": "严格绑定预算提案 CBP-8C7CDEEF5CAEC7B8。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "1a40bb81ab924b5e94935868ebd201baebf3696c7863f3f2638726756f1ac964",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "provider-web-search-probe"
+        ],
+        "arm_ids": [
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 7,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 191823,
+        "cached_input": 156800,
+        "uncached_input": 35023,
+        "output": 6247
+      },
+      "monetary_cost": {
+        "status": "estimated",
+        "currency": "USD",
+        "amount": 0.00709142,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.00043903999999999997,
+          "uncached_input": 0.004903220000000001,
+          "output": 0.0017491600000000003
+        },
+        "pricing_snapshot": {
+          "currency": "USD",
+          "captured_at": "2026-07-31",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "cached_input_per_million": 0.0028,
+          "uncached_input_per_million": 0.14,
+          "output_per_million": 0.28
+        },
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "按完整 provider token 遥测和冻结价格估算。"
+      },
+      "evidence": {
+        "planned_run_root": "target/r8-hosted-contract-fix/run",
+        "subject_commit": "b77663e438bf54d60e729f6f9eb8495537426fcf",
+        "surface_sha256": "fcc6688136e582e11c91ec90386bdd4682c89324d92be668fc72aae0d76ea235",
+        "proposal_id": "CBP-8C7CDEEF5CAEC7B8",
+        "proposal_contract_sha256": "8dbbb159b1b857701bf336190fac99535f8070ea03fdcd249ea8449f947fcce1",
+        "proposal_path": "benchmarks/cache-regression/proposals/CBP-8C7CDEEF5CAEC7B8.json",
+        "proposal_sha256": "51543d0bb23a4f53b89b70051b2db3faf8ef4b032505279f2ef9942f103b7571",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260814-R8-HOSTED-CONTRACT-FIX-8C7CDEEF5CAEC7B8.json",
+        "authorization_sha256": "a88d50b3bc0bb0a31d567bb487cc8d8bb64a35a3723f83832cb546dd0c014b76",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "provider-web-search-probe"
+          ],
+          "arms": [
+            "map-request"
+          ],
+          "repeat": 1,
+          "planned_sample_runs": 1,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 1,
+          "stop_conditions": [
+            "after_any_run_failure",
+            "after_any_business_failure",
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "验证修复后 Agent 不再把原生 web_search 伪造为顶层 Function Call，并观察原生 Provider 结果与 taskspace_exec 节点归属双写；用户已明确批准修复后再运行一轮，repeat=1、零重试、任一失败即停止。"
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_run_failure",
+          "after_any_business_failure",
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "complete",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260814-205255-CACHE-REGRESSION-B97F06E2/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "c2ce2d0845906285b075ef277de48f34d4839456c7444966b9d44d481085606f",
+        "actual_run_root": "target/r8-hosted-contract-fix/run",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260814-205255-CACHE-REGRESSION-B97F06E2.json",
+        "runner_exit_code": 0,
+        "outcome": "completed"
+      }
+    },
     {
       "record_id": "WAR-20260814-050215-CACHE-REGRESSION-A6B34C65",
       "record_type": "run_batch",

@@ -1,7 +1,7 @@
 # R8 已知问题唯一账本
 
 - Created: 2026-07-31
-- Updated: 2026-08-12
+- Updated: 2026-08-14
 - Authority: R8 当前问题状态的唯一事实源
 - Historical evidence: `docs/v0.0.5/build-R7/47-r7.1-global-issue-register-legacy.md`
 
@@ -217,6 +217,14 @@
 > `function_call(name=web_search)`，而不是 Provider 原生 `web_search_call`。Runtime 正确以顶层 client Tool 逃逸拒绝，
 > Map/client 均零副作用。该“完整示例”只能展示双写的一半，形成结构性误导，候选不晋升缓存基线且不进入第 3 点。
 > 详见 [`taskspace-exec/52-hosted-first-turn-example-stage2-result.md`](taskspace-exec/52-hosted-first-turn-example-stage2-result.md)。
+
+> **Hosted 原生调用合同纠正（2026-08-14）**：提交 `b77663e43` 删除首轮 Hosted 预填示例和“Agent 主动 emit
+> 原生 Provider item”的错误指令，并明确 `web_search` 是原生 ToolSpec、不是 Function Tool；`already_executed` 只记录
+> 当前原生结果的节点归属。真实 `repeat=1` 中不再出现顶层 `FunctionCall(name=web_search)`。第一响应的原生
+> `search + open_page` 正确聚合为一个逻辑 `web_search`，但 Exec 漏登后整批零副作用拒绝；第二响应原生搜索与一条
+> `already_executed` 归属同响应出现并成功对账，随后业务、验证和 5 节点 Map 全部闭合。明确误导已修复，但首次双写仍不稳定，
+> I03 继续 verifying，候选不晋升缓存基线。详见
+> [`taskspace-exec/53-hosted-native-contract-fix-result.md`](taskspace-exec/53-hosted-native-contract-fix-result.md)。
 
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按

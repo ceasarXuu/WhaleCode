@@ -194,6 +194,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 52. [`51-hosted-error-priority-stage1-result.md`](51-hosted-error-priority-stage1-result.md)：Hosted mismatch 优先级的离线与在线阶段证据，以及确定性复合门禁。
 53. [`52-hosted-first-turn-example-stage2-result.md`](52-hosted-first-turn-example-stage2-result.md)：首轮 client/Hosted 合并示例的
     单变量真实失败、成本和顶层 client Function Call 误读证据。
+54. [`53-hosted-native-contract-fix-result.md`](53-hosted-native-contract-fix-result.md)：删除原生 Provider Tool 的错误 Function
+    Call 指令和首轮预填登记后的真实结果、成本、首次漏登与第二响应成功归属证据。
 
 ## 4. 推进规则
 
