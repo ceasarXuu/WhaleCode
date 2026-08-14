@@ -2,7 +2,7 @@
   "schema_version": 1,
   "baseline_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
   "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
-  "overlay_tree": "b318d16515629bd60ea94e2e678b86343c77c8f4",
+  "overlay_tree": "02145f1fcd838a26f0296fe0f956b74cb1a0f8f3",
   "cutover_batches": [
     {
       "id": "batch-1-brand-home",
@@ -175,6 +175,662 @@
     {
       "categories": [
         "app_server_protocol",
+        "generated_artifact",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "2d2171f285b9c3064836bbaa9baf52089df2d85d5c68f90ddf54108ac969f608",
+      "cutover_batch": "batch-5-generated-release",
+      "decision_basis": [
+        "authoritative upstream generator and command are known"
+      ],
+      "depends_on": [
+        "batch-1-brand-home",
+        "batch-2-substrate",
+        "batch-3-deepseek-wire",
+        "batch-4-taskspace-multi-agent"
+      ],
+      "disposition": "regenerate",
+      "generated_kind": "app-server-json-schema",
+      "generated_lineage": {
+        "command": "just write-app-server-schema",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
+        "kind": "app-server-json-schema"
+      },
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/json/ClientRequest.json",
+      "target_sha256": "6ba8920b1eb51583d43829d73a353bb069a888d08ed763a44272440c14efc88f",
+      "upstream_status": "modified",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "generated_artifact",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "f267c4b4d730a2055888015c3e31d928d28c81b6f53099d8eb21ff6cb94af1b8",
+      "cutover_batch": "batch-5-generated-release",
+      "decision_basis": [
+        "authoritative upstream generator and command are known"
+      ],
+      "depends_on": [
+        "batch-1-brand-home",
+        "batch-2-substrate",
+        "batch-3-deepseek-wire",
+        "batch-4-taskspace-multi-agent"
+      ],
+      "disposition": "regenerate",
+      "generated_kind": "app-server-json-schema",
+      "generated_lineage": {
+        "command": "just write-app-server-schema",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
+        "kind": "app-server-json-schema"
+      },
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/json/codex_app_server_protocol.schemas.json",
+      "target_sha256": "f72b2caa3cbfa4298de9e85c62dda6dfbaf2266ffeb916fed30615ca69ff8c74",
+      "upstream_status": "modified",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "generated_artifact",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "b922889cb777da3cce513e4987a6e765849b6a12e6cb79973b65de3835b24540",
+      "cutover_batch": "batch-5-generated-release",
+      "decision_basis": [
+        "authoritative upstream generator and command are known"
+      ],
+      "depends_on": [
+        "batch-1-brand-home",
+        "batch-2-substrate",
+        "batch-3-deepseek-wire",
+        "batch-4-taskspace-multi-agent"
+      ],
+      "disposition": "regenerate",
+      "generated_kind": "app-server-json-schema",
+      "generated_lineage": {
+        "command": "just write-app-server-schema",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
+        "kind": "app-server-json-schema"
+      },
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/json/codex_app_server_protocol.v2.schemas.json",
+      "target_sha256": "f3dec1e031d99a420b137b903f02196d4325eece57620c925bb7130b25f168d2",
+      "upstream_status": "modified",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "generated_artifact"
+      ],
+      "current_sha256": "596b7edb35f6d4423848bd835df51eb731d85b32c9cc2349db36db0c2576bce9",
+      "cutover_batch": "batch-2-substrate",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [
+        "batch-1-brand-home"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server-protocol/schema/precomputed/app-server-exports-experimental.json.zst",
+      "target_sha256": "f012c8367251cf766eda1a733b2224b51ab68cd4893897a8464e889c37939a1b",
+      "upstream_status": "added",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "generated_artifact"
+      ],
+      "current_sha256": "e61bd55dcd6e4fc3e5a7ad5a72a91ba667533cec3a4c5263d75e5e3071e40d3d",
+      "cutover_batch": "batch-2-substrate",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [
+        "batch-1-brand-home"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server-protocol/schema/precomputed/app-server-exports-stable.json.zst",
+      "target_sha256": "84ad8d6156b5a7b7fe574b7d4fb8186257d2f5189869c1876073445b21b6f077",
+      "upstream_status": "added",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "generated_artifact",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "5222be7870ce59e0b461dc0a3e051ed5a8aa4de12a3125846775a4b03cce08bc",
+      "cutover_batch": "batch-5-generated-release",
+      "decision_basis": [
+        "authoritative upstream generator and command are known"
+      ],
+      "depends_on": [
+        "batch-1-brand-home",
+        "batch-2-substrate",
+        "batch-3-deepseek-wire",
+        "batch-4-taskspace-multi-agent"
+      ],
+      "disposition": "regenerate",
+      "generated_kind": "app-server-typescript",
+      "generated_lineage": {
+        "command": "just write-app-server-schema",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
+        "kind": "app-server-typescript"
+      },
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/typescript/v2/MapRuntimeMode.ts",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "generated_artifact",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "2a2ad4a1171c697edb83aab5b0eb5c95ff52b008e67453a2d5ea2b56c26fef4d",
+      "cutover_batch": "batch-5-generated-release",
+      "decision_basis": [
+        "authoritative upstream generator and command are known"
+      ],
+      "depends_on": [
+        "batch-1-brand-home",
+        "batch-2-substrate",
+        "batch-3-deepseek-wire",
+        "batch-4-taskspace-multi-agent"
+      ],
+      "disposition": "regenerate",
+      "generated_kind": "app-server-typescript",
+      "generated_lineage": {
+        "command": "just write-app-server-schema",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
+        "kind": "app-server-typescript"
+      },
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/typescript/v2/TaskSpaceActionReservation.ts",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "generated_artifact",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "e8210c879dcb7b7d0ff8c3e1a4b91d578b62f98f6bdd5cd929f948e57cc67ac3",
+      "cutover_batch": "batch-5-generated-release",
+      "decision_basis": [
+        "authoritative upstream generator and command are known"
+      ],
+      "depends_on": [
+        "batch-1-brand-home",
+        "batch-2-substrate",
+        "batch-3-deepseek-wire",
+        "batch-4-taskspace-multi-agent"
+      ],
+      "disposition": "regenerate",
+      "generated_kind": "app-server-typescript",
+      "generated_lineage": {
+        "command": "just write-app-server-schema",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
+        "kind": "app-server-typescript"
+      },
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/typescript/v2/TaskSpaceBlockRecord.ts",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "generated_artifact",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "992ad0bbbc5d0b6d497a799ee942f1ac6d34ebfbbe9a8f426b6c459cd0f76c6d",
+      "cutover_batch": "batch-5-generated-release",
+      "decision_basis": [
+        "authoritative upstream generator and command are known"
+      ],
+      "depends_on": [
+        "batch-1-brand-home",
+        "batch-2-substrate",
+        "batch-3-deepseek-wire",
+        "batch-4-taskspace-multi-agent"
+      ],
+      "disposition": "regenerate",
+      "generated_kind": "app-server-typescript",
+      "generated_lineage": {
+        "command": "just write-app-server-schema",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
+        "kind": "app-server-typescript"
+      },
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/typescript/v2/TaskSpaceCompletionRecord.ts",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "generated_artifact",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "7b5893beb79b6d23c987838c62c2fa3043e20076e9005e416b99e9c6e3cd8b69",
+      "cutover_batch": "batch-5-generated-release",
+      "decision_basis": [
+        "authoritative upstream generator and command are known"
+      ],
+      "depends_on": [
+        "batch-1-brand-home",
+        "batch-2-substrate",
+        "batch-3-deepseek-wire",
+        "batch-4-taskspace-multi-agent"
+      ],
+      "disposition": "regenerate",
+      "generated_kind": "app-server-typescript",
+      "generated_lineage": {
+        "command": "just write-app-server-schema",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
+        "kind": "app-server-typescript"
+      },
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/typescript/v2/TaskSpaceEvidenceRef.ts",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "generated_artifact",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "e3ba43e46d5190dc83971cfe14f3400eb864223292ff859f300fa97329cb6aac",
+      "cutover_batch": "batch-5-generated-release",
+      "decision_basis": [
+        "authoritative upstream generator and command are known"
+      ],
+      "depends_on": [
+        "batch-1-brand-home",
+        "batch-2-substrate",
+        "batch-3-deepseek-wire",
+        "batch-4-taskspace-multi-agent"
+      ],
+      "disposition": "regenerate",
+      "generated_kind": "app-server-typescript",
+      "generated_lineage": {
+        "command": "just write-app-server-schema",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
+        "kind": "app-server-typescript"
+      },
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/typescript/v2/TaskSpaceMap.ts",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "generated_artifact",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "2d43d977a33aa941b62886937182568d1dd2583fe6fb05d27fa29b9ed4816c24",
+      "cutover_batch": "batch-5-generated-release",
+      "decision_basis": [
+        "authoritative upstream generator and command are known"
+      ],
+      "depends_on": [
+        "batch-1-brand-home",
+        "batch-2-substrate",
+        "batch-3-deepseek-wire",
+        "batch-4-taskspace-multi-agent"
+      ],
+      "disposition": "regenerate",
+      "generated_kind": "app-server-typescript",
+      "generated_lineage": {
+        "command": "just write-app-server-schema",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
+        "kind": "app-server-typescript"
+      },
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/typescript/v2/TaskSpaceMapEdge.ts",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "generated_artifact",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "89ef7f9ddcab18b2497f41c32933f83eef268838f4cf8e938a0abe183aeb028c",
+      "cutover_batch": "batch-5-generated-release",
+      "decision_basis": [
+        "authoritative upstream generator and command are known"
+      ],
+      "depends_on": [
+        "batch-1-brand-home",
+        "batch-2-substrate",
+        "batch-3-deepseek-wire",
+        "batch-4-taskspace-multi-agent"
+      ],
+      "disposition": "regenerate",
+      "generated_kind": "app-server-typescript",
+      "generated_lineage": {
+        "command": "just write-app-server-schema",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
+        "kind": "app-server-typescript"
+      },
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/typescript/v2/TaskSpaceMapNode.ts",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "generated_artifact",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "3a0cc6d05867fc21bc7fb27a93b10ec93df7d1624fec04ad4c53e3025b3f17a6",
+      "cutover_batch": "batch-5-generated-release",
+      "decision_basis": [
+        "authoritative upstream generator and command are known"
+      ],
+      "depends_on": [
+        "batch-1-brand-home",
+        "batch-2-substrate",
+        "batch-3-deepseek-wire",
+        "batch-4-taskspace-multi-agent"
+      ],
+      "disposition": "regenerate",
+      "generated_kind": "app-server-typescript",
+      "generated_lineage": {
+        "command": "just write-app-server-schema",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
+        "kind": "app-server-typescript"
+      },
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/typescript/v2/TaskSpaceResultRef.ts",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "generated_artifact",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "88fe2301d8042c2a54bdbf75fc379933406777215621c63b508e5b32731069fd",
+      "cutover_batch": "batch-5-generated-release",
+      "decision_basis": [
+        "authoritative upstream generator and command are known"
+      ],
+      "depends_on": [
+        "batch-1-brand-home",
+        "batch-2-substrate",
+        "batch-3-deepseek-wire",
+        "batch-4-taskspace-multi-agent"
+      ],
+      "disposition": "regenerate",
+      "generated_kind": "app-server-typescript",
+      "generated_lineage": {
+        "command": "just write-app-server-schema",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
+        "kind": "app-server-typescript"
+      },
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/typescript/v2/TaskSpaceSnapshot.ts",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "generated_artifact",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "9d3b9e06e0d3ef31467c2aba2486471b31c770dabcc7ca9278c7a2d6dd44cae9",
+      "cutover_batch": "batch-5-generated-release",
+      "decision_basis": [
+        "authoritative upstream generator and command are known"
+      ],
+      "depends_on": [
+        "batch-1-brand-home",
+        "batch-2-substrate",
+        "batch-3-deepseek-wire",
+        "batch-4-taskspace-multi-agent"
+      ],
+      "disposition": "regenerate",
+      "generated_kind": "app-server-typescript",
+      "generated_lineage": {
+        "command": "just write-app-server-schema",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
+        "kind": "app-server-typescript"
+      },
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/typescript/v2/TaskSpaceTerminalRecord.ts",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "generated_artifact",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "4eb766bb4e5431ac4173a2efb815876286397202d8b3e0f97b866658447bc624",
+      "cutover_batch": "batch-5-generated-release",
+      "decision_basis": [
+        "authoritative upstream generator and command are known"
+      ],
+      "depends_on": [
+        "batch-1-brand-home",
+        "batch-2-substrate",
+        "batch-3-deepseek-wire",
+        "batch-4-taskspace-multi-agent"
+      ],
+      "disposition": "regenerate",
+      "generated_kind": "app-server-typescript",
+      "generated_lineage": {
+        "command": "just write-app-server-schema",
+        "generator": "codex-rs/app-server-protocol/scripts/write_schema_fixtures.py",
+        "kind": "app-server-typescript"
+      },
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/typescript/v2/index.ts",
+      "target_sha256": "8124794c0dc05f081c4c0537461d98c3cc38656ec9935564565076e7890ad057",
+      "upstream_status": "modified",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "4a1c9c0b93da35a1b58ea564678269262b71d57f5aa140de38aa8f32bb0513bb",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/app-server-protocol/src/protocol/common.rs",
+      "target_sha256": "c0cf823533c377d41f4b2c36f6b2672620a6882c62a36d5d7c8f2135f1ca92c0",
+      "upstream_status": "modified",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol"
+      ],
+      "current_sha256": "78d42926d477c7fc78abcd5d100e96b14fe0330c24047896a6b71587d62a02a2",
+      "cutover_batch": "batch-2-substrate",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [
+        "batch-1-brand-home"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server-protocol/src/protocol/v2/mod.rs",
+      "target_sha256": "0ce95e2de06187de221ec14166506d1f37b4267998639816d273a89a805235ed",
+      "upstream_status": "added",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "a45e92a7c22b310cba6f2a49cd2cb10c9d2d6c857d6e21fef3d1434a63d41d64",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/app-server-protocol/src/protocol/v2/taskspace.rs",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
         "build_release"
       ],
       "current_sha256": "74124c575f573a12dcf88a40c21a6728a2db195fb497cb301d06454cb90bedf3",
@@ -199,9 +855,37 @@
     {
       "categories": [
         "app_server_protocol",
+        "documentation",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "e58b228f5ee4314383a0668196ace70ffcde6d04cf2ca9b11589f77cb0aef3fd",
+      "current_sha256": "6566ae3714ada12a5741923af40f12ee43e75619b77d22932b46646be3fda015",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/app-server/README.md",
+      "target_sha256": "5d7d3da891a81d657c0c8a9192565466654a6d4636f19abaa5dd6af82b9663d4",
+      "upstream_status": "modified",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "4f21801bcae181818d7e4b5af67dc41af8a213266d33371f6719038baec185d5",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -219,6 +903,139 @@
       "upstream_status": "added",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "c178cbf98195ca60bff19a9e97d74c6c97e52695f6fdcd398234b5de9df82a8d",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/app-server/src/mcp_refresh.rs",
+      "target_sha256": "3d3c493fa6d455d90a000964b4be706b4017dcca2f144d98c75c9f22b5a3bbb1",
+      "upstream_status": "added",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "9013ad8456a9cbf2f197cfc7ff1d6d34efed30eb5586213374cf50d20cf73e77",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/app-server/src/message_processor.rs",
+      "target_sha256": "5cda3bc334d2be7cfc54ed156ad94eba2cdd04433fa95453651d0a9cb671b158",
+      "upstream_status": "modified",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "1054d6ba0ed15e4cfe593f28b7e44a42171bd9608709e79e6818287fc9db9069",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/app-server/src/request_processors.rs",
+      "target_sha256": "714774b0143eb05b34bf8a9cd7c293aa24b9d0eb10b48927fa0616c08477bfa6",
+      "upstream_status": "added",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "app_server_protocol",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "ca4e442bbeea4e9f010a8a0e6b0728296f4a99ce72d62381dda34d45e9d6aafc",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/app-server/src/request_processors/taskspace_processor.rs",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "app_server_protocol"
+      ],
+      "current_sha256": "3689684f0b2b712d19ab71621243d5ae0306c09adc49055bdfdf1c33c820f063",
+      "cutover_batch": "batch-2-substrate",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [
+        "batch-1-brand-home"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server/src/request_processors/thread_processor.rs",
+      "target_sha256": "3fbd27112ec6812028be14260ae347c4f9377d3d2ab23ac0c8353bec1789aada",
+      "upstream_status": "added",
+      "verification": [
+        "cargo nextest run -p codex-core",
         "sync metadata validator"
       ],
       "whale_status": "modified"
@@ -2055,18 +2872,19 @@
     }
   ],
   "summary": {
-    "path_count": 78,
+    "path_count": 104,
     "by_disposition": {
-      "adapt-semantically": 72,
+      "adapt-semantically": 83,
       "defer": 2,
-      "reapply-exact": 4
+      "reapply-exact": 4,
+      "regenerate": 15
     },
     "by_cutover_batch": {
       "batch-1-brand-home": 10,
-      "batch-2-substrate": 12,
+      "batch-2-substrate": 16,
       "batch-3-deepseek-wire": 19,
-      "batch-4-taskspace-multi-agent": 35,
-      "batch-5-generated-release": 2
+      "batch-4-taskspace-multi-agent": 42,
+      "batch-5-generated-release": 17
     }
   }
 }
