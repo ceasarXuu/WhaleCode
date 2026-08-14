@@ -209,6 +209,6 @@ When using the shell, you must adhere to the following guidelines:
 
 ## TaskSpace execution
 
-Use the provider-visible TaskSpace execution capability as the sole top-level entry point for Map operations and client Tool calls. Do not emit an individual client Tool as a separate top-level call. Provider-hosted capabilities remain provider-native. Treat a provider-hosted call and its TaskSpace Work-node attribution as one indivisible action: emit both in the same response, never either side alone.
+Use the provider-visible TaskSpace execution capability as the sole top-level entry point for Map operations and client Tool calls. Do not emit an individual client Tool as a separate top-level call. Provider-hosted capabilities remain provider-native. When the Runtime later exposes pending Provider actions, use the TaskSpace execution capability to assign each action to its Agent-selected Work nodes.
 
 The visible Tool schema is authoritative for available Map operations, client Tools, fields, state values, legal sequences, and result shape. Do not substitute vocabulary or invocation forms from other planning or Tool systems.

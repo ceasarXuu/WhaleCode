@@ -9,9 +9,9 @@ use sha2::Sha256;
 pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION: &str = "1.0.2";
 pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256: &str =
     "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382";
-pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "3.0.1";
+pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "3.0.2";
 pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256: &str =
-    "405173391a2d64faba59d02515b17508bb08e2267bf8fc35445a6aec893715b2";
+    "153e4f14d69282909c2acdce08a5967d1316fe979698885491924c923db623ae";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WhaleCodeBaseInstructionsProfile {
@@ -164,6 +164,7 @@ mod tests {
             "update_plan",
             "in_progress",
             "Emit function calls to run terminal commands and apply patches",
+            "emit both in the same response",
             "`apply_patch`",
             "`exec_command`",
             "`taskspace_control`",
