@@ -4,6 +4,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use codex_protocol::models::ResponseItem;
+use codex_protocol::models::WebSearchAction;
 use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::taskspace::TaskSpaceActionOutcome;
 use codex_tools::AdditionalProperties;
@@ -201,5 +202,108 @@ async fn persisted_exec_reaches_map_rollout_and_provider_preparation() {
     assert!(rollout.contains("OutputReferenceV1"));
     assert!(rollout.contains("output-ref://sha256/"));
     assert!(!rollout.contains("PERSISTED_EXEC_SENTINEL"));
+    let _ = tokio::fs::remove_dir_all(home).await;
+}
+
+#[tokio::test]
+async fn provider_action_is_persisted_without_an_outer_exec_call() {
+    let home = std::env::temp_dir().join(format!("taskspace-provider-pending-{}", Uuid::new_v4()));
+    let state_db = codex_state::StateRuntime::init(home.clone(), "test-provider".into())
+        .await
+        .expect("initialize state DB");
+    let (mut session, _turn) = make_session_and_context().await;
+    session.services.state_db = Some(Arc::clone(&state_db));
+    let session = Arc::new(session);
+    let (activation, _) = session
+        .set_persisted_action_map_mode(MapRuntimeMode::Experiment)
+        .await
+        .expect("activate persisted TaskSpace");
+    let map_id = activation.active_map_id.expect("active Map identity");
+
+    let mut builder = ToolRegistryBuilder::new();
+    builder.push_spec_with_parallel_support(
+        ToolSpec::WebSearch {
+            external_web_access: Some(true),
+            filters: None,
+            user_location: None,
+            search_context_size: None,
+            search_content_types: None,
+        },
+        true,
+    );
+    let router = ToolRouter::from_builder_for_test(builder)
+        .into_taskspace(&[])
+        .expect("build TaskSpace router");
+    let response_scope = router.taskspace_response_scope().expect("response scope");
+    response_scope.begin_request(map_id.clone(), None).unwrap();
+    response_scope.record_completed_item(&ResponseItem::WebSearchCall {
+        id: Some("search-step".into()),
+        status: Some("completed".into()),
+        action: Some(WebSearchAction::Search {
+            query: Some("query".into()),
+            queries: None,
+        }),
+    });
+    response_scope.record_completed_item(&ResponseItem::WebSearchCall {
+        id: Some("open-step".into()),
+        status: Some("failed".into()),
+        action: Some(WebSearchAction::OpenPage {
+            url: Some("https://example.com".into()),
+        }),
+    });
+    let facts = response_scope
+        .finalize(
+            true,
+            Some(TaskSpaceExecResponseIdentity {
+                provider_response_id: "response-hosted".into(),
+                provider_request_id: Some("request-hosted".into()),
+                provider_logical_request_id: Some("logical-hosted".into()),
+                provider_attempt_seq: Some(1),
+            }),
+        )
+        .expect("finalize Hosted response without Exec");
+    session
+        .persist_pending_provider_actions(facts)
+        .await
+        .expect("persist pending Provider Action");
+
+    let pending = state_db
+        .load_taskspace_pending_provider_actions(session.conversation_id, Some(&map_id))
+        .await
+        .expect("load pending Provider Actions");
+    assert_eq!(
+        pending.len(),
+        1,
+        "search/open remain one logical Tool Action"
+    );
+    assert_eq!(pending[0].tool_name, "web_search");
+    assert_eq!(pending[0].outcome, TaskSpaceActionOutcome::Succeeded);
+    assert_eq!(
+        pending[0].action_id,
+        "taskspace/provider/response-hosted/web_search"
+    );
+
+    let prepared = session
+        .prepare_provider_visible_prompt_items(&_turn, Vec::new())
+        .await
+        .expect("prepare request with pending Provider Action");
+    let rendered = prepared
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            ResponseItem::Message { content, .. } => Some(content),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|content| match content {
+            codex_protocol::models::ContentItem::InputText { text }
+            | codex_protocol::models::ContentItem::OutputText { text } => Some(text),
+            _ => None,
+        })
+        .find(|text| text.contains("TaskSpacePendingProviderActionsR8V1:"))
+        .expect("pending Action context is visible");
+    assert!(rendered.contains("taskspace/provider/response-hosted/web_search"));
+    assert!(rendered.contains("\"tool\":\"web_search\""));
+    assert!(!rendered.contains("https://example.com"));
     let _ = tokio::fs::remove_dir_all(home).await;
 }

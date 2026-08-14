@@ -5,6 +5,9 @@ use super::session::Session;
 use crate::action_map::rooted_dag::ActionOutcome;
 use crate::tools::taskspace_exec::TaskSpacePendingProviderActionFact;
 
+pub(crate) const TASKSPACE_PENDING_PROVIDER_ACTIONS_MARKER: &str =
+    "TaskSpacePendingProviderActionsR8V1:";
+
 impl Session {
     pub(crate) async fn persist_pending_provider_actions(
         &self,
@@ -44,6 +47,35 @@ impl Session {
         }
         Ok(())
     }
+
+    pub(crate) async fn pending_provider_actions_context(
+        &self,
+        map_id: &str,
+    ) -> Result<Option<String>, String> {
+        let pending = self
+            .require_taskspace_state_db()?
+            .load_taskspace_pending_provider_actions(self.conversation_id, Some(map_id))
+            .await
+            .map_err(|error| format!("TaskSpace pending Provider Action read failed: {error}"))?;
+        if pending.is_empty() {
+            return Ok(None);
+        }
+        let actions = pending
+            .into_iter()
+            .map(|action| {
+                serde_json::json!({
+                    "action_id": action.action_id,
+                    "tool": action.tool_name,
+                    "outcome": outcome_name(action.outcome),
+                })
+            })
+            .collect::<Vec<_>>();
+        let body = serde_json::to_string(&serde_json::json!({ "actions": actions }))
+            .map_err(|error| format!("pending Provider Action rendering failed: {error}"))?;
+        Ok(Some(format!(
+            "{TASKSPACE_PENDING_PROVIDER_ACTIONS_MARKER}\n{body}\nTaskSpacePendingProviderActionsR8V1 end.\n"
+        )))
+    }
 }
 
 fn protocol_outcome(outcome: ActionOutcome) -> Result<TaskSpaceActionOutcome, String> {
@@ -54,5 +86,14 @@ fn protocol_outcome(outcome: ActionOutcome) -> Result<TaskSpaceActionOutcome, St
         ActionOutcome::Pending => {
             Err("Provider Action completed with a non-terminal outcome".to_string())
         }
+    }
+}
+
+fn outcome_name(outcome: TaskSpaceActionOutcome) -> &'static str {
+    match outcome {
+        TaskSpaceActionOutcome::Pending => "pending",
+        TaskSpaceActionOutcome::Succeeded => "succeeded",
+        TaskSpaceActionOutcome::Failed => "failed",
+        TaskSpaceActionOutcome::Cancelled => "cancelled",
     }
 }
