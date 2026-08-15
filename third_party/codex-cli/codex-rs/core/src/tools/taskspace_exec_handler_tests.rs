@@ -394,6 +394,41 @@ async fn other_top_level_contract_errors_do_not_inject_wrapper_guidance() {
 }
 
 #[tokio::test]
+async fn initialize_map_type_feedback_reports_expected_and_actual_types() {
+    let harness = harness(false).await;
+    begin_scope(&harness).await;
+    finalize_scope(&harness);
+    let arguments = json!({
+        "type": "initialize_and_work",
+        "initialize_map": initialize_input().to_string(),
+        "tools": [inspect_action(json!({}))]
+    });
+
+    let result = harness
+        .handler
+        .handle(invocation(&harness, arguments))
+        .await;
+    let error = match result {
+        Ok(_) => panic!("string initialize_map must be rejected"),
+        Err(error) => error,
+    };
+    let message = error.to_string();
+
+    assert!(message.contains("$.initialize_map: expected JSON type object, got string"));
+    assert!(message.contains("No Map or Tool actions were executed"));
+    assert_eq!(harness.client_handler.calls.load(Ordering::SeqCst), 0);
+    assert!(
+        harness
+            .session
+            .canonical_action_map_snapshot()
+            .await
+            .unwrap()
+            .map
+            .is_none()
+    );
+}
+
+#[tokio::test]
 async fn provider_work_allows_initialization_without_placeholder_client_work() {
     let harness = harness(true).await;
     begin_scope(&harness).await;

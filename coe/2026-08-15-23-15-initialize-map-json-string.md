@@ -1,7 +1,7 @@
 # Problem P-001: initialize_map 偶发被二次序列化为 JSON string
 - Status: open
 - Created: 2026-08-15 23:15
-- Updated: 2026-08-16 00:35
+- Updated: 2026-08-16 01:20
 - Objective: 确认 `taskspace_exec.initialize_map` 类型错误的实际发生层、频率和可验证根因，避免把模型输出错误误归因给 Runtime。
 - Symptoms:
   - 同一 Function Tool schema 下，Agent 有时把应为 object 的 `initialize_map` 写成包含 JSON 文本的 string。
@@ -199,6 +199,7 @@
 - Evidence gate: satisfied
 - Related evidence:
   - E-005
+  - E-007
 - Conclusion: confirmed
 - Repair design readiness: ready for narrow feedback design; implementation still requires user authorization
 - Next step: 将机械 schema violation 忠实表达为 `expected object, actual string`，不得解析、改写或接受错误值；单独验证恢复率。
@@ -330,3 +331,23 @@
   ```
 - Interpretation: 这是首发错误能够到达 Runtime 的必要背景条件，不足以单独解释为何具体在 `initialize_map` 边界发生。
 - Time: 2026-08-16 00:35
+
+## Evidence E-007: expected/actual 类型反馈通过边界测试
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: focused-test
+- Source: `schema_validation::tests::type_violation_reports_expected_and_actual_types` 与 `taskspace_exec_handler_tests::initialize_map_type_feedback_reports_expected_and_actual_types`
+- Prediction or plan link:
+  - H-004 的窄修复必须把实际类型和期望类型忠实传给 Agent，同时保持零副作用拒绝。
+- Matched signal:
+  - object schema 收到 string 时，校验器与完整 handler 均返回 `expected JSON type object, got string`；Map 未初始化，原生 Tool 未执行。
+- Correlation keys:
+  - `$.initialize_map`
+- Raw content:
+  ```text
+  $.initialize_map: expected JSON type object, got string
+  No Map or Tool actions were executed
+  ```
+- Interpretation: 候选 1 的实现没有引入解析、自愈或语义替代；它只修复已确认的反馈缺失。真实 Agent 恢复率仍需单独运行验证。
+- Time: 2026-08-16 01:20
