@@ -1,7 +1,7 @@
 # Problem P-001: initialize_map 偶发被二次序列化为 JSON string
 - Status: open
 - Created: 2026-08-15 23:15
-- Updated: 2026-08-15 23:15
+- Updated: 2026-08-16 00:35
 - Objective: 确认 `taskspace_exec.initialize_map` 类型错误的实际发生层、频率和可验证根因，避免把模型输出错误误归因给 Runtime。
 - Symptoms:
   - 同一 Function Tool schema 下，Agent 有时把应为 object 的 `initialize_map` 写成包含 JSON 文本的 string。
@@ -19,16 +19,21 @@
   - 错误已存在于 Provider 原始 Function Call；Runtime 没有执行类型改写。
   - repeat=5 首发 object 4 次、string 1 次；string 在下一请求恢复。
   - 五轮首请求 Tool schema、Base Instructions、system section、cache shape、tool_choice 和 payload bytes 相同。
+  - 加上紧邻的同 capability 运行，共 6 个可比首请求：object 4 次、string 2 次；错误并不与初始 Map 节点数或字符数单调相关。
+  - 两次错误首发中的 string 都能独立解析成语义完整的 object；同一调用的 `type`、`tools[]` 和原生 Tool `input` 仍为正确结构。
+  - Chat Completions 适配器只逐段拼接 Provider 返回的 Function `arguments`，不解析或重写嵌套字段。
+  - 当前 `taskspace_exec` 为 `strict: false`，参数 schema 约 25,995 bytes，顶层为 8 个合法序列的 `anyOf`；`initialize_map` 通过 `$ref` 指向 object 定义。协议同时提供了正确 object 示例。
 - Ruled out:
   - Runtime 把正确 object 扭曲为 string。
   - 某轮切换 Tool schema、提示词版本或 tool_choice。
 - Fix criteria:
   - 通过单变量证据确认可控诱因；修复后在简单和复杂 sample 上降低首发类型错误且不损害合法序列表达、反馈语义和缓存。
-- Current conclusion: 这是 Provider/模型生成的嵌套字段二次序列化错误；长期频率和可控诱因尚未坐实。
+- Current conclusion: 这是非 strict Function Call 生成阶段发生的、只改变嵌套 Map 参数表示形式的二次序列化错误。复杂 schema 边界是当前最强候选诱因，但尚无单变量因果证据；现有反馈缺少 expected/actual 类型是已确认的持续放大缺口，不是首发原因。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
+  - H-004
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -125,7 +130,7 @@
 - Depends on:
   - H-001
 - Rationale:
-  - Tool section 为 25,001 bytes，字段嵌套较深；但 4/5 首发正确，不能从共现直接推出因果。
+  - Tool section 为 25,001 bytes，参数 schema 约 25,995 bytes，字段嵌套较深；但正确首发可以承载同样数量甚至更长的 Map，不能从共现直接推出因果。
 - Falsifiable predictions:
   - If true: 只简化一个 schema 变量会稳定降低类型错误，且不损害其他合法序列。
   - If false: 单变量变化不改变错误分布，或引入等量其他结构错误。
@@ -150,11 +155,55 @@
 - Evidence gate: pending
 - Related evidence:
   - E-002
+  - E-003
+  - E-004
 - Conclusion: unverified
 - Repair design readiness: blocked until Evidence gate is satisfied
 - Next step: 暂不实施；先设计最小单变量候选。
 - Blocker:
   - 需要新的产品/预算决策。
+- Close reason:
+  - not closed
+
+## Hypothesis H-004: 类型反馈缺少 expected/actual 会放大一次首发错误
+- Status: confirmed
+- Parent: P-001
+- Claim: 当前拒绝反馈准确指出路径，但没有说明期望类型和实际类型，无法让 Agent 稳定区分“字段内容错误”与“字段被二次序列化”；错误调用进入后续自然历史后，可能被连续复用并扩展成 wrapper 尝试。
+- Layer: feedback-amplifier
+- Factor relation: dependent
+- Depends on:
+  - H-001
+- Rationale:
+  - 该缺口不能解释第一轮为何出错，但可以解释为什么同一错误有时一次恢复、有时耗尽整个请求预算。
+- Falsifiable predictions:
+  - If true: Agent 在收到现有错误后会猜测与实际类型无关的字段、Map 内容或 wrapper，并可能继续产生 string。
+  - If false: Agent 能从现有反馈稳定识别 actual=string、expected=object，并在下一请求可靠纠正。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对比两次首发 string 后的 reasoning、下一次原始 Function Call 和反馈原文。
+  - Signal: 是否准确识别实际类型；是否复用 string；是否引入 `input`/`request` wrapper。
+  - Capture method: 静态解析两个同 capability rollout，不启动新运行。
+  - Event name or marker:
+    - `response_item/function_call_output`
+    - `response_item/reasoning`
+  - Correlation keys:
+    - outer `call_id`
+  - Differentiates from:
+    - H-003 解释首发概率；H-004 只解释错误后的恢复稳定性。
+  - Supports if:
+    - 反馈后出现类型猜测和重复错误，而不是稳定纠正。
+  - Refutes if:
+    - 两次均在下一请求准确纠正且 reasoning 明确认出 actual/expected。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - 沿用原始 rollout。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-005
+- Conclusion: confirmed
+- Repair design readiness: ready for narrow feedback design; implementation still requires user authorization
+- Next step: 将机械 schema violation 忠实表达为 `expected object, actual string`，不得解析、改写或接受错误值；单独验证恢复率。
+- Blocker:
+  - none
 - Close reason:
   - not closed
 
@@ -198,3 +247,86 @@
   ```
 - Interpretation: 排除轮间 schema 切换，但不能证明或排除 schema 本身提高随机错误率。
 - Time: 2026-08-15 23:15
+
+## Evidence E-003: 六个同 capability 首请求与 Map 规模对比
+- Related hypotheses:
+  - H-003
+- Direction: refutes-partial
+- Type: trace-comparison
+- Source: 两组 `single-file-fast-fix` rollout；`taskspace_capability_identity=49fd49b9...`
+- Prediction or plan link:
+  - 检查 Map 规模是否与首发 string 单调相关。
+- Matched signal:
+  - 6 个可比首请求为 4 object / 2 string。正确 object 可包含 3 个 Work 节点、约 391/392 字符，另有 519 字符的正确对象；错误 string 为 3 个 Work 节点、约 428 字符。
+- Correlation keys:
+  - `taskspace_capability_identity=49fd49b9a28b...`
+  - `tools_hash=26188b5a4b39...`
+- Raw content:
+  ```text
+  correct: 1 or 3 work nodes; 255, 391, 392, 519 chars
+  wrong:   3 work nodes; 428 chars (two independent first requests)
+  ```
+- Interpretation: 排除“节点多或 Map 文本长就必然字符串化”；schema 总体认知负荷仍是候选背景因素。
+- Time: 2026-08-16 00:35
+
+## Evidence E-004: 错误只改变 Map 参数的表示层
+- Related hypotheses:
+  - H-003
+- Direction: supports-partial
+- Type: static-and-trace
+- Source: 当前 schema、两次错误首发及 Chat Completions SSE 适配器。
+- Prediction or plan link:
+  - 判断错误是 Map 语义失败、全调用序列化失败，还是一个嵌套边界的表示错误。
+- Matched signal:
+  - string 内部均可解析为包含 Root、Work、Finish 的 object；外层 `type`、`tools[]`、`node_id`、原生 Tool `input` 正常。此前连续失败轨迹还把 `$ref` 对象 `read_map:{}` 写成 `read_map:"{}"`。适配器只执行 `state.arguments.push_str(&arguments)`。
+- Correlation keys:
+  - `call_00_cjuV2QaQEOnSNL1lLudX5743`
+  - `call_00_NUzJiYKgUOeifJAENnv69868`
+- Raw content:
+  ```text
+  initialize_map: "{\"root\":...,\"work_nodes\":...,\"finish\":...}"
+  tools: [{"tool":"exec_command","node_id":"inspect","input":{"cmd":"..."}}]
+  ```
+- Interpretation: 最符合“模型在 Map operation object 边界多做一次序列化”，不支持 Runtime 或整个 Function Call transport 普遍字符串化。
+- Time: 2026-08-16 00:35
+
+## Evidence E-005: 同一反馈后的恢复与连续放大轨迹
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: trace-comparison
+- Source: 当前 Run 2 与紧邻上一轮失败 rollout。
+- Prediction or plan link:
+  - 检查现有反馈能否稳定传递实际类型并支持纠正。
+- Matched signal:
+  - 两次收到完全相同的 `$.initialize_map: value has the wrong JSON type`。当前 Run 2 下一请求复制规范示例后恢复；上一轮前 5 次 `initialize_map` 均为 string，之后尝试 `read_map:"{}"`、`input` wrapper 和 `request` wrapper，10 次均失败。reasoning 多次声称“我传的是 object”，并猜测 `parents`、`tools` 或 harness 序列化。
+- Correlation keys:
+  - `call_00_NUzJiYKgUOeifJAENnv69868`
+  - `call_00_cjuV2QaQEOnSNL1lLudX5743`
+- Raw content:
+  ```text
+  current feedback: $.initialize_map: value has the wrong JSON type
+  prior reasoning: That's strange since I'm passing an object.
+  prior attempts: initialize_map string x5; read_map string; input wrapper x2; initialize_map string; request wrapper
+  ```
+- Interpretation: 反馈语义没有扭曲，但缺失实际/期望类型，导致恢复依赖随机猜中规范示例；错误历史会显著放大请求成本。
+- Time: 2026-08-16 00:35
+
+## Evidence E-006: Provider 非 strict 合同不保证参数符合 schema
+- Related hypotheses:
+  - H-003
+- Direction: supports-background
+- Type: external-primary-source
+- Source: `https://api-docs.deepseek.com/guides/tool_calls` 与 `https://api-docs.deepseek.com/api/create-chat-completion`
+- Prediction or plan link:
+  - 确认当前 Provider 是否在生成阶段强制 schema 合法。
+- Matched signal:
+  - 当前声明为 `strict:false`。DeepSeek 官方文档说明普通 Function Call 的 `arguments` 由模型生成，可能不是合法 JSON 或包含 schema 未定义参数；只有 Beta strict mode 声明保证遵循 schema。
+- Correlation keys:
+  - `strict=false`
+- Raw content:
+  ```text
+  Current taskspace_exec declaration: strict=false
+  ```
+- Interpretation: 这是首发错误能够到达 Runtime 的必要背景条件，不足以单独解释为何具体在 `initialize_map` 边界发生。
+- Time: 2026-08-16 00:35
