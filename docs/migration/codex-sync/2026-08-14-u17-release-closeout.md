@@ -11,6 +11,8 @@
 
 0.147 substrate、Whale identity/home/auth、DeepSeek 原生 Responses、缓存合同和 TaskSpace extension 主链已经形成可构建、可追溯的单一 vendor tree。U17 没有新增生产架构或发布框架，只修正上游测试夹具中仍假设 `codex` 二进制、`CODEX_HOME`、OpenAI 默认 provider 和 `0.0.0` 服务版本的部分，并完成机械工件、Linux 构建、离线 smoke 与分层回归。
 
+2026-08-15 后续收尾修复了 16 项仍硬编码 GPT 模型/effort/tier 的子 Agent 测试夹具，并为当前 vendor 增加宿主隔离回归入口。隔离入口只清理 proxy、ambient sandbox 和共享临时根污染，不修改产品逻辑；原环境噪声定向集合 6/6 通过。最新证据见[子 Agent DeepSeek 夹具修复](../../v0.0.5/codex-upstream-sync/evidence/u17-closure-4f4f5d4c5/subagent-deepseek-fixture-fix.md)与[宿主隔离回归入口](../../v0.0.5/codex-upstream-sync/evidence/u17-closure-4f4f5d4c5/host-isolated-core-tests.md)。剩余 21 个 core lib 与 23 个 core integration 失败保持既有产品延期分类。
+
 当前 overlay inventory 相对固定上游树共 185 条路径：48 added、133 modified、4 deleted。replay ledger 同为 185 条路径，其中 155 `adapt-semantically`、6 `reapply-exact`、20 `regenerate`、4 `defer`。这些数字包含测试和生成物，不代表 185 个手写产品补丁。
 
 全 workspace 测试没有被表述为全绿。剩余失败均保留真实签名，并按已批准产品差异、平台/制品限制、宿主资源限制或上游测试波动登记；U17 没有为了绿色数字启用 OpenAI hosted、Bedrock、remote plugin/sharing 等 Whale 明确关闭或延期的能力。

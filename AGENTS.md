@@ -59,4 +59,5 @@
 - 初次bootstrap按`plan → apply → bash scripts/install-whale-local.sh --scope workspace → doctor --require-binary`执行。日常开工至少运行`require-ready`；需要隔离运行时环境时通过`workspace_context.py exec -- <command>`启动。
 - 门禁失败必须先按稳定诊断码恢复；禁止fallback到PATH上的全局`whale`，禁止复制或迁移legacy `~/.whale`、凭据、history、sessions、plugins或skills。
 - 真实模型运行的账本与预算批准仍是开发流程约束，不得把它实现成Whale产品逻辑或自然语言运行时授权协议。
+- 在本机对当前 Codex vendor 执行完整 crate 回归时，使用 `python3 scripts/codex-upstream/run_isolated_tests.py <nextest 参数>`；不得用宿主代理或共享临时目录产生的失败判断产品回归。定向测试仍可按上游 `just test` 运行。
 - VS Code用户使用`Workspace: Bootstrap Plan`、`Workspace: Bootstrap Apply`、`Workspace: Doctor`任务；权威合同仍是workspace-safety CLI。完整流程见`runbooks/local-workspace-safety.md`。
