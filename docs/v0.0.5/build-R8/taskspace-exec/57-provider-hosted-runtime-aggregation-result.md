@@ -2,7 +2,7 @@
 
 - Date: 2026-08-15
 - Scope: Provider-hosted Tool 的 TaskSpace 记录边界
-- Status: 生产代码已实现，离线验证通过；未执行真实 Whale Agent run
+- Status: 生产代码已实现，离线验证通过；最小真实缓存回归因独立的 Exec 参数类型错误未通过业务验收
 
 ## 1. 产品决策
 
@@ -55,3 +55,21 @@ Provider 聚合在本响应的 client/Map 工作 drain 后执行，因此同响�
 - Provider work 暂时不能表达 Agent 选择的业务节点归属，也不会参与这些节点的完成判断；
 - 无 Map 或名称冲突时 Provider 调用可能完全不进入 Map；诊断日志可观察这一事实；
 - 专用节点是 Runtime 机械账目，不是新的语义编排能力；未来恢复 Provider 管理必须重新做产品设计，不能复活旧双写或 pending。
+
+## 6. 最小真实回归
+
+获批预算 `CBP-1CA2CC90FD60E80B` 在提交 `682164844` 上执行
+`single-file-fast-fix × (standard, map-request) × repeat=1`，零重试。结果不能晋升缓存基线：
+
+| Arm | 业务 | Requests | Input | Cached | Uncached | Output | request 2+ cache |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Standard | passed | 6 | 74,711 | 67,072 | 7,639 | 1,326 | 97.30% |
+| map-request | failed | 10 | 151,194 | 125,056 | 26,138 | 9,340 | 87.18% |
+
+两臂共 16 个 Provider 请求，225,905 input、192,128 cached input、33,777 uncached input、10,666 output，
+已知费用估算为 USD 0.0082532184。map-request 的 10 次 `taskspace_exec` 均在 Map 或 client Tool 副作用前被拒绝：
+首请求把 schema 要求为 object 的 `initialize_map` 编码成了 JSON string，后续请求在错误上下文中重复或改用不存在的
+wrapper。Map 始终未创建，Provider-hosted Tool 也未发生，因此该运行没有触达本专题新增的 Root 归纳路径。
+
+当前可确认缓存结构没有回归；不能据此宣称 Provider 归纳在线通过，也不能把 Exec 参数错误归因为本次 Provider 归纳实现。
+该错误继续归入 I03 的 Function Tool 参数稳定性，不在本专题内扩张修复范围。

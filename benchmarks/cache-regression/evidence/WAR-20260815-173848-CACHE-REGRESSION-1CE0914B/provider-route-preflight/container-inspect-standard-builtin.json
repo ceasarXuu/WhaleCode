@@ -1,0 +1,12 @@
+{
+  "schema_version": "whalecode-provider-route-container-inspect-v1",
+  "profile": "standard",
+  "provider_kind": "builtin",
+  "network_mode": "none",
+  "workspace_read_only": true,
+  "descriptor_key_secret_mounted": true,
+  "descriptor_key_read_only": true,
+  "descriptor_key_source_mount_unique": true,
+  "descriptor_key_mount_identity_confirmed": true,
+  "descriptor_key_env_file": "/run/secrets/deepseek_api_key"
+}
