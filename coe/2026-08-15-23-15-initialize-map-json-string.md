@@ -1,0 +1,200 @@
+# Problem P-001: initialize_map 偶发被二次序列化为 JSON string
+- Status: open
+- Created: 2026-08-15 23:15
+- Updated: 2026-08-15 23:15
+- Objective: 确认 `taskspace_exec.initialize_map` 类型错误的实际发生层、频率和可验证根因，避免把模型输出错误误归因给 Runtime。
+- Symptoms:
+  - 同一 Function Tool schema 下，Agent 有时把应为 object 的 `initialize_map` 写成包含 JSON 文本的 string。
+- Expected behavior:
+  - Agent 生成 schema 合法的 object；非法类型被零副作用拒绝并收到准确反馈。
+- Actual behavior:
+  - 最新 repeat=5 中 1/5 首发为 string，下一请求恢复；紧邻上一轮曾连续十次重复 string。
+- Impact:
+  - Map 初始化延迟或完全失败，请求、token 和时间被放大。
+- Reproduction:
+  - `single-file-fast-fix × map-request × deepseek-v4-flash`，观察首个原始 `taskspace_exec` Function Call。
+- Environment:
+  - Linux Docker benchmark；subject `5e5f01e3f`；Whale binary SHA-256 `38f000033c49...`。
+- Known facts:
+  - 错误已存在于 Provider 原始 Function Call；Runtime 没有执行类型改写。
+  - repeat=5 首发 object 4 次、string 1 次；string 在下一请求恢复。
+  - 五轮首请求 Tool schema、Base Instructions、system section、cache shape、tool_choice 和 payload bytes 相同。
+- Ruled out:
+  - Runtime 把正确 object 扭曲为 string。
+  - 某轮切换 Tool schema、提示词版本或 tool_choice。
+- Fix criteria:
+  - 通过单变量证据确认可控诱因；修复后在简单和复杂 sample 上降低首发类型错误且不损害合法序列表达、反馈语义和缓存。
+- Current conclusion: 这是 Provider/模型生成的嵌套字段二次序列化错误；长期频率和可控诱因尚未坐实。
+- Related hypotheses:
+  - H-001
+  - H-002
+  - H-003
+- Resolution basis:
+  - not satisfied
+- Close reason:
+  - not closed
+
+## Hypothesis H-001: 错误在 Provider 原始 Function Call 中产生
+- Status: confirmed
+- Parent: P-001
+- Claim: `initialize_map` 在进入 Runtime 解码和校验之前已经是 JSON string。
+- Layer: root-cause
+- Factor relation: single
+- Depends on:
+  - none
+- Rationale:
+  - 若原始 rollout 已保存 escaped string，而同一调用的其他字段仍为对象，则 Runtime 不是类型扭曲来源。
+- Falsifiable predictions:
+  - If true: 原始 response item 的 `arguments` 解码后，`initialize_map|type == string`。
+  - If false: 原始字段为 object，只在 Runtime 后续 trace 中变成 string。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 检查 Provider 原始 response item，不读取 Runtime 重建值。
+  - Signal: `payload.arguments` 解码后的字段类型。
+  - Capture method: 解析五轮 `rollout.jsonl` 的首个 `taskspace_exec`。
+  - Event name or marker:
+    - `response_item/function_call/taskspace_exec`
+  - Correlation keys:
+    - outer `call_id`
+  - Differentiates from:
+    - H-002
+  - Supports if:
+    - string 已在原始 Function Call 中出现。
+  - Refutes if:
+    - 原始值始终为 object。
+  - Instrumentation status: permanent-observability-candidate
+  - Instrumentation lifecycle:
+    - 保留原始 rollout 和 outer call identity。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-001
+- Conclusion: confirmed
+- Repair design readiness: blocked until 可控诱因被确认
+- Next step: 检验 schema 嵌套表达的单变量候选，不增加 Runtime 语义修正。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-002: Runtime 把 object 扭曲为 string
+- Status: refuted
+- Parent: P-001
+- Claim: Provider 返回 object，但 Runtime 的上下文、解码或自愈路径把它改成 string。
+- Layer: root-cause
+- Factor relation: single
+- Depends on:
+  - none
+- Rationale:
+  - 该假设符合“先怀疑语义传递”的全局倾向，必须用原始调用证据排除。
+- Falsifiable predictions:
+  - If true: 原始 response item 为 object，Runtime 拒绝时才变成 string。
+  - If false: 原始 response item 已为 string。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 比较原始 Provider call 与 Runtime rejection。
+  - Signal: 原始字段类型和错误路径是否发生副作用。
+  - Capture method: rollout call/output 成对核对。
+  - Event name or marker:
+    - `response_item/function_call_output`
+  - Correlation keys:
+    - outer `call_id`
+  - Differentiates from:
+    - H-001
+  - Supports if:
+    - object 进入 Runtime 后被改写。
+  - Refutes if:
+    - 原始值已是 string 且 Runtime 零副作用拒绝。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-001
+- Conclusion: refuted
+- Repair design readiness: blocked
+- Next step: 不在 Runtime 增加基于错误归因的 object-to-string 修复。
+- Blocker:
+  - none
+- Close reason:
+  - 原始 Provider call 已排除 Runtime 类型扭曲。
+
+## Hypothesis H-003: schema 体积或嵌套深度是可控主因
+- Status: unverified
+- Parent: P-001
+- Claim: 当前 Tool schema 的体积或 `initialize_map` 嵌套表达显著提高了二次序列化概率。
+- Layer: sub-cause
+- Factor relation: unknown
+- Depends on:
+  - H-001
+- Rationale:
+  - Tool section 为 25,001 bytes，字段嵌套较深；但 4/5 首发正确，不能从共现直接推出因果。
+- Falsifiable predictions:
+  - If true: 只简化一个 schema 变量会稳定降低类型错误，且不损害其他合法序列。
+  - If false: 单变量变化不改变错误分布，或引入等量其他结构错误。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 冻结模型、sample、协议和缓存形状，仅改变一个 schema 表达因素。
+  - Signal: 首发字段类型、完整序列正确率、请求/token/cache 和外部正确性。
+  - Capture method: 先做离线 schema 差异审计，再申请受控 A/B 真实预算。
+  - Event name or marker:
+    - `provider.chat_wire_shape_recorded`
+  - Correlation keys:
+    - tools_hash
+    - cache_shape_hash
+  - Differentiates from:
+    - 随机生成波动
+  - Supports if:
+    - 多轮中类型错误显著下降且其他指标不退化。
+  - Refutes if:
+    - 错误不下降或转化为其他结构错误。
+  - Instrumentation status: permanent-observability-candidate
+  - Instrumentation lifecycle:
+    - 沿用现有 Provider wire 和 Exec trace。
+- Evidence gate: pending
+- Related evidence:
+  - E-002
+- Conclusion: unverified
+- Repair design readiness: blocked until Evidence gate is satisfied
+- Next step: 暂不实施；先设计最小单变量候选。
+- Blocker:
+  - 需要新的产品/预算决策。
+- Close reason:
+  - not closed
+
+## Evidence E-001: 五轮原始 Function Call 类型与恢复路径
+- Related hypotheses:
+  - H-001
+  - H-002
+- Direction: supports
+- Type: experiment
+- Source: `docs/v0.0.5/build-R8/taskspace-exec/58-initialize-map-type-repeat5-result.md`
+- Prediction or plan link:
+  - H-001 原始字段类型预测；H-002 反向预测。
+- Matched signal:
+  - Run 2 原始 `initialize_map` 为 string；Runtime 零副作用拒绝；下一请求为 object。
+- Correlation keys:
+  - `call_00_NUzJiYKgUOeifJAENnv69868`
+- Raw content:
+  ```text
+  $.initialize_map: value has the wrong JSON type
+  first-call types: object, string, object, object, object
+  ```
+- Interpretation: 错误发生于模型/Provider Function Call 生成，不是 Runtime 扭曲；本轮频率为 1/5。
+- Time: 2026-08-15 23:15
+
+## Evidence E-002: 五轮首请求合同身份一致
+- Related hypotheses:
+  - H-003
+- Direction: neutral
+- Type: diagnostic-log
+- Source: 五轮 `provider-wire-trace.jsonl` 的 `provider.chat_wire_shape_recorded`
+- Prediction or plan link:
+  - H-003 当前静态合同是否足以解释轮间差异。
+- Matched signal:
+  - tools/base/system/cache-shape/tool_choice/payload-bytes 全部相同。
+- Correlation keys:
+  - `tools_hash=26188b5a...`
+  - `cache_shape_hash=5c8d3ef6...`
+- Raw content:
+  ```text
+  tools_bytes=25001; tools_count=2; tool_choice=auto; provider_payload_bytes=50770
+  ```
+- Interpretation: 排除轮间 schema 切换，但不能证明或排除 schema 本身提高随机错误率。
+- Time: 2026-08-15 23:15

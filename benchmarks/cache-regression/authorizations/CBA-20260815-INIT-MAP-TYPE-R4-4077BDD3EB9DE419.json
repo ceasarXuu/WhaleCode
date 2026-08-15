@@ -1,0 +1,37 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "authorization_id": "CBA-20260815-INIT-MAP-TYPE-R4-4077BDD3EB9DE419",
+  "approval_reference": "用户已批准 single-file-fast-fix、map-request、repeat=5 的总预算；本授权仅消费原批次因 runner 错误停止而未执行的第 4 个观测，不属于重试或新增 sample。",
+  "approved_at": "2026-08-15T22:08:16+08:00",
+  "proposal_id": "CBP-4077BDD3EB9DE419",
+  "proposal_sha256": "70c094f17efa10913f37d01b2231a2f1410916bda1814b1585481ed70e1d0dc7",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 1,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 1,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "原批准 repeat=5 统计批次中的第 4 个独立观测；因 runner 错误地在业务失败后停止批次，改为独立 repeat=1，不重跑前两次。"
+  },
+  "approved_maximums": {
+    "provider_requests": 10,
+    "input_tokens": 10000000,
+    "output_tokens": 3840000,
+    "elapsed_seconds": 420,
+    "estimated_cost": 2.4752,
+    "currency": "USD"
+  }
+}

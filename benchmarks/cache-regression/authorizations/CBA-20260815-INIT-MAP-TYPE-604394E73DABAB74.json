@@ -1,0 +1,37 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "authorization_id": "CBA-20260815-INIT-MAP-TYPE-604394E73DABAB74",
+  "approval_reference": "用户在当前会话明确回复‘批准’，批准 single-file-fast-fix、map-request、repeat=5 的 initialize_map 参数形态统计运行；零重试，业务失败不提前停止。",
+  "approved_at": "2026-08-15T21:47:58+08:00",
+  "proposal_id": "CBP-604394E73DABAB74",
+  "proposal_sha256": "fa24508653ec797acf74921ca5a072d5dd91f75732a1408c06a10e48979f03f6",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 5,
+    "planned_sample_runs": 5,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 5,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "统计当前 map-request 下首个 taskspace_exec.initialize_map 被生成为 object、JSON string 或其他异常形态的频率，并观察后续恢复路径；固定单样本单臂 repeat=5，业务失败不提前停止，零重试。"
+  },
+  "approved_maximums": {
+    "provider_requests": 50,
+    "input_tokens": 50000000,
+    "output_tokens": 19200000,
+    "elapsed_seconds": 2100,
+    "estimated_cost": 12.376,
+    "currency": "USD"
+  }
+}
