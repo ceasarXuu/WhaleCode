@@ -209,3 +209,9 @@ Round 2 指出最初的 fork 测试只证明 production registry + SQLite bindin
 5. fork 上发送 turn，捕获第二个 Responses body，验证 Standard 无 TaskSpace、fork/reload 后存在 `taskspace_control`、`<taskspace_map>` 与同一 map id。
 
 定向命令 `just test -p codex-app-server thread_fork_inherits_taskspace_through_production_extensions --status-level fail --final-status-level fail` 为 1/1 passed。该补证只修改测试，不改变上文 exact production commit 和 94 项全量失败集合。
+
+## 7. 后续修复：子 Agent DeepSeek 夹具
+
+`CL-GPT-SUBAGENT` 2 项与 `CI-GPT-SUBAGENT` 14 项已迁移到 DeepSeek Flash/Pro 合同并恢复通过。完整 core integration 从 37 项失败降为 23 项；隔离宿主临时目录与代理变量后的完整 core lib 从 23 个有效失败降为 21 项。详细修改和命令见 `subagent-deepseek-fixture-fix.md`。
+
+本节是后续修复状态，不改写第 1～5 节对提交 `4f4f5d4c55bb527fb842fa4076117ae79badf79d` 的历史审计事实。

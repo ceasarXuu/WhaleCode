@@ -8,6 +8,7 @@ use codex_protocol::ThreadId;
 use codex_protocol::config_types::ReasoningSummary;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::openai_models::ReasoningEffort;
+use codex_protocol::openai_models::ReasoningEffortPreset;
 use codex_protocol::protocol::AgentStatus;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::EventMsg;
@@ -60,16 +61,16 @@ const TURN_0_FORK_PROMPT: &str = "seed fork context";
 const TURN_1_PROMPT: &str = "spawn a child and continue";
 const TURN_2_NO_WAIT_PROMPT: &str = "follow up without wait";
 const CHILD_PROMPT: &str = "child: do work";
-const INHERITED_MODEL: &str = "gpt-5.2";
-const INHERITED_REASONING_EFFORT: ReasoningEffort = ReasoningEffort::XHigh;
-const REQUESTED_MODEL: &str = "gpt-5.4";
-const REQUESTED_REASONING_EFFORT: ReasoningEffort = ReasoningEffort::Low;
-const V2_DEFAULT_MODEL: &str = "gpt-5.6-terra";
-const V2_DEFAULT_REASONING_EFFORT: ReasoningEffort = ReasoningEffort::High;
-const V2_REQUESTED_MODEL: &str = "gpt-5.6-sol";
-const V2_REQUESTED_REASONING_EFFORT: ReasoningEffort = ReasoningEffort::Low;
-const ROLE_MODEL: &str = "gpt-5.4";
-const ROLE_REASONING_EFFORT: ReasoningEffort = ReasoningEffort::High;
+const INHERITED_MODEL: &str = "deepseek-v4-flash";
+const INHERITED_REASONING_EFFORT: ReasoningEffort = ReasoningEffort::Max;
+const REQUESTED_MODEL: &str = "deepseek-v4-pro";
+const REQUESTED_REASONING_EFFORT: ReasoningEffort = ReasoningEffort::High;
+const V2_DEFAULT_MODEL: &str = "deepseek-v4-pro";
+const V2_DEFAULT_REASONING_EFFORT: ReasoningEffort = ReasoningEffort::Max;
+const V2_REQUESTED_MODEL: &str = "deepseek-v4-flash";
+const V2_REQUESTED_REASONING_EFFORT: ReasoningEffort = ReasoningEffort::High;
+const ROLE_MODEL: &str = "deepseek-v4-flash";
+const ROLE_REASONING_EFFORT: ReasoningEffort = ReasoningEffort::Max;
 const SUBAGENT_START_CONTEXT: &str = "subagent start context reaches child";
 const SUBAGENT_STOP_CONTINUATION: &str = "continue only the child";
 const INTERNAL_SUBAGENT_PROMPT: &str = "internal subagent: review";
@@ -376,6 +377,27 @@ async fn wait_for_request_with_model(
         }
         if Instant::now() >= deadline {
             anyhow::bail!("timed out waiting for request using model {model}");
+        }
+        sleep(Duration::from_millis(10)).await;
+    }
+}
+
+async fn wait_for_request_with_model_containing(
+    mock: &core_test_support::responses::ResponseMock,
+    model: &str,
+    text: &str,
+) -> Result<ResponsesRequest> {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        if let Some(request) = mock.requests().into_iter().find(|request| {
+            request.body_json()["model"] == model
+                && request.body_contains_text(text)
+                && !request.body_contains_text(SPAWN_CALL_ID)
+        }) {
+            return Ok(request);
+        }
+        if Instant::now() >= deadline {
+            anyhow::bail!("timed out waiting for request using model {model} containing {text}");
         }
         sleep(Duration::from_millis(10)).await;
     }
@@ -1140,8 +1162,28 @@ async fn spawned_full_history_v2_child_uses_model_precedence_without_dropping_co
     test.submit_turn(TURN_1_PROMPT).await?;
     let _ = spawn_turn.single_request();
 
-    let child_request = wait_for_request_with_model(&child_request_log, expected_model).await?;
+    let child_request =
+        wait_for_request_with_model_containing(&child_request_log, expected_model, CHILD_PROMPT)
+            .await?;
     assert!(child_request.body_contains_text(TURN_0_FORK_PROMPT));
+    let child_thread_id = test
+        .thread_manager
+        .list_thread_ids()
+        .await
+        .into_iter()
+        .find(|thread_id| *thread_id != test.session_configured.thread_id)
+        .expect("child thread ID");
+    let child_snapshot = test
+        .thread_manager
+        .get_thread(child_thread_id)
+        .await
+        .expect("child thread")
+        .config_snapshot()
+        .await;
+    assert_eq!(
+        child_snapshot.reasoning_effort,
+        Some(expected_reasoning_effort.clone())
+    );
     let child_body = child_request.body_json();
     assert_eq!(
         (
@@ -1216,7 +1258,7 @@ async fn spawn_agent_uses_configured_subagent_defaults() -> Result<()> {
     Some(REQUESTED_MODEL),
     None,
     REQUESTED_MODEL,
-    Some(ReasoningEffort::Medium);
+    Some(ReasoningEffort::Custom("standard".to_string()));
     "model only"
 )]
 #[test_case(
@@ -1314,9 +1356,9 @@ async fn spawned_agent_uses_summary_support_for_final_model(
     };
     assert_eq!(child_body["model"], json!(REQUESTED_MODEL));
     let expected_reasoning = if child_supports_summary {
-        json!({"effort": "medium", "summary": "detailed"})
+        json!({"effort": "standard", "summary": "detailed"})
     } else {
-        json!({"effort": "medium"})
+        json!({"effort": "standard"})
     };
     assert_eq!(child_body["reasoning"], expected_reasoning);
     assert_eq!(
@@ -1402,8 +1444,8 @@ async fn spawned_multi_agent_v2_child_inherits_parent_developer_context() -> Res
 
 #[test_case(None, false; "encrypted")]
 #[test_case(None, true; "plaintext")]
-#[test_case(Some("gpt-5.6-luna"), false; "luna encrypted leaf")]
-#[test_case(Some("gpt-5.5"), false; "legacy encrypted leaf")]
+#[test_case(Some("deepseek-v4-pro"), false; "pro encrypted leaf")]
+#[test_case(Some("deepseek-v4-flash"), false; "flash no history encrypted leaf")]
 #[tokio::test]
 async fn multi_agent_v2_spawn_sends_agent_message_to_child(
     model: Option<&str>,
@@ -1429,7 +1471,7 @@ async fn multi_agent_v2_spawn_sends_agent_message_to_child(
     });
     if let Some(model) = model {
         spawn_args["model"] = json!(model);
-        if model == "gpt-5.5" {
+        if model == "deepseek-v4-flash" {
             spawn_args["fork_turns"] = json!("none");
         }
     }
@@ -1476,7 +1518,7 @@ async fn multi_agent_v2_spawn_sends_agent_message_to_child(
     .await;
 
     let parent_model = if model.is_some() {
-        "gpt-5.6-sol"
+        INHERITED_MODEL
     } else {
         "koffing"
     };
@@ -1965,8 +2007,22 @@ async fn spawn_agent_rejects_reasoning_effort_unsupported_by_role_model() -> Res
                     nickname_candidates: None,
                 },
             );
-            config.agent_default_subagent_model = Some("gpt-5.6-sol".to_string());
+            config.agent_default_subagent_model = Some(REQUESTED_MODEL.to_string());
             config.agent_default_subagent_reasoning_effort = Some(ReasoningEffort::Ultra);
+            let mut model_catalog =
+                bundled_models_response().expect("bundled models.json should parse");
+            let default_model = model_catalog
+                .models
+                .iter_mut()
+                .find(|model| model.slug == REQUESTED_MODEL)
+                .expect("DeepSeek Pro should exist in bundled models.json");
+            default_model
+                .supported_reasoning_levels
+                .push(ReasoningEffortPreset {
+                    effort: ReasoningEffort::Ultra,
+                    description: "Test-only effort supported by the configured default".to_string(),
+                });
+            config.model_catalog = Some(model_catalog);
         })
         .build_with_auto_env(&server)
         .await?;
@@ -1980,7 +2036,7 @@ async fn spawn_agent_rejects_reasoning_effort_unsupported_by_role_model() -> Res
     assert_eq!(
         output.as_deref(),
         Some(
-            "Reasoning effort `ultra` is not supported for model `gpt-5.4`. Supported reasoning efforts: low, medium, high, xhigh"
+            "Reasoning effort `ultra` is not supported for model `deepseek-v4-flash`. Supported reasoning efforts: standard, high, max"
         )
     );
     Ok(())
@@ -2053,7 +2109,7 @@ async fn spawn_agent_tool_description_mentions_role_locked_settings() -> Result<
         role_block(&agent_type_description, "custom").expect("custom role description");
     assert_eq!(
         custom_role_description,
-        "custom: {\nCustom role\n- This role's model is set to `gpt-5.4` and its reasoning effort is set to `high`. These settings cannot be changed.\n}"
+        "custom: {\nCustom role\n- This role's model is set to `deepseek-v4-flash` and its reasoning effort is set to `max`. These settings cannot be changed.\n}"
     );
 
     Ok(())

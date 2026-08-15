@@ -2,7 +2,7 @@
   "schema_version": 1,
   "baseline_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
   "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
-  "overlay_tree": "9da6a78372ca366542f7586fea063bbeb4048016",
+  "overlay_tree": "9251e647423530b2059cc3ab40c526241a668051",
   "cutover_batches": [
     {
       "id": "batch-1-brand-home",
@@ -2557,6 +2557,34 @@
     },
     {
       "categories": [
+        "multi_agent",
+        "provider_model",
+        "tool_runtime"
+      ],
+      "current_sha256": "3f7707cf4c497866d2f47e22957253ddac776f5ffa53e15eb2845049f0a1e37d",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/tools/handlers/multi_agents_tests.rs",
+      "target_sha256": "017c807d8ecbfe67407142dc2031e396332feaa04046a917a72971d63cbcfbb5",
+      "upstream_status": "modified",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
         "tool_runtime"
       ],
       "current_sha256": "0321f242dc68800269133fb5b3a5af7a52c57399f46e41fbee6fb60fcd62b35f",
@@ -2775,6 +2803,32 @@
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "provider_model",
+        "test_fixture"
+      ],
+      "current_sha256": "9ee76a7e2ed09c60a55a31dd1fb16f62c35c46b94d31b3be432abb223ca3d0d8",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/core/tests/suite/subagent_notifications.rs",
+      "target_sha256": "cbd2e4ac57b6e33d3678a700628d7f491e6d8ccb91ea156ddbd465434b54b283",
+      "upstream_status": "modified",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
         "sync metadata validator"
       ],
       "whale_status": "modified"
@@ -5002,9 +5056,9 @@
     }
   ],
   "summary": {
-    "path_count": 185,
+    "path_count": 187,
     "by_disposition": {
-      "adapt-semantically": 155,
+      "adapt-semantically": 157,
       "defer": 4,
       "reapply-exact": 6,
       "regenerate": 20
@@ -5012,8 +5066,8 @@
     "by_cutover_batch": {
       "batch-1-brand-home": 53,
       "batch-2-substrate": 22,
-      "batch-3-deepseek-wire": 22,
-      "batch-4-taskspace-multi-agent": 64,
+      "batch-3-deepseek-wire": 23,
+      "batch-4-taskspace-multi-agent": 65,
       "batch-5-generated-release": 24
     }
   }
