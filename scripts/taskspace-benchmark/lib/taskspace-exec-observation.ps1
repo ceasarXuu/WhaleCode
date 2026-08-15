@@ -114,11 +114,6 @@ function Get-TaskspaceExecObservation {
                         $mapCalls++
                         continue
                     }
-                    if ([string]$declared.kind -eq 'provider_attribution') {
-                        $providerActions++
-                        $nodeBindings += @($declared.value.node_ids).Count
-                        continue
-                    }
                     $client = $declared.value
                     $tool = [string](Get-TaskspaceExecProperty $client 'name')
                     $clientCalls++
@@ -154,9 +149,7 @@ function Get-TaskspaceExecObservation {
                     $findings.Add("exec_result_outer_call_mismatch:$callId")
                 }
                 $clientResults += @($result.client_results).Count
-                $providerResults += @($result.provider_attributions).Count
                 $failedActions += @($result.client_results | Where-Object { [string]$_.outcome -ne 'succeeded' }).Count
-                $failedActions += @($result.provider_attributions | Where-Object { [string]$_.outcome -ne 'succeeded' }).Count
             } catch {
                 $findings.Add("exec_result_invalid:$callId")
                 $integrityFindings.Add("exec_result_invalid:$callId")
@@ -194,10 +187,17 @@ function Get-TaskspaceExecObservation {
     $stderrPath = Join-Path $ArtifactDir 'whale-exec.stderr.log'
     if (Test-Path -LiteralPath $stderrPath -PathType Leaf) {
         foreach ($line in [IO.File]::ReadLines($stderrPath)) {
-            if ($line -notmatch 'event_name="taskspace\.(?:exec|action_settlement)\.') { continue }
+            if ($line -notmatch 'event_name="taskspace\.(?:exec|action_settlement)\.|event_name="taskspace\.provider_actions_(?:recorded|escaped)"') { continue }
             $traceEvents++
             $fields = Get-TaskspaceExecTraceFields $line
             $eventName = [string]$fields['event_name']
+            if ($eventName -in @('taskspace.provider_actions_recorded', 'taskspace.provider_actions_escaped')) {
+                $count = [int]$fields['provider_action_count']
+                $providerActions += $count
+                $providerResults += $count
+                $failedActions += [int]$fields['provider_failed_action_count']
+                continue
+            }
             $requestId = [string]$fields['provider_request_id']
             if (-not [string]::IsNullOrWhiteSpace($requestId) -and -not $requestIds.ContainsKey($requestId)) {
                 $findings.Add("trace_request_missing_from_canonical:$requestId")

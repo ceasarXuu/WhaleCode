@@ -42,8 +42,6 @@ function Get-TaskspaceExecDeclaredCalls {
         read_map = @('read_map')
         reopen_update_and_work = @('reopen_map', 'update_map', 'tools')
         finish_map = @('finish_map')
-        attribute_actions = @()
-        initialize_and_attribute = @('initialize_map')
     }
     if (-not $shapes.ContainsKey($sequence)) { throw "unknown TaskSpace Exec sequence: $sequence" }
     $declared = New-Object System.Collections.Generic.List[object]
@@ -82,16 +80,6 @@ function Get-TaskspaceExecDeclaredCalls {
                     value = $value
                 })
             $toolIndex++
-        }
-    }
-    $attributions = $arguments.PSObject.Properties['assign_pending_actions']
-    if ($null -ne $attributions) {
-        foreach ($attribution in @($attributions.Value)) {
-            $declared.Add([pscustomobject]@{
-                    call_index = $declared.Count
-                    kind = 'provider_attribution'
-                    value = $attribution
-                })
         }
     }
     @($declared.ToArray())

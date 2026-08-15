@@ -18,9 +18,6 @@ try {
             [pscustomobject]@{ tool = 'exec_command'; node_id = 'inspect'; input = [pscustomobject]@{ cmd = 'pwd' } },
             [pscustomobject]@{ tool = 'apply_patch'; node_id = 'fix'; input = 'x' }
         )
-        assign_pending_actions = @(
-            [pscustomobject]@{ action_id = 'provider-action-1'; node_ids = @('inspect', 'fix') }
-        )
     }
     $result = [pscustomobject]@{
         kind = 'taskspace_exec_result'; status = 'completed'; outer_call_id = 'outer-1'
@@ -28,7 +25,6 @@ try {
             [pscustomobject]@{ outcome = 'succeeded' },
             [pscustomobject]@{ outcome = 'failed' }
         )
-        provider_attributions = @([pscustomobject]@{ outcome = 'succeeded' })
     }
     @(
         [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
@@ -52,7 +48,8 @@ try {
     } | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $temp 'provider-wire-trace.jsonl') -Encoding UTF8
     @(
         "INFO codex_core::taskspace_exec: event_name=`"taskspace.exec.response_finalized`" provider_request_id=`"request-1`" provider_response_id=`"response-1`" outer_call_id=`"outer-1`" map_id=`"map-1`" capability_identity=`"$capabilityIdentity`"",
-        "INFO codex_core::taskspace_exec: event_name=`"taskspace.exec.completed`" provider_request_id=`"request-1`" provider_response_id=`"response-1`" outer_call_id=`"outer-1`" map_revision=Some(2) capability_identity=`"$capabilityIdentity`""
+        "INFO codex_core::taskspace_exec: event_name=`"taskspace.exec.completed`" provider_request_id=`"request-1`" provider_response_id=`"response-1`" outer_call_id=`"outer-1`" map_revision=Some(2) capability_identity=`"$capabilityIdentity`"",
+        "INFO codex_core::taskspace: event_name=`"taskspace.provider_actions_recorded`" map_id=`"map-1`" map_revision=3 provider_action_count=1 provider_failed_action_count=0"
     ) | Set-Content -LiteralPath (Join-Path $temp 'whale-exec.stderr.log') -Encoding UTF8
 
     $facts = Get-TaskspaceExecObservation $temp $null
@@ -61,7 +58,7 @@ try {
     Assert-Equal $facts.map_operation_count 1 'Map operation count drifted'
     Assert-Equal $facts.client_action_count 2 'client action count drifted'
     Assert-Equal $facts.provider_action_count 1 'Provider action count drifted'
-    Assert-Equal $facts.node_binding_count 4 'node binding count drifted'
+    Assert-Equal $facts.node_binding_count 2 'node binding count drifted'
     Assert-Equal $facts.failed_action_count 1 'failure count drifted'
     Assert-Equal $facts.correlated_request_count 1 'request identity was not joined'
     Assert-Equal $facts.correlated_outer_call_count 1 'outer call identity was not joined'
@@ -92,7 +89,7 @@ try {
     $sequenceCases = @(
         @('work', @{ type = 'work'; tools = @([pscustomobject]@{ tool = 'exec_command'; node_id = 'n'; input = @{} }) }, 'client'),
         @('update_map', @{ type = 'update_map'; update_map = @{} }, 'map'),
-        @('update_and_work', @{ type = 'update_and_work'; update_map = @{}; tools = @([pscustomobject]@{ tool = 'exec_command'; node_id = 'n'; input = @{} }); assign_pending_actions = @([pscustomobject]@{ action_id = 'provider-action-1'; node_ids = @('n') }) }, 'map,client,provider_attribution'),
+        @('update_and_work', @{ type = 'update_and_work'; update_map = @{}; tools = @([pscustomobject]@{ tool = 'exec_command'; node_id = 'n'; input = @{} }) }, 'map,client'),
         @('update_and_finish', @{ type = 'update_and_finish'; update_map = @{}; finish_map = @{} }, 'map,map'),
         @('read_map', @{ type = 'read_map'; read_map = @{} }, 'map'),
         @('reopen_update_and_work', @{ type = 'reopen_update_and_work'; reopen_map = @{}; update_map = @{}; tools = @([pscustomobject]@{ tool = 'exec_command'; node_id = 'n'; input = @{} }) }, 'map,map,client'),
@@ -125,7 +122,6 @@ try {
     $zeroHostedResult = [pscustomobject]@{
         kind = 'taskspace_exec_result'; status = 'completed'; outer_call_id = 'outer-1'
         client_results = @([pscustomobject]@{ outcome = 'succeeded' })
-        provider_attributions = @()
     }
     @(
         [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
@@ -138,6 +134,10 @@ try {
             } }
     ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 15 } |
         Set-Content -LiteralPath (Join-Path $temp 'rollout.jsonl') -Encoding UTF8
+    @(
+        "INFO codex_core::taskspace_exec: event_name=`"taskspace.exec.response_finalized`" provider_request_id=`"request-1`" provider_response_id=`"response-1`" outer_call_id=`"outer-1`" map_id=`"map-1`" capability_identity=`"$capabilityIdentity`"",
+        "INFO codex_core::taskspace_exec: event_name=`"taskspace.exec.completed`" provider_request_id=`"request-1`" provider_response_id=`"response-1`" outer_call_id=`"outer-1`" map_revision=Some(2) capability_identity=`"$capabilityIdentity`""
+    ) | Set-Content -LiteralPath (Join-Path $temp 'whale-exec.stderr.log') -Encoding UTF8
     $zeroHostedFacts = Get-TaskspaceExecObservation $temp $null
     Assert-Equal $zeroHostedFacts.availability 'measured' 'omitted Hosted bindings were treated as invalid'
     Assert-Equal $zeroHostedFacts.nested_action_count 2 'zero-Hosted nested action count drifted'
