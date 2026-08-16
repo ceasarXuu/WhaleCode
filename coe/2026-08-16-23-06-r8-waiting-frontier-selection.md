@@ -219,7 +219,7 @@
   - refuted by current source and trace
 
 ## Hypothesis H-005: Base 的低频 lifecycle 原则与单 Tool 节点模型存在局部歧义
-- Status: unverified
+- Status: candidate_ready
 - Parent: P-001
 - Claim: Base 要求在 meaningful work boundary 更新 lifecycle、不要在每个 minor Tool result 后更新；在本 sample 的 `fix` 节点基本由一次 patch 完成时，Agent 可能把 patch success 当作无需更新的 minor result，从而直接进入验证。
 - Layer: interaction
@@ -252,10 +252,10 @@
 - Related evidence:
   - E-007
 - Conclusion: 存在文字上的可解释歧义，但没有 trace 直接表明 Agent 因该句跳过 completion；优先级低于结构/反馈候选。
-- Repair design readiness: blocked until higher-priority hypotheses are tested
-- Next step: 暂不修改 Base。
+- Repair design readiness: ready
+- Next step: 获得新预算后执行 `single-file-fast-fix × map-request × repeat=5`，与 E-013 基线比较。
 - Blocker:
-  - 缺少因果证据。
+  - 缺少真实 Agent 因果证据和新预算。
 - Close reason:
   - not closed
 
@@ -593,3 +593,26 @@
 - Interpretation: 状态机协议与示例已进入 Agent 可见 description，但 Waiting 误选与上一轮同为 2/5，且最明确的
   same-update Waiting 边界仍被违反。信息完整性修复成立，行为收益预测不成立；不继续堆叠同义状态说明。
 - Time: 2026-08-17 02:57
+
+## Evidence E-014: Base lifecycle 显著性候选通过离线验收
+
+- Related hypotheses:
+  - H-005
+- Direction: supports
+- Type: focused-test
+- Source: TaskSpace Base `3.0.4`、base profile tests、候选设计文档
+- Prediction or plan link:
+  - Base 建立状态机工作模型，同时保持 Tool description 为精确操作合同
+- Matched signal:
+  - Base 增加 Waiting/Ready/InFlight/Completed 的使用关系和“Tool result 不完成 owner”
+  - Base 不包含合法序列名、字段、JSON 或普通 Tool 参数
+  - Runtime、Tool schema、反馈和 Standard Base 未改变
+- Correlation keys:
+  - Base SHA-256 `a783705f320504306fc9fca591cb1b15246b73482201a916b511f8d5cc49ec33`
+  - Base version `3.0.4`
+- Raw content:
+  ```text
+  context::base_instructions_profile::tests: 6 passed
+  ```
+- Interpretation: 单变量候选具备真实运行条件；离线结果不证明 Waiting 行为改善。
+- Time: 2026-08-17 03:06

@@ -244,6 +244,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     合同、连续 canonical 示例、实现对齐和离线验收结果。
 73. [`72-state-machine-protocol-repeat5-result.md`](72-state-machine-protocol-repeat5-result.md)：状态机协议后的五轮真实运行；
     5/5 完成，但 Waiting 误选仍为 2/5，协议完整性成立而行为收益未成立。
+74. [`73-base-lifecycle-prominence-candidate.md`](73-base-lifecycle-prominence-candidate.md)：把简洁状态机工作模型提升到
+    TaskSpace Base `3.0.4` 的单变量候选、层次边界、离线验收和待批准真实验证设计。
 ## 4. 推进规则
 
 - R8 已知问题队列继续暂停，直到该主方案完成生产接入并重新盘点 I01～I10。

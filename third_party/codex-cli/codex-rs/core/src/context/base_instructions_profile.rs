@@ -9,9 +9,9 @@ use sha2::Sha256;
 pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION: &str = "1.0.2";
 pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256: &str =
     "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382";
-pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "3.0.3";
+pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "3.0.4";
 pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256: &str =
-    "5688349528ee7b73c992653bbd9c269de60117f3c87d58437143cc2e2ea4be42";
+    "a783705f320504306fc9fca591cb1b15246b73482201a916b511f8d5cc49ec33";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WhaleCodeBaseInstructionsProfile {
@@ -178,6 +178,32 @@ mod tests {
             BASE_INSTRUCTIONS_WHALECODE_TASKSPACE
                 .contains("sole top-level entry point for Map operations and client Tool calls")
         );
+    }
+
+    #[test]
+    fn taskspace_base_exposes_the_dependency_driven_lifecycle_model() {
+        let prompt = BASE_INSTRUCTIONS_WHALECODE_TASKSPACE;
+        for required in [
+            "Waiting Work is not executable",
+            "Ready Work is executable",
+            "beginning Tool work starts its Ready owner as InFlight",
+            "A Tool result records evidence but never makes its owner Completed",
+            "explicitly complete it before advancing any dependent Work",
+            "the Runtime then derives which dependents become Ready",
+        ] {
+            assert!(prompt.contains(required), "missing {required}");
+        }
+        for forbidden in [
+            "initialize_and_work",
+            "update_and_work",
+            "update_and_finish",
+            "node_patches",
+        ] {
+            assert!(
+                !prompt.contains(forbidden),
+                "Base embeds Tool sequence: {forbidden}"
+            );
+        }
     }
 
     #[test]
