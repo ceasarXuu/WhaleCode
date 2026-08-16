@@ -3,14 +3,21 @@ use std::collections::HashSet;
 use serde::Serialize;
 use serde_json::Map;
 use serde_json::Value;
-use sha2::Digest;
-use sha2::Sha256;
 
 const ACTIVE_PROJECTION_START: &str = "TaskSpaceMapProjectionR8V1:";
 const ACTIVE_PROJECTION_END: &str = "TaskSpaceMapProjectionR8V1 end.";
 
 #[path = "provider_wire_history.rs"]
 mod history;
+#[path = "provider_wire_tools.rs"]
+mod tool_cost;
+#[path = "provider_wire_hash.rs"]
+mod wire_hash;
+
+use wire_hash::byte_hash;
+use wire_hash::json_bytes;
+use wire_hash::json_hash;
+use wire_hash::section_hashes;
 
 #[derive(Debug, Serialize)]
 pub(super) struct ProviderWireSectionCost {
@@ -21,6 +28,7 @@ pub(super) struct ProviderWireSectionCost {
     active_projection_identity: ActiveProjectionIdentity,
     sections: Vec<ProviderWireSection>,
     history_breakdown: Vec<history::ProviderWireHistoryCost>,
+    tool_breakdown: Vec<tool_cost::ProviderWireToolCost>,
 }
 
 #[derive(Debug, Serialize)]
@@ -130,6 +138,10 @@ impl ProviderWireSectionCost {
 
         let active_projection_identity = active_projection_identity(&build.message_values[2]);
         let history_breakdown = history::measure(&build.message_values[1]);
+        let tool_breakdown = tool_cost::measure(
+            &build.tools_value,
+            build.measures[SectionKind::Tools.index()].bytes,
+        );
         let hashes = section_hashes(
             build.message_values,
             build.base_instructions_value,
@@ -163,6 +175,14 @@ impl ProviderWireSectionCost {
             sections[SectionKind::NaturalHistory.index()].bytes,
             "history breakdown must assign every natural-history item exactly once"
         );
+        debug_assert_eq!(
+            tool_breakdown
+                .iter()
+                .map(|section| section.bytes)
+                .sum::<usize>(),
+            sections[SectionKind::Tools.index()].bytes,
+            "tool breakdown must assign every tools-section byte exactly once"
+        );
 
         Self {
             schema_version: "provider-wire-section-cost-v2",
@@ -176,6 +196,7 @@ impl ProviderWireSectionCost {
             active_projection_identity,
             sections,
             history_breakdown,
+            tool_breakdown,
         }
     }
 }
@@ -449,40 +470,6 @@ fn mechanical_field<'a>(projection: &'a str, field: &str) -> Option<&'a str> {
         .lines()
         .find_map(|line| line.strip_prefix(&prefix))
         .filter(|value| !value.is_empty())
-}
-
-fn section_hashes(
-    message_values: [Vec<Value>; 4],
-    base_instructions_value: Value,
-    tools_value: Value,
-    tool_choice_value: Value,
-    other_value: Map<String, Value>,
-) -> [String; 8] {
-    let [system, natural, projection, ordinary] = message_values;
-    [
-        json_hash(&Value::Array(system)),
-        json_hash(&Value::Array(natural)),
-        json_hash(&Value::Array(projection)),
-        json_hash(&Value::Array(ordinary)),
-        json_hash(&base_instructions_value),
-        json_hash(&tools_value),
-        json_hash(&tool_choice_value),
-        json_hash(&Value::Object(other_value)),
-    ]
-}
-
-fn json_bytes(value: &Value) -> Vec<u8> {
-    serde_json::to_vec(value).unwrap_or_default()
-}
-
-fn json_hash(value: &Value) -> String {
-    byte_hash(&json_bytes(value))
-}
-
-fn byte_hash(bytes: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
 }
 
 #[cfg(test)]

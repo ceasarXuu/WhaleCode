@@ -1,4 +1,5 @@
 use super::history::HistoryKind;
+use super::tool_cost::ToolCostKind;
 use super::*;
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -9,6 +10,10 @@ fn section(cost: &ProviderWireSectionCost, kind: SectionKind) -> &ProviderWireSe
 
 fn history(cost: &ProviderWireSectionCost, kind: HistoryKind) -> &history::ProviderWireHistoryCost {
     &cost.history_breakdown[kind.index()]
+}
+
+fn tool(cost: &ProviderWireSectionCost, kind: ToolCostKind) -> &tool_cost::ProviderWireToolCost {
+    &cost.tool_breakdown[kind.index()]
 }
 
 #[test]
@@ -183,6 +188,52 @@ fn responses_history_items_are_classified_once_by_wire_structure() {
 }
 
 #[test]
+fn tool_declarations_are_partitioned_without_changing_wire_shape() {
+    let wire = json!({
+        "input": [],
+        "tools": [
+            {
+                "name": "taskspace_exec",
+                "description": "protocol",
+                "parameters": {
+                    "$defs": {
+                        "tool_action": {"anyOf": [{"type": "object"}]},
+                        "update_map_input": {"type": "object"}
+                    },
+                    "anyOf": [{"type": "object"}]
+                }
+            },
+            {"name": "exec_command", "description": "native", "parameters": {"type": "object"}},
+            {"type": "web_search"},
+            {"unexpected": true}
+        ]
+    });
+
+    let cost = ProviderWireSectionCost::measure(&wire, "input");
+
+    assert_eq!(tool(&cost, ToolCostKind::NativeClientTool).count, 1);
+    assert_eq!(tool(&cost, ToolCostKind::ProviderHostedTool).count, 1);
+    assert_eq!(tool(&cost, ToolCostKind::OtherTool).count, 1);
+    for kind in [
+        ToolCostKind::ToolsEnvelope,
+        ToolCostKind::TaskspaceProtocol,
+        ToolCostKind::TaskspaceClientCatalog,
+        ToolCostKind::TaskspaceMapSchema,
+        ToolCostKind::TaskspaceSequenceSchema,
+        ToolCostKind::TaskspaceMetadata,
+    ] {
+        assert!(tool(&cost, kind).bytes > 0, "missing {kind:?}");
+    }
+    assert_eq!(
+        cost.tool_breakdown
+            .iter()
+            .map(|entry| entry.bytes)
+            .sum::<usize>(),
+        section(&cost, SectionKind::Tools).bytes
+    );
+}
+
+#[test]
 fn missing_message_array_is_explicitly_unavailable_and_reconciled() {
     let wire = json!({
         "model": "deepseek-v4-flash",
@@ -339,5 +390,11 @@ fn serialized_section_cost_never_contains_raw_payload_content() {
             .as_array()
             .map(Vec::len),
         Some(10)
+    );
+    assert_eq!(
+        serde_json::from_str::<Value>(&serialized).expect("valid JSON")["tool_breakdown"]
+            .as_array()
+            .map(Vec::len),
+        Some(9)
     );
 }
