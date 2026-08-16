@@ -203,7 +203,6 @@ impl ToolHandler for TaskSpaceExecHandler {
             }
             client_results.push(ClientResult {
                 call_index: result.identity.index,
-                action_id: result.identity.transport_id(),
                 node_id: result.node_id,
                 tool: result.display_name,
                 outcome: outcome_name(outcome),
@@ -216,7 +215,7 @@ impl ToolHandler for TaskSpaceExecHandler {
         let reads = prepared
             .read_maps
             .into_iter()
-            .map(|(call_index, map)| MapReadResult { call_index, map })
+            .map(|(_, map)| MapReadResult { map })
             .collect::<Vec<_>>();
         let all_succeeded = client_results
             .iter()
@@ -227,14 +226,7 @@ impl ToolHandler for TaskSpaceExecHandler {
             candidate_map.as_ref(),
             envelope.plan(),
         );
-        let output = TaskSpaceExecResult::new(
-            invocation.call_id.clone(),
-            map_id.clone(),
-            candidate_revision,
-            affected_node_states,
-            reads,
-            client_results,
-        );
+        let output = TaskSpaceExecResult::new(affected_node_states, reads, client_results);
         let text = serde_json::to_string(&output).map_err(|error| {
             FunctionCallError::Fatal(format!(
                 "taskspace_exec feedback serialization failed: {error}"

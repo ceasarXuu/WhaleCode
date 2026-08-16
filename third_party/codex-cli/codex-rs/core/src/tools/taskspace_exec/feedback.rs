@@ -13,8 +13,10 @@ use super::TaskSpaceExecPlan;
 #[derive(Debug, Serialize)]
 pub(super) struct AffectedNodeState {
     node_id: String,
-    state_before_sequence: Option<NodeState>,
-    state_after_sequence: NodeState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    previous_state: Option<NodeState>,
+    state: NodeState,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     unavailable_direct_work_children: Vec<UnavailableDirectWorkChild>,
 }
 
@@ -49,6 +51,9 @@ pub(super) fn affected_node_states(
         .into_iter()
         .filter_map(|node_id| {
             let node = rooted_dag::node(after, &node_id)?;
+            let before_state = before
+                .and_then(|map| rooted_dag::node(map, &node_id))
+                .map(|old| old.state);
             let unavailable_direct_work_children = if node.state == NodeState::Completed {
                 Vec::new()
             } else {
@@ -60,11 +65,9 @@ pub(super) fn affected_node_states(
                     .collect()
             };
             Some(AffectedNodeState {
-                state_before_sequence: before
-                    .and_then(|map| rooted_dag::node(map, &node_id))
-                    .map(|old| old.state),
-                state_after_sequence: node.state,
                 node_id,
+                previous_state: before_state.filter(|state| *state != node.state),
+                state: node.state,
                 unavailable_direct_work_children,
             })
         })
@@ -183,8 +186,8 @@ mod tests {
             .unwrap(),
             json!([{
                 "node_id": "fix",
-                "state_before_sequence": "ready",
-                "state_after_sequence": "in_flight",
+                "previous_state": "ready",
+                "state": "in_flight",
                 "unavailable_direct_work_children": [{
                     "node_id": "verify",
                     "state": "waiting",
@@ -207,9 +210,17 @@ mod tests {
         .unwrap();
 
         assert_eq!(feedback[0]["node_id"], "fix");
-        assert_eq!(feedback[0]["unavailable_direct_work_children"], json!([]));
+        assert!(
+            feedback[0]
+                .get("unavailable_direct_work_children")
+                .is_none()
+        );
         assert_eq!(feedback[1]["node_id"], "verify");
-        assert_eq!(feedback[1]["state_after_sequence"], "in_flight");
-        assert_eq!(feedback[1]["unavailable_direct_work_children"], json!([]));
+        assert_eq!(feedback[1]["state"], "in_flight");
+        assert!(
+            feedback[1]
+                .get("unavailable_direct_work_children")
+                .is_none()
+        );
     }
 }

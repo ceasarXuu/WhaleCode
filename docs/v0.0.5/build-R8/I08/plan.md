@@ -1,6 +1,6 @@
 # R8-I08 Input 成本根因定位计划
 
-- Status: In Progress / IC-B stopped with one protocol anomaly; IC-C waiting on a safe candidate or explicit clean-pair decision
+- Status: In Progress / IC-B stopped with one protocol anomaly; IC-09 mechanical feedback candidate awaiting authorized live pair
 - Created: 2026-08-17
 - Product Authority: [`../taskspace-exec/00-product-contract.md`](../taskspace-exec/00-product-contract.md#confirmed-product-decisions)
 - Applicable Decisions: PD1、PD2、PD3、PD4、PD6、PD7、PD9、PD10
@@ -115,7 +115,7 @@ section_area(kind) = sum(request.section_bytes[kind])
 | IC-06 | 首轮真实双臂定位 | Docker benchmark；`single-file-fast-fix` | 当前 commit 下 Standard 与 `map-request` 各 repeat=1；不改协议 | 获得同版本总 input、请求数、每请求体量、section area 和动作路径 | 2 个付费 sample；模型随机性不足以给稳定频率 | 两臂业务/oracle 通过；无协议异常；能力 identity 一致；逐请求成本表 | 任一业务、协议、usage 或 identity 异常立即停止，不自动补跑 | complete-with-anomaly；Waiting reject 触发停止条件，见 [`06-ic06-live-pair-result.md`](06-ic06-live-pair-result.md) |
 | IC-07 | 扩大简单样本置信度 | 与 IC-06 完全相同 | 仅在 IC-06 可比较且根因仍受随机性影响时扩到每臂累计 repeat=3 | 区分结构差值和单轮动作波动 | 最多再增加 4 个 sample；属于大规模运行，必须专项预算 | 总和/均值/中位数；逐 run 异常不被均值隐藏 | IC-06 已足够定位、出现新问题或预算未批准则不执行 | deferred |
 | IC-08 | 复杂样本外推 | `subscription-billing-repair` 或届时最小充分复杂样本 | Standard 与 `map-request` 各 repeat=1，保持 IC-06 全部变量 | 判断固定成本结论是否被长历史、复杂 Map 或更多 Tool 结果改变 | 2 个付费 sample；不用于修改 Map 产品设计 | 同业务/oracle、section area、Map、请求路径和成本明细 | 简单样本根因未定位或复杂样本不具代表性时停止 | deferred |
-| IC-09 | 单变量因果验证 | 由 IC-01～IC-08 选出的唯一主贡献项 | 每次只修改一个可准确命名的结构因素；先免费静态测量，再申请简单+复杂真实 A/B | 将“结构相关”升级为 Provider token 因果证据 | 可能改变缓存指纹或 Agent 行为；每个候选独立 commit 并可整体回退 | 业务、动作、request、input/cache/output/time/cost 全量比较 | 预测收益低于 5%、削弱语义、改变 Runtime 决策或出现行为回归即回退 | deferred |
+| IC-09 | 单变量因果验证 | Agent-visible `taskspace_exec` 成功反馈 | 删除固定、重复、派生和空的机械字段；保留原生结果、节点归属、当前状态、真实状态变化和 Waiting 依赖 | 降低 Exec 历史载体，不改变 Runtime 执行和 Map 语义 | capability identity 改变；必须通过缓存门禁和真实双臂 | 静态 trace 反算、聚焦回归、Standard/map-request 各 1 次，报告完整成本与行为 | 反馈解析、状态理解、业务、缓存或成本回归即停止并回退 | static-complete / live-pending；见 [`07-ic09-exec-feedback-compaction-candidate.md`](07-ic09-exec-feedback-compaction-candidate.md) |
 
 ## 6. 测试顺序
 
@@ -252,8 +252,8 @@ IC-06 已由总包 `R8-I08-INPUT-COST-CNY3-20260817` 授权并完成，结果见
 ### Phase IC-C：置信度、复杂样本与单变量验证
 
 - Units: IC-07～IC-09，按 IC-B 证据选择，不默认全部执行
-- Pre-Phase Plan Rebase Gate: blocked-on-safe-candidate
-- Material plan delta: IC-B 已定位双重结构根因；当前没有不削弱硬合同或改变 finish 产品语义的安全单变量修复
+- Pre-Phase Plan Rebase Gate: active-safe-candidate
+- Material plan delta: IC-09 只移除 Agent 不消费的成功反馈机械字段；原生结果、节点归属、状态和 Waiting 依赖语义保持不变
 - User approval: paid matrix covered by R8-I08-INPUT-COST-CNY3-20260817；material plan change 和 cache-sensitive
   production change 仍须按各自门禁处理
 - Exit: 主贡献项通过单变量因果验证，或候选被证伪并停止。

@@ -544,23 +544,29 @@ async fn handler_persists_pending_then_settles_each_native_result_without_node_t
     assert_eq!(output.success, Some(false));
     let feedback: Value = serde_json::from_str(&output.into_text()).unwrap();
     assert_feedback_matches_declared_result(&harness, &feedback);
-    assert_eq!(feedback["kind"], "taskspace_exec_result");
-    assert_eq!(feedback["outer_call_id"], "outer");
+    for runtime_only in [
+        "kind",
+        "status",
+        "outer_call_id",
+        "map_id",
+        "map_revision_at_dispatch",
+        "reads",
+    ] {
+        assert!(feedback.get(runtime_only).is_none());
+    }
     let affected = feedback["affected_node_states"].as_array().unwrap();
     let work_state = affected
         .iter()
         .find(|state| state["node_id"] == "work")
         .unwrap();
-    assert_eq!(work_state["state_before_sequence"], Value::Null);
-    assert_eq!(work_state["state_after_sequence"], "in_flight");
-    assert_eq!(
-        feedback["client_results"][0]["action_id"],
-        "outer/taskspace/call/0"
-    );
+    assert!(work_state.get("previous_state").is_none());
+    assert_eq!(work_state["state"], "in_flight");
     assert_eq!(
         feedback["client_results"][0]["result"],
         json!({"type": "function", "output": "native-result"})
     );
+    assert!(feedback["client_results"][0].get("call_index").is_none());
+    assert!(feedback["client_results"][0].get("action_id").is_none());
     assert_eq!(feedback["client_results"][1]["outcome"], "failed");
     assert_eq!(feedback["client_results"][1]["error"], "expected failure");
     assert!(

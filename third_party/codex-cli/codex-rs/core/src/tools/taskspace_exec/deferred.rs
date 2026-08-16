@@ -87,10 +87,6 @@ fn loadable_specs_from_result(text: &str) -> Vec<LoadableToolSpec> {
     let Ok(result) = serde_json::from_str::<Value>(text) else {
         return Vec::new();
     };
-    if result.get("kind").and_then(Value::as_str) != Some("taskspace_exec_result") {
-        return Vec::new();
-    }
-
     result
         .get("client_results")
         .and_then(Value::as_array)
@@ -135,7 +131,6 @@ mod tests {
 
     fn search_result(outcome: &str) -> Value {
         json!({
-            "kind": "taskspace_exec_result",
             "client_results": [{
                 "outcome": outcome,
                 "result": {

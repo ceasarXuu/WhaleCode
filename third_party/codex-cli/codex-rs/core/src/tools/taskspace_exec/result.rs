@@ -12,31 +12,25 @@ use crate::tools::context::NestedToolResult;
 
 use super::feedback::AffectedNodeState;
 
-const RESULT_KIND: &str = "taskspace_exec_result";
-const RESULT_STATUS: &str = "completed";
-
 #[derive(Debug, Serialize)]
 pub(super) struct TaskSpaceExecResult {
-    kind: &'static str,
-    status: &'static str,
-    outer_call_id: String,
-    map_id: String,
-    map_revision_at_dispatch: Option<u64>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     affected_node_states: Vec<AffectedNodeState>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     reads: Vec<MapReadResult>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     client_results: Vec<ClientResult>,
 }
 
 #[derive(Debug, Serialize)]
 pub(super) struct MapReadResult {
-    pub(super) call_index: usize,
     pub(super) map: TaskSpaceMapView,
 }
 
 #[derive(Debug, Serialize)]
 pub(super) struct ClientResult {
+    #[serde(skip)]
     pub(super) call_index: usize,
-    pub(super) action_id: String,
     pub(super) node_id: String,
     pub(super) tool: String,
     pub(super) outcome: &'static str,
@@ -50,19 +44,11 @@ pub(super) struct ClientResult {
 
 impl TaskSpaceExecResult {
     pub(super) fn new(
-        outer_call_id: String,
-        map_id: String,
-        map_revision_at_dispatch: Option<u64>,
         affected_node_states: Vec<AffectedNodeState>,
         reads: Vec<MapReadResult>,
         client_results: Vec<ClientResult>,
     ) -> Self {
         Self {
-            kind: RESULT_KIND,
-            status: RESULT_STATUS,
-            outer_call_id,
-            map_id,
-            map_revision_at_dispatch,
             affected_node_states,
             reads,
             client_results,
@@ -76,20 +62,6 @@ pub(super) fn result_schema<'a>(
     let clients = clients.collect::<Vec<_>>();
     strict_object(
         [
-            ("kind", exact_string(RESULT_KIND)),
-            ("status", exact_string(RESULT_STATUS)),
-            ("outer_call_id", JsonSchema::string(None)),
-            ("map_id", JsonSchema::string(None)),
-            (
-                "map_revision_at_dispatch",
-                JsonSchema::any_of(
-                    vec![JsonSchema::integer(None), JsonSchema::null(None)],
-                    Some(
-                        "Map revision persisted before client dispatch, or null when unchanged."
-                            .into(),
-                    ),
-                ),
-            ),
             (
                 "affected_node_states",
                 JsonSchema::array(affected_node_state_schema(), None),
@@ -100,16 +72,7 @@ pub(super) fn result_schema<'a>(
                 JsonSchema::array(client_result_schema(&clients), None),
             ),
         ],
-        &[
-            "kind",
-            "status",
-            "outer_call_id",
-            "map_id",
-            "map_revision_at_dispatch",
-            "affected_node_states",
-            "reads",
-            "client_results",
-        ],
+        &[],
     )
 }
 
@@ -118,24 +81,19 @@ fn affected_node_state_schema() -> JsonSchema {
         [
             ("node_id", JsonSchema::string(None)),
             (
-                "state_before_sequence",
-                JsonSchema::any_of(
-                    vec![node_state_schema(), JsonSchema::null(None)],
-                    Some("Canonical state before this sequence, or null for a new node.".into()),
+                "previous_state",
+                described(
+                    node_state_schema(),
+                    "Previous canonical state, present only when this sequence changed it.",
                 ),
             ),
-            ("state_after_sequence", node_state_schema()),
+            ("state", node_state_schema()),
             (
                 "unavailable_direct_work_children",
                 JsonSchema::array(unavailable_work_child_schema(), None),
             ),
         ],
-        &[
-            "node_id",
-            "state_before_sequence",
-            "state_after_sequence",
-            "unavailable_direct_work_children",
-        ],
+        &["node_id", "state"],
     )
 }
 
@@ -165,13 +123,7 @@ fn node_state_schema() -> JsonSchema {
 }
 
 fn map_read_result_schema() -> JsonSchema {
-    strict_object(
-        [
-            ("call_index", JsonSchema::integer(None).with_minimum(0)),
-            ("map", map_view_schema()),
-        ],
-        &["call_index", "map"],
-    )
+    strict_object([("map", map_view_schema())], &["map"])
 }
 
 fn map_view_schema() -> JsonSchema {
@@ -261,8 +213,6 @@ fn client_result_schema(clients: &[&ToolSpecCapability]) -> JsonSchema {
     };
     strict_object(
         [
-            ("call_index", JsonSchema::integer(None).with_minimum(0)),
-            ("action_id", JsonSchema::string(None)),
             ("node_id", JsonSchema::string(None)),
             (
                 "tool",
@@ -279,7 +229,7 @@ fn client_result_schema(clients: &[&ToolSpecCapability]) -> JsonSchema {
             ("error", JsonSchema::string(None)),
             ("settlement_error", JsonSchema::string(None)),
         ],
-        &["call_index", "action_id", "node_id", "tool", "outcome"],
+        &["node_id", "tool", "outcome"],
     )
 }
 
