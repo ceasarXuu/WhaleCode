@@ -45,17 +45,19 @@ enum SectionKind {
     NaturalHistory,
     ActiveProjection,
     OrdinaryToolFeedback,
+    BaseInstructions,
     Tools,
     ToolChoice,
     OtherPayload,
 }
 
 impl SectionKind {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 8] = [
         Self::SystemMessages,
         Self::NaturalHistory,
         Self::ActiveProjection,
         Self::OrdinaryToolFeedback,
+        Self::BaseInstructions,
         Self::Tools,
         Self::ToolChoice,
         Self::OtherPayload,
@@ -67,9 +69,10 @@ impl SectionKind {
             Self::NaturalHistory => 1,
             Self::ActiveProjection => 2,
             Self::OrdinaryToolFeedback => 3,
-            Self::Tools => 4,
-            Self::ToolChoice => 5,
-            Self::OtherPayload => 6,
+            Self::BaseInstructions => 4,
+            Self::Tools => 5,
+            Self::ToolChoice => 6,
+            Self::OtherPayload => 7,
         }
     }
 }
@@ -81,8 +84,9 @@ struct SectionMeasure {
 }
 
 struct SectionBuild {
-    measures: [SectionMeasure; 7],
+    measures: [SectionMeasure; 8],
     message_values: [Vec<Value>; 4],
+    base_instructions_value: Value,
     tools_value: Value,
     tool_choice_value: Value,
     other_value: Map<String, Value>,
@@ -93,6 +97,7 @@ impl Default for SectionBuild {
         Self {
             measures: std::array::from_fn(|_| SectionMeasure::default()),
             message_values: std::array::from_fn(|_| Vec::new()),
+            base_instructions_value: Value::Null,
             tools_value: Value::Null,
             tool_choice_value: Value::Null,
             other_value: Map::new(),
@@ -121,6 +126,7 @@ impl ProviderWireSectionCost {
         let active_projection_identity = active_projection_identity(&build.message_values[2]);
         let hashes = section_hashes(
             build.message_values,
+            build.base_instructions_value,
             build.tools_value,
             build.tool_choice_value,
             build.other_value,
@@ -145,7 +151,7 @@ impl ProviderWireSectionCost {
         );
 
         Self {
-            schema_version: "provider-wire-section-cost-v1",
+            schema_version: "provider-wire-section-cost-v2",
             availability: if unavailable_reason.is_some() {
                 "unavailable"
             } else {
@@ -182,6 +188,11 @@ fn measure_object(
                 build.measures[other_index].bytes += field_prefix_bytes + json_bytes(value).len();
                 build.other_value.insert(field.clone(), value.clone());
             }
+        } else if field == "instructions" {
+            let instructions = &mut build.measures[SectionKind::BaseInstructions.index()];
+            instructions.count = 1;
+            instructions.bytes = field_prefix_bytes + json_bytes(value).len();
+            build.base_instructions_value.clone_from(value);
         } else if field == "tools" {
             let tools = &mut build.measures[SectionKind::Tools.index()];
             tools.count = value.as_array().map(Vec::len).unwrap_or(1);
@@ -204,7 +215,7 @@ fn measure_object(
 
 fn measure_messages(
     messages: &[Value],
-    measures: &mut [SectionMeasure; 7],
+    measures: &mut [SectionMeasure; 8],
     message_values: &mut [Vec<Value>; 4],
 ) {
     for message in messages {
@@ -427,16 +438,18 @@ fn mechanical_field<'a>(projection: &'a str, field: &str) -> Option<&'a str> {
 
 fn section_hashes(
     message_values: [Vec<Value>; 4],
+    base_instructions_value: Value,
     tools_value: Value,
     tool_choice_value: Value,
     other_value: Map<String, Value>,
-) -> [String; 7] {
+) -> [String; 8] {
     let [system, natural, projection, ordinary] = message_values;
     [
         json_hash(&Value::Array(system)),
         json_hash(&Value::Array(natural)),
         json_hash(&Value::Array(projection)),
         json_hash(&Value::Array(ordinary)),
+        json_hash(&base_instructions_value),
         json_hash(&tools_value),
         json_hash(&tool_choice_value),
         json_hash(&Value::Object(other_value)),

@@ -118,6 +118,31 @@ fn section_bytes_reconcile_with_provider_payload_bytes() {
 }
 
 #[test]
+fn responses_instructions_are_measured_separately_from_other_payload() {
+    let wire = json!({
+        "model": "deepseek-v4-flash",
+        "instructions": "stable base instructions",
+        "input": [{"role": "user", "content": "request"}],
+        "tools": [],
+        "tool_choice": "auto",
+        "stream": true
+    });
+
+    let cost = ProviderWireSectionCost::measure(&wire, "input");
+
+    assert_eq!(section(&cost, SectionKind::BaseInstructions).count, 1);
+    assert!(section(&cost, SectionKind::BaseInstructions).bytes > 0);
+    assert!(section(&cost, SectionKind::OtherPayload).bytes < 100);
+    assert_eq!(
+        cost.sections
+            .iter()
+            .map(|section| section.bytes)
+            .sum::<usize>(),
+        cost.section_bytes_total
+    );
+}
+
+#[test]
 fn missing_message_array_is_explicitly_unavailable_and_reconciled() {
     let wire = json!({
         "model": "deepseek-v4-flash",
@@ -262,11 +287,11 @@ fn serialized_section_cost_never_contains_raw_payload_content() {
         .expect("section cost serializes");
 
     assert!(secrets.iter().all(|secret| !serialized.contains(secret)));
-    assert!(serialized.contains("provider-wire-section-cost-v1"));
+    assert!(serialized.contains("provider-wire-section-cost-v2"));
     assert_eq!(
         serde_json::from_str::<Value>(&serialized).expect("valid JSON")["sections"]
             .as_array()
             .map(Vec::len),
-        Some(7)
+        Some(8)
     );
 }
