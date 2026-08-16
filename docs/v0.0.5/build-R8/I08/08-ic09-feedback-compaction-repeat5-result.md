@@ -40,6 +40,41 @@ runner shell exit 1 来自 `aggregate_not_enabled`；正式 `run-status` 为 `va
 436.42，因此当前 TaskSpace 单轮 input 增量仍为 Standard 的 1.58x。后续成本优化以这个相邻请求增量为主指标，不再用总 input
 掩盖单轮载体变化。
 
+### 2.1 单轮 input 增量构成
+
+Provider 只返回整请求 token，无法把真实 tokenizer 结果逐字段精确归因；以下使用同一正式 Provider wire scanner 的精确 UTF-8
+bytes 拆分构成，并把 `687.80` 作为真实 token 总量。TaskSpace 每个相邻请求平均增加 2,574.23 B natural history，另有 4 B
+other payload；system、Base、Tool schema、tool choice 和 projection 的相邻增量均为 0。
+
+| 新增历史组成 | 30 轮总 bytes | 每轮均值 | 占新增历史 |
+|---|---:|---:|---:|
+| `taskspace_exec` output | 35,138 | 1,171.27 | 45.50% |
+| reasoning item | 18,653 | 621.77 | 24.15% |
+| `taskspace_exec` call | 17,662 | 588.73 | 22.87% |
+| assistant message | 5,784 | 192.80 | 7.49% |
+| user message 机械差值 | -10 | -0.33 | -0.01% |
+| **合计** | **77,227** | **2,574.23** | **100%** |
+
+相对 Standard 每轮 1,603.69 B 的历史增长，TaskSpace 多 970.54 B。差值中约 37.9% 来自更大的 Exec call carrier，32.6%
+来自更大的 Exec output carrier，20.9% 来自更多 reasoning，8.6% 来自更多 assistant message。因此约 70.5% 的额外单轮增长
+在 Exec 调用/反馈载体，约 29.5% 在模型生成的推理和说明。
+
+继续拆 TaskSpace 自身的 77,227 B 新增历史：
+
+| 产品组成 | bytes | 占新增历史 | 说明 |
+|---|---:|---:|---|
+| 模型 reasoning + assistant message | 24,437 | 31.64% | Agent 本轮推理与可见说明 |
+| 原生 Tool 输入与结果 | 22,923 | 29.68% | 内层 Tool action 4,560 B；原生结果值 18,363 B |
+| Map 更新与 affected node state | 14,626 | 18.94% | Agent 声明的 Map 操作 6,615 B；Runtime 忠实返回的相关状态 8,011 B |
+| Exec/JSON 机械外壳与元数据 | 13,984 | 18.11% | call/output item、容器字段、节点/工具归属元数据和 JSON 结构 |
+| 非法参数及对应错误反馈 | 1,267 | 1.64% | 一次 syntax、两次 transition 异常的直接载荷 |
+| user message 序列化差值 | -10 | -0.01% | 内容未增长；不同请求外壳的机械差值 |
+
+错误文本自身占比很小，但三次拒绝各自引发下一轮修正请求，因此错误的主要成本是额外请求重新携带完整上下文，不是 1,267 B
+错误载荷。Map 本身约占单轮新增历史 18.94%，不是唯一根因；当前最明确的机械优化面是 Exec 外壳与元数据，前提是继续证明字段
+没有生产消费者。固定 Tool 合同也不是相邻请求增量，因为它每轮保持不变；它体现为 TaskSpace 首请求平均比 Standard 高
+1,723.4 input，并在每个后续请求重复计费。
+
 ## 3. 行为与异常
 
 - 五轮 Map 均为 `root -> inspect -> fix -> verify -> finish`，5 nodes / 4 edges，最终全部 completed、0 open leaves；无显式
