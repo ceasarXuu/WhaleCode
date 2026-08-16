@@ -363,9 +363,10 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | 最新十轮 request/usage/cache/Exec/client/Patch/Map 均可复算，75 个请求身份完整且无 retry；完整跨模式验收仍未执行 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
 | 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与 client 动作 | 稳定生成初始化并执行、完成并继续、完成并结束；Provider-hosted Tool 当前不参与 Agent 归属协议 | affected-state 五轮首次初始化均合法，但 Run 3 连续出现 4 次 JSON syntax 和 1 次 arguments wrapper；Runtime 零副作用拒绝后最终恢复 | verifying | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | affected-state 反馈五轮均忠实返回相关 canonical 状态和未完成父节点，FRONTIER-EARLY 仍为 2/5，与 4/10 基线同率；反馈完整性已修，分支误选未修 | verifying | GI-004 |
-| 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | affected-state 五轮共 44 requests、676,592 input、88.14% 全量 cache、122.235s Agent wall；相对十轮基线均值 requests +17.33%、input +22.41%，无 Standard 臂 | queued | GI-008 |
+| 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 最新干净五轮平均 6.8 requests、105,690 input/run、Request 2+ cache 92.07%；当前 section observer 仍把 Responses instructions 计入 other payload，并把 Exec/Map/nested result 混入 natural history，尚不能据此归因 | [investigating](I08/plan.md) | GI-008 |
 
-问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**TaskSpace Exec Phase B6 闭集合法顺序实施**。
+问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**R8-I08 Input 成本根因定位**；先完成免费结构测量，真实
+Standard/TaskSpace 双臂测试必须另行申请预算。
 
 ## 4. VA-04A 证据边界
 
