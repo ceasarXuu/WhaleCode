@@ -1,7 +1,74 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-17T03:20:32+08:00",
+  "updated_at": "2026-08-17T03:48:39+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260817-034839-SELF-HEAL-R5",
+      "record_type": "run_batch",
+      "status": "planned",
+      "started_at": null,
+      "ended_at": null,
+      "elapsed_calendar_seconds": null,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "验证单个多余闭合符号自愈补全后，TaskSpace 真实执行仍能完成业务和 Map，并观察自愈事件、JSON syntax 拒绝、请求、缓存与成本。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "USER-20260817-SELF-HEAL-R5",
+        "reference": "用户明确要求执行 repeat=5 测试并批准预算。",
+        "budget_summary": {
+          "provider_requests": 60,
+          "input_tokens": 750000,
+          "output_tokens": 20000,
+          "elapsed_seconds": 600,
+          "estimated_cost": 1.0,
+          "currency": "CNY"
+        },
+        "note": "single-file-fast-fix × map-request × repeat=5；五个独立 repeat=1 可并行；每轮最多 12 个 Provider requests，零自动重试。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "model": "deepseek-v4-flash",
+        "batch_count": 5,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "map-request-single-delimiter-self-heal"
+        ],
+        "repeats_per_arm_per_sample": 5,
+        "planned_sample_runs": 5,
+        "actual_sample_runs": 0,
+        "api_requests": 0,
+        "api_requests_evidence_status": "pending"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "planned",
+        "currency": "CNY",
+        "amount": 1.0,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": null,
+        "formula": null,
+        "note": "硬上限；运行后按 Provider usage 结算。"
+      },
+      "evidence": {
+        "subject_commit": "2c2144e7343e82e0d7cdfc80f8b53d4ee3634124",
+        "planned_run_root_pattern": "target/r8-self-heal/repeat5-{1..5}",
+        "scenario": "single-file-fast-fix",
+        "projection_policy": "map-request",
+        "repeat": 5,
+        "retry_limit": 0,
+        "stop_conditions": "达到 60 个 Provider 请求、750000 input、20000 output、600 秒或 1 元任一上限即停止；证据不完整或发生未授权重试立即停止。"
+      }
+    },
     {
       "record_id": "WAR-20260817-031407-BASE-LIFECYCLE-R5",
       "record_type": "run_batch",
