@@ -277,6 +277,13 @@
 > 因此本次恢复子问题在线通过，I03 因其他动作组织异常继续 verifying。详见
 > [`taskspace-exec/66-client-work-restoration-repeat3-result.md`](taskspace-exec/66-client-work-restoration-repeat3-result.md)。
 
+> **repeat=3 独立异常登记（2026-08-16）**：本轮把残余拒绝拆成三个稳定观测项，不新增重复的全局问题编号：
+> `I03-ARG-SYNTAX` 为 Run 1 一次 Function arguments JSON 分隔错误；Runtime 准确返回 syntax、零副作用，下一请求纠正，
+> 因此它不是 I05 反馈分类回归。`I04-FRONTIER-EARLY` 为 Run 1 一次在父节点未完成时选择 Waiting 子节点；
+> `I04-REDUNDANT-INFLIGHT` 为 Run 3 两次同时提交 Tool 和显式 `in_flight`，与 Runtime 的 Ready -> InFlight 机械启动重复。
+> 后两者反馈均准确且下一请求纠正，但分别浪费一次请求。详见
+> [`taskspace-exec/67-repeat3-independent-anomaly-register.md`](taskspace-exec/67-repeat3-independent-anomaly-register.md)。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。
@@ -322,12 +329,12 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 1 | R8-I09 | F0 | P0 | 恢复旧任务时可能接受内部关系损坏的任务地图 | 只恢复结构完整的地图；损坏时停止且不改变当前事实 | 当前关系 Store、hydrate 校验和 State 回归继续成立 | [closed](I09/01-i09-store-hydrate-repair-result.md) | GI-009 |
 | 2 | R8-I01 | F1 | P0 | 一轮工作后 Agent 可能收到互相竞争的新旧进度 | 每轮只有一个可继续使用的结果，revision 不成为 Agent 填表负担 | 旧 receipt/control 双版本链已删除；Exec 只返回一个 outer 结果，request revision 由 Runtime 内部维护。静态关闭候选，待 E3 排除 stale 重试 | [verifying](I01/00-i01-response-final-revision-repair-plan.md) | GI-001 |
 | 3 | R8-I06 | F2 | P0 | 组合工具内部动作可能绕过归属和单 Patch 硬门 | 所有 TaskSpace client 动作先过同一请求级预检，普通 Tool 保持原生 | 生产顶层仅 Exec+Hosted；完整 plan 在副作用前校验，顶层绕过和多 Patch 有确定性拒绝。静态关闭候选 | verifying | GI-006 |
-| 4 | R8-I05 | F3 | P1 | 拒绝原因可能重复或混淆错误发生的协议层级 | 忠实返回一次失败，并准确区分语法、合同、预检与执行错误；未提交候选不得表现为已保存状态 | 只有实际顶层 `arguments` 才返回 wrapper 事实；修复后简单样本 3/3 无 wrapper，但未自然进入 syntax reject 分支，保持验证态 | verifying | GI-005 |
+| 4 | R8-I05 | F3 | P1 | 拒绝原因可能重复或混淆错误发生的协议层级 | 忠实返回一次失败，并准确区分语法、合同、预检与执行错误；未提交候选不得表现为已保存状态 | 最新 Run 1 自然命中 syntax reject：反馈准确、无 wrapper、零副作用且下一请求纠正；该证据支持反馈修复，参数生成异常仍归 I03 | verifying | GI-005 |
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 旧 carrier 与专属 Event Store 已由 zero-base 删除；Exec 源码不存在额外 developer 注入。静态关闭候选，待 final-wire trace 复核 | verifying | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 快照机械生成 Runtime-only SHA-256，并由 dispatch、request scope、Provider/Exec trace 和性能报告共用；缺失或冲突时报告不可比较。离线实现已验证，待当前生产 trace 验收 | [verifying](I10/00-i10-capability-identity-repair-plan.md) | GI-010 |
 | 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | 最新三轮 request/usage/cache/Exec/client/Patch/Map 均可复算；第三轮正确计为 2 次 patch 声明、1 次 preflight reject、1 次执行结果。完整跨模式验收仍未执行 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与 client 动作 | 稳定生成初始化并执行、完成并继续、完成并结束；Provider-hosted Tool 当前不参与 Agent 归属协议 | 首次无 work 已结构修复并真实复验 3/3；waiting 误选、JSON parse、冗余 in-flight 转换和历史顶层 client Tool 逃逸仍需分别收敛 | verifying | GI-003 |
-| 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | Run C 未复现 Waiting 误选，支持分支适用合同已生效；单次未闭环样本不足以关闭问题 | verifying | GI-004 |
+| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与 client 动作 | 稳定生成初始化并执行、完成并继续、完成并结束；Provider-hosted Tool 当前不参与 Agent 归属协议 | 首次无 work 已结构修复并真实复验 3/3；I03-ARG-SYNTAX 1/3 与历史顶层 client Tool 逃逸仍需观察 | verifying | GI-003 |
+| 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 最新三轮出现 I04-FRONTIER-EARLY 1 次和 I04-REDUNDANT-INFLIGHT 2 次；硬门与反馈正确，但各放大一轮请求 | verifying | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 最新三次 TaskSpace-only 有效运行共 21 requests、344,635 input、93.78% 全量 cache、62.093s Agent wall；没有 Standard 臂，不形成相对成本结论 | queued | GI-008 |
 
 问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**TaskSpace Exec Phase B6 闭集合法顺序实施**。

@@ -232,6 +232,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     非空 client work 前置条件、回归窗口、实现范围和离线证据。
 67. [`66-client-work-restoration-repeat3-result.md`](66-client-work-restoration-repeat3-result.md)：恢复后的三轮真实运行、首次工作序列、
     业务结果、残余拒绝、成本、缓存和 Map 证据。
+68. [`67-repeat3-independent-anomaly-register.md`](67-repeat3-independent-anomaly-register.md)：三轮复验中与空初始化修复无关的
+    参数序列化、frontier 误选和冗余状态转换异常登记。
 ## 4. 推进规则
 
 - R8 已知问题队列继续暂停，直到该主方案完成生产接入并重新盘点 I01～I10。

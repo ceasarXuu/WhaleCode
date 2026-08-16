@@ -40,7 +40,8 @@ Agent 或业务失败。
 - Run 2：没有 TaskSpace Exec 拒绝。
 - 未复现历史的顶层 client Tool 逃逸，但 3 次不足以关闭该独立问题。
 
-这些异常不属于本次“首次无 client work”回归，但继续支持 I03 保持 verifying。
+这些异常不属于本次“首次无 client work”回归。独立归类和稳定标识见
+[`67-repeat3-independent-anomaly-register.md`](67-repeat3-independent-anomaly-register.md)。
 
 ## 4. 成本与缓存
 
