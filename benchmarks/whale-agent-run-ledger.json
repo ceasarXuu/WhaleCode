@@ -1,7 +1,82 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-16T21:12:03+08:00",
+  "updated_at": "2026-08-16T21:17:59+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260816-211759-CLIENT-WORK-RESTORE-R10",
+      "record_type": "run_batch",
+      "status": "planned",
+      "started_at": null,
+      "ended_at": null,
+      "elapsed_calendar_seconds": null,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "扩大验证非空 client tools 结构前置条件的首次请求稳定性，并分别统计 I03-ARG-SYNTAX、I04-FRONTIER-EARLY、I04-REDUNDANT-INFLIGHT 与历史顶层 client Tool 逃逸。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "USER-20260816-CLIENT-WORK-RESTORE-R10",
+        "reference": "用户明确要求先记录独立异常，并批准当前恢复版本执行 repeat=10 真实运行。",
+        "budget_summary": {
+          "provider_requests": 120,
+          "input_tokens": 1500000,
+          "output_tokens": 40000,
+          "elapsed_seconds": 1200,
+          "estimated_cost": 2.0,
+          "currency": "CNY"
+        },
+        "note": "single-file-fast-fix × map-request × repeat=10；分两批各 5 个独立 run，每轮最多 12 个请求，零自动重试。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "model": "deepseek-v4-flash",
+        "batch_count": 10,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "map-request-client-work-restored"
+        ],
+        "repeats_per_arm_per_sample": 10,
+        "planned_sample_runs": 10,
+        "actual_sample_runs": 0,
+        "api_requests": 0,
+        "api_requests_evidence_status": "pending"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "planned",
+        "currency": "CNY",
+        "amount": 2.0,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": {
+          "model": "deepseek-v4-flash",
+          "captured_at": "2026-08-16T21:17:59+08:00",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": null,
+        "note": "运行前硬上限，不等同于预计实耗或账户实扣。"
+      },
+      "evidence": {
+        "planned_run_root_pattern": "target/r8-client-work-restoration/repeat10-{1..10}",
+        "subject_commit": "560d0782780ef51ccd7ed934b793655383e79d72",
+        "scenario": "single-file-fast-fix",
+        "projection_policy": "map-request",
+        "repeat": 10,
+        "retry_limit": 0,
+        "anomaly_register": "docs/v0.0.5/build-R8/taskspace-exec/67-repeat3-independent-anomaly-register.md",
+        "stop_conditions": "达到 120 个 Provider 请求、1,500,000 input、40,000 output、1,200 秒或 2 元任一上限即停止；第一批出现预算、provider 或 harness 异常时停止第二批；不自动重试。"
+      }
+    },
     {
       "record_id": "WAR-20260816-210454-CLIENT-WORK-RESTORE-R3",
       "record_type": "run_batch",
