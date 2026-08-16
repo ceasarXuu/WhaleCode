@@ -6,6 +6,7 @@
 - Applicable Decisions: PD1、PD2、PD3、PD4、PD6、PD7、PD9、PD10
 - Global Engineering Constraints: [`../02-r8-global-constraints.md`](../02-r8-global-constraints.md)
 - Issue: R8-I08
+- Paid Budget Authorization: `R8-I08-INPUT-COST-CNY3-20260817`
 - Paid Whale Agent runs executed by this plan: 0
 
 ## 1. 目标
@@ -173,6 +174,29 @@ IC-06 尚未获得授权，以下仅用于后续申请：
 `subscription-billing-repair` TaskSpace trace 以当前价格重算为约 `CNY 0.04452/run`，并同样保守假设 Standard 同价。
 这些是容量估计，不是已观测的当前 Standard 成本。
 
+### 7.2 已批准总包
+
+用户于 2026-08-17 在收到第 7.1 节预算拆分后明确批准总包 CNY 3.00，并允许在根因修复后额外执行一轮测试。授权按下列
+最大范围解释；阶段证据不要求执行的 run 不得为消耗预算而启动：
+
+| 项目 | 授权上限 |
+|---|---:|
+| Model | `deepseek-v4-flash` |
+| 基线与定位 | IC-B 2 runs；必要时 IC-07 4 runs；必要时 IC-08 2 runs |
+| 额外修复复验 | 仅一个已坐实因素；简单样本 Standard 1 + map-request 1，共 2 runs |
+| Sample runs | 10 |
+| Provider requests | 126 |
+| Input / Output | 1.64M / 70K |
+| 费用硬上限 | CNY 3.00 |
+| 预计正常费用 | 约 CNY 0.20 |
+| 按当前 token 上限全部 input 未命中 | 约 CNY 1.78 |
+| 最长累计耗时 | 120 分钟 |
+| 自动重试 | 0 |
+
+每个实际 run 仍须在启动前建立独立 `planned` 账本记录，结束后立即结算。IC-B 只在 IC-A 通过后激活；IC-07、IC-08
+分别由前序证据决定；额外修复复验必须先有一个明确根因、一个单变量改动、免费测试和缓存敏感面门禁。业务、协议、usage、
+能力身份或证据异常时立即停止当前阶段，不用总包余额自动补跑。
+
 ## 8. 根因定位通过条件
 
 完成 IC-06 后，只有同时满足以下条件才称为“根因已定位”：
@@ -218,7 +242,7 @@ IC-06 尚未获得授权，以下仅用于后续申请：
 - Units: IC-06
 - Pre-Phase Plan Rebase Gate: pending
 - Material plan delta: pending IC-A result
-- User approval: required-pending
+- User approval: user-approved-budget-direct: R8-I08-INPUT-COST-CNY3-20260817；仍受 IC-A rebase gate 阻断
 - Exit: 两臂可比较且逐 request 成本结构完整，或以明确异常停止。
 - Product Decision Delta: engineering-only
 
@@ -227,6 +251,7 @@ IC-06 尚未获得授权，以下仅用于后续申请：
 - Units: IC-07～IC-09，按 IC-B 证据选择，不默认全部执行
 - Pre-Phase Plan Rebase Gate: pending
 - Material plan delta: pending IC-B result
-- User approval: required-pending for every paid matrix and cache-sensitive change
+- User approval: paid matrix covered by R8-I08-INPUT-COST-CNY3-20260817；material plan change 和 cache-sensitive
+  production change 仍须按各自门禁处理
 - Exit: 主贡献项通过单变量因果验证，或候选被证伪并停止。
 - Product Decision Delta: any behavior-affecting optimization requires separate user confirmation
