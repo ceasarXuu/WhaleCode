@@ -89,3 +89,9 @@ Run 3 首次 `initialize_and_work` 合法并执行成功。第二个 Provider �
 - 每个实际 run root 均包含 `performance-observation.{json,md}` 与 `performance-observation-events.jsonl`
 - Capability identity: `a95be2ff3edf5911780794843ddee89f4348358e206f69227f675d0cc041ef11`
 - Binary attestation: `third_party/codex-cli/codex-rs/target/debug/whale.build-attestation.json`
+
+## 9. 后续处置
+
+本轮 4/10 的首次 Map-only 空推进证明：退出 Provider Agent 归属协议后，遗留的响应级 Provider/client OR 合同不再成立。
+后续已按最新产品决策恢复工作型序列的非空 client `tools[]` 结构前置条件，详见
+[`65-client-work-structural-restoration.md`](65-client-work-structural-restoration.md)。本报告的原始统计保持不变。

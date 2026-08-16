@@ -122,7 +122,7 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
         .collect::<BTreeMap<_, _>>();
     assert_eq!(sequence_descriptions.len(), 8);
     assert!(sequence_descriptions["initialize_and_work"].contains("Map is blank"));
-    assert!(sequence_descriptions["initialize_and_work"].contains("native Provider Tool action"));
+    assert!(sequence_descriptions["initialize_and_work"].contains("required non-empty `tools`"));
     assert!(sequence_descriptions["work"].contains("already Ready or InFlight"));
     assert!(sequence_descriptions["work"].contains("does not complete its owner"));
     assert!(sequence_descriptions["work"].contains("use update_and_work instead"));
@@ -152,6 +152,26 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
             .len(),
         5
     );
+    for branch in parameters["anyOf"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|branch| {
+            matches!(
+                branch["properties"]["type"]["enum"][0].as_str(),
+                Some("initialize_and_work" | "work" | "update_and_work" | "reopen_update_and_work")
+            )
+        })
+    {
+        assert!(
+            branch["required"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|name| name == "tools")
+        );
+        assert_eq!(branch["properties"]["tools"]["minItems"], 1);
+    }
     let rendered = declaration.to_string();
     for name in [
         "initialize_and_work",
@@ -245,7 +265,7 @@ fn all_eight_legal_sequences_decode_and_old_wire_is_rejected() {
             "accepted {old}"
         );
     }
-    for provider_only in [
+    for missing_client_work in [
         json!({
             "type": "initialize_and_work",
             "initialize_map": canonical_first_turn_example()["initialize_map"].clone()
@@ -253,12 +273,12 @@ fn all_eight_legal_sequences_decode_and_old_wire_is_rejected() {
         json!({"type": "work"}),
         json!({"type": "work", "tools": []}),
     ] {
-        let plan = catalog
-            .decode_plan(&provider_only.to_string())
-            .unwrap_or_else(|error| {
-                panic!("rejected provider-only shape {provider_only}: {error:?}")
-            });
-        assert!(plan.tools.is_empty());
+        assert!(
+            catalog
+                .decode_plan(&missing_client_work.to_string())
+                .is_err(),
+            "accepted work sequence without client work: {missing_client_work}"
+        );
     }
 }
 

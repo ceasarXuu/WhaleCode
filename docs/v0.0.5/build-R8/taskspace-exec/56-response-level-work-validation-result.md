@@ -4,6 +4,9 @@
 - Scope: PA-08
 - Result: **响应级机械校验离线正确；真实请求已出现 Provider/Exec 共现，但 Agent 仍主动添加占位，目标分支未被单独验收**
 
+> 历史状态：本报告记录的响应级 Provider/client OR 方案已由
+> [`65-client-work-structural-restoration.md`](65-client-work-structural-restoration.md) 废止。报告保留当时证据，不作为活动合同。
+
 ## 1. 回归根因
 
 PA-04 从 `tools[]` 删除旧 Hosted 双写项后，`initialize_and_work` 等工作型序列仍把非空 client `tools[]` 当作局部必要条件。

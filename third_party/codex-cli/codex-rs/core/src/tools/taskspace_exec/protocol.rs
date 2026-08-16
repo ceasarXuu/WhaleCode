@@ -15,7 +15,7 @@ use super::map_operations::WorkNodeArgs;
 const PROTOCOL: &str = r#"Use `taskspace_exec` as the sole top-level Function Tool for TaskSpace Map operations and client Tool actions. Provider-hosted Tools remain native Provider ToolSpecs; they are not Function Tools. Choose exactly one sequence `type` allowed by the schema.
 
 Tool contract:
-- Put only client Tool actions in the sequence's `tools` array. For a work sequence, `tools` may be omitted or empty only when the current response contains a native Provider Tool action; the Runtime checks work across the complete response.
+- Put only client Tool actions in the sequence's `tools` array. Every work sequence requires a non-empty `tools` array. Native Provider Tool actions remain separate and do not replace this client work.
 - Each client action keeps its native Tool input in `input` and declares one owner `node_id`; namespaced Tools also declare `namespace`.
 - Tool array order supplies stable action identity. It does not create Tool dependencies; result-dependent work belongs in a later request.
 

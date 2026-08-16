@@ -50,12 +50,12 @@ pub(super) fn build_sequence_schema(
         vec![
             work_sequence(
                 "initialize_and_work",
-                "Use only when the TaskSpace Map is blank. Initialize the Map, then perform the first work in this response. Work may be a native Provider Tool action in the response or one or more client actions in `tools`.",
+                "Use only when the TaskSpace Map is blank. Initialize the Map, then perform the first client Tool work declared in the required non-empty `tools` array.",
                 [("initialize_map", initialize_map_schema)],
             ),
             work_sequence(
                 "work",
-                "Perform work when every client Tool owner is already Ready or InFlight in the current Map. Work may be a native Provider Tool action in the response or one or more client actions in `tools`. A prior Tool outcome does not complete its owner. If a Map update must complete or change a parent first, use update_and_work instead.",
+                "Perform one or more client Tool actions from the required non-empty `tools` array when every owner is already Ready or InFlight in the current Map. A prior Tool outcome does not complete its owner. If a Map update must complete or change a parent first, use update_and_work instead.",
                 [],
             ),
             sequence(
@@ -65,7 +65,7 @@ pub(super) fn build_sequence_schema(
             ),
             work_sequence(
                 "update_and_work",
-                "Update the Map first, then perform work in this response. Work may be a native Provider Tool action in the response or one or more executable client actions in `tools`. Use this to complete or change parent nodes before working on their direct dependents. Only this preceding Map update can unlock client Tool owners; Tool outcomes in this sequence do not unlock descendants.",
+                "Update the Map first, then perform one or more executable client Tool actions from the required non-empty `tools` array. Use this to complete or change parent nodes before working on their direct dependents. Only this preceding Map update can unlock client Tool owners; Tool outcomes in this sequence do not unlock descendants.",
                 [("update_map", map_ref("update_map"))],
             ),
             sequence(
@@ -83,7 +83,7 @@ pub(super) fn build_sequence_schema(
             ),
             work_sequence(
                 "reopen_update_and_work",
-                "Use after user feedback requires continuing a finished Map. Reopen it, update the Agent-authored work structure, then perform work in this response. Work may be a native Provider Tool action in the response or one or more executable client actions in `tools`.",
+                "Use after user feedback requires continuing a finished Map. Reopen it, update the Agent-authored work structure, then perform one or more executable client Tool actions from the required non-empty `tools` array.",
                 [
                     ("reopen_map", map_ref("reopen_map")),
                     ("update_map", map_ref("update_map")),
@@ -112,6 +112,11 @@ fn work_sequence<const N: usize>(
         .expect("sequence schema is an object");
     properties.insert("tools".into(), tools_ref());
     schema
+        .required
+        .as_mut()
+        .expect("sequence schema has required fields")
+        .push("tools".into());
+    schema
 }
 
 fn sequence<const N: usize>(
@@ -135,7 +140,7 @@ fn sequence<const N: usize>(
 }
 
 fn tools_ref() -> JsonSchema {
-    JsonSchema::array(JsonSchema::reference("#/$defs/tool_action"), None)
+    JsonSchema::array(JsonSchema::reference("#/$defs/tool_action"), None).with_min_items(1)
 }
 
 fn map_ref(operation: &str) -> JsonSchema {

@@ -32,8 +32,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
    机械维护这些关联信息。
 9. Agent 在 Ready 节点声明 Tool action 后，Runtime 只机械转为 InFlight；Tool outcome 不自动完成节点。无正向运行证据的
    `blocked` 状态和相关规则从目标模型删除。
-10. 工作型序列按完整响应校验 work：本响应存在原生 Provider Tool action，或 Exec 内存在 client Tool action，满足任一即
-    合法；`tools[]` 不再承担 Provider-first 场景的占位职责。
+10. 每个工作型序列必须在 Exec 内声明至少一个 client Tool action。Provider-hosted Tool 由 Runtime 独立机械归纳，不能
+    替代 Exec 的 client work，也不恢复 Agent 双写或待归属协议。
 
 旧的普通 Tool schema 入侵、顶层结构化序列容器和 `taskspace_control.actions[] + sibling calls` 三条路线只保留历史
 文档证据，active code 直接删除。新方案不维护旧 TaskSpace 可运行性、不增加 adapter 或兼容分支，也不从旧
@@ -46,8 +46,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 - 当前 Runtime 在 response 完成后从原生 Hosted ResponseItem 机械采集事实；同一响应内同一种原生 ToolSpec 聚合为一个
   Action。首次真实调用时才创建同名 Root 子节点，后续调用追加到同一节点；节点保持 Completed 并连接 Finish。无 Map 或
   与 Agent 同名节点冲突时记录 `taskspace.provider_actions_escaped`，允许 Provider 调用暂时从 Map 逃逸。
-- 工作型序列仍按完整 Provider 响应检查 work：Provider facts 与 Exec client actions 任一非空即合法。`initialize_map`
-  始终必须提交完整 Map；仅允许 client `tools[]` 在存在真实 Provider work 时为空，不能把该规则解释为允许空初始化。
+- 工作型序列已恢复非空 client `tools[]` 的结构前置条件。`initialize_map` 必须提交完整 Map 和至少一个 client work；
+  Provider facts 只进入独立的 Root 机械归纳，不能使缺失 client work 的 Exec 序列合法。
 
 - 最新 Codex 主线仍使用一个 `exec` 入口，将 Function、Freeform 和 Namespace Tool 从原 `ToolSpec` 派生为内部
   ToolDefinition，并把嵌套调用送回统一 Tool runtime。
@@ -228,6 +228,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     缓存、预算与保留结论。
 65. [`64-initialize-map-candidate2-repeat10-result.md`](64-initialize-map-candidate2-repeat10-result.md)：C2 扩大十轮的类型、首次序列、
     顶层 client Tool 逃逸、成本和缓存证据。
+66. [`65-client-work-structural-restoration.md`](65-client-work-structural-restoration.md)：放弃 Provider Agent 归属后恢复工作型序列的
+    非空 client work 前置条件、回归窗口、实现范围和离线证据。
 ## 4. 推进规则
 
 - R8 已知问题队列继续暂停，直到该主方案完成生产接入并重新盘点 I01～I10。

@@ -28,9 +28,10 @@ Runtime 只保留最小调用账目：
 
 ## 3. 实现边界
 
-Provider ResponseItem 仍由 response-local scope 从原生 ToolSpec 分类。Provider work 继续参与响应级 `response_work+` 判断；
-这只说明该响应发生了真实工作，不要求 Agent 在 Exec 内添加无价值的 client Tool。`initialize_map` 本身仍必须提交完整 Map，
-不能因为 `tools[]` 可空而省略初始化内容。
+Provider ResponseItem 仍由 response-local scope 从原生 ToolSpec 分类。本报告完成时，Provider work 还参与响应级
+`response_work+` 判断；该历史规则已由
+[`65-client-work-structural-restoration.md`](65-client-work-structural-restoration.md) 废止。当前工作型序列必须包含非空 client
+`tools[]`，Provider Root 归纳保持不变且不参与 Exec 合法性判断。
 
 Provider 聚合在本响应的 client/Map 工作 drain 后执行，因此同响应初始化的 Map 可以立即接收记录。聚合节点不表示 Agent
 认为该业务节点完成，也不影响其他 Work node 的状态。

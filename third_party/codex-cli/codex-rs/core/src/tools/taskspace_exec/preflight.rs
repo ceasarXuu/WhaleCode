@@ -76,29 +76,16 @@ pub(crate) enum TaskSpaceExecPreflightError {
     PatchLimitExceeded {
         indices: Vec<usize>,
     },
-    ResponseWorkMissing {
-        sequence_type: String,
-    },
 }
 
 pub(crate) fn preflight_taskspace_exec(
     envelope: &TaskSpaceExecEnvelope,
     current_map: Option<&TaskSpaceMap>,
-    has_provider_work: bool,
 ) -> Result<TaskSpaceExecPreflightResult, TaskSpaceExecPreflightError> {
     envelope
         .request()
         .validate_current_map(current_map)
         .map_err(TaskSpaceExecPreflightError::RequestContext)?;
-    if sequence_requires_response_work(&envelope.plan().sequence_type)
-        && envelope.plan().tools.is_empty()
-        && !has_provider_work
-    {
-        return Err(TaskSpaceExecPreflightError::ResponseWorkMissing {
-            sequence_type: envelope.plan().sequence_type.clone(),
-        });
-    }
-
     let mut candidate_map = current_map.cloned();
     let mut read_maps = Vec::new();
     let mut client_calls = Vec::new();
@@ -146,13 +133,6 @@ pub(crate) fn preflight_taskspace_exec(
         read_maps,
         client_calls,
     })
-}
-
-fn sequence_requires_response_work(sequence_type: &str) -> bool {
-    matches!(
-        sequence_type,
-        "initialize_and_work" | "work" | "update_and_work" | "reopen_update_and_work"
-    )
 }
 
 fn apply_map_stage(

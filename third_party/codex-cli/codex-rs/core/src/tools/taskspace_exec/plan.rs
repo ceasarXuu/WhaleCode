@@ -70,13 +70,13 @@ impl TaskSpaceExecPlan {
                     "initialize_map",
                     field(&value, "initialize_map")?,
                 )?);
-                tools = decode_optional_tools(&value, catalog)?;
+                tools = decode_tools(&value, catalog)?;
             }
-            "work" => tools = decode_optional_tools(&value, catalog)?,
+            "work" => tools = decode_tools(&value, catalog)?,
             "update_map" => pre_map.push(decode_map("update_map", field(&value, "update_map")?)?),
             "update_and_work" => {
                 pre_map.push(decode_map("update_map", field(&value, "update_map")?)?);
-                tools = decode_optional_tools(&value, catalog)?;
+                tools = decode_tools(&value, catalog)?;
             }
             "update_and_finish" => {
                 pre_map.push(decode_map("update_map", field(&value, "update_map")?)?);
@@ -86,7 +86,7 @@ impl TaskSpaceExecPlan {
             "reopen_update_and_work" => {
                 pre_map.push(decode_map("reopen_map", field(&value, "reopen_map")?)?);
                 pre_map.push(decode_map("update_map", field(&value, "update_map")?)?);
-                tools = decode_optional_tools(&value, catalog)?;
+                tools = decode_tools(&value, catalog)?;
             }
             "finish_map" => {
                 terminal_map = Some(decode_map("finish_map", field(&value, "finish_map")?)?)
@@ -116,14 +116,11 @@ fn decode_map(
     })
 }
 
-fn decode_optional_tools(
+fn decode_tools(
     plan: &Value,
     catalog: &TaskSpaceExecCatalog,
 ) -> Result<Vec<ClientCall>, TaskSpaceExecPlanDecodeError> {
-    let Some(tools) = plan.get("tools") else {
-        return Ok(Vec::new());
-    };
-    let tools = tools
+    let tools = field(plan, "tools")?
         .as_array()
         .ok_or_else(|| invalid_envelope("`tools` must be an array"))?;
     tools
