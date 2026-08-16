@@ -65,3 +65,7 @@ TaskSpace 共 6 次 Exec、5 个 client actions，Map 为 5 nodes / 4 edges，�
 
 两臂合计 12 requests、167,868 input、3,512 output，按冻结价格估算 CNY 0.01897008。当前结论只关闭“成功反馈中的机械冗余”；
 TaskSpace 固定 Tool 合同仍为 26,688 B/request，额外请求和更大的历史仍使总 input 明显高于 Standard，R8-I08 保持 open。
+
+五对 repeat=5 稳定性结果见 [`08-ic09-feedback-compaction-repeat5-result.md`](08-ic09-feedback-compaction-repeat5-result.md)：10/10
+业务与 oracle 通过，成功 Exec output 平均体量较变更前五轮下降 27.65%；两次派生状态误写和一次 JSON syntax reject 独立归入
+I04/I03，不构成反馈字段删除回归。
