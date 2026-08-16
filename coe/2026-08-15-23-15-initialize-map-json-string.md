@@ -1,7 +1,7 @@
 # Problem P-001: initialize_map 偶发被二次序列化为 JSON string
 - Status: open
 - Created: 2026-08-15 23:15
-- Updated: 2026-08-16 18:40
+- Updated: 2026-08-16 18:50
 - Objective: 确认 `taskspace_exec.initialize_map` 类型错误的实际发生层、频率和可验证根因，避免把模型输出错误误归因给 Runtime。
 - Symptoms:
   - 同一 Function Tool schema 下，Agent 有时把应为 object 的 `initialize_map` 写成包含 JSON 文本的 string。
@@ -157,6 +157,7 @@
   - E-002
   - E-003
   - E-004
+  - E-009
 - Conclusion: unverified
 - Repair design readiness: blocked until Evidence gate is satisfied
 - Next step: 暂不实施；先设计最小单变量候选。
@@ -373,3 +374,24 @@
   ```
 - Interpretation: 聚焦测试和真实运行均未显示反馈修复造成回归，但本轮缺少 string 触发条件，不能评价恢复率收益，也不能把 0/5 解释为首发生成改进。
 - Time: 2026-08-16 18:40
+
+## Evidence E-009: 候选 2 内联 schema 五轮均为 object
+- Related hypotheses:
+  - H-003
+- Direction: neutral
+- Type: experiment
+- Source: `docs/v0.0.5/build-R8/taskspace-exec/60-initialize-map-candidate2-inline-schema-result.md`
+- Prediction or plan link:
+  - 冻结其余协议与 Runtime，只把 `initialize_map` 从 `$ref` 改为同合同的就地 object schema。
+- Matched signal:
+  - 五轮首次 `initialize_map` 均为 object，5/5 Agent complete，5/5 外部验证通过。Tool section 减少 63 bytes，Request 2+ 加权缓存命中率 92.90%。
+- Correlation keys:
+  - `subject=847da1c37`
+  - `taskspace_capability_identity=a95be2ff3edf...`
+- Raw content:
+  ```text
+  first initialize_map types: object, object, object, object, object
+  tool section: 24,938 bytes
+  ```
+- Interpretation: 结果与候选机制一致且未见回归，但未改 schema 的候选 1 同样得到 object 5/5；当前样本不能区分内联收益与随机波动，H-003 仍未通过因果证据门禁。
+- Time: 2026-08-16 18:50
