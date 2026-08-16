@@ -136,6 +136,57 @@ fn l1_initialize_and_work_starts_the_agent_selected_ready_node() {
         rooted_dag::node(&map, "inspect").unwrap().state,
         NodeState::InFlight
     );
+    assert_eq!(
+        rooted_dag::node(&map, "implement").unwrap().state,
+        NodeState::Waiting
+    );
+}
+
+#[test]
+fn canonical_examples_form_one_executable_lifecycle() {
+    let initialized =
+        preflight_taskspace_exec(&envelope(canonical_first_turn_example(), None), None)
+            .unwrap()
+            .candidate_map
+            .unwrap();
+    assert_eq!(
+        rooted_dag::node(&initialized, "inspect").unwrap().state,
+        NodeState::InFlight
+    );
+    assert_eq!(
+        rooted_dag::node(&initialized, "implement").unwrap().state,
+        NodeState::Waiting
+    );
+
+    let handed_off = preflight_taskspace_exec(
+        &envelope(canonical_handoff_example(), Some(&initialized)),
+        Some(&initialized),
+    )
+    .unwrap()
+    .candidate_map
+    .unwrap();
+    assert_eq!(
+        rooted_dag::node(&handed_off, "inspect").unwrap().state,
+        NodeState::Completed
+    );
+    assert_eq!(
+        rooted_dag::node(&handed_off, "implement").unwrap().state,
+        NodeState::InFlight
+    );
+
+    let finished = preflight_taskspace_exec(
+        &envelope(canonical_finish_example(), Some(&handed_off)),
+        Some(&handed_off),
+    )
+    .unwrap()
+    .candidate_map
+    .unwrap();
+    assert_eq!(finished.root.state, NodeState::Completed);
+    assert_eq!(
+        rooted_dag::node(&finished, "implement").unwrap().state,
+        NodeState::Completed
+    );
+    assert_eq!(finished.finish.state, NodeState::Completed);
 }
 
 #[test]

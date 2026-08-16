@@ -204,6 +204,18 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
             .contains("do not also patch that owner to `in_flight`")
     );
     let description = declaration["description"].as_str().unwrap();
+    assert_eq!(description.matches("Map lifecycle contract:").count(), 1);
+    for required in [
+        "Root stays `in_flight` while the Map is open",
+        "already `ready` to `in_flight` or `completed`",
+        "mechanically rederive a not-started Work node between `waiting` and `ready`",
+        "A Tool outcome never completes its owner",
+        "The same Map update cannot patch that child out of `waiting`",
+        "Only `finish_map` completes Root and Finish",
+        "completed Work nodes remain completed",
+    ] {
+        assert!(description.contains(required), "missing {required}");
+    }
     assert!(!description.contains("TaskSpacePendingProviderActionsR8V1"));
     assert!(!description.contains("assign_pending_actions"));
     let first_turn = description

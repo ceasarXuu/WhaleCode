@@ -105,6 +105,10 @@
     返回值必须是完整 Agent-visible Map，包含全局节点路径、状态、内容、动作以及机械派生的 `children[]`。
 11. Node lifecycle 只包含 Waiting、Ready、InFlight 和 Completed。当前没有 `blocked` 帮助 Agent 推理的真实运行证据，
     因此 schema、状态转移、Store、projection、反馈和规则均不得保留该状态；外部阻碍事实由 Agent 写入 `content`。
+12. Waiting/Ready 由非 Root parents 是否全部 Completed 机械派生；Agent 可显式执行 Ready -> InFlight、Ready -> Completed
+    或 InFlight -> Completed，显式状态转换不得倒退；parents 变化可机械重算尚未启动节点的 Waiting/Ready。同一个 Map
+    update 不能把原本 Waiting 的子节点直接改出 Waiting；`update_and_work` 可先完成父节点，再通过同序列 Tool action
+    启动派生为 Ready 的子节点。
 
 ## 4. 上下文与反馈
 

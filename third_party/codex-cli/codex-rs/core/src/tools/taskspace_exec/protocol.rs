@@ -19,10 +19,14 @@ Tool contract:
 - Each client action keeps its native Tool input in `input` and declares one owner `node_id`; namespaced Tools also declare `namespace`.
 - Tool array order supplies stable action identity. It does not create Tool dependencies; result-dependent work belongs in a later request.
 
-Map contract:
-- Map fields use the canonical operation input directly. Node readiness derives from `parents`.
-- A Tool action on a Ready owner mechanically starts it; do not also patch that owner to `in_flight` in the same sequence.
-- Tool outcomes do not complete nodes. A batch contains at most one `apply_patch` action.
+Map lifecycle contract:
+- `parents` defines the dependency DAG. Root stays `in_flight` while the Map is open and counts as satisfied for its direct Work children.
+- A Work node is `waiting` while any non-Root parent is incomplete. The Runtime mechanically derives `ready` after every Map update when all non-Root parents are `completed`.
+- An Agent-authored state patch may move a Work node already `ready` to `in_flight` or `completed`, and one already `in_flight` to `completed`; these explicit transitions do not move backward. Changing `parents` may mechanically rederive a not-started Work node between `waiting` and `ready`.
+- A Tool action on a `ready` owner mechanically starts it as `in_flight`; do not also patch that owner to `in_flight` in the same sequence. A Tool outcome never completes its owner.
+- Completing a parent in a Map update can make a `waiting` child `ready` only after that update. The same Map update cannot patch that child out of `waiting`; `update_and_work` can perform the parent update first and then start the child through its Tool action.
+- Finish readiness derives from its parents. Only `finish_map` completes Root and Finish, and only when Finish is `ready`. `reopen_map` reopens Root and Finish after user follow-up; completed Work nodes remain completed.
+- A batch contains at most one `apply_patch` action.
 - The complete sequence is preflighted before unexecuted side effects. The Runtime does not add, infer, reorder, or repair Agent actions.
 
 Feedback contract:
@@ -62,17 +66,25 @@ pub(crate) fn canonical_first_turn_example() -> Value {
             content: String::new(),
             parents: Vec::new(),
         },
-        work_nodes: vec![WorkNodeArgs {
-            node_id: "inspect".into(),
-            goal: "Inspect the workspace".into(),
-            content: String::new(),
-            parents: vec!["root".into()],
-        }],
+        work_nodes: vec![
+            WorkNodeArgs {
+                node_id: "inspect".into(),
+                goal: "Inspect the workspace".into(),
+                content: String::new(),
+                parents: vec!["root".into()],
+            },
+            WorkNodeArgs {
+                node_id: "implement".into(),
+                goal: "Implement the required change".into(),
+                content: String::new(),
+                parents: vec!["inspect".into()],
+            },
+        ],
         finish: BoundaryNodeArgs {
             node_id: "finish".into(),
             goal: "Deliver the completed task".into(),
             content: String::new(),
-            parents: vec!["inspect".into()],
+            parents: vec!["implement".into()],
         },
     });
     json!({

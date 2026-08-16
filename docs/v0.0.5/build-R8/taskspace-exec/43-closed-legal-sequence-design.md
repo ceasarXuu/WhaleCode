@@ -168,15 +168,21 @@ dispatch/reconcile 前只机械归一化 `ready -> in_flight`。
 
 ### 8.2 目标模型
 
-目标 Node state 收敛为：
+目标 Node state 收敛为以下有向转换；这不是要求所有节点必须经过每个状态：
 
 ```text
-waiting -> ready -> in_flight -> completed
+waiting <-> ready --非 Root parents 是否全部 completed，由 Runtime 派生
+ready --Agent 显式更新或在该节点声明 Tool--> in_flight
+ready --Agent 已有充分完成证据并显式更新--> completed
+in_flight --Agent 显式更新--> completed
 ```
 
 - `waiting/ready` 继续由 parents 是否 completed 机械派生；
+- Agent 修改 parents 后，尚未启动节点可在 `waiting/ready` 之间重新派生；显式 lifecycle state patch 不允许倒退；
 - `in_flight` 由 Agent 选择在节点上工作，或显式纯 Map update 表达；
-- `completed` 只由 Agent 显式 update 表达；
+- `completed` 只由 Agent 显式 update 表达；Tool outcome 不自动完成节点；
+- 同一个 Map update 不能把原本 `waiting` 的子节点直接改为 `in_flight/completed`；完成父节点后，Runtime 才派生该子节点
+  为 `ready`。`update_and_work` 可以先完成父节点，再通过同序列 Tool action 机械启动已解锁子节点；
 - 外部条件暂时不满足时，Agent 可将事实写入节点 `content`，继续其他 Ready 节点，或在 Map 保持未闭合时向用户
   说明当前缺少的外部条件；不再为此增加一套节点限制状态和转移规则。
 

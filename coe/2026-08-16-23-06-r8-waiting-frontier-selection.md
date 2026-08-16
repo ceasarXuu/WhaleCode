@@ -123,11 +123,13 @@
 - Evidence gate: satisfied
 - Related evidence:
   - E-003
+  - E-012
 - Conclusion: 错误不是无目标的随机动作，而是自然下一 Tool 行动压过了 Map handoff 记账；这解释模式一致性，但尚不能单独证明“分支更短”是模型选择的因果变量。
-- Repair design readiness: blocked until a single-variable schema experiment separates wording/order/shape
-- Next step: 若进入修复，优先设计不改变产品语义的分支显著性单变量，不直接增加状态约束。
+- Repair design readiness: implemented offline; live validation pending
+- Next step: 获得真实运行预算后验证组合协议修复是否降低 Waiting frontier；本轮同时修复生命周期合同和断裂示例，不能把
+  在线差异单独归因给其中一个因素。
 - Blocker:
-  - 缺少单变量实验。
+  - 缺少当前候选的真实 Agent 行为证据。
 - Close reason:
   - not closed
 
@@ -541,3 +543,26 @@
 - Interpretation: 反馈已忠实补全，排除字段未进入上下文或状态事实丢失；行为误选仍复发，故 H-006 不能作为 Waiting 的
   充分根因，I04 不关闭。
 - Time: 2026-08-17 02:14
+
+## Evidence E-012: Agent-visible lifecycle 合同与连续示例通过离线验收
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: focused-test
+- Source: `taskspace_exec/protocol.rs`、catalog/preflight tests、R8 lifecycle 修复文档
+- Prediction or plan link:
+  - 在不增加 Runtime 状态约束的前提下，让 Tool description 完整表达已有状态机，并让示例形成真实合法路径
+- Matched signal:
+  - description 唯一包含完整 `Map lifecycle contract`
+  - canonical 示例统一为 `root -> inspect -> implement -> finish`
+  - 三个示例按顺序作用于同一 Map 后 Root、Implement、Finish 全部 Completed
+  - TaskSpace Exec 70 tests、格式和免费 cache final-wire gate 通过
+- Correlation keys:
+  - cache candidate `e31a4ebf5d69087e02e3effe2b5a6e1b9b12716543a8e48487b5b4f6a5e7593e`
+- Raw content:
+  ```text
+  canonical_examples_form_one_executable_lifecycle ... ok
+  test result: ok. 70 passed; 0 failed
+  ```
+- Interpretation: 协议缺失与示例断裂已在工程层修复，未改变 Runtime 状态机；尚无真实 Agent 证据证明 Waiting 频率下降。
+- Time: 2026-08-17 02:43
