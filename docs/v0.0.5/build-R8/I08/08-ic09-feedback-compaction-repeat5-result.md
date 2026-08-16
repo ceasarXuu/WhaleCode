@@ -35,6 +35,11 @@ runner shell exit 1 来自 `aggregate_not_enabled`；正式 `run-status` 为 `va
 相对变更前 TaskSpace-only 五轮，当前 requests 为 35 vs 34，input 为 531,515 vs 528,450；路径波动使总 input 增加 0.58%，
 但平均每请求 input 从 15,543 降至 15,186，下降 2.29%。因此可以确认机械反馈缩小，但不能声称它单独降低了整批总 input。
 
+按相邻请求的 input 增量观察，当前 TaskSpace 30 个增量合计 20,634，均值 687.80、中位数 784；变更前 TaskSpace 29 个增量
+合计 24,583，均值 847.69、中位数 883。均值下降 18.86%，中位数下降 11.21%，累计下降 16.06%。同轮 Standard 的均值为
+436.42，因此当前 TaskSpace 单轮 input 增量仍为 Standard 的 1.58x。后续成本优化以这个相邻请求增量为主指标，不再用总 input
+掩盖单轮载体变化。
+
 ## 3. 行为与异常
 
 - 五轮 Map 均为 `root -> inspect -> fix -> verify -> finish`，5 nodes / 4 edges，最终全部 completed、0 open leaves；无显式
@@ -54,3 +59,15 @@ runner shell exit 1 来自 `aggregate_not_enabled`；正式 `run-status` 为 `va
 IC-09 的机械反馈收敛通过 repeat=5：正确性和 Map 完整性无回归，反馈面积稳定缩小。R8-I08 仍保持 open，因为 TaskSpace 固定
 Tool wire 为 26,688 B/request，且请求、自然历史和未缓存 input 仍高于 Standard。本轮不继续添加 Runtime 语义约束，也不把
 两类 Agent 错误混入反馈压缩结论。
+
+## 5. 两项异常的离线修复
+
+2026-08-17 在不启动新真实运行的前提下完成两项最小修复：
+
+1. 自愈器新增“JSON 字符串内唯一一个裸 LF 转义为 `\\n`”候选。仍要求修复后通过当前 TaskSpace Catalog 完整解码，且全局
+   只有一个合法候选；多个裸换行、复合语法错误或语义错误仍原样拒绝。修复发生在正式历史落账前，错误参数不会进入后续上下文。
+2. TaskSpace Base 升级为 `3.0.5`，明确父节点满足目标后应先显式完成，Runtime 再机械派生依赖节点 Ready；Agent 可以在同一
+   响应提交刚解锁子节点的 Tool 动作，但不得显式把 waiting 子节点改成 `in_flight`。Tool schema、状态机和拒绝规则未改变。
+
+相关 `taskspace_exec` 测试 74 项、Base 合同测试 3 项和会话历史替换测试均通过。两项当前仅为离线修复完成，是否降低真实
+syntax/frontier 异常频率仍待后续获批运行验证；不得据此关闭 I03/I04。

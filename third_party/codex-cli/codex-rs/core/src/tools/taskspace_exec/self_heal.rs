@@ -15,7 +15,7 @@ const ERROR_WINDOW_BYTES: usize = 24;
 pub(crate) struct TaskSpaceExecSelfHeal {
     pub(crate) call_id: String,
     pub(crate) operation: &'static str,
-    pub(crate) delimiter: char,
+    pub(crate) repair_token: &'static str,
     pub(crate) byte_index: usize,
     pub(crate) original_arguments_sha256: String,
     pub(crate) repaired_arguments_sha256: String,
@@ -39,14 +39,14 @@ pub(crate) fn self_heal_taskspace_exec_response_item(
         return None;
     }
 
-    let repaired = repair_single_closing_delimiter(arguments, catalog)?;
+    let repaired = repair_single_syntax_error(arguments, catalog)?;
     let original_arguments_sha256 = sha256(arguments);
     let repaired_arguments_sha256 = sha256(&repaired.arguments);
     *arguments = repaired.arguments;
     Some(TaskSpaceExecSelfHeal {
         call_id: call_id.clone(),
         operation: repaired.operation,
-        delimiter: repaired.delimiter,
+        repair_token: repaired.repair_token,
         byte_index: repaired.byte_index,
         original_arguments_sha256,
         repaired_arguments_sha256,
@@ -56,11 +56,11 @@ pub(crate) fn self_heal_taskspace_exec_response_item(
 struct RepairedArguments {
     arguments: String,
     operation: &'static str,
-    delimiter: char,
+    repair_token: &'static str,
     byte_index: usize,
 }
 
-fn repair_single_closing_delimiter(
+fn repair_single_syntax_error(
     arguments: &str,
     catalog: &TaskSpaceExecCatalog,
 ) -> Option<RepairedArguments> {
@@ -70,9 +70,20 @@ fn repair_single_closing_delimiter(
 
     for byte_index in positions {
         if is_inside_json_string(arguments, byte_index) {
+            if arguments.as_bytes().get(byte_index) == Some(&b'\n') {
+                let mut candidate = String::with_capacity(arguments.len() + 1);
+                candidate.push_str(&arguments[..byte_index]);
+                candidate.push_str("\\n");
+                candidate.push_str(&arguments[byte_index + 1..]);
+                if catalog.decode_plan(&candidate).is_ok() {
+                    repairs
+                        .entry(candidate)
+                        .or_insert(("escape", "\\n", byte_index));
+                }
+            }
             continue;
         }
-        for delimiter in ['}', ']'] {
+        for (delimiter, repair_token) in [('}', "}"), (']', "]")] {
             let mut candidate = String::with_capacity(arguments.len() + 1);
             candidate.push_str(&arguments[..byte_index]);
             candidate.push(delimiter);
@@ -80,12 +91,17 @@ fn repair_single_closing_delimiter(
             if catalog.decode_plan(&candidate).is_ok() {
                 repairs
                     .entry(candidate)
-                    .or_insert(("insert", delimiter, byte_index));
+                    .or_insert(("insert", repair_token, byte_index));
             }
         }
 
         let Some(delimiter @ ('}' | ']')) = arguments[byte_index..].chars().next() else {
             continue;
+        };
+        let repair_token = match delimiter {
+            '}' => "}",
+            ']' => "]",
+            _ => unreachable!(),
         };
         let mut candidate = String::with_capacity(arguments.len() - delimiter.len_utf8());
         candidate.push_str(&arguments[..byte_index]);
@@ -93,7 +109,7 @@ fn repair_single_closing_delimiter(
         if catalog.decode_plan(&candidate).is_ok() {
             repairs
                 .entry(candidate)
-                .or_insert(("delete", delimiter, byte_index));
+                .or_insert(("delete", repair_token, byte_index));
         }
     }
 
@@ -104,10 +120,10 @@ fn repair_single_closing_delimiter(
         .into_iter()
         .next()
         .map(
-            |(arguments, (operation, delimiter, byte_index))| RepairedArguments {
+            |(arguments, (operation, repair_token, byte_index))| RepairedArguments {
                 arguments,
                 operation,
-                delimiter,
+                repair_token,
                 byte_index,
             },
         )
@@ -231,7 +247,7 @@ mod tests {
         let repair = self_heal_taskspace_exec_response_item(&mut item, &catalog()).expect("repair");
 
         assert_eq!(repair.operation, "insert");
-        assert_eq!(repair.delimiter, '}');
+        assert_eq!(repair.repair_token, "}");
         let ResponseItem::FunctionCall { arguments, .. } = item else {
             panic!("function call")
         };
@@ -289,7 +305,7 @@ mod tests {
         let repair = self_heal_taskspace_exec_response_item(&mut item, &catalog()).expect("repair");
 
         assert_eq!(repair.operation, "insert");
-        assert_eq!(repair.delimiter, ']');
+        assert_eq!(repair.repair_token, "]");
         let ResponseItem::FunctionCall { arguments, .. } = item else {
             panic!("function call")
         };
@@ -339,6 +355,32 @@ mod tests {
     }
 
     #[test]
+    fn escapes_one_raw_newline_inside_a_tool_string() {
+        let valid = r#"{"type":"work","tools":[{"tool":"apply_patch","node_id":"fix","input":"*** Begin Patch\n*** End Patch"}]}"#.to_string();
+        let malformed = valid.replacen("\\n", "\n", 1);
+        let mut item = call(malformed);
+
+        let repair = self_heal_taskspace_exec_response_item(&mut item, &catalog()).expect("repair");
+
+        assert_eq!(repair.operation, "escape");
+        assert_eq!(repair.repair_token, "\\n");
+        let ResponseItem::FunctionCall { arguments, .. } = item else {
+            panic!("function call")
+        };
+        assert_eq!(arguments, valid);
+    }
+
+    #[test]
+    fn refuses_multiple_raw_newlines_inside_tool_strings() {
+        let valid = r#"{"type":"work","tools":[{"tool":"apply_patch","node_id":"fix","input":"line one\nline two\nline three"}]}"#;
+        let malformed = valid.replace("\\n", "\n");
+        let mut item = call(malformed.clone());
+
+        assert!(self_heal_taskspace_exec_response_item(&mut item, &catalog()).is_none());
+        assert_eq!(item, call(malformed));
+    }
+
+    #[test]
     fn removes_the_observed_extra_tool_action_brace() {
         let valid = r#"{"type": "work", "tools": [{"tool": "apply_patch", "node_id": "fix", "input": "*** Begin Patch\n*** Update File: /workspace/src/tax_calc.py\n@@\n-    return round(subtotal * RATES[region], 1)\n+    return round(subtotal * RATES[region], 2)\n*** End Patch"}]}"#.to_string();
         assert_eq!(
@@ -353,7 +395,7 @@ mod tests {
         let repair = self_heal_taskspace_exec_response_item(&mut item, &catalog()).expect("repair");
 
         assert_eq!(repair.operation, "delete");
-        assert_eq!(repair.delimiter, '}');
+        assert_eq!(repair.repair_token, "}");
         let ResponseItem::FunctionCall { arguments, .. } = item else {
             panic!("function call")
         };
@@ -371,7 +413,7 @@ mod tests {
         let repair = self_heal_taskspace_exec_response_item(&mut item, &catalog()).expect("repair");
 
         assert_eq!(repair.operation, "delete");
-        assert_eq!(repair.delimiter, ']');
+        assert_eq!(repair.repair_token, "]");
         let ResponseItem::FunctionCall { arguments, .. } = item else {
             panic!("function call")
         };

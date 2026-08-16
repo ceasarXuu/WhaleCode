@@ -9,9 +9,9 @@ use sha2::Sha256;
 pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION: &str = "1.0.2";
 pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256: &str =
     "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382";
-pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "3.0.4";
+pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "3.0.5";
 pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256: &str =
-    "a783705f320504306fc9fca591cb1b15246b73482201a916b511f8d5cc49ec33";
+    "e2f81354fb2f9e4831505e3a809b09e52266e5f83235f14d3d802d715b562866";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WhaleCodeBaseInstructionsProfile {
@@ -186,10 +186,12 @@ mod tests {
         for required in [
             "Waiting Work is not executable",
             "Ready Work is executable",
-            "beginning Tool work starts its Ready owner as InFlight",
+            "Tool dispatch starts a Ready owner InFlight",
+            "do not also patch that owner InFlight",
             "A Tool result records evidence but never makes its owner Completed",
             "explicitly complete it before advancing any dependent Work",
             "the Runtime then derives which dependents become Ready",
+            "newly unlocked child's Tool action in the same response",
         ] {
             assert!(prompt.contains(required), "missing {required}");
         }

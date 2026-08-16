@@ -7622,6 +7622,37 @@ async fn taskspace_self_heal_replaces_the_item_before_history_is_recorded() {
 }
 
 #[tokio::test]
+async fn taskspace_raw_newline_self_heal_replaces_the_item_before_history_is_recorded() {
+    let (sess, tc, _rx) = make_session_and_context_with_rx().await;
+    let runtime = test_taskspace_tool_runtime(Arc::clone(&sess), Arc::clone(&tc));
+    let valid_arguments = r#"{"type":"work","tools":[{"tool":"exec_command","node_id":"fix","input":{"cmd":"printf one\nprintf two"}}]}"#.to_string();
+    let malformed_arguments = valid_arguments.replacen("\\n", "\n", 1);
+    let mut item = ResponseItem::FunctionCall {
+        id: None,
+        name: "taskspace_exec".to_string(),
+        namespace: None,
+        arguments: malformed_arguments.clone(),
+        call_id: "self-healed-newline-exec".to_string(),
+    };
+
+    assert!(super::turn::self_heal_completed_response_item(
+        &runtime, &mut item
+    ));
+    crate::stream_events_utils::record_completed_response_item(sess.as_ref(), tc.as_ref(), &item)
+        .await;
+
+    let history = sess.clone_history().await;
+    assert!(history.raw_items().iter().any(|recorded| {
+        matches!(recorded, ResponseItem::FunctionCall { call_id, arguments, .. }
+            if call_id == "self-healed-newline-exec" && arguments == &valid_arguments)
+    }));
+    assert!(!history.raw_items().iter().any(|recorded| {
+        matches!(recorded, ResponseItem::FunctionCall { arguments, .. }
+            if arguments == &malformed_arguments)
+    }));
+}
+
+#[tokio::test]
 async fn standard_missing_client_tool_search_call_id_is_a_mechanical_build_failure() {
     let (sess, tc, _rx) = make_session_and_context_with_rx().await;
     for provider_item_id in [Some("standard-provider-search-id"), None] {

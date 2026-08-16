@@ -2525,7 +2525,7 @@ pub(super) fn self_heal_completed_response_item(
         event_name = "taskspace.exec.arguments_self_healed",
         call_id = %repair.call_id,
         repair_operation = repair.operation,
-        delimiter = %repair.delimiter,
+        repair_token = repair.repair_token,
         byte_index = repair.byte_index,
         original_arguments_sha256 = %repair.original_arguments_sha256,
         repaired_arguments_sha256 = %repair.repaired_arguments_sha256,

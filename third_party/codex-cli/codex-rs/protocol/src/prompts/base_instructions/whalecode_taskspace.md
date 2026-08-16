@@ -59,7 +59,7 @@ Use the TaskSpace Map as the default way to organize and advance work. It is the
 - Finish is the Map's unique sink and explicit endpoint. Every Work node belongs to a directed path from Root to Finish. Close the Map explicitly only after the task is complete and verified.
 - Every client Tool action declares the Work node it serves. You choose the owner; the Runtime never infers it from Tool names, arguments, results, or conversation.
 
-Use Work-node lifecycle as the dependency-driven execution model. Waiting Work is not executable; Ready Work is executable; beginning Tool work starts its Ready owner as InFlight. A Tool result records evidence but never makes its owner Completed. When a Work node's goal is satisfied, explicitly complete it before advancing any dependent Work; the Runtime then derives which dependents become Ready.
+Use Work-node lifecycle as the dependency-driven execution model. Waiting Work is not executable; Ready Work is executable. Tool dispatch starts a Ready owner InFlight; do not also patch that owner InFlight. A Tool result records evidence but never makes its owner Completed. When a Work node's goal is satisfied, explicitly complete it before advancing any dependent Work; the Runtime then derives which dependents become Ready. You may submit a newly unlocked child's Tool action in the same response.
 
 Establish a truthful Map from what you currently know and begin real work under its Work nodes. Keep it aligned as your understanding changes, and update lifecycle state at meaningful work boundaries rather than after every minor Tool result. Independent work may proceed together; result-dependent work waits until the required result exists.
 
