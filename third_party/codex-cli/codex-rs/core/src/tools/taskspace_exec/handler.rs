@@ -185,6 +185,20 @@ impl ToolHandler for TaskSpaceExecHandler {
         while let Some(result) = dispatched.next().await {
             let outcome = dispatched_outcome(&result);
             let settlement_error = result.settlement_error.clone();
+            let owner_state_after = candidate_map
+                .as_ref()
+                .and_then(|map| rooted_dag::node(map, &result.node_id))
+                .map(|node| node.state)
+                .ok_or_else(|| {
+                    taskspace_fatal(
+                        "owner_state_missing",
+                        Some(&invocation.call_id),
+                        format!(
+                            "client action owner `{}` is absent from the persisted candidate Map",
+                            result.node_id
+                        ),
+                    )
+                })?;
             if let Some(error) = settlement_error.as_ref() {
                 tracing::error!(
                     target: "codex_core::taskspace_exec",
@@ -204,6 +218,7 @@ impl ToolHandler for TaskSpaceExecHandler {
                 call_index: result.identity.index,
                 action_id: result.identity.transport_id(),
                 node_id: result.node_id,
+                owner_state_after,
                 tool: result.display_name,
                 outcome: outcome_name(outcome),
                 result: result.result,
