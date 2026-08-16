@@ -1,7 +1,7 @@
 # Problem P-001: initialize_map 偶发被二次序列化为 JSON string
 - Status: open
 - Created: 2026-08-15 23:15
-- Updated: 2026-08-16 18:58
+- Updated: 2026-08-16 19:10
 - Objective: 确认 `taskspace_exec.initialize_map` 类型错误的实际发生层、频率和可验证根因，避免把模型输出错误误归因给 Runtime。
 - Symptoms:
   - 同一 Function Tool schema 下，Agent 有时把应为 object 的 `initialize_map` 写成包含 JSON 文本的 string。
@@ -159,6 +159,7 @@
   - E-004
   - E-009
   - E-010
+  - E-011
 - Conclusion: unverified
 - Repair design readiness: blocked until Evidence gate is satisfied
 - Next step: 暂不实施；先设计最小单变量候选。
@@ -416,4 +417,25 @@
   first request rejected: work missing, none, work missing, none, type and work missing
   ```
 - Interpretation: 候选没有提供类型错误的独立因果证据，却明确降低了首次合法序列完整率。完整示例当前承担操作示范，不能作为单变量优化删除；候选 3 判定失败。
+
+## Evidence E-011: 现有合同不能只切换 DeepSeek strict
+- Related hypotheses:
+  - H-003
+- Direction: refutes-candidate
+- Type: static-analysis
+- Source: `docs/v0.0.5/build-R8/taskspace-exec/62-initialize-map-candidate4-strict-feasibility-result.md`
+- Prediction or plan link:
+  - 检验只设置 `taskspace_exec.strict=true` 是否能保持现有协议语义并获得 Provider 类型保证。
+- Matched signal:
+  - 聚焦 Catalog 的 schema 遍历至少发现 7 个 strict 不兼容点，包括真实可选的 `tools`、node patch 字段和缺失的 `additionalProperties:false`。
+- Correlation keys:
+  - `taskspace_exec`
+  - `strict_candidate_reports_incompatible_object_schemas`
+- Raw content:
+  ```text
+  strict schema violations: 7
+  optional: node patch content/goal/parents/state; tools in four work sequences
+  additionalProperties is not false: root; tool_action
+  ```
+- Interpretation: strict 不是当前合同上的单标志修复。把可选字段机械改成 required 会改变合法 Provider-only work 和 Map patch 语义；候选在真实运行前否决，未消耗 API。
 - Time: 2026-08-16 18:50

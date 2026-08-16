@@ -250,6 +250,12 @@
 > 无第 11 请求生成最终回复而 interrupted。I03 保持 verifying。详见
 > [`taskspace-exec/58-initialize-map-type-repeat5-result.md`](taskspace-exec/58-initialize-map-type-repeat5-result.md)。
 
+> **initialize_map 四候选单变量实验（2026-08-16）**：C1 准确反馈 5 轮未自然触发 string，不能评价恢复收益；C2 将
+> `initialize_map` schema 内联后 5/5 首发 object、合法序列、Agent complete 和外部验证通过，但未改 schema 的 C1 同样
+> 0/5 string，因果仍不足；C3 删除完整首次示例后虽然 5/5 object，却只有 2/5 首次合法初始化，明确回归；C4 只打开
+> DeepSeek strict 时在聚焦 Catalog 中至少发现 7 个合同不兼容点，未启动真实运行。I03 继续 verifying，当前代码停留在 C2 候选，尚未晋升缓存
+> 基线。详见 [`taskspace-exec/63-initialize-map-candidate-comparison-report.md`](taskspace-exec/63-initialize-map-candidate-comparison-report.md)。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。
@@ -299,7 +305,7 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 旧 carrier 与专属 Event Store 已由 zero-base 删除；Exec 源码不存在额外 developer 注入。静态关闭候选，待 final-wire trace 复核 | verifying | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 快照机械生成 Runtime-only SHA-256，并由 dispatch、request scope、Provider/Exec trace 和性能报告共用；缺失或冲突时报告不可比较。离线实现已验证，待当前生产 trace 验收 | [verifying](I10/00-i10-capability-identity-repair-plan.md) | GI-010 |
 | 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | 最新三轮 request/usage/cache/Exec/client/Patch/Map 均可复算；第三轮正确计为 2 次 patch 声明、1 次 preflight reject、1 次执行结果。完整跨模式验收仍未执行 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与 client 动作 | 稳定生成初始化并执行、完成并继续、完成并结束；Provider-hosted Tool 当前不参与 Agent 归属协议 | Provider 双写/pending 已撤销；最新 map-request repeat=5 首发 object 4/5、JSON string 1/5，唯一类型错误下一请求恢复；外部正确性和 Map 闭合 5/5，Agent 生命周期 3/5 complete。参数生成与序列组织仍不稳定 | verifying | GI-003 |
+| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与 client 动作 | 稳定生成初始化并执行、完成并继续、完成并结束；Provider-hosted Tool 当前不参与 Agent 归属协议 | 四候选单变量实验完成：C2 内联 schema 为 5/5 object 且完整通过，但因果证据不足；C3 删除首次示例使合法首发降至 2/5；C4 strict 与现有可选语义不兼容。参数生成根因仍未坐实 | verifying | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | Run C 未复现 Waiting 误选，支持分支适用合同已生效；单次未闭环样本不足以关闭问题 | verifying | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 最新三次 TaskSpace-only 有效运行共 21 requests、344,635 input、93.78% 全量 cache、62.093s Agent wall；没有 Standard 臂，不形成相对成本结论 | queued | GI-008 |
 

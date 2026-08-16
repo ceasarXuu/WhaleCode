@@ -214,6 +214,18 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     Provider-first 真实路径证据；其 pending 结论已由 PD10 取代。
 58. [`57-provider-hosted-runtime-aggregation-result.md`](57-provider-hosted-runtime-aggregation-result.md)：撤销双写与待归属后，
     Provider 按原生名称在 Root 下按需机械归纳的产品边界、删除范围和离线证据。
+59. [`58-initialize-map-type-repeat5-result.md`](58-initialize-map-type-repeat5-result.md)：`initialize_map` 首发 object/string
+    频率、原始 Provider 证据、恢复路径和成本缓存基线。
+60. [`59-initialize-map-candidate1-feedback-result.md`](59-initialize-map-candidate1-feedback-result.md)：expected/actual 类型反馈的
+    单变量实现、五轮未触发结果和结论边界。
+61. [`60-initialize-map-candidate2-inline-schema-result.md`](60-initialize-map-candidate2-inline-schema-result.md)：内联 object schema
+    的五轮类型、正确性、缓存与因果证据边界。
+62. [`61-initialize-map-candidate3-no-first-turn-example-result.md`](61-initialize-map-candidate3-no-first-turn-example-result.md)：删除
+    首次完整示例引入的合法序列完整性回归。
+63. [`62-initialize-map-candidate4-strict-feasibility-result.md`](62-initialize-map-candidate4-strict-feasibility-result.md)：DeepSeek
+    strict 与当前可选协议语义的离线不兼容证据。
+64. [`63-initialize-map-candidate-comparison-report.md`](63-initialize-map-candidate-comparison-report.md)：四候选的统一效果、成本、
+    缓存、预算与保留结论。
 ## 4. 推进规则
 
 - R8 已知问题队列继续暂停，直到该主方案完成生产接入并重新盘点 I01～I10。
