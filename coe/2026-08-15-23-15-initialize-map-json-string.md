@@ -439,3 +439,27 @@
   ```
 - Interpretation: strict 不是当前合同上的单标志修复。把可选字段机械改成 required 会改变合法 Provider-only work 和 Map patch 语义；候选在真实运行前否决，未消耗 API。
 - Time: 2026-08-16 18:50
+
+## Evidence E-012: C2 十轮扩大复验未复现 string，但暴露独立序列波动
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: experiment
+- Source: `docs/v0.0.5/build-R8/taskspace-exec/64-initialize-map-candidate2-repeat10-result.md`
+- Prediction or plan link:
+  - 在不再改代码的条件下扩大 C2 样本，分别统计目标字段类型和完整首次合法序列。
+- Matched signal:
+  - 十轮首次 `initialize_map` 均为 object；连同原 C2 五轮累计为 object 15/15。当前十轮业务和外部验证 9/10；4 次首请求缺 work 均在下一请求修正，1 次成功初始化后发生顶层 `exec_command` 逃逸。
+- Correlation keys:
+  - `subject=92fcf5594`
+  - `taskspace_capability_identity=a95be2ff3edf...`
+  - `ledger=WAR-20260816-192321-INIT-MAP-C2-REPEAT10`
+- Raw content:
+  ```text
+  first initialize_map: object 10 / string 0
+  first initialize_and_work with work: 6 / 10
+  external passed: 9 / 10
+  request 2+ cache: 92.71%
+  ```
+- Interpretation: 扩大样本与“减少嵌套 schema 边界可能降低 string 误写”一致，因此支持 H-003；但未改 schema 的 C1 也曾 0/5，且当前没有同版本随机对照，证据不足以坐实因果。首次缺 work 与顶层 Tool 逃逸证明整体协议稳定性是独立问题，不应混入字段类型结论。
+- Time: 2026-08-16 19:30

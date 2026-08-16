@@ -226,6 +226,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     strict 与当前可选协议语义的离线不兼容证据。
 64. [`63-initialize-map-candidate-comparison-report.md`](63-initialize-map-candidate-comparison-report.md)：四候选的统一效果、成本、
     缓存、预算与保留结论。
+65. [`64-initialize-map-candidate2-repeat10-result.md`](64-initialize-map-candidate2-repeat10-result.md)：C2 扩大十轮的类型、首次序列、
+    顶层 client Tool 逃逸、成本和缓存证据。
 ## 4. 推进规则
 
 - R8 已知问题队列继续暂停，直到该主方案完成生产接入并重新盘点 I01～I10。

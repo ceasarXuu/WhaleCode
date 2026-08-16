@@ -59,3 +59,10 @@
 - Ledger: `WAR-20260816-184324-INIT-MAP-CANDIDATE2`
 - Capability identity: `a95be2ff3edf5911780794843ddee89f4348358e206f69227f675d0cc041ef11`
 - First-request Tool hash: `848829796c7fb90ba7b0f48d0c21784459cb0c5d1c8e7f23c597f4a96ca825bf`
+
+## 6. 后续十轮复验
+
+同一 C2 代码随后完成 10 个独立 `repeat=1`：首发类型 object 10/10，但首次同时携带 work 只有 6/10；9/10 业务与外部验证通过，
+唯一失败是成功初始化后把 `exec_command` 提升为未暴露的顶层 Tool。C2 累计类型结果为 object 15/15、string 0/15，仍因缺少
+同版本随机对照而不能宣称 `$ref` 是已坐实根因。详见
+[`64-initialize-map-candidate2-repeat10-result.md`](64-initialize-map-candidate2-repeat10-result.md)。
