@@ -1,7 +1,75 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-16T23:52:16+08:00",
+  "updated_at": "2026-08-17T02:07:57+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260817-020757-AFFECTED-STATE-R5",
+      "record_type": "run_batch",
+      "status": "planned",
+      "started_at": null,
+      "ended_at": null,
+      "elapsed_calendar_seconds": null,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "验证 taskspace_exec 返回本批次 affected node states 和精确 unavailable direct Work child 事实后，Agent 对 canonical Map 状态的掌握是否稳定，以及 patch-to-verify Waiting frontier 误选是否下降。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "USER-20260817-AFFECTED-STATE-R5",
+        "reference": "用户明确要求按建议实施 affected node 状态与精确不可执行反馈，并批准 repeat=5 真实运行预算。",
+        "budget_summary": {
+          "provider_requests": 60,
+          "input_tokens": 750000,
+          "output_tokens": 20000,
+          "elapsed_seconds": 600,
+          "estimated_cost": 1.0,
+          "currency": "CNY"
+        },
+        "note": "single-file-fast-fix × map-request × repeat=5；可并行的五个独立 repeat=1；每轮最多 12 个 Provider requests，零自动重试。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "model": "deepseek-v4-flash",
+        "batch_count": 5,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "map-request-affected-node-state-feedback"
+        ],
+        "repeats_per_arm_per_sample": 5,
+        "planned_sample_runs": 5,
+        "actual_sample_runs": 0,
+        "api_requests": 0,
+        "api_requests_evidence_status": "pending"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "planned",
+        "currency": "CNY",
+        "amount": 1.0,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": null,
+        "formula": null,
+        "note": "实际费用将按 Provider usage 和冻结价格结算；1 元是停止上限，不是预期消耗。"
+      },
+      "evidence": {
+        "subject_commit": "a36a42939e1ecb799c75c5af80a171c7a71011ca",
+        "planned_run_root_pattern": "target/r8-affected-node-state-feedback/repeat5-{1..5}",
+        "scenario": "single-file-fast-fix",
+        "projection_policy": "map-request",
+        "repeat": 5,
+        "retry_limit": 0,
+        "coe": "coe/2026-08-16-23-06-r8-waiting-frontier-selection.md",
+        "stop_conditions": "达到 60 个 Provider 请求、750000 input、20000 output、600 秒或 1 元任一上限即停止；证据不完整或发生未授权重试立即停止。"
+      }
+    },
     {
       "record_id": "WAR-20260816-235021-OWNER-STATE-R5",
       "record_type": "run_batch",
