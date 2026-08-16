@@ -1,15 +1,15 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-16T21:17:59+08:00",
+  "updated_at": "2026-08-16T21:27:11+08:00",
   "entries": [
     {
       "record_id": "WAR-20260816-211759-CLIENT-WORK-RESTORE-R10",
       "record_type": "run_batch",
-      "status": "planned",
-      "started_at": null,
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "status": "settled",
+      "started_at": "2026-08-16T21:20:41+08:00",
+      "ended_at": "2026-08-16T21:23:09+08:00",
+      "elapsed_calendar_seconds": 148,
+      "aggregate_agent_wall_time_ms": 241741,
       "reason": "扩大验证非空 client tools 结构前置条件的首次请求稳定性，并分别统计 I03-ARG-SYNTAX、I04-FRONTIER-EARLY、I04-REDUNDANT-INFLIGHT 与历史顶层 client Tool 逃逸。",
       "authorization": {
         "required": true,
@@ -39,22 +39,26 @@
         ],
         "repeats_per_arm_per_sample": 10,
         "planned_sample_runs": 10,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "pending"
+        "actual_sample_runs": 10,
+        "api_requests": 75,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
-        "input": 0,
-        "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "input": 1105478,
+        "cached_input": 1027840,
+        "uncached_input": 77638,
+        "output": 21917
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated",
         "currency": "CNY",
-        "amount": 2.0,
+        "amount": 0.1420288,
         "actual_billed_amount": null,
-        "components": null,
+        "components": {
+          "cached_input": 0.0205568,
+          "uncached_input": 0.077638,
+          "output": 0.043834
+        },
         "pricing_snapshot": {
           "model": "deepseek-v4-flash",
           "captured_at": "2026-08-16T21:17:59+08:00",
@@ -63,8 +67,8 @@
           "uncached_input_per_million": 1.0,
           "output_per_million": 2.0
         },
-        "formula": null,
-        "note": "运行前硬上限，不等同于预计实耗或账户实扣。"
+        "formula": "1027840/1e6*0.02 + 77638/1e6*1.0 + 21917/1e6*2.0 = 0.14202880 CNY",
+        "note": "按 provider request-facts usage 和运行前冻结价格估算，不等同于账户实扣金额。"
       },
       "evidence": {
         "planned_run_root_pattern": "target/r8-client-work-restoration/repeat10-{1..10}",
@@ -73,8 +77,23 @@
         "projection_policy": "map-request",
         "repeat": 10,
         "retry_limit": 0,
+        "run_head": "2ce2e7ca064b5de29e1430a5a461a564deadc00c",
+        "whale_binary_sha256": "7351aafdccb2ad60409c7437163adebd072d2b43361b3640f9473ec2fe0824c2",
+        "actual_run_roots": [
+          "target/r8-client-work-restoration/repeat10-1/single-file-fast-fix/20260816-212041-900",
+          "target/r8-client-work-restoration/repeat10-2/single-file-fast-fix/20260816-212041-787",
+          "target/r8-client-work-restoration/repeat10-3/single-file-fast-fix/20260816-212041-847",
+          "target/r8-client-work-restoration/repeat10-4/single-file-fast-fix/20260816-212041-962",
+          "target/r8-client-work-restoration/repeat10-5/single-file-fast-fix/20260816-212041-801",
+          "target/r8-client-work-restoration/repeat10-6/single-file-fast-fix/20260816-212219-410",
+          "target/r8-client-work-restoration/repeat10-7/single-file-fast-fix/20260816-212219-284",
+          "target/r8-client-work-restoration/repeat10-8/single-file-fast-fix/20260816-212219-368",
+          "target/r8-client-work-restoration/repeat10-9/single-file-fast-fix/20260816-212219-471",
+          "target/r8-client-work-restoration/repeat10-10/single-file-fast-fix/20260816-212219-361"
+        ],
         "anomaly_register": "docs/v0.0.5/build-R8/taskspace-exec/67-repeat3-independent-anomaly-register.md",
-        "stop_conditions": "达到 120 个 Provider 请求、1,500,000 input、40,000 output、1,200 秒或 2 元任一上限即停止；第一批出现预算、provider 或 harness 异常时停止第二批；不自动重试。"
+        "stop_conditions": "达到 120 个 Provider 请求、1,500,000 input、40,000 output、1,200 秒或 2 元任一上限即停止；第一批出现预算、provider 或 harness 异常时停止第二批；不自动重试。",
+        "outcome": "十轮首次请求均一次生成并执行 initialize_and_work + client exec_command，Map-only 空初始化和顶层 client Tool 逃逸均 0/10。十轮 Agent complete、业务、公开验证、隐藏 oracle 和 Map 闭环均通过；共 75 requests。独立异常为 I03-ARG-SYNTAX 1 次、I04-FRONTIER-EARLY 4 次、I04-REDUNDANT-INFLIGHT 2 次，均零副作用拒绝后修正。Request 2+ 加权缓存命中 92.21%，零 Provider retry。"
       }
     },
     {

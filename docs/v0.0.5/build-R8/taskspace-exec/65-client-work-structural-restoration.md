@@ -2,7 +2,7 @@
 
 - Date: 2026-08-16
 - Scope: TaskSpace Exec 工作型序列
-- Status: 生产代码、离线测试、免费缓存门禁和三轮真实 Agent 验证完成；accepted 缓存基线未晋升
+- Status: 生产代码、离线测试、免费缓存门禁和 13 轮真实 Agent 验证完成；accepted 缓存基线未晋升
 
 ## 1. 问题表现
 
@@ -56,3 +56,8 @@ Map 并补上 work。业务最终可恢复，但每次都会浪费一次 Provide
 和 Map 闭环均为 3/3。Request 2+ 加权缓存命中率为 93.09%。详见
 [`66-client-work-restoration-repeat3-result.md`](66-client-work-restoration-repeat3-result.md)。该结果没有 Standard 臂，也没有按缓存
 专用 runner 晋升 accepted baseline；目标子问题通过不等于整个 I03 关闭。
+
+扩大十轮中首次合法初始化并执行 client work 为 10/10，顶层 client Tool 逃逸 0/10，业务、外部验证和 Map 闭环均 10/10；
+结合前批累计为 13/13。Request 2+ 加权缓存命中率为 92.21%，无 Tool shape 切换或 Provider retry。结构恢复通过，但三个独立
+Agent 行为异常仍归 I03/I04 verifying，详见
+[`68-client-work-restoration-repeat10-result.md`](68-client-work-restoration-repeat10-result.md)。
