@@ -363,10 +363,10 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | 最新十轮 request/usage/cache/Exec/client/Patch/Map 均可复算，75 个请求身份完整且无 retry；完整跨模式验收仍未执行 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
 | 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与 client 动作 | 稳定生成初始化并执行、完成并继续、完成并结束；Provider-hosted Tool 当前不参与 Agent 归属协议 | affected-state 五轮首次初始化均合法，但 Run 3 连续出现 4 次 JSON syntax 和 1 次 arguments wrapper；Runtime 零副作用拒绝后最终恢复 | verifying | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | affected-state 反馈五轮均忠实返回相关 canonical 状态和未完成父节点，FRONTIER-EARLY 仍为 2/5，与 4/10 基线同率；反馈完整性已修，分支误选未修 | verifying | GI-004 |
-| 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 最新干净五轮平均 6.8 requests、105,690 input/run、Request 2+ cache 92.07%；当前 section observer 仍把 Responses instructions 计入 other payload，并把 Exec/Map/nested result 混入 natural history，尚不能据此归因 | [investigating](I08/plan.md) | GI-008 |
+| 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 当前双臂均通过：TaskSpace 8 vs Standard 6 requests、123,675 vs 77,447 input。观测差值由 1 次 Waiting 误选、1 次显式 finish 往返和每请求更大的 Exec Tool/history carrier 共同构成；无 projection/read 或 direct Tool 结果双份复制。该批次含协议异常，不是 clean baseline | [investigating](I08/06-ic06-live-pair-result.md) | GI-008 |
 
-问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**R8-I08 Input 成本根因定位**；先完成免费结构测量，真实
-Standard/TaskSpace 双臂测试必须另行申请预算。
+问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**R8-I08 Input 成本根因定位**；免费结构测量和首轮真实双臂已完成，
+额外修复复验等待一个不削弱硬合同或改变产品语义的安全单变量候选。
 
 ## 4. VA-04A 证据边界
 
@@ -379,7 +379,7 @@ Standard/TaskSpace 双臂测试必须另行申请预算。
 | 工程修复待生产验收 | I07 | 当前生产 trace 已原生完整计量 Exec、Map、client 和拒绝 | nested patch lifecycle 仍漏计，不能宣称完整关闭 |
 | outer wire 与 handoff 在线观察 | I03 | 旧顶层提升未复现；单闭合符自愈的 UTF-8 坐标缺口已确定性修复 | mixed map/client envelope 的在线稳定性，以及自愈后的真实首请求表现 |
 | 当前行为已观察 | I04 | 新 waiting 反馈已在线命中；追加两轮请求、input、费用和时间均不差于旧暖缓存基线，Runtime 保持零副作用 | 每轮仍有一次协议/state 拒绝；缓存平均低 0.91pp，尚不能关闭 frontier 行为问题 |
-| 成本待验证 | I08 | 最新 TaskSpace request-2+ 缓存为 91.20%，排除缓存失效 | 去除已确认 syntax/feedback 放大后的不可约请求、token 和时间成本；VA-03 尚未开始 |
+| 成本已定位、clean baseline 待定 | I08 | 当前观测总 input 为 1.597x，由 1.333x 请求数和 1.198x 每请求 input 相乘；Tool wire 净增 8,065 B/request，Exec carrier 替代 direct Tool carrier 且未双写 | 无 Waiting reject 的当前稳定比例；是否改变显式 finish 往返，或如何在不削弱合同下压缩 Tool/feedback |
 
 本轮 B4 证据为：TaskSpace Exec 57、settlement/recovery 11、State 134、Core 1856/3、CLI 5、Viewer 4、App Server
 Protocol 183、workspace、zero-base 和 cache gate 全部通过，详见
