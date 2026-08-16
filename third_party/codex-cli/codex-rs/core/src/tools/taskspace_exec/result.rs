@@ -8,7 +8,6 @@ use serde::Serialize;
 use serde_json::json;
 
 use crate::action_map::TaskSpaceMapView;
-use crate::action_map::rooted_dag::NodeState;
 use crate::tools::context::NestedToolResult;
 
 const RESULT_KIND: &str = "taskspace_exec_result";
@@ -36,7 +35,6 @@ pub(super) struct ClientResult {
     pub(super) call_index: usize,
     pub(super) action_id: String,
     pub(super) node_id: String,
-    pub(super) owner_state_after: NodeState,
     pub(super) tool: String,
     pub(super) outcome: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -206,13 +204,6 @@ fn client_result_schema(clients: &[&ToolSpecCapability]) -> JsonSchema {
             ("action_id", JsonSchema::string(None)),
             ("node_id", JsonSchema::string(None)),
             (
-                "owner_state_after",
-                described(
-                    string_enum(["waiting", "ready", "in_flight", "completed"]),
-                    "Canonical owner node state after this TaskSpace Exec batch. Tool outcomes do not change this lifecycle state.",
-                ),
-            ),
-            (
                 "tool",
                 JsonSchema::string_enum(tool_names, Some(tool_description)),
             ),
@@ -227,14 +218,7 @@ fn client_result_schema(clients: &[&ToolSpecCapability]) -> JsonSchema {
             ("error", JsonSchema::string(None)),
             ("settlement_error", JsonSchema::string(None)),
         ],
-        &[
-            "call_index",
-            "action_id",
-            "node_id",
-            "owner_state_after",
-            "tool",
-            "outcome",
-        ],
+        &["call_index", "action_id", "node_id", "tool", "outcome"],
     )
 }
 

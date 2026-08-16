@@ -547,14 +547,6 @@ async fn handler_persists_pending_then_settles_each_native_result_without_node_t
     assert_eq!(feedback["kind"], "taskspace_exec_result");
     assert_eq!(feedback["outer_call_id"], "outer");
     assert_eq!(
-        feedback["client_results"][0]["owner_state_after"],
-        "in_flight"
-    );
-    assert_eq!(
-        feedback["client_results"][1]["owner_state_after"],
-        "in_flight"
-    );
-    assert_eq!(
         feedback["client_results"][0]["action_id"],
         "outer/taskspace/call/0"
     );
