@@ -40,8 +40,8 @@ function New-SideFixture {
         [pscustomobject]@{ kind = "system_messages"; count = $Requests; bytes = 40 * $Requests; estimated_tokens = 10 * $Requests },
         [pscustomobject]@{ kind = "natural_history"; count = $Requests; bytes = 30 * $Requests; estimated_tokens = 8 * $Requests },
         [pscustomobject]@{ kind = "active_projection"; count = $(if ($isTaskspace) { $Requests } else { 0 }); bytes = $(if ($isTaskspace) { 20 * $Requests } else { 0 }); estimated_tokens = $(if ($isTaskspace) { 5 * $Requests } else { 0 }) },
-        [pscustomobject]@{ kind = "taskspace_control_feedback"; count = $(if ($isTaskspace) { $Requests } else { 0 }); bytes = $(if ($isTaskspace) { 10 * $Requests } else { 0 }); estimated_tokens = $(if ($isTaskspace) { 3 * $Requests } else { 0 }) },
         [pscustomobject]@{ kind = "ordinary_tool_feedback"; count = $Requests; bytes = 15 * $Requests; estimated_tokens = 4 * $Requests },
+        [pscustomobject]@{ kind = "base_instructions"; count = $Requests; bytes = 10 * $Requests; estimated_tokens = 3 * $Requests },
         [pscustomobject]@{ kind = "tools"; count = $Requests; bytes = 10 * $Requests; estimated_tokens = 3 * $Requests },
         [pscustomobject]@{ kind = "tool_choice"; count = $Requests; bytes = 5 * $Requests; estimated_tokens = $Requests },
         [pscustomobject]@{ kind = "other_payload"; count = $Requests; bytes = 10 * $Requests; estimated_tokens = 3 * $Requests }
@@ -380,8 +380,8 @@ Assert-True ($null -eq (Get-PerformanceNonnegativeInt64 1.5)) "fractional token 
 Assert-True ([string]$taskspaceMeasuredRow.map.map_store_availability -eq "measured") "measured Map Store availability was not preserved"
 $standardHistoricalRow = @($report.rows | Where-Object { $_.repeat -eq 2 -and $_.logical_mode -eq "standard" })[0]
 $standardActiveProjection = @($standardMeasuredRow.section_cost.sections | Where-Object { $_.kind -eq "active_projection" })[0]
-$standardControlFeedback = @($standardMeasuredRow.section_cost.sections | Where-Object { $_.kind -eq "taskspace_control_feedback" })[0]
-Assert-True ([int64]$standardActiveProjection.bytes -eq 0 -and [int64]$standardControlFeedback.bytes -eq 0) "measured Standard side should report zero TaskSpace-only sections"
+$standardBaseInstructions = @($standardMeasuredRow.section_cost.sections | Where-Object { $_.kind -eq "base_instructions" })[0]
+Assert-True ([int64]$standardActiveProjection.bytes -eq 0 -and [int64]$standardBaseInstructions.bytes -gt 0) "measured Standard side should have Base Instructions but no TaskSpace projection"
 Assert-True ($null -eq $standardHistoricalRow.section_cost.section_bytes_total -and [int]$standardHistoricalRow.section_cost.unavailable_reason_counts.unsupported_provider_wire_trace_schema -eq 4) "unsupported wire side fabricated section totals"
 Assert-True ([int64](($standardMeasuredRow.section_cost.sections | Measure-Object -Property bytes -Sum).Sum) -eq [int64]$standardMeasuredRow.section_cost.section_bytes_total) "side section bytes did not reconcile exactly"
 Assert-True (@($report.rows | Where-Object { $_.observation_status -eq "skipped" }).Count -eq 1) "right-only placeholder side was not classified as skipped"

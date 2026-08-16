@@ -936,8 +936,8 @@ $v3Sections = @(
     [pscustomobject]@{ kind = "system_messages"; count = 1; bytes = 100; estimated_tokens = 25; sha256 = "system-hash" },
     [pscustomobject]@{ kind = "natural_history"; count = 3; bytes = 200; estimated_tokens = 50; sha256 = "history-hash" },
     [pscustomobject]@{ kind = "active_projection"; count = 1; bytes = 30; estimated_tokens = 8; sha256 = "projection-hash" },
-    [pscustomobject]@{ kind = "taskspace_control_feedback"; count = 1; bytes = 20; estimated_tokens = 5; sha256 = "control-hash" },
     [pscustomobject]@{ kind = "ordinary_tool_feedback"; count = 2; bytes = 40; estimated_tokens = 10; sha256 = "feedback-hash" },
+    [pscustomobject]@{ kind = "base_instructions"; count = 1; bytes = 20; estimated_tokens = 5; sha256 = "base-hash" },
     [pscustomobject]@{ kind = "tools"; count = 2; bytes = 50; estimated_tokens = 13; sha256 = "tools-hash" },
     [pscustomobject]@{ kind = "tool_choice"; count = 1; bytes = 10; estimated_tokens = 3; sha256 = "choice-hash" },
     [pscustomobject]@{ kind = "other_payload"; count = 2; bytes = 50; estimated_tokens = 12; sha256 = "other-hash" }
@@ -948,7 +948,7 @@ $v3Shape = [pscustomobject]@{
     provider_payload_sha256 = "wire-v3-hash"; provider_payload_bytes = 500; cache_shape_hash = "wire-v3-shape"
     messages_hash = "wire-v3-messages"; tools_hash = "wire-v3-tools"; tools_count = 2; message_count = 4
     section_cost = [pscustomobject]@{
-        schema_version = "provider-wire-section-cost-v1"; availability = "measured"; unavailable_reason = $null
+        schema_version = "provider-wire-section-cost-v2"; availability = "measured"; unavailable_reason = $null
         section_bytes_total = 500
         active_projection_identity = [pscustomobject]@{
             count = 1; kind = "current_projection"
@@ -1095,8 +1095,8 @@ function New-AggregateContractSection {
             New-AggregateContractSection "system_messages" 2 @(50, 50) @(12, 13)
             New-AggregateContractSection "natural_history" 2 @(25, 25) @(6, 6)
             New-AggregateContractSection "active_projection" 2 @(20, 20) @(5, 5)
-            New-AggregateContractSection "taskspace_control_feedback" 2 @(15, 15) @(4, 4)
             New-AggregateContractSection "ordinary_tool_feedback" 2 @(10, 10) @(2, 3)
+            New-AggregateContractSection "base_instructions" 2 @(15, 15) @(4, 4)
             New-AggregateContractSection "tools" 2 @(15, 15) @(4, 4)
             New-AggregateContractSection "tool_choice" 2 @(5, 5) @(1, 1)
             New-AggregateContractSection "other_payload" 2 @(10, 10) @(2, 3)

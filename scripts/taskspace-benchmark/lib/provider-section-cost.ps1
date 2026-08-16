@@ -12,8 +12,8 @@ function Get-TaskspaceProviderSectionKinds {
         "system_messages"
         "natural_history"
         "active_projection"
-        "taskspace_control_feedback"
         "ordinary_tool_feedback"
+        "base_instructions"
         "tools"
         "tool_choice"
         "other_payload"
@@ -22,7 +22,7 @@ function Get-TaskspaceProviderSectionKinds {
 function New-TaskspaceUnavailableProviderSectionCost {
     param([Parameter(Mandatory = $true)][string]$Reason)
     [pscustomobject]@{
-        schema_version = "provider-wire-section-cost-v1"
+        schema_version = "provider-wire-section-cost-v2"
         availability = "unavailable"
         unavailable_reason = $Reason
         section_bytes_total = $null
@@ -64,7 +64,7 @@ function ConvertTo-TaskspaceProviderSectionCost {
     if ($availability -notin @("measured", "unavailable")) {
         return New-TaskspaceUnavailableProviderSectionCost "section_cost_availability_invalid"
     }
-    if ([string](Get-TaskspaceCostProperty $raw @("schema_version")) -ne "provider-wire-section-cost-v1") {
+    if ([string](Get-TaskspaceCostProperty $raw @("schema_version")) -ne "provider-wire-section-cost-v2") {
         return New-TaskspaceUnavailableProviderSectionCost "unsupported_section_cost_schema"
     }
     $declaredTotal = ConvertTo-TaskspaceProviderSectionInt64 (Get-TaskspaceCostProperty $raw @("section_bytes_total"))
@@ -122,7 +122,7 @@ function ConvertTo-TaskspaceProviderSectionCost {
         $null
     }
     [pscustomobject]@{
-        schema_version = "provider-wire-section-cost-v1"
+        schema_version = "provider-wire-section-cost-v2"
         availability = $availability
         unavailable_reason = $reason
         section_bytes_total = [int64]$declaredTotal
