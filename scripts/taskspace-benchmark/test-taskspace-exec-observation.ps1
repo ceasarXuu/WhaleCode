@@ -20,7 +20,6 @@ try {
         )
     }
     $result = [pscustomobject]@{
-        kind = 'taskspace_exec_result'; status = 'completed'; outer_call_id = 'outer-1'
         client_results = @(
             [pscustomobject]@{ outcome = 'succeeded' },
             [pscustomobject]@{ outcome = 'failed' }
@@ -120,7 +119,6 @@ try {
         tools = @([pscustomobject]@{ tool = 'exec_command'; node_id = 'inspect'; input = [pscustomobject]@{ cmd = 'pwd' } })
     }
     $zeroHostedResult = [pscustomobject]@{
-        kind = 'taskspace_exec_result'; status = 'completed'; outer_call_id = 'outer-1'
         client_results = @([pscustomobject]@{ outcome = 'succeeded' })
     }
     @(

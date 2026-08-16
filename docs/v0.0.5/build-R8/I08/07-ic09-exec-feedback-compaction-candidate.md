@@ -1,6 +1,6 @@
 # IC-09 Exec 反馈机械收敛候选
 
-- Status: static-complete / live-validation-pending
+- Status: complete / live-validated
 - Date: 2026-08-17
 - Issue: R8-I08
 - Variable: 仅收敛 Agent-visible `taskspace_exec` 成功反馈
@@ -44,6 +44,24 @@ Runtime 内部 identity、revision、action settlement 和日志字段不变。D
 
 ## 4. 真实验收
 
-使用计划中已批准的额外修复复验额度：`single-file-fast-fix`，Standard 1 + map-request 1，零自动重试。两臂必须业务和隐藏
-oracle 通过；TaskSpace 必须无反馈解析、Deferred Tool、状态理解或 Waiting 回归。报告 request、input、cache、output、time、cost
-和逐请求 Exec output 面积。任何异常立即停止，不自动补跑。
+使用已批准的额外修复复验额度运行 `single-file-fast-fix`，Standard 1 + map-request 1，零自动重试。证据：
+`target/r8-i08/ic09-feedback-compaction/single-file-fast-fix/20260817-061016-681`。
+
+| 指标 | Standard | map-request | TaskSpace / Standard |
+|---|---:|---:|---:|
+| 业务、公开验证、隐藏 oracle | passed | passed | 等价 |
+| Provider requests | 5 | 7 | 1.40x |
+| Input tokens | 61,368 | 106,500 | 1.74x |
+| Cached input | 59,136 | 99,968 | 1.69x |
+| Uncached input | 2,232 | 6,532 | 2.93x |
+| Output tokens | 1,224 | 2,288 | 1.87x |
+| Request 2+ cache hit | 95.63% | 93.13% | -2.50pp |
+| Agent wall time | 13.38s | 20.12s | 1.50x |
+
+TaskSpace 共 6 次 Exec、5 个 client actions，Map 为 5 nodes / 4 edges，全部闭合。没有 Waiting、JSON、协议拒绝、Tool 失败、
+显式 `read_map` 或状态理解异常。6 个成功 Exec output 合计 6,537 B；旧 trace 排除一次 Waiting reject 后的 6 个对应成功 output
+合计 7,957 B，减少 1,420 B（17.85%）。该在线值低于静态 30.25%，主要因为本轮 Map 多一个节点且具体 Tool 输出不同；它证明反馈
+载体确实缩小，不把随机动作路径差异归因给字段删除。
+
+两臂合计 12 requests、167,868 input、3,512 output，按冻结价格估算 CNY 0.01897008。当前结论只关闭“成功反馈中的机械冗余”；
+TaskSpace 固定 Tool 合同仍为 26,688 B/request，额外请求和更大的历史仍使总 input 明显高于 Standard，R8-I08 保持 open。

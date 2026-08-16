@@ -37,11 +37,9 @@ $bootstrap = @{
 }
 $preflight = '{"error":{"code":"request_multiple_apply_patch_calls_not_allowed"},"request":{"executed_tool_call_count":0}}'
 $execSuccess = @{
-    kind = "taskspace_exec_result"; status = "completed"; outer_call_id = "exec-success"
-    map_id = "map"; map_revision_at_dispatch = 2; reads = @()
     client_results = @(
-        @{ call_index = 0; action_id = "patch-action"; node_id = "edit"; tool = "apply_patch"; outcome = "succeeded"; result = @{ type = "function"; output = "Success. Updated the following files" } }
-        @{ call_index = 1; action_id = "test-action"; node_id = "verify"; tool = "exec_command"; outcome = "succeeded"; result = @{ type = "function"; output = "tests passed" } }
+        @{ node_id = "edit"; tool = "apply_patch"; outcome = "succeeded"; result = @{ type = "function"; output = "Success. Updated the following files" } }
+        @{ node_id = "verify"; tool = "exec_command"; outcome = "succeeded"; result = @{ type = "function"; output = "tests passed" } }
     )
 } | ConvertTo-Json -Compress -Depth 20
 $rows = @(

@@ -142,14 +142,20 @@ function Get-TaskspaceExecObservation {
             try {
                 $rawOutput = Resolve-TaskspaceExecResultOutput $ArtifactDir $rawOutput
                 $result = $rawOutput | ConvertFrom-Json
-                if ([string]$result.kind -ne 'taskspace_exec_result') {
-                    throw 'unexpected taskspace_exec result kind'
+                $knownResultFields = @('affected_node_states', 'reads', 'client_results')
+                $presentResultFields = @(
+                    $knownResultFields | Where-Object {
+                        $null -ne (Get-TaskspaceExecProperty $result $_)
+                    }
+                )
+                if ($null -eq $result -or $presentResultFields.Count -eq 0) {
+                    throw 'taskspace_exec result has no recognized result fields'
                 }
-                if ([string]$result.outer_call_id -ne $callId) {
-                    $findings.Add("exec_result_outer_call_mismatch:$callId")
-                }
-                $clientResults += @($result.client_results).Count
-                $failedActions += @($result.client_results | Where-Object { [string]$_.outcome -ne 'succeeded' }).Count
+                $clientResultsValue = Get-TaskspaceExecProperty $result 'client_results'
+                $resultClientResults = @()
+                if ($null -ne $clientResultsValue) { $resultClientResults = @($clientResultsValue) }
+                $clientResults += $resultClientResults.Count
+                $failedActions += @($resultClientResults | Where-Object { [string]$_.outcome -ne 'succeeded' }).Count
             } catch {
                 $findings.Add("exec_result_invalid:$callId")
                 $integrityFindings.Add("exec_result_invalid:$callId")

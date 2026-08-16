@@ -232,8 +232,10 @@ function Get-TaskspacePatchObservability {
         $outerOutput = $outputById[$outerCallId]
         if ([string]$outerOutput.text -match '^taskspace_exec rejected:') { continue }
         try { $result = ([string]$outerOutput.text) | ConvertFrom-Json } catch { continue }
-        foreach ($clientResult in @($result.client_results)) {
-            $nestedCallId = "${outerCallId}:nested:$([int]$clientResult.call_index)"
+        $clientResults = @(Get-PatchObservationProperty $result "client_results" @())
+        for ($resultIndex = 0; $resultIndex -lt $clientResults.Count; $resultIndex++) {
+            $clientResult = $clientResults[$resultIndex]
+            $nestedCallId = "${outerCallId}:nested:$resultIndex"
             $resultValue = Get-PatchObservationProperty $clientResult "result"
             $resultText = if ($null -ne $resultValue) {
                 $resultValue | ConvertTo-Json -Compress -Depth 20
