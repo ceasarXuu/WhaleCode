@@ -2,7 +2,7 @@
 
 - Date: 2026-08-16
 - Scope: TaskSpace Exec 工作型序列
-- Status: 生产代码、离线测试和免费缓存门禁完成；真实 Agent 与付费缓存回归待验收
+- Status: 生产代码、离线测试、免费缓存门禁和三轮真实 Agent 验证完成；accepted 缓存基线未晋升
 
 ## 1. 问题表现
 
@@ -52,5 +52,7 @@ Map 并补上 work。业务最终可恢复，但每次都会浪费一次 Provide
 `taskspace_production_tool_wire` 快照此前仍停留在已废弃的 Hosted 双写和旧初始化 `$ref` 结构。本次将该专用快照机械更新为
 当前生产 wire，并由上述 final-wire 测试锁定；Standard final wire 同批保持通过。
 
-真实 Agent 行为与 Provider 缓存尚未复验。缓存敏感面门禁已识别并接受该可比较候选结构，但没有晋升真实 accepted baseline；
-后续仍须按项目预算规则申请最小真实回归。离线完成不等于 I03 关闭。
+后续三轮真实运行中，首请求均一次提交并执行 `initialize_and_work + client exec_command`，Map-only 空初始化为 0/3；业务、验证
+和 Map 闭环均为 3/3。Request 2+ 加权缓存命中率为 93.09%。详见
+[`66-client-work-restoration-repeat3-result.md`](66-client-work-restoration-repeat3-result.md)。该结果没有 Standard 臂，也没有按缓存
+专用 runner 晋升 accepted baseline；目标子问题通过不等于整个 I03 关闭。
