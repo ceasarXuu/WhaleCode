@@ -1,12 +1,12 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-17T02:07:57+08:00",
+  "updated_at": "2026-08-17T02:10:06+08:00",
   "entries": [
     {
       "record_id": "WAR-20260817-020757-AFFECTED-STATE-R5",
       "record_type": "run_batch",
-      "status": "planned",
-      "started_at": null,
+      "status": "running",
+      "started_at": "2026-08-17T02:10:06+08:00",
       "ended_at": null,
       "elapsed_calendar_seconds": null,
       "aggregate_agent_wall_time_ms": null,
