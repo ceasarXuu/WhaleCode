@@ -1,6 +1,6 @@
 # R8-I08 Input 成本根因定位计划
 
-- Status: In Progress / IC-04 complete
+- Status: In Progress / IC-A complete
 - Created: 2026-08-17
 - Product Authority: [`../taskspace-exec/00-product-contract.md`](../taskspace-exec/00-product-contract.md#confirmed-product-decisions)
 - Applicable Decisions: PD1、PD2、PD3、PD4、PD6、PD7、PD9、PD10
@@ -111,7 +111,7 @@ section_area(kind) = sum(request.section_bytes[kind])
 | IC-02 | 拆分自然历史结构 | 同一 observer、`ResponseItem` 结构分类 | 按结构类型拆分 user、assistant、client call/output、`taskspace_exec` call/output、Provider-hosted item 和 projection；只记录 count/bytes/hash | 判断 outer 历史、Map 反馈和普通 Tool 结果各占多少，不读取 reasoning 语义 | 增加结构化观测字段，不增加 Agent context 或 Runtime 决策 | 合成 mixed history 每 item 恰好归类一次；原文不进入 trace；总 bytes 闭合 | 需要启发式解析自然语言或记录敏感 body 时停止 | complete；见 [`02-ic02-history-breakdown-result.md`](02-ic02-history-breakdown-result.md) |
 | IC-03 | 拆分 Tool declaration | TaskSpace Catalog/final-wire fixture | 结构化统计顶层每个 Tool、`taskspace_exec` 外层序列、Map schema、TaskSpace metadata、原生 client Tool 合同和 transport wrapper bytes | 判断 26,688 bytes 中哪些是 Standard 共用合同、哪些是 TaskSpace 独有成本 | 只读 analyzer；不改变 schema 序列化 | 分项之和等于 `tools` section；同一原生 ToolSpec identity 只统计一次 | 需要改 schema 才能测量时停止 | complete；见 [`03-ic03-tool-breakdown-result.md`](03-ic03-tool-breakdown-result.md) |
 | IC-04 | 建立免费静态线材对照 | final-wire payload builder fixtures | 用生产请求构造路径捕获 Standard/TaskSpace 首请求；多轮历史改由 IC-05/IC-06 的真实 trace 承担，不手造迎合结论的 transcript | 隔离首请求固定 Tool/Base 面积，限定固定结构可解释的成本上界 | 现有两夹具的 system/history 不同，只能对 Tool 与总面积建立边界 | Provider payload bytes、section closure、Tool 子结构逐项表格 | 需要改写产品 payload 或接受无关旧快照时停止 | complete-with-scope；见 [`04-ic04-static-wire-result.md`](04-ic04-static-wire-result.md) |
-| IC-05 | 离线复算最近真实 trace | 最新干净 repeat=5 和历史异常批次 | 用新 observer 能表达的旧字段先建立 v1 边界；新细分无法追溯时明确 unavailable，不伪造 | 量化固定面积、历史增长、异常请求面积，并挑选真实 A/B 的观察重点 | 旧 trace 无原始 payload，部分细分必然 unavailable | 5 轮逐请求表；干净/异常分层；Provider usage、request identity、section total 对账 | 需要从 hash 反推内容或用估计补缺时停止 | planned |
+| IC-05 | 离线复算最近真实 trace | 最新干净 repeat=5、同提交历史双臂和历史异常批次 | 用新 observer 能表达的旧字段建立 v1 边界；新细分无法追溯时明确 unavailable，不伪造 | 量化固定面积、历史增长、请求/每请求双重放大和异常请求面积 | 旧 trace 无原始 payload，部分细分必然 unavailable | 干净/异常分层；Provider usage、request identity、section total 对账 | 需要从 hash 反推内容或用估计补缺时停止 | complete；见 [`05-ic05-historical-trace-result.md`](05-ic05-historical-trace-result.md) |
 | IC-06 | 首轮真实双臂定位 | Docker benchmark；`single-file-fast-fix` | 当前 commit 下 Standard 与 `map-request` 各 repeat=1；不改协议 | 获得同版本总 input、请求数、每请求体量、section area 和动作路径 | 2 个付费 sample；模型随机性不足以给稳定频率 | 两臂业务/oracle 通过；无协议异常；能力 identity 一致；逐请求成本表 | 未获预算、任一业务/usage/identity 异常立即停止 | blocked-on-budget |
 | IC-07 | 扩大简单样本置信度 | 与 IC-06 完全相同 | 仅在 IC-06 可比较且根因仍受随机性影响时扩到每臂累计 repeat=3 | 区分结构差值和单轮动作波动 | 最多再增加 4 个 sample；属于大规模运行，必须专项预算 | 总和/均值/中位数；逐 run 异常不被均值隐藏 | IC-06 已足够定位、出现新问题或预算未批准则不执行 | deferred |
 | IC-08 | 复杂样本外推 | `subscription-billing-repair` 或届时最小充分复杂样本 | Standard 与 `map-request` 各 repeat=1，保持 IC-06 全部变量 | 判断固定成本结论是否被长历史、复杂 Map 或更多 Tool 结果改变 | 2 个付费 sample；不用于修改 Map 产品设计 | 同业务/oracle、section area、Map、请求路径和成本明细 | 简单样本根因未定位或复杂样本不具代表性时停止 | deferred |
@@ -240,9 +240,9 @@ IC-06 尚未获得授权，以下仅用于后续申请：
 ### Phase IC-B：最小真实双臂
 
 - Units: IC-06
-- Pre-Phase Plan Rebase Gate: pending
-- Material plan delta: pending IC-A result
-- User approval: user-approved-budget-direct: R8-I08-INPUT-COST-CNY3-20260817；仍受 IC-A rebase gate 阻断
+- Pre-Phase Plan Rebase Gate: ready
+- Material plan delta: none；IC-A 支持继续使用最小双臂分别测量 request amplification 与 per-request amplification
+- User approval: user-approved-budget-direct: R8-I08-INPUT-COST-CNY3-20260817
 - Exit: 两臂可比较且逐 request 成本结构完整，或以明确异常停止。
 - Product Decision Delta: engineering-only
 
