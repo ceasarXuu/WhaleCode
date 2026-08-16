@@ -566,3 +566,30 @@
   ```
 - Interpretation: 协议缺失与示例断裂已在工程层修复，未改变 Runtime 状态机；尚无真实 Agent 证据证明 Waiting 频率下降。
 - Time: 2026-08-17 02:43
+
+## Evidence E-013: 完整状态机协议未降低 Waiting frontier 误选
+
+- Related hypotheses:
+  - H-002
+- Direction: refutes
+- Type: fix-validation
+- Source: `target/r8-state-machine-contract/repeat5-{1..5}/single-file-fast-fix/20260817-025457-*`
+- Prediction or plan link:
+  - 唯一完整状态机协议与连续 canonical 示例应降低 Waiting frontier 误选和非法状态转换
+- Matched signal:
+  - 5/5 业务、公开验证、隐藏 oracle 和 Map 闭合通过
+  - Run 1/5 在收到 `fix=in_flight`、`verify=waiting` 后仍先执行 `work@verify`
+  - Run 2/4 共出现 3 次同一 update 将进入序列时仍为 Waiting 的 child patch 为 InFlight 的 `TransitionInvalid`
+- Correlation keys:
+  - subject commit `7a798abdb`
+  - ledger `WAR-20260817-025312-STATE-MACHINE-R5`
+- Raw content:
+  ```text
+  FRONTIER-EARLY: 2/5
+  TransitionInvalid: 3
+  malformed JSON: 2
+  requests/input/uncached/output: 41 / 639497 / 112009 / 11932
+  ```
+- Interpretation: 状态机协议与示例已进入 Agent 可见 description，但 Waiting 误选与上一轮同为 2/5，且最明确的
+  same-update Waiting 边界仍被违反。信息完整性修复成立，行为收益预测不成立；不继续堆叠同义状态说明。
+- Time: 2026-08-17 02:57

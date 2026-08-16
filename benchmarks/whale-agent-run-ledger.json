@@ -1,15 +1,15 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-17T02:53:12+08:00",
+  "updated_at": "2026-08-17T02:57:40+08:00",
   "entries": [
     {
       "record_id": "WAR-20260817-025312-STATE-MACHINE-R5",
       "record_type": "run_batch",
-      "status": "planned",
-      "started_at": null,
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "status": "settled",
+      "started_at": "2026-08-17T02:54:57+08:00",
+      "ended_at": "2026-08-17T02:55:48+08:00",
+      "elapsed_calendar_seconds": 51,
+      "aggregate_agent_wall_time_ms": 116676,
       "reason": "验证 taskspace_exec 暴露完整节点状态机协议和连续 canonical 示例后，Agent 对节点状态、合法转换与 Waiting frontier 的理解是否更稳定。",
       "authorization": {
         "required": true,
@@ -39,22 +39,26 @@
         ],
         "repeats_per_arm_per_sample": 5,
         "planned_sample_runs": 5,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "pending"
+        "actual_sample_runs": 5,
+        "api_requests": 41,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
-        "input": 0,
-        "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "input": 639497,
+        "cached_input": 527488,
+        "uncached_input": 112009,
+        "output": 11932
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated",
         "currency": "CNY",
-        "amount": null,
+        "amount": 0.14642276,
         "actual_billed_amount": null,
-        "components": null,
+        "components": {
+          "cached_input": 0.01054976,
+          "uncached_input": 0.112009,
+          "output": 0.023864
+        },
         "pricing_snapshot": {
           "model": "deepseek-v4-flash",
           "captured_at": "2026-08-17T02:53:12+08:00",
@@ -63,7 +67,7 @@
           "uncached_input_per_million": 1.0,
           "output_per_million": 2.0
         },
-        "formula": null,
+        "formula": "527488/1e6*0.02 + 112009/1e6*1.0 + 11932/1e6*2.0 = 0.14642276 CNY",
         "note": "运行后按 provider request-facts usage 和冻结价格估算，不等同于账户实扣金额。"
       },
       "evidence": {
@@ -75,7 +79,22 @@
         "repeat": 5,
         "retry_limit": 0,
         "stop_conditions": "达到 60 个 Provider 请求、750000 input、20000 output、600 秒或 1 元任一上限即停止；证据不完整或发生未授权重试立即停止。",
-        "usage_evidence_status": "pending"
+        "usage_evidence_status": "complete",
+        "pre_provider_harness_attempts": [
+          {
+            "run_root_pattern": "target/r8-state-machine-contract/repeat5-{1..5}/single-file-fast-fix/20260817-025409-*",
+            "outcome": "five parallel runs rejected by whale_binary_attestation_invalid before Provider; zero API requests and zero sample repeats consumed"
+          }
+        ],
+        "actual_run_roots": [
+          "target/r8-state-machine-contract/repeat5-1/single-file-fast-fix/20260817-025457-780",
+          "target/r8-state-machine-contract/repeat5-2/single-file-fast-fix/20260817-025457-961",
+          "target/r8-state-machine-contract/repeat5-3/single-file-fast-fix/20260817-025457-772",
+          "target/r8-state-machine-contract/repeat5-4/single-file-fast-fix/20260817-025457-847",
+          "target/r8-state-machine-contract/repeat5-5/single-file-fast-fix/20260817-025457-793"
+        ],
+        "request_2_plus_cache_hit_rate": 0.874607448454011,
+        "outcome": "5/5 business, public validation, hidden oracle and Map closure passed. FRONTIER-EARLY remained 2/5; 3 TransitionInvalid rejects and 2 malformed JSON rejects also occurred. Total 41 requests, 639497 input, 527488 cached, 112009 uncached, 11932 output; state-machine description did not establish stable Agent compliance."
       }
     },
     {

@@ -242,6 +242,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     精确不可执行直接子节点反馈、五轮真实结果、Waiting 因果边界、成本和缓存证据。
 72. [`71-lifecycle-contract-and-coherent-examples.md`](71-lifecycle-contract-and-coherent-examples.md)：Agent-visible 完整节点生命周期
     合同、连续 canonical 示例、实现对齐和离线验收结果。
+73. [`72-state-machine-protocol-repeat5-result.md`](72-state-machine-protocol-repeat5-result.md)：状态机协议后的五轮真实运行；
+    5/5 完成，但 Waiting 误选仍为 2/5，协议完整性成立而行为收益未成立。
 ## 4. 推进规则
 
 - R8 已知问题队列继续暂停，直到该主方案完成生产接入并重新盘点 I01～I10。
