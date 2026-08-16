@@ -4,12 +4,15 @@ use serde_json::json;
 use crate::action_map::rooted_dag::NodeState;
 
 use super::MapOperation;
+#[cfg(test)]
 use super::map_operations::BoundaryNodeArgs;
 use super::map_operations::EmptyArgs;
 use super::map_operations::FinishMapArgs;
+#[cfg(test)]
 use super::map_operations::InitializeMapArgs;
 use super::map_operations::NodePatchArgs;
 use super::map_operations::UpdateMapArgs;
+#[cfg(test)]
 use super::map_operations::WorkNodeArgs;
 
 const PROTOCOL: &str = r#"Use `taskspace_exec` as the sole top-level Function Tool for TaskSpace Map operations and client Tool actions. Provider-hosted Tools remain native Provider ToolSpecs; they are not Function Tools. Choose exactly one sequence `type` allowed by the schema.
@@ -35,10 +38,6 @@ pub(super) fn build_description<'a>(client_tool_names: impl Iterator<Item = &'a 
     let mut sections = vec![PROTOCOL.to_string()];
     if has_exec_command {
         sections.push(format!(
-            "First-turn initialization and work example:\n```json\n{}\n```",
-            canonical_first_turn_example()
-        ));
-        sections.push(format!(
             "Parent completion and direct-child work example:\n```json\n{}\n```",
             canonical_handoff_example()
         ));
@@ -54,6 +53,7 @@ pub(super) fn build_description<'a>(client_tool_names: impl Iterator<Item = &'a 
     sections.join("\n\n")
 }
 
+#[cfg(test)]
 pub(crate) fn canonical_first_turn_example() -> Value {
     let initialize = MapOperation::InitializeMap(InitializeMapArgs {
         root: BoundaryNodeArgs {

@@ -134,16 +134,6 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
     assert!(sequence_descriptions["read_map"].contains("without changing it"));
     assert!(sequence_descriptions["reopen_update_and_work"].contains("user feedback"));
     assert!(sequence_descriptions["finish_map"].contains("already Ready"));
-    let initialize_branch = parameters["anyOf"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|branch| branch["properties"]["type"]["enum"][0] == "initialize_and_work")
-        .unwrap();
-    let initialize_map = &initialize_branch["properties"]["initialize_map"];
-    assert_eq!(initialize_map["type"], "object");
-    assert!(initialize_map.get("$ref").is_none());
-    assert!(parameters["$defs"].get("initialize_map_input").is_none());
     assert!(parameters["$defs"]["tool_action"].is_object());
     assert_eq!(
         parameters["$defs"]["tool_action"]["anyOf"]
@@ -186,21 +176,9 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
     let description = declaration["description"].as_str().unwrap();
     assert!(!description.contains("TaskSpacePendingProviderActionsR8V1"));
     assert!(!description.contains("assign_pending_actions"));
-    let first_turn = description
-        .split_once("First-turn initialization and work example:")
-        .unwrap()
-        .1
-        .split_once("Parent completion and direct-child work example:")
-        .unwrap()
-        .0;
-    for required in [
-        "\"type\":\"initialize_and_work\"",
-        "\"tool\":\"exec_command\"",
-    ] {
-        assert!(first_turn.contains(required), "missing {required}");
-    }
-    assert!(!first_turn.contains("\"tool\":\"web_search\""));
-    assert!(!first_turn.contains("\"execution\":\"already_executed\""));
+    assert!(!description.contains("First-turn initialization and work example:"));
+    assert!(!description.contains("\"type\":\"initialize_and_work\""));
+    assert!(description.contains("Parent completion and direct-child work example:"));
     for forbidden in [
         "emit both",
         "native top-level Provider Tool item",
