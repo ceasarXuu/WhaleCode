@@ -13,8 +13,16 @@ pub(super) fn build_sequence_schema(
     tools: &BTreeMap<codex_tools::ToolName, TaskSpaceToolCapability>,
     map_operations: &BTreeMap<String, ToolSpecCapability>,
 ) -> JsonSchema {
+    let initialize_map_schema = map_operations
+        .get("initialize_map")
+        .and_then(|capability| match &capability.input {
+            ToolSpecCapabilityInput::Function(input) => Some(input.clone()),
+            ToolSpecCapabilityInput::Freeform(_) => None,
+        })
+        .expect("initialize_map is a structured Function");
     let mut definitions = map_operations
         .iter()
+        .filter(|(name, _)| name.as_str() != "initialize_map")
         .map(|(name, capability)| {
             let ToolSpecCapabilityInput::Function(input) = &capability.input else {
                 unreachable!("Map operations are structured Functions")
@@ -43,7 +51,7 @@ pub(super) fn build_sequence_schema(
             work_sequence(
                 "initialize_and_work",
                 "Use only when the TaskSpace Map is blank. Initialize the Map, then perform the first work in this response. Work may be a native Provider Tool action in the response or one or more client actions in `tools`.",
-                [("initialize_map", map_ref("initialize_map"))],
+                [("initialize_map", initialize_map_schema)],
             ),
             work_sequence(
                 "work",

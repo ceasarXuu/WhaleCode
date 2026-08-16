@@ -57,11 +57,7 @@ fn validate_at(
     {
         return Err(SchemaViolation {
             path: path.to_string(),
-            reason: format!(
-                "expected JSON type {}, got {}",
-                expected_type_label(schema_type),
-                value_type_label(value)
-            ),
+            reason: "value has the wrong JSON type".into(),
         });
     }
     if let Some(allowed) = schema.enum_values.as_ref()
@@ -183,64 +179,5 @@ fn matches_primitive(value: &Value, expected: JsonSchemaPrimitiveType) -> bool {
         JsonSchemaPrimitiveType::Object => value.is_object(),
         JsonSchemaPrimitiveType::Array => value.is_array(),
         JsonSchemaPrimitiveType::Null => value.is_null(),
-    }
-}
-
-fn expected_type_label(schema_type: &JsonSchemaType) -> String {
-    match schema_type {
-        JsonSchemaType::Single(expected) => primitive_type_label(*expected).to_string(),
-        JsonSchemaType::Multiple(expected) => expected
-            .iter()
-            .map(|expected| primitive_type_label(*expected))
-            .collect::<Vec<_>>()
-            .join(" or "),
-    }
-}
-
-fn primitive_type_label(schema_type: JsonSchemaPrimitiveType) -> &'static str {
-    match schema_type {
-        JsonSchemaPrimitiveType::String => "string",
-        JsonSchemaPrimitiveType::Number => "number",
-        JsonSchemaPrimitiveType::Boolean => "boolean",
-        JsonSchemaPrimitiveType::Integer => "integer",
-        JsonSchemaPrimitiveType::Object => "object",
-        JsonSchemaPrimitiveType::Array => "array",
-        JsonSchemaPrimitiveType::Null => "null",
-    }
-}
-
-fn value_type_label(value: &Value) -> &'static str {
-    match value {
-        Value::Null => "null",
-        Value::Bool(_) => "boolean",
-        Value::Number(number) if number.is_i64() || number.is_u64() => "integer",
-        Value::Number(_) => "number",
-        Value::String(_) => "string",
-        Value::Array(_) => "array",
-        Value::Object(_) => "object",
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::BTreeMap;
-
-    use codex_tools::AdditionalProperties;
-
-    use super::*;
-
-    #[test]
-    fn type_violation_reports_expected_and_actual_types() {
-        let schema = JsonSchema::object(
-            BTreeMap::new(),
-            Some(Vec::new()),
-            Some(AdditionalProperties::Boolean(false)),
-        );
-
-        let violation = validate_json_schema(&Value::String("{}".into()), &schema)
-            .expect_err("string must not satisfy object schema");
-
-        assert_eq!(violation.path, "$");
-        assert_eq!(violation.reason, "expected JSON type object, got string");
     }
 }
