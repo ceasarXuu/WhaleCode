@@ -145,12 +145,33 @@ IC-06 尚未获得授权，以下仅用于后续申请：
 | Provider requests | 24 |
 | Input tokens | 260,000 |
 | Output tokens | 10,000 |
-| 费用 | CNY 0.10；运行前按当日冻结价格重新计算 |
+| 正常预期费用 | 约 CNY 0.03；按最近干净 TaskSpace 五轮均值保守假设两臂成本相同 |
+| 费用观察停止线 | CNY 0.12；覆盖约 70% cache hit 下的 260K input + 10K output |
+| 协议极端上限 | CNY 0.28；按全部 260K input 未命中 + 10K output 计算，实际授权必须覆盖或进一步收紧 token 上限 |
 | 最长耗时 | 20 分钟 |
 | 自动重试 | 0 |
 
 如果任一 arm 出现业务失败、JSON/waiting/provider 异常、能力身份不一致、usage 缺失、缓存同形零命中或请求超限，本轮只作为异常
 证据，不进入 input 根因比较，也不自动补跑。
+
+价格快照采用 2026-08-17 最近真实运行账本中的 DeepSeek 官方价格：cached input `CNY 0.02/M`、uncached input
+`CNY 1.00/M`、output `CNY 2.00/M`。运行前必须重新冻结当日价格；价格变化时只重算预算，不改变测试变量。
+
+### 7.1 后续可选阶段预算边界
+
+下表用于说明总风险，不代表提前授权。IC-07、IC-08 只有在前序证据要求时才分别申请；IC-09 的变量尚未知，不能预支预算。
+
+| 阶段 | 新增 sample runs | Request 上限 | Input / Output 上限 | 正常预期 | 观察停止线 | 全部 input 未命中的协议极端上限 |
+|---|---:|---:|---:|---:|---:|---:|
+| IC-A 免费测量 | 0 | 0 | 0 / 0 | CNY 0 | CNY 0 | CNY 0 |
+| IC-B 首轮双臂 | 2 | 24 | 260K / 10K | CNY 0.028 | CNY 0.12 | CNY 0.28 |
+| IC-07 追加到每臂累计 repeat=3 | 4 | 48 | 520K / 20K | CNY 0.056 | CNY 0.24 | CNY 0.56 |
+| IC-08 复杂样本双臂 | 2 | 30 | 600K / 30K | CNY 0.089 | CNY 0.25 | CNY 0.66 |
+| **IC-A～IC-08 最大合计** | **8** | **102** | **1.38M / 60K** | **CNY 0.173** | **CNY 0.61** | **CNY 1.50** |
+
+正常预期中，简单样本按最近干净 TaskSpace 五轮均值 `CNY 0.013969744/run` 并保守假设 Standard 同价；复杂样本按最近
+`subscription-billing-repair` TaskSpace trace 以当前价格重算为约 `CNY 0.04452/run`，并同样保守假设 Standard 同价。
+这些是容量估计，不是已观测的当前 Standard 成本。
 
 ## 8. 根因定位通过条件
 
@@ -209,4 +230,3 @@ IC-06 尚未获得授权，以下仅用于后续申请：
 - User approval: required-pending for every paid matrix and cache-sensitive change
 - Exit: 主贡献项通过单变量因果验证，或候选被证伪并停止。
 - Product Decision Delta: any behavior-affecting optimization requires separate user confirmation
-
