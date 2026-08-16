@@ -1,7 +1,7 @@
 # Problem P-001: initialize_map 偶发被二次序列化为 JSON string
 - Status: open
 - Created: 2026-08-15 23:15
-- Updated: 2026-08-16 18:50
+- Updated: 2026-08-16 18:58
 - Objective: 确认 `taskspace_exec.initialize_map` 类型错误的实际发生层、频率和可验证根因，避免把模型输出错误误归因给 Runtime。
 - Symptoms:
   - 同一 Function Tool schema 下，Agent 有时把应为 object 的 `initialize_map` 写成包含 JSON 文本的 string。
@@ -158,6 +158,7 @@
   - E-003
   - E-004
   - E-009
+  - E-010
 - Conclusion: unverified
 - Repair design readiness: blocked until Evidence gate is satisfied
 - Next step: 暂不实施；先设计最小单变量候选。
@@ -394,4 +395,25 @@
   tool section: 24,938 bytes
   ```
 - Interpretation: 结果与候选机制一致且未见回归，但未改 schema 的候选 1 同样得到 object 5/5；当前样本不能区分内联收益与随机波动，H-003 仍未通过因果证据门禁。
+
+## Evidence E-010: 移除首次初始化完整示例引入序列完整性回归
+- Related hypotheses:
+  - H-003
+- Direction: refutes-candidate
+- Type: experiment
+- Source: `docs/v0.0.5/build-R8/taskspace-exec/61-initialize-map-candidate3-no-first-turn-example-result.md`
+- Prediction or plan link:
+  - 检验完整 JSON 示例是否诱发 `initialize_map` 二次序列化，同时不损害合法序列表达。
+- Matched signal:
+  - 五轮 `initialize_map` 均为 object，但仅 2/5 首次请求包含完整合法的 `initialize_and_work`；2 次缺少 work，1 次同时缺少 `type` 和 work。
+- Correlation keys:
+  - `taskspace_capability_identity=88043c22...`
+  - `tools_hash=8862dfcb...`
+- Raw content:
+  ```text
+  first initialize_map types: object, object, object, object, object
+  first legal initialize_and_work: false, true, false, true, false
+  first request rejected: work missing, none, work missing, none, type and work missing
+  ```
+- Interpretation: 候选没有提供类型错误的独立因果证据，却明确降低了首次合法序列完整率。完整示例当前承担操作示范，不能作为单变量优化删除；候选 3 判定失败。
 - Time: 2026-08-16 18:50
