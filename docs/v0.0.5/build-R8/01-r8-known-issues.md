@@ -369,7 +369,7 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | 最新十轮 request/usage/cache/Exec/client/Patch/Map 均可复算，75 个请求身份完整且无 retry；完整跨模式验收仍未执行 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
 | 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与 client 动作 | 稳定生成初始化并执行、完成并继续、完成并结束；Provider-hosted Tool 当前不参与 Agent 归属协议 | IC-09 的 1/5 裸换行异常已纳入唯一机械自愈并通过离线/历史替换测试；真实频率未复验，参数构造问题仍未关闭 | verifying | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | IC-09 的 2/5 waiting 派生状态误写已在 Base 3.0.5 补足父子交接合同；状态机与硬规则未变，真实行为收益未复验 | verifying | GI-004 |
-| 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | repeat=5 为 TaskSpace 35 vs Standard 31 requests、531,515 vs 381,252 input，10/10 通过；成功 Exec output 平均缩小 27.65%，但固定 Tool 合同、额外请求和累计历史仍使总 input 为 1.39x | [investigating](I08/08-ic09-feedback-compaction-repeat5-result.md) | GI-008 |
+| 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | repeat=5 总 input 为 1.39x；IC-10 确认主要增量是有依据的 Map/Exec/反馈设计成本。仅发现约 3.03% 新增历史的小型同义反馈候选；三次异常请求已有离线修复待真实验证 | [investigating](I08/09-ic10-intentional-cost-boundary-audit.md) | GI-008 |
 
 问题总数：**10**；Open：**9**；Closed：**1**。当前专题：**R8-I08 Input 成本根因定位**；免费结构测量和首轮真实双臂已完成，
 机械反馈单变量已完成真实复验；剩余工作继续聚焦固定 Tool 合同和额外请求，不回删状态机硬合同。
