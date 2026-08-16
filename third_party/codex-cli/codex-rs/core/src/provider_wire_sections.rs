@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::collections::HashSet;
 
 use serde::Serialize;
@@ -9,6 +8,10 @@ use sha2::Sha256;
 
 const ACTIVE_PROJECTION_START: &str = "TaskSpaceMapProjectionR8V1:";
 const ACTIVE_PROJECTION_END: &str = "TaskSpaceMapProjectionR8V1 end.";
+
+#[path = "provider_wire_history.rs"]
+mod history;
+
 #[derive(Debug, Serialize)]
 pub(super) struct ProviderWireSectionCost {
     schema_version: &'static str,
@@ -17,7 +20,7 @@ pub(super) struct ProviderWireSectionCost {
     pub(super) section_bytes_total: usize,
     active_projection_identity: ActiveProjectionIdentity,
     sections: Vec<ProviderWireSection>,
-    history_breakdown: Vec<ProviderWireHistoryCost>,
+    history_breakdown: Vec<history::ProviderWireHistoryCost>,
 }
 
 #[derive(Debug, Serialize)]
@@ -34,15 +37,6 @@ struct ActiveProjectionIdentity {
 #[derive(Debug, Serialize)]
 struct ProviderWireSection {
     kind: SectionKind,
-    count: usize,
-    bytes: usize,
-    estimated_tokens: usize,
-    sha256: String,
-}
-
-#[derive(Debug, Serialize)]
-struct ProviderWireHistoryCost {
-    kind: HistoryKind,
     count: usize,
     bytes: usize,
     estimated_tokens: usize,
@@ -88,51 +82,6 @@ impl SectionKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum HistoryKind {
-    UserMessage,
-    AssistantMessage,
-    ClientToolCall,
-    ClientToolOutput,
-    TaskspaceExecCall,
-    TaskspaceExecOutput,
-    ProviderHostedItem,
-    ReasoningItem,
-    CompactionItem,
-    OtherHistory,
-}
-
-impl HistoryKind {
-    const ALL: [Self; 10] = [
-        Self::UserMessage,
-        Self::AssistantMessage,
-        Self::ClientToolCall,
-        Self::ClientToolOutput,
-        Self::TaskspaceExecCall,
-        Self::TaskspaceExecOutput,
-        Self::ProviderHostedItem,
-        Self::ReasoningItem,
-        Self::CompactionItem,
-        Self::OtherHistory,
-    ];
-
-    const fn index(self) -> usize {
-        match self {
-            Self::UserMessage => 0,
-            Self::AssistantMessage => 1,
-            Self::ClientToolCall => 2,
-            Self::ClientToolOutput => 3,
-            Self::TaskspaceExecCall => 4,
-            Self::TaskspaceExecOutput => 5,
-            Self::ProviderHostedItem => 6,
-            Self::ReasoningItem => 7,
-            Self::CompactionItem => 8,
-            Self::OtherHistory => 9,
-        }
-    }
-}
-
 #[derive(Default)]
 struct SectionMeasure {
     count: usize,
@@ -142,8 +91,6 @@ struct SectionMeasure {
 struct SectionBuild {
     measures: [SectionMeasure; 8],
     message_values: [Vec<Value>; 4],
-    history_measures: [SectionMeasure; 10],
-    history_values: [Vec<Value>; 10],
     base_instructions_value: Value,
     tools_value: Value,
     tool_choice_value: Value,
@@ -155,8 +102,6 @@ impl Default for SectionBuild {
         Self {
             measures: std::array::from_fn(|_| SectionMeasure::default()),
             message_values: std::array::from_fn(|_| Vec::new()),
-            history_measures: std::array::from_fn(|_| SectionMeasure::default()),
-            history_values: std::array::from_fn(|_| Vec::new()),
             base_instructions_value: Value::Null,
             tools_value: Value::Null,
             tool_choice_value: Value::Null,
@@ -184,6 +129,7 @@ impl ProviderWireSectionCost {
         };
 
         let active_projection_identity = active_projection_identity(&build.message_values[2]);
+        let history_breakdown = history::measure(&build.message_values[1]);
         let hashes = section_hashes(
             build.message_values,
             build.base_instructions_value,
@@ -201,18 +147,6 @@ impl ProviderWireSectionCost {
                 bytes: measure.bytes,
                 estimated_tokens: measure.bytes.div_ceil(4),
                 sha256,
-            })
-            .collect::<Vec<_>>();
-        let history_breakdown = HistoryKind::ALL
-            .into_iter()
-            .zip(build.history_measures)
-            .zip(build.history_values)
-            .map(|((kind, measure), values)| ProviderWireHistoryCost {
-                kind,
-                count: measure.count,
-                bytes: measure.bytes,
-                estimated_tokens: measure.bytes.div_ceil(4),
-                sha256: json_hash(&Value::Array(values)),
             })
             .collect::<Vec<_>>();
 
@@ -262,13 +196,7 @@ fn measure_object(
                 unavailable_reason = None;
                 build.measures[other_index].bytes +=
                     field_prefix_bytes + 2 + messages.len().saturating_sub(1);
-                measure_messages(
-                    messages,
-                    &mut build.measures,
-                    &mut build.message_values,
-                    &mut build.history_measures,
-                    &mut build.history_values,
-                );
+                measure_messages(messages, &mut build.measures, &mut build.message_values);
             } else {
                 unavailable_reason = Some("message_array_not_array");
                 build.measures[other_index].count += 1;
@@ -304,10 +232,7 @@ fn measure_messages(
     messages: &[Value],
     measures: &mut [SectionMeasure; 8],
     message_values: &mut [Vec<Value>; 4],
-    history_measures: &mut [SectionMeasure; 10],
-    history_values: &mut [Vec<Value>; 10],
 ) {
-    let call_names = response_call_names(messages);
     for message in messages {
         let serialized = json_bytes(message);
         let kind = classify_message(message);
@@ -315,71 +240,6 @@ fn measure_messages(
         measure.count += 1;
         measure.bytes += serialized.len();
         message_values[kind.index()].push(message.clone());
-        if kind == SectionKind::NaturalHistory {
-            let history_kind = classify_history_item(message, &call_names);
-            let history_measure = &mut history_measures[history_kind.index()];
-            history_measure.count += 1;
-            history_measure.bytes += serialized.len();
-            history_values[history_kind.index()].push(message.clone());
-        }
-    }
-}
-
-fn response_call_names(messages: &[Value]) -> HashMap<&str, &str> {
-    messages
-        .iter()
-        .filter_map(|message| {
-            let item_type = message.get("type").and_then(Value::as_str)?;
-            if !matches!(
-                item_type,
-                "function_call" | "custom_tool_call" | "tool_search_call"
-            ) {
-                return None;
-            }
-            Some((
-                message.get("call_id")?.as_str()?,
-                message.get("name").and_then(Value::as_str).unwrap_or(""),
-            ))
-        })
-        .collect()
-}
-
-fn classify_history_item(message: &Value, call_names: &HashMap<&str, &str>) -> HistoryKind {
-    match message.get("type").and_then(Value::as_str) {
-        Some("message") => match message.get("role").and_then(Value::as_str) {
-            Some("user") => HistoryKind::UserMessage,
-            Some("assistant") => HistoryKind::AssistantMessage,
-            _ => HistoryKind::OtherHistory,
-        },
-        Some("function_call") => match message.get("name").and_then(Value::as_str) {
-            Some("taskspace_exec") => HistoryKind::TaskspaceExecCall,
-            _ => HistoryKind::ClientToolCall,
-        },
-        Some("function_call_output") => {
-            let name = message
-                .get("call_id")
-                .and_then(Value::as_str)
-                .and_then(|call_id| call_names.get(call_id).copied());
-            if name == Some("taskspace_exec") {
-                HistoryKind::TaskspaceExecOutput
-            } else {
-                HistoryKind::ClientToolOutput
-            }
-        }
-        Some("local_shell_call" | "custom_tool_call" | "tool_search_call") => {
-            HistoryKind::ClientToolCall
-        }
-        Some("mcp_tool_call_output" | "custom_tool_call_output" | "tool_search_output") => {
-            HistoryKind::ClientToolOutput
-        }
-        Some("web_search_call" | "image_generation_call") => HistoryKind::ProviderHostedItem,
-        Some("reasoning") => HistoryKind::ReasoningItem,
-        Some("compaction" | "compaction_summary") => HistoryKind::CompactionItem,
-        Some(_) | None => match message.get("role").and_then(Value::as_str) {
-            Some("user") => HistoryKind::UserMessage,
-            Some("assistant") => HistoryKind::AssistantMessage,
-            _ => HistoryKind::OtherHistory,
-        },
     }
 }
 

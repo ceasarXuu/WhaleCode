@@ -1,3 +1,4 @@
+use super::history::HistoryKind;
 use super::*;
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -6,7 +7,7 @@ fn section(cost: &ProviderWireSectionCost, kind: SectionKind) -> &ProviderWireSe
     &cost.sections[kind.index()]
 }
 
-fn history(cost: &ProviderWireSectionCost, kind: HistoryKind) -> &ProviderWireHistoryCost {
+fn history(cost: &ProviderWireSectionCost, kind: HistoryKind) -> &history::ProviderWireHistoryCost {
     &cost.history_breakdown[kind.index()]
 }
 
