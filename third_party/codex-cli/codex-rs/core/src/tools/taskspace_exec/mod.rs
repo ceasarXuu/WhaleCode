@@ -2,6 +2,7 @@ mod catalog;
 mod deferred;
 mod dispatch;
 mod envelope;
+mod feedback;
 mod handler;
 mod hosted;
 mod map_operations;

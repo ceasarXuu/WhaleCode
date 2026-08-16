@@ -10,6 +10,8 @@ use serde_json::json;
 use crate::action_map::TaskSpaceMapView;
 use crate::tools::context::NestedToolResult;
 
+use super::feedback::AffectedNodeState;
+
 const RESULT_KIND: &str = "taskspace_exec_result";
 const RESULT_STATUS: &str = "completed";
 
@@ -20,6 +22,7 @@ pub(super) struct TaskSpaceExecResult {
     outer_call_id: String,
     map_id: String,
     map_revision_at_dispatch: Option<u64>,
+    affected_node_states: Vec<AffectedNodeState>,
     reads: Vec<MapReadResult>,
     client_results: Vec<ClientResult>,
 }
@@ -50,6 +53,7 @@ impl TaskSpaceExecResult {
         outer_call_id: String,
         map_id: String,
         map_revision_at_dispatch: Option<u64>,
+        affected_node_states: Vec<AffectedNodeState>,
         reads: Vec<MapReadResult>,
         client_results: Vec<ClientResult>,
     ) -> Self {
@@ -59,6 +63,7 @@ impl TaskSpaceExecResult {
             outer_call_id,
             map_id,
             map_revision_at_dispatch,
+            affected_node_states,
             reads,
             client_results,
         }
@@ -85,6 +90,10 @@ pub(super) fn result_schema<'a>(
                     ),
                 ),
             ),
+            (
+                "affected_node_states",
+                JsonSchema::array(affected_node_state_schema(), None),
+            ),
             ("reads", JsonSchema::array(map_read_result_schema(), None)),
             (
                 "client_results",
@@ -97,10 +106,62 @@ pub(super) fn result_schema<'a>(
             "outer_call_id",
             "map_id",
             "map_revision_at_dispatch",
+            "affected_node_states",
             "reads",
             "client_results",
         ],
     )
+}
+
+fn affected_node_state_schema() -> JsonSchema {
+    strict_object(
+        [
+            ("node_id", JsonSchema::string(None)),
+            (
+                "state_before_sequence",
+                JsonSchema::any_of(
+                    vec![node_state_schema(), JsonSchema::null(None)],
+                    Some("Canonical state before this sequence, or null for a new node.".into()),
+                ),
+            ),
+            ("state_after_sequence", node_state_schema()),
+            (
+                "unavailable_direct_work_children",
+                JsonSchema::array(unavailable_work_child_schema(), None),
+            ),
+        ],
+        &[
+            "node_id",
+            "state_before_sequence",
+            "state_after_sequence",
+            "unavailable_direct_work_children",
+        ],
+    )
+}
+
+fn unavailable_work_child_schema() -> JsonSchema {
+    strict_object(
+        [
+            ("node_id", JsonSchema::string(None)),
+            ("state", node_state_schema()),
+            (
+                "incomplete_parent_ids",
+                JsonSchema::array(JsonSchema::string(None), None),
+            ),
+            (
+                "message",
+                JsonSchema::string(Some(
+                    "Mechanical explanation of why this direct Work child is not executable."
+                        .into(),
+                )),
+            ),
+        ],
+        &["node_id", "state", "incomplete_parent_ids", "message"],
+    )
+}
+
+fn node_state_schema() -> JsonSchema {
+    string_enum(["waiting", "ready", "in_flight", "completed"])
 }
 
 fn map_read_result_schema() -> JsonSchema {

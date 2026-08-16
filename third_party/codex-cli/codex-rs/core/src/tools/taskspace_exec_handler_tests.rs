@@ -546,6 +546,13 @@ async fn handler_persists_pending_then_settles_each_native_result_without_node_t
     assert_feedback_matches_declared_result(&harness, &feedback);
     assert_eq!(feedback["kind"], "taskspace_exec_result");
     assert_eq!(feedback["outer_call_id"], "outer");
+    let affected = feedback["affected_node_states"].as_array().unwrap();
+    let work_state = affected
+        .iter()
+        .find(|state| state["node_id"] == "work")
+        .unwrap();
+    assert_eq!(work_state["state_before_sequence"], Value::Null);
+    assert_eq!(work_state["state_after_sequence"], "in_flight");
     assert_eq!(
         feedback["client_results"][0]["action_id"],
         "outer/taskspace/call/0"

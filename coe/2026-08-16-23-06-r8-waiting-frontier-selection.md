@@ -1,7 +1,7 @@
 # Problem P-001: Agent 高频提前选择 Waiting 后继节点
 - Status: open
 - Created: 2026-08-16 23:06
-- Updated: 2026-08-16 23:56
+- Updated: 2026-08-17 00:30
 - Objective: 解释 `single-file-fast-fix` 当前 TaskSpace Exec 合同下 Waiting frontier 误选约 40% 复发的发生机制与主要诱因，并在证据不足时阻止提示词或 Runtime 约束继续扩张。
 - Symptoms:
   - client work 恢复 repeat=10 中，Run 6/8/9/10 在 `apply_patch@fix` 成功后的下一请求直接提交 `work(exec_command@verify)`。
@@ -35,12 +35,14 @@
   - 候选修复必须保持 Tool outcome 不自动完成节点、Agent 决定 lifecycle、Runtime 只守 DAG 硬边界。
   - 后续真实复验需证明 Waiting 频率和请求成本下降，且不引入冗余状态转换、Map 坍缩、缓存或 Standard 回归。
 - Current conclusion: 已确认的直接机制是：动态 Map frontier 不能由静态 Function schema 表达，`work` 与 `update_and_work` 在 Provider schema 层都可生成；Agent 在自然的“补丁成功后立刻测试”路径中会省略 lifecycle handoff，Runtime 到动态 preflight 才能拒绝。单变量 owner-state 反馈在实际到达边界的四轮中仍误选 2/4，且两次 trace 均证明 Agent 已收到 `fix=in_flight`；该候选不通过并已回退。当前优先候选收敛为序列分支结构显著性，而不是继续增加反馈字段、提示文字或 Runtime 状态职责。
+- Current conclusion: 已确认的直接机制是：动态 Map frontier 不能由静态 Function schema 表达，`work` 与 `update_and_work` 在 Provider schema 层都可生成；Agent 在自然的“补丁成功后立刻测试”路径中会省略 lifecycle handoff，Runtime 到动态 preflight 才能拒绝。单一 `owner_state_after` 不是 Waiting 误选的充分修复，但不能由此推导“Runtime 机械改变的 canonical 状态无须在反馈中可见”。新候选与旧实验严格区分：不再堆叠孤立 owner 字段，而是忠实返回本批次直接操作或机械变更的节点状态，并对仍 Waiting 的直接 Work 子节点返回精确未完成父节点。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
   - H-004
   - H-005
+  - H-006
 - Resolution basis:
   - direct mechanism satisfied；probability-inducing factors not fully isolated
 - Close reason:
@@ -442,3 +444,68 @@
   ```
 - Interpretation: 字段已进入上下文但没有改变两次错误行动；候选未观察到下降，不能晋升。实现由 `52d209637` 回退。
 - Time: 2026-08-16 23:56
+
+## Hypothesis H-006: 批次状态反馈不完整使 Agent 缺少连续 canonical Map 事实
+- Status: unverified
+- Parent: P-001
+- Claim: 旧候选只回传 client owner 的一个 post-state，未返回本批次直接操作节点、Runtime 机械变更节点和仍不可执行直接 Work 子节点的精确依赖事实；这个不完整反馈使 Agent 对 Map 状态的掌握不连续。
+- Layer: feedback
+- Factor relation: any_of
+- Depends on:
+  - H-001
+- Rationale:
+  - `map-request` 不在每次 Provider request 自动展开完整 Map；Runtime 又会机械执行 readiness 和 activation 转换。成功 Tool feedback 应忠实回传本批次相关 canonical 状态，不要求 Agent 从分散历史推测。
+- Falsifiable predictions:
+  - If true: 在不改变状态机、序列闭集、Base 和 Tool 执行的前提下，返回 affected node states 与精确 unavailable child facts 应至少使 Agent 在 trace 中稳定获得完整状态事实，并可能降低 Waiting frontier 误选。
+  - If false: 反馈字段未出现、与 canonical Map 不一致，或 Agent 在确认收到完整相关事实后仍以相近频率误选。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 批次反馈完整性和 Waiting 行为收益。
+  - Signal: `affected_node_states[]`、`unavailable_direct_work_children[]`、canonical Map 对照、Waiting reject 频率、请求/token/cache/耗时。
+  - Capture method: 聚焦 Rust 测试先证明输出忠实；然后 `single-file-fast-fix × map-request × repeat=5`，零自动重试。
+  - Event name or marker:
+    - `taskspace_exec_result`
+    - `taskspace.exec.completed`
+    - `taskspace.exec.rejected / preflight_rejected`
+  - Correlation keys:
+    - outer call ID、node ID、Map revision
+  - Differentiates from:
+    - H-003 孤立 owner post-state；H-002 序列分支选择偏置
+  - Supports if:
+    - 本批次相关状态与未完成父节点逐字进入 Agent 上下文，且无错误语义或状态机变更；行为收益另行统计，不以单轮成功宣称因果。
+  - Refutes if:
+    - 反馈与已持久化 Map 不一致，或精确事实未出现在 Tool output。
+  - Instrumentation status: candidate feedback only
+  - Instrumentation lifecycle:
+    - 反馈字段是产品候选，非诊断日志；只有忠实性与回归通过才可保留。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-004
+  - E-008
+  - E-009
+  - E-010
+- Conclusion: 待实施与复验；不把该候选预设为 Waiting 的必然修复。
+- Repair design readiness: authorized
+- Next step: 实施最小 affected-state feedback，通过离线门禁后执行已批准 repeat=5。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-010: 用户确认状态反馈产品边界并批准复验
+- Related hypotheses:
+  - H-006
+- Direction: supports
+- Type: user-feedback
+- Source: 2026-08-17 当前任务
+- Prediction or plan link:
+  - H-006 修复授权和输出语义
+- Matched signal:
+  - 用户确认 `taskspace_exec` 应返回操作过的 node 状态，并允许对非 completed 节点补充精确下游不可执行事实；批准 `repeat=5` 真实运行预算。
+- Correlation keys:
+  - `USER-20260817-AFFECTED-STATE-R5`
+- Raw content:
+  ```text
+  按你的建议试一下这两点改动，然后repeat 5 测试，批准预算
+  ```
+- Interpretation: 修复与付费复验已获明确授权；不包含新序列、状态机改动或 Runtime 自动完成节点。
+- Time: 2026-08-17 00:30

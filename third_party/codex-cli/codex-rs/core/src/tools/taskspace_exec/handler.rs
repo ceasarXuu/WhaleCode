@@ -22,6 +22,7 @@ use super::TaskSpaceExecRequestContext;
 use super::TaskSpaceExecResponseScope;
 use super::dispatch::dispatched_outcome;
 use super::dispatch_client_calls;
+use super::feedback::affected_node_states;
 use super::preflight::TaskSpaceExecPreflightError;
 use super::preflight_taskspace_exec;
 use super::prepare_client_calls;
@@ -221,10 +222,16 @@ impl ToolHandler for TaskSpaceExecHandler {
             .iter()
             .all(|result| result.outcome == "succeeded" && result.settlement_error.is_none());
         let client_result_count = client_results.len();
+        let affected_node_states = affected_node_states(
+            current_map.as_ref(),
+            candidate_map.as_ref(),
+            envelope.plan(),
+        );
         let output = TaskSpaceExecResult::new(
             invocation.call_id.clone(),
             map_id.clone(),
             candidate_revision,
+            affected_node_states,
             reads,
             client_results,
         );

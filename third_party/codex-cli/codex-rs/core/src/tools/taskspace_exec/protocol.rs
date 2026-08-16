@@ -26,7 +26,7 @@ Map contract:
 - The complete sequence is preflighted before unexecuted side effects. The Runtime does not add, infer, reorder, or repair Agent actions.
 
 Feedback contract:
-- The outer result reports every client action, preserves native client results and errors without summarization, and returns the complete Map for `read_map`."#;
+- The outer result reports every client action, preserves native client results and errors without summarization, returns current states for directly operated or mechanically changed nodes, identifies their unavailable direct Work children with exact incomplete parents, and returns the complete Map for `read_map`."#;
 
 pub(super) fn build_description<'a>(client_tool_names: impl Iterator<Item = &'a str>) -> String {
     let has_exec_command = client_tool_names
