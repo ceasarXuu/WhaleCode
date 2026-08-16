@@ -1,5 +1,6 @@
 ---
 source: core/tests/suite/cache_final_wire.rs
+assertion_line: 174
 expression: "render_cache_snapshot(\"taskspace_production_tool_wire\", &snapshot)?"
 ---
 {
@@ -12,7 +13,7 @@ expression: "render_cache_snapshot(\"taskspace_production_tool_wire\", &snapshot
   "tool_choice": "auto",
   "tools": [
     {
-      "description": "Use `taskspace_exec` as the single top-level entry point for TaskSpace Map and Tool actions. Choose exactly one sequence `type` allowed by the schema.\n\nTool contract:\n- Put client and provider-hosted Tool actions in the sequence's single `tools` array.\n- Each client action keeps its native Tool input in `input` and declares one owner `node_id`; namespaced Tools also declare `namespace`.\n- Each provider-hosted Tool is one logical action already executed by the Provider in this response. Record it with `execution: \"already_executed\"` and all owner `node_ids`; this does not invoke the Tool. Provider-internal steps and results never become separate TaskSpace actions.\n- Tool array order supplies stable action identity. It does not create Tool dependencies; result-dependent work belongs in a later request.\n\nMap contract:\n- Map fields use the canonical operation input directly. Node readiness derives from `parents`.\n- A Tool action on a Ready owner mechanically starts it; do not also patch that owner to `in_flight` in the same sequence.\n- Tool outcomes do not complete nodes. A batch contains at most one `apply_patch` action.\n- The complete sequence is preflighted before unexecuted side effects. The Runtime does not add, infer, reorder, or repair Agent actions.\n\nFeedback contract:\n- The outer result reports every client and hosted action, preserves native client results and errors without summarization, and returns the complete Map for `read_map`.\n\nFirst-turn initialization and work example:\n```json\n{\"initialize_map\":{\"finish\":{\"content\":\"\",\"goal\":\"Deliver the completed task\",\"node_id\":\"finish\",\"parents\":[\"inspect\"]},\"root\":{\"content\":\"\",\"goal\":\"Complete the user task\",\"node_id\":\"root\",\"parents\":[]},\"work_nodes\":[{\"content\":\"\",\"goal\":\"Inspect the workspace\",\"node_id\":\"inspect\",\"parents\":[\"root\"]}]},\"tools\":[{\"input\":{\"cmd\":\"pwd\"},\"node_id\":\"inspect\",\"tool\":\"exec_command\"}],\"type\":\"initialize_and_work\"}\n```\n\nParent completion and direct-child work example:\n```json\n{\"tools\":[{\"input\":{\"cmd\":\"test -f README.md\"},\"node_id\":\"implement\",\"tool\":\"exec_command\"}],\"type\":\"update_and_work\",\"update_map\":{\"add_work_nodes\":[],\"node_patches\":[{\"content\":\"Inspection complete.\",\"node_id\":\"inspect\",\"state\":\"completed\"}]}}\n```\n\nRead-only example:\n```json\n{\"read_map\":{},\"type\":\"read_map\"}\n```\n\nFinal work-node completion and explicit Map finish example:\n```json\n{\"finish_map\":{\"content\":\"Task completed and verified.\"},\"type\":\"update_and_finish\",\"update_map\":{\"add_work_nodes\":[],\"node_patches\":[{\"content\":\"Implementation and verification complete.\",\"node_id\":\"implement\",\"state\":\"completed\"}]}}\n```\n\nAvailable provider-hosted Tool actions: web_search.\n\nProvider-hosted result attribution example (emit after the Provider has already returned this Tool in the same response; this does not invoke it):\n```json\n{\"tools\":[{\"execution\":\"already_executed\",\"node_ids\":[\"research\"],\"tool\":\"web_search\"}],\"type\":\"work\"}\n```",
+      "description": "Use `taskspace_exec` as the sole top-level Function Tool for TaskSpace Map operations and client Tool actions. Provider-hosted Tools remain native Provider ToolSpecs; they are not Function Tools. Choose exactly one sequence `type` allowed by the schema.\n\nTool contract:\n- Put only client Tool actions in the sequence's `tools` array. Every work sequence requires a non-empty `tools` array. Native Provider Tool actions remain separate and do not replace this client work.\n- Each client action keeps its native Tool input in `input` and declares one owner `node_id`; namespaced Tools also declare `namespace`.\n- Tool array order supplies stable action identity. It does not create Tool dependencies; result-dependent work belongs in a later request.\n\nMap contract:\n- Map fields use the canonical operation input directly. Node readiness derives from `parents`.\n- A Tool action on a Ready owner mechanically starts it; do not also patch that owner to `in_flight` in the same sequence.\n- Tool outcomes do not complete nodes. A batch contains at most one `apply_patch` action.\n- The complete sequence is preflighted before unexecuted side effects. The Runtime does not add, infer, reorder, or repair Agent actions.\n\nFeedback contract:\n- The outer result reports every client action, preserves native client results and errors without summarization, and returns the complete Map for `read_map`.\n\nFirst-turn initialization and work example:\n```json\n{\"initialize_map\":{\"finish\":{\"content\":\"\",\"goal\":\"Deliver the completed task\",\"node_id\":\"finish\",\"parents\":[\"inspect\"]},\"root\":{\"content\":\"\",\"goal\":\"Complete the user task\",\"node_id\":\"root\",\"parents\":[]},\"work_nodes\":[{\"content\":\"\",\"goal\":\"Inspect the workspace\",\"node_id\":\"inspect\",\"parents\":[\"root\"]}]},\"tools\":[{\"input\":{\"cmd\":\"pwd\"},\"node_id\":\"inspect\",\"tool\":\"exec_command\"}],\"type\":\"initialize_and_work\"}\n```\n\nParent completion and direct-child work example:\n```json\n{\"tools\":[{\"input\":{\"cmd\":\"test -f README.md\"},\"node_id\":\"implement\",\"tool\":\"exec_command\"}],\"type\":\"update_and_work\",\"update_map\":{\"add_work_nodes\":[],\"node_patches\":[{\"content\":\"Inspection complete.\",\"node_id\":\"inspect\",\"state\":\"completed\"}]}}\n```\n\nRead-only example:\n```json\n{\"read_map\":{},\"type\":\"read_map\"}\n```\n\nFinal work-node completion and explicit Map finish example:\n```json\n{\"finish_map\":{\"content\":\"Task completed and verified.\"},\"type\":\"update_and_finish\",\"update_map\":{\"add_work_nodes\":[],\"node_patches\":[{\"content\":\"Implementation and verification complete.\",\"node_id\":\"implement\",\"state\":\"completed\"}]}}\n```",
       "name": "taskspace_exec",
       "parameters": {
         "$defs": {
@@ -26,106 +27,6 @@ expression: "render_cache_snapshot(\"taskspace_production_tool_wire\", &snapshot
             },
             "required": [
               "content"
-            ],
-            "type": "object"
-          },
-          "initialize_map_input": {
-            "additionalProperties": false,
-            "properties": {
-              "finish": {
-                "additionalProperties": false,
-                "description": "Unique Finish node; parents must be non-empty.",
-                "properties": {
-                  "content": {
-                    "type": "string"
-                  },
-                  "goal": {
-                    "type": "string"
-                  },
-                  "node_id": {
-                    "type": "string"
-                  },
-                  "parents": {
-                    "items": {
-                      "type": "string"
-                    },
-                    "type": "array"
-                  }
-                },
-                "required": [
-                  "node_id",
-                  "goal",
-                  "content",
-                  "parents"
-                ],
-                "type": "object"
-              },
-              "root": {
-                "additionalProperties": false,
-                "description": "Root node; parents must be empty.",
-                "properties": {
-                  "content": {
-                    "type": "string"
-                  },
-                  "goal": {
-                    "type": "string"
-                  },
-                  "node_id": {
-                    "type": "string"
-                  },
-                  "parents": {
-                    "items": {
-                      "type": "string"
-                    },
-                    "type": "array"
-                  }
-                },
-                "required": [
-                  "node_id",
-                  "goal",
-                  "content",
-                  "parents"
-                ],
-                "type": "object"
-              },
-              "work_nodes": {
-                "description": "Initial work nodes.",
-                "items": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "content": {
-                      "type": "string"
-                    },
-                    "goal": {
-                      "type": "string"
-                    },
-                    "node_id": {
-                      "type": "string"
-                    },
-                    "parents": {
-                      "items": {
-                        "type": "string"
-                      },
-                      "minItems": 1,
-                      "type": "array"
-                    }
-                  },
-                  "required": [
-                    "node_id",
-                    "goal",
-                    "content",
-                    "parents"
-                  ],
-                  "type": "object"
-                },
-                "minItems": 1,
-                "type": "array"
-              }
-            },
-            "required": [
-              "root",
-              "work_nodes",
-              "finish"
             ],
             "type": "object"
           },
@@ -676,38 +577,6 @@ expression: "render_cache_snapshot(\"taskspace_production_tool_wire\", &snapshot
               },
               {
                 "additionalProperties": false,
-                "description": "One logical `web_search` Tool action already executed natively by the Provider in this response. Set `execution` to `already_executed`, declare it exactly once, and bind all of its internal steps and results to `node_ids`. This records an existing Provider result; it does not invoke the Tool. Do not repeat declarations for internal actions or include native Tool input. Always use the public Tool name `web_search`.",
-                "properties": {
-                  "execution": {
-                    "enum": [
-                      "already_executed"
-                    ],
-                    "type": "string"
-                  },
-                  "node_ids": {
-                    "description": "One or more Agent-declared owner work nodes for this logical Tool action.",
-                    "items": {
-                      "type": "string"
-                    },
-                    "minItems": 1,
-                    "type": "array"
-                  },
-                  "tool": {
-                    "enum": [
-                      "web_search"
-                    ],
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "tool",
-                  "execution",
-                  "node_ids"
-                ],
-                "type": "object"
-              },
-              {
-                "additionalProperties": false,
                 "description": "Writes characters to an existing unified exec session and returns recent output.",
                 "properties": {
                   "input": {
@@ -841,10 +710,107 @@ expression: "render_cache_snapshot(\"taskspace_production_tool_wire\", &snapshot
         "anyOf": [
           {
             "additionalProperties": false,
-            "description": "Use only when the TaskSpace Map is blank. Initialize the Map, then perform the first Tool work on nodes made Ready by that initialization.",
+            "description": "Use only when the TaskSpace Map is blank. Initialize the Map, then perform the first client Tool work declared in the required non-empty `tools` array.",
             "properties": {
               "initialize_map": {
-                "$ref": "#/$defs/initialize_map_input"
+                "additionalProperties": false,
+                "properties": {
+                  "finish": {
+                    "additionalProperties": false,
+                    "description": "Unique Finish node; parents must be non-empty.",
+                    "properties": {
+                      "content": {
+                        "type": "string"
+                      },
+                      "goal": {
+                        "type": "string"
+                      },
+                      "node_id": {
+                        "type": "string"
+                      },
+                      "parents": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "node_id",
+                      "goal",
+                      "content",
+                      "parents"
+                    ],
+                    "type": "object"
+                  },
+                  "root": {
+                    "additionalProperties": false,
+                    "description": "Root node; parents must be empty.",
+                    "properties": {
+                      "content": {
+                        "type": "string"
+                      },
+                      "goal": {
+                        "type": "string"
+                      },
+                      "node_id": {
+                        "type": "string"
+                      },
+                      "parents": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "node_id",
+                      "goal",
+                      "content",
+                      "parents"
+                    ],
+                    "type": "object"
+                  },
+                  "work_nodes": {
+                    "description": "Initial work nodes.",
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "content": {
+                          "type": "string"
+                        },
+                        "goal": {
+                          "type": "string"
+                        },
+                        "node_id": {
+                          "type": "string"
+                        },
+                        "parents": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "minItems": 1,
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "node_id",
+                        "goal",
+                        "content",
+                        "parents"
+                      ],
+                      "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "root",
+                  "work_nodes",
+                  "finish"
+                ],
+                "type": "object"
               },
               "tools": {
                 "items": {
@@ -869,7 +835,7 @@ expression: "render_cache_snapshot(\"taskspace_production_tool_wire\", &snapshot
           },
           {
             "additionalProperties": false,
-            "description": "Use only when every Tool owner is already Ready or InFlight in the current Map. A prior Tool outcome does not complete its owner. If a Map update must complete or change a parent first, use update_and_work instead.",
+            "description": "Perform one or more client Tool actions from the required non-empty `tools` array when every owner is already Ready or InFlight in the current Map. A prior Tool outcome does not complete its owner. If a Map update must complete or change a parent first, use update_and_work instead.",
             "properties": {
               "tools": {
                 "items": {
@@ -913,7 +879,7 @@ expression: "render_cache_snapshot(\"taskspace_production_tool_wire\", &snapshot
           },
           {
             "additionalProperties": false,
-            "description": "Update the Map first, then perform Tool work that is executable in the resulting Map. Use this to complete or change parent nodes before working on their direct dependents. Only this preceding Map update can unlock Tool owners; Tool outcomes in this sequence do not unlock descendants.",
+            "description": "Update the Map first, then perform one or more executable client Tool actions from the required non-empty `tools` array. Use this to complete or change parent nodes before working on their direct dependents. Only this preceding Map update can unlock client Tool owners; Tool outcomes in this sequence do not unlock descendants.",
             "properties": {
               "tools": {
                 "items": {
@@ -985,7 +951,7 @@ expression: "render_cache_snapshot(\"taskspace_production_tool_wire\", &snapshot
           },
           {
             "additionalProperties": false,
-            "description": "Use after user feedback requires continuing a finished Map. Reopen it, update the Agent-authored work structure, then perform executable Tool work.",
+            "description": "Use after user feedback requires continuing a finished Map. Reopen it, update the Agent-authored work structure, then perform one or more executable client Tool actions from the required non-empty `tools` array.",
             "properties": {
               "reopen_map": {
                 "$ref": "#/$defs/reopen_map_input"
