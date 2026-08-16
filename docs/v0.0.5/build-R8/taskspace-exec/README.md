@@ -238,6 +238,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     业务闭环、独立异常频率、成本、缓存和 Map 证据。
 70. [`69-owner-state-feedback-repeat5-result.md`](69-owner-state-feedback-repeat5-result.md)：成功 Tool 反馈增加 owner state 的单变量实现、
     五轮真实结果、Waiting frontier 因果证伪、顶层 client Tool 独立异常与候选回退。
+71. [`70-affected-node-state-feedback-repeat5-result.md`](70-affected-node-state-feedback-repeat5-result.md)：批次相关 canonical 节点状态与
+    精确不可执行直接子节点反馈、五轮真实结果、Waiting 因果边界、成本和缓存证据。
 ## 4. 推进规则
 
 - R8 已知问题队列继续暂停，直到该主方案完成生产接入并重新盘点 I01～I10。

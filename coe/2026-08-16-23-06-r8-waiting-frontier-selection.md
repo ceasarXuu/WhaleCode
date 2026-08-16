@@ -446,7 +446,7 @@
 - Time: 2026-08-16 23:56
 
 ## Hypothesis H-006: 批次状态反馈不完整使 Agent 缺少连续 canonical Map 事实
-- Status: unverified
+- Status: closed
 - Parent: P-001
 - Claim: 旧候选只回传 client owner 的一个 post-state，未返回本批次直接操作节点、Runtime 机械变更节点和仍不可执行直接 Work 子节点的精确依赖事实；这个不完整反馈使 Agent 对 Map 状态的掌握不连续。
 - Layer: feedback
@@ -483,13 +483,16 @@
   - E-008
   - E-009
   - E-010
-- Conclusion: 待实施与复验；不把该候选预设为 Waiting 的必然修复。
-- Repair design readiness: authorized
-- Next step: 实施最小 affected-state feedback，通过离线门禁后执行已批准 repeat=5。
+  - E-011
+- Conclusion: 反馈缺口已由 canonical affected-state 结果补全，五轮均证明字段忠实进入上下文；但 Agent 在明确收到
+  `fix=in_flight`、`verify=waiting` 和未完成父节点后仍有 2/5 误选，与 4/10 基线同率。该缺口是产品反馈完整性问题，
+  不是 Waiting frontier 的充分根因。
+- Repair design readiness: not applicable
+- Next step: I04 回到 H-002 的合法序列分支选择，不继续堆叠同义状态反馈。
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - feedback fidelity fixed; causal prediction for Waiting behavior refuted
 
 ## Evidence E-010: 用户确认状态反馈产品边界并批准复验
 - Related hypotheses:
@@ -509,3 +512,32 @@
   ```
 - Interpretation: 修复与付费复验已获明确授权；不包含新序列、状态机改动或 Runtime 自动完成节点。
 - Time: 2026-08-17 00:30
+
+## Evidence E-011: 完整 affected-state 反馈未降低 Waiting frontier 误选
+- Related hypotheses:
+  - H-006
+  - H-002
+- Direction: refutes
+- Type: fix-validation
+- Source: `target/r8-feedback-candidate/repeat5-{1..5}/single-file-fast-fix/*`
+- Prediction or plan link:
+  - H-006 批次反馈完整性和 Waiting 行为收益
+- Matched signal:
+  - 五轮成功结果均返回 canonical `affected_node_states`；patch 后逐字给出 `fix=in_flight`、`verify=waiting`、
+    `incomplete_parent_ids=["fix"]`
+  - Run 3/4 下一请求仍提交 `work(exec_command@verify)`，均被零副作用拒绝
+  - 五轮业务、验证和 Map 为 5/5；FRONTIER-EARLY 为 2/5，与当前 4/10 基线同率
+- Correlation keys:
+  - Run 3 `call_00_wXhQtX3eITvLAvmGwxec9963`
+  - Run 4 `call_00_18fwKFHLnRohacwwBTHV4223`
+  - candidate `a36a42939`
+- Raw content:
+  ```text
+  affected feedback present: 5/5
+  business and Map closed: 5/5
+  FRONTIER-EARLY: 2/5
+  requests/input/cached/uncached/output: 44/676592/596352/80240/12676
+  ```
+- Interpretation: 反馈已忠实补全，排除字段未进入上下文或状态事实丢失；行为误选仍复发，故 H-006 不能作为 Waiting 的
+  充分根因，I04 不关闭。
+- Time: 2026-08-17 02:14
