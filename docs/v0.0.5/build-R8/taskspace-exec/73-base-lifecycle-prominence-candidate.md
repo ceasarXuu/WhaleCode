@@ -1,7 +1,7 @@
 # Base 状态机显著性候选
 
 - Date: 2026-08-17
-- Status: implemented offline / live validation pending
+- Status: accepted for the current single-sample evidence scope
 - TaskSpace Base version: `3.0.4`
 - Base SHA-256: `a783705f320504306fc9fca591cb1b15246b73482201a916b511f8d5cc49ec33`
 - Comparison baseline: [`72-state-machine-protocol-repeat5-result.md`](72-state-machine-protocol-repeat5-result.md)
@@ -53,4 +53,5 @@ Base 负责 Agent 的工作模型；Tool description 仍是合法转换和调用
 - 零自动重试，每轮最多 12 个 Provider requests；
 - 上限：60 requests、750,000 input、20,000 output、600 秒或 1 CNY，任一达到即停。
 
-该真实运行需要新的用户预算批准。不能复用已经结算的上一轮授权。
+真实运行已经在用户批准的独立预算下完成，结果见
+[`74-base-lifecycle-prominence-repeat5-result.md`](74-base-lifecycle-prominence-repeat5-result.md)。

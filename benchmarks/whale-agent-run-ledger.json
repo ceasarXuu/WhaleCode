@@ -1,15 +1,15 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-17T03:14:07+08:00",
+  "updated_at": "2026-08-17T03:20:32+08:00",
   "entries": [
     {
       "record_id": "WAR-20260817-031407-BASE-LIFECYCLE-R5",
       "record_type": "run_batch",
-      "status": "planned",
-      "started_at": null,
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "status": "settled",
+      "started_at": "2026-08-17T03:16:41+08:00",
+      "ended_at": "2026-08-17T03:17:30+08:00",
+      "elapsed_calendar_seconds": 49,
+      "aggregate_agent_wall_time_ms": 99573,
       "reason": "验证把简洁节点状态机心智模型提升到 TaskSpace Base instructions 后，Agent 的 Waiting frontier 误选和非法状态转换是否下降。",
       "authorization": {
         "required": true,
@@ -39,31 +39,61 @@
         ],
         "repeats_per_arm_per_sample": 5,
         "planned_sample_runs": 5,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "pending"
+        "actual_sample_runs": 5,
+        "api_requests": 35,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
-        "input": 0,
-        "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "input": 544904,
+        "cached_input": 466432,
+        "uncached_input": 78472,
+        "output": 11093
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated",
         "currency": "CNY",
-        "amount": 1.0,
-        "actual_billed_amount": null
+        "amount": 0.10998664,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.00932864,
+          "uncached_input": 0.078472,
+          "output": 0.022186
+        },
+        "pricing_snapshot": {
+          "model": "deepseek-v4-flash",
+          "captured_at": "2026-08-17T03:20:32+08:00",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": "466432/1e6*0.02 + 78472/1e6*1.0 + 11093/1e6*2.0 = 0.10998664 CNY",
+        "note": "运行后按 provider request-facts usage 和冻结价格估算，不等同于账户实扣金额。"
       },
       "evidence": {
-        "subject_commit": "79f382966b31e6798b3da29c5552a54fe7d99f9c",
+        "subject_commit": "a8fd76e54c4a0344f7fb984b65d6feb0cda18274",
+        "whale_binary_sha256": "150f99047b860fef049db8858c6e13e74c91c824c808e2ec9fe7399fb8eeb1b8",
         "planned_run_root_pattern": "target/r8-base-lifecycle/repeat5-{1..5}",
         "scenario": "single-file-fast-fix",
         "projection_policy": "map-request",
         "repeat": 5,
         "retry_limit": 0,
         "stop_conditions": "达到 60 个 Provider 请求、750000 input、20000 output、600 秒或 1 元任一上限即停止；证据不完整或发生未授权重试立即停止。",
-        "outcome": "pending"
+        "pre_provider_harness_attempts": [
+          {
+            "run_root_pattern": "target/r8-base-lifecycle/repeat5-{1..5}/single-file-fast-fix/20260817-031612-*",
+            "outcome": "five parallel runs rejected by provider_credential_missing before Provider; zero API requests and zero sample repeats consumed"
+          }
+        ],
+        "actual_run_roots": [
+          "target/r8-base-lifecycle/repeat5-1/single-file-fast-fix/20260817-031641-310",
+          "target/r8-base-lifecycle/repeat5-2/single-file-fast-fix/20260817-031641-438",
+          "target/r8-base-lifecycle/repeat5-3/single-file-fast-fix/20260817-031641-341",
+          "target/r8-base-lifecycle/repeat5-4/single-file-fast-fix/20260817-031641-710",
+          "target/r8-base-lifecycle/repeat5-5/single-file-fast-fix/20260817-031641-330"
+        ],
+        "request_2_plus_cache_hit_rate": 0.912087,
+        "outcome": "5/5 business, public validation, hidden oracle and Map closure passed. Final-wire proved TaskSpace Base 3.0.4 on every request. Waiting frontier misuse fell from 2/5 to 0/5 and TransitionInvalid rejects from 3 to 0; one unrelated malformed JSON reject remained. Total 35 requests, 544904 input, 466432 cached, 78472 uncached and 11093 output."
       }
     },
     {

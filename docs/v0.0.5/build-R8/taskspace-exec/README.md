@@ -246,6 +246,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     5/5 完成，但 Waiting 误选仍为 2/5，协议完整性成立而行为收益未成立。
 74. [`73-base-lifecycle-prominence-candidate.md`](73-base-lifecycle-prominence-candidate.md)：把简洁状态机工作模型提升到
     TaskSpace Base `3.0.4` 的单变量候选、层次边界、离线验收和待批准真实验证设计。
+75. [`74-base-lifecycle-prominence-repeat5-result.md`](74-base-lifecycle-prominence-repeat5-result.md)：Base `3.0.4`
+    五轮真实验证；5/5 完成，Waiting 误选从 2/5 降为 0/5，且 final-wire 证明候选实际生效。
 ## 4. 推进规则
 
 - R8 已知问题队列继续暂停，直到该主方案完成生产接入并重新盘点 I01～I10。

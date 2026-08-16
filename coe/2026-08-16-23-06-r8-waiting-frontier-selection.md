@@ -219,7 +219,7 @@
   - refuted by current source and trace
 
 ## Hypothesis H-005: Base 的低频 lifecycle 原则与单 Tool 节点模型存在局部歧义
-- Status: candidate_ready
+- Status: confirmed
 - Parent: P-001
 - Claim: Base 要求在 meaningful work boundary 更新 lifecycle、不要在每个 minor Tool result 后更新；在本 sample 的 `fix` 节点基本由一次 patch 完成时，Agent 可能把 patch success 当作无需更新的 minor result，从而直接进入验证。
 - Layer: interaction
@@ -252,10 +252,10 @@
 - Related evidence:
   - E-007
 - Conclusion: 存在文字上的可解释歧义，但没有 trace 直接表明 Agent 因该句跳过 completion；优先级低于结构/反馈候选。
-- Repair design readiness: ready
-- Next step: 获得新预算后执行 `single-file-fast-fix × map-request × repeat=5`，与 E-013 基线比较。
+- Repair design readiness: implemented and validated for the current sample
+- Next step: 保留 Base `3.0.4`；复杂 DAG 后续自然样本继续观察，不立即扩大付费运行。
 - Blocker:
-  - 缺少真实 Agent 因果证据和新预算。
+  - none for the current single-sample scope
 - Close reason:
   - not closed
 
@@ -616,3 +616,31 @@
   ```
 - Interpretation: 单变量候选具备真实运行条件；离线结果不证明 Waiting 行为改善。
 - Time: 2026-08-17 03:06
+
+## Evidence E-015: Base lifecycle 五轮消除已观测 Waiting 误选
+
+- Related hypotheses:
+  - H-005
+- Direction: supports
+- Type: live-repeat5
+- Source: `target/r8-base-lifecycle/repeat5-{1..5}/single-file-fast-fix/20260817-031641-*`
+- Prediction or plan link:
+  - Base 建立状态机工作模型后，Waiting frontier 误选和非法状态转换应下降
+- Matched signal:
+  - final-wire 五轮均为 TaskSpace Base `3.0.4`，hash 与当前合同一致
+  - 5/5 业务、公开验证、隐藏 oracle 和 Map 闭合通过
+  - Waiting 误选从 E-013 的 2/5 降为 0/5
+  - TransitionInvalid 从 3 降为 0
+  - 三个显式 verify DAG 均先完成 fix 再执行 verify；另两轮将验证自洽地归入 fix goal
+- Correlation keys:
+  - ledger `WAR-20260817-031407-BASE-LIFECYCLE-R5`
+  - Base SHA-256 `a783705f320504306fc9fca591cb1b15246b73482201a916b511f8d5cc49ec33`
+  - binary SHA-256 `150f99047b860fef049db8858c6e13e74c91c824c808e2ec9fe7399fb8eeb1b8`
+- Raw content:
+  ```text
+  requests=35 input=544904 cached=466432 uncached=78472 output=11093
+  request_2_plus_cache_hit_rate=0.912087 estimated_cost_cny=0.10998664
+  waiting_frontier_misuse=0/5 transition_invalid=0 json_syntax_rejects=1
+  ```
+- Interpretation: H-005 在当前简单样本范围内得到单变量支持；不外推为复杂 DAG 的全局结论。
+- Time: 2026-08-17 03:20
