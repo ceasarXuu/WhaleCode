@@ -305,6 +305,13 @@
 > 不代表 I03 的 Agent 参数稳定性整体关闭。详见
 > [`taskspace-exec/75-single-closing-delimiter-self-heal-result.md`](taskspace-exec/75-single-closing-delimiter-self-heal-result.md)。
 
+> **单闭合符号自愈五轮复验（2026-08-17）**：`single-file-fast-fix × map-request × repeat=5` 全部完成业务、公开验证、
+> 隐藏 oracle 和 5 节点 Map 闭合。Run 4 自然生成缺少一个 `}` 的参数，Runtime 在落账前插入后于同一请求执行 patch；正式
+> rollout 摘要与修复摘要一致，错误版未进入历史。五轮共 34 requests、528,450 input、491,136 cached、37,314 uncached、
+> 11,356 output，零 syntax reject、协议/状态拒绝或重试。新增的“删除多余闭合符号”分支未自然触发，继续以历史坏例和确定性
+> 测试为证；I03 整体仍保持 verifying。详见
+> [`taskspace-exec/76-single-closing-delimiter-self-heal-repeat5-result.md`](taskspace-exec/76-single-closing-delimiter-self-heal-repeat5-result.md)。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。

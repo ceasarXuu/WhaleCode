@@ -1,15 +1,15 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-17T03:48:39+08:00",
+  "updated_at": "2026-08-17T03:52:28+08:00",
   "entries": [
     {
       "record_id": "WAR-20260817-034839-SELF-HEAL-R5",
       "record_type": "run_batch",
-      "status": "planned",
-      "started_at": null,
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "status": "settled",
+      "started_at": "2026-08-17T03:51:41+08:00",
+      "ended_at": "2026-08-17T03:52:28+08:00",
+      "elapsed_calendar_seconds": 47,
+      "aggregate_agent_wall_time_ms": 98517,
       "reason": "验证单个多余闭合符号自愈补全后，TaskSpace 真实执行仍能完成业务和 Map，并观察自愈事件、JSON syntax 拒绝、请求、缓存与成本。",
       "authorization": {
         "required": true,
@@ -39,25 +39,36 @@
         ],
         "repeats_per_arm_per_sample": 5,
         "planned_sample_runs": 5,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "pending"
+        "actual_sample_runs": 5,
+        "api_requests": 34,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
-        "input": 0,
-        "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "input": 528450,
+        "cached_input": 491136,
+        "uncached_input": 37314,
+        "output": 11356
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated",
         "currency": "CNY",
-        "amount": 1.0,
+        "amount": 0.06984872,
         "actual_billed_amount": null,
-        "components": null,
-        "pricing_snapshot": null,
-        "formula": null,
-        "note": "硬上限；运行后按 Provider usage 结算。"
+        "components": {
+          "cached_input": 0.00982272,
+          "uncached_input": 0.037314,
+          "output": 0.022712
+        },
+        "pricing_snapshot": {
+          "model": "deepseek-v4-flash",
+          "captured_at": "2026-08-17T03:52:28+08:00",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": "491136/1e6*0.02 + 37314/1e6*1.0 + 11356/1e6*2.0 = 0.06984872 CNY",
+        "note": "按 provider request-facts usage 和冻结价格估算，不等同于账户实扣金额。"
       },
       "evidence": {
         "subject_commit": "2c2144e7343e82e0d7cdfc80f8b53d4ee3634124",
@@ -66,7 +77,17 @@
         "projection_policy": "map-request",
         "repeat": 5,
         "retry_limit": 0,
-        "stop_conditions": "达到 60 个 Provider 请求、750000 input、20000 output、600 秒或 1 元任一上限即停止；证据不完整或发生未授权重试立即停止。"
+        "whale_binary_sha256": "f4779fadd2c3f53198fc85fe2a1930559b3e4d0c2d7c33cb178f1f5b790f77b6",
+        "actual_run_roots": [
+          "target/r8-self-heal/repeat5-1/single-file-fast-fix/20260817-035141-427",
+          "target/r8-self-heal/repeat5-2/single-file-fast-fix/20260817-035141-403",
+          "target/r8-self-heal/repeat5-3/single-file-fast-fix/20260817-035141-460",
+          "target/r8-self-heal/repeat5-4/single-file-fast-fix/20260817-035141-397",
+          "target/r8-self-heal/repeat5-5/single-file-fast-fix/20260817-035141-618"
+        ],
+        "request_2_plus_cache_hit_rate": 0.9206948429156542,
+        "stop_conditions": "达到 60 个 Provider 请求、750000 input、20000 output、600 秒或 1 元任一上限即停止；证据不完整或发生未授权重试立即停止。",
+        "outcome": "5/5 business, public validation, hidden oracle and Map closure passed. Run 4 naturally triggered one missing-} insertion self-heal; the repaired SHA-256 in formal rollout matched the audit event and the patch executed in the same request. No syntax reject, protocol/state rejection or retry occurred. The newly added extra-delimiter deletion branch did not naturally trigger. Total 34 requests, 528450 input, 491136 cached, 37314 uncached and 11356 output."
       }
     },
     {

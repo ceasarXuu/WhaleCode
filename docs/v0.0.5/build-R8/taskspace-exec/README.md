@@ -250,6 +250,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     五轮真实验证；5/5 完成，Waiting 误选从 2/5 降为 0/5，且 final-wire 证明候选实际生效。
 76. [`75-single-closing-delimiter-self-heal-result.md`](75-single-closing-delimiter-self-heal-result.md)：单闭合符号自愈从缺失补全到
     缺失/多余统一唯一候选，历史 13 次 syntax reject 分类、正式上下文替换和离线验证证据。
+77. [`76-single-closing-delimiter-self-heal-repeat5-result.md`](76-single-closing-delimiter-self-heal-repeat5-result.md)：当前自愈版本
+    五轮真实验证；5/5 完成，1 次缺 `}` 自愈在同一请求完成 patch，零 syntax reject；多余符号删除分支未自然触发。
 ## 4. 推进规则
 
 - R8 已知问题队列继续暂停，直到该主方案完成生产接入并重新盘点 I01～I10。
