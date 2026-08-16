@@ -157,21 +157,22 @@ operation 均非法。每个工作型序列必须声明非空 `tools[]`；缺失
 
 ### 5.0.1 响应落账前的受限语法自愈
 
-目标模型返回的 `taskspace_exec.arguments` 若只缺少一个明确可恢复的闭合 `}` 或 `]`，Runtime 可以在该
-`ResponseItem::FunctionCall` 进入 response scope、会话历史、rollout 和 Tool dispatch 之前机械补全。补全后的
+目标模型返回的 `taskspace_exec.arguments` 若只缺少或多出一个明确可恢复的闭合 `}` 或 `]`，Runtime 可以在该
+`ResponseItem::FunctionCall` 进入 response scope、会话历史、rollout 和 Tool dispatch 之前机械修复。修复后的
 Function Call 是后续正式上下文中的唯一版本；不得一边执行修正版，一边把错误版继续写入 Agent 历史。
 
 自愈边界必须同时满足：
 
 1. 只处理 TaskSpace 模式下名称精确为 `taskspace_exec` 的 Function Call；Standard 和普通 Tool 零变化；
 2. 原始参数必须先被严格 JSON parser 判为语法错误；
-3. 候选与原文相比只能插入一个 `}` 或 `]`，不得补逗号、引号、字段、值、动作、节点或顺序；
-4. 只有一个候选同时通过严格 JSON parse 和当前 request Catalog 的 TaskSpace Exec plan decode 时才接受；零个或多个候选
-   都保持原始拒绝；
+3. 候选与原文相比只能插入或删除一个 `}` 或 `]`，不得补逗号、引号、字段、值、动作、节点或顺序；
+4. 插入与删除候选必须放入同一个候选集；只有一个不同的候选同时通过严格 JSON parse 和当前 request Catalog 的
+   TaskSpace Exec plan decode 时才接受，零个或多个候选都保持原始拒绝；
 5. 自愈只恢复序列化闭合，不跳过 envelope、preflight、DAG、节点状态、单 Patch、权限、sandbox 或原生 Tool 校验；
 6. `name`、`namespace`、`call_id` 和其他 ResponseItem 字段原样保留；
 7. Provider 原始 wire 只作为 transport 诊断证据保留；会话历史、rollout、RawResponseItem 和恢复输入使用同一个修正版；
-8. 记录不含原始敏感参数的机械审计事实，包括 call identity、插入符号、位置以及修复前后摘要，禁止增加 Agent-visible 提示词。
+8. 记录不含原始敏感参数的机械审计事实，包括 call identity、修复操作、符号、位置以及修复前后摘要，禁止增加
+   Agent-visible 提示词。
 
 这是一条序列化层的确定性规范化规则，不是 Runtime 对 Agent 计划的语义解释、补救或自动决策。
 

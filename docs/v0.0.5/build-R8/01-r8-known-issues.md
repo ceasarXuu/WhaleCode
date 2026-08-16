@@ -298,6 +298,13 @@
 > 候选未晋升并已回退。Run 5 独立复发一次未声明顶层 `exec_command`，被 response contract 在执行前终止，继续归 I03。
 > 详见 [`taskspace-exec/69-owner-state-feedback-repeat5-result.md`](taskspace-exec/69-owner-state-feedback-repeat5-result.md)。
 
+> **I03 单闭合符号自愈边界补全（2026-08-17）**：历史 Run 发现一次 `apply_patch` action 尾部多出 `}`；删除任一相邻
+> 多余符号得到同一个合法参数，且与 Agent 下一请求的成功重试逐字一致。SR-01 已从“只插入一个闭合符号”收敛为“插入或删除
+> 一个 `}`/`]` 的统一候选集”，仍要求唯一候选通过当前 Catalog 完整解码。历史 13 次 syntax reject 复扫还发现一次同类
+> 多余 `]`；复合字符串转义错误和多个结构错误均不满足唯一机械修复条件，保持原样拒绝。该修复缩短明确序列化小错的恢复路径，
+> 不代表 I03 的 Agent 参数稳定性整体关闭。详见
+> [`taskspace-exec/75-single-closing-delimiter-self-heal-result.md`](taskspace-exec/75-single-closing-delimiter-self-heal-result.md)。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。

@@ -2524,8 +2524,9 @@ pub(super) fn self_heal_completed_response_item(
         target: "codex_core::taskspace_exec",
         event_name = "taskspace.exec.arguments_self_healed",
         call_id = %repair.call_id,
-        inserted_delimiter = %repair.inserted_delimiter,
-        insertion_byte_index = repair.insertion_byte_index,
+        repair_operation = repair.operation,
+        delimiter = %repair.delimiter,
+        byte_index = repair.byte_index,
         original_arguments_sha256 = %repair.original_arguments_sha256,
         repaired_arguments_sha256 = %repair.repaired_arguments_sha256,
     );
