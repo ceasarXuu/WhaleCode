@@ -1,7 +1,84 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-17T05:01:21+08:00",
+  "updated_at": "2026-08-17T06:07:32+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260817-060732-R8-I08-IC09",
+      "record_type": "run_batch",
+      "status": "planned",
+      "started_at": null,
+      "ended_at": null,
+      "elapsed_calendar_seconds": null,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "R8-I08 IC-09：验证只收敛 Agent-visible taskspace_exec 成功反馈机械字段后，业务、状态理解、缓存和 input 成本是否保持或改善。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "R8-I08-INPUT-COST-CNY3-20260817",
+        "reference": "用户批准 CNY 3.00 总预算包，并明确允许一个已坐实因素修复后的额外 Standard/map-request 双臂复验。",
+        "budget_summary": {
+          "provider_requests": 24,
+          "input_tokens": 260000,
+          "output_tokens": 10000,
+          "elapsed_seconds": 1200,
+          "estimated_cost": 0.28,
+          "currency": "CNY"
+        },
+        "note": "single-file-fast-fix × (standard + map-request) × repeat=1；同一 pair，零自动重试。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "standard",
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 2,
+        "actual_sample_runs": 0,
+        "api_requests": 0,
+        "api_requests_evidence_status": "pending"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "planned",
+        "currency": "CNY",
+        "amount": null,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": {
+          "model": "deepseek-v4-flash",
+          "captured_at": "2026-08-17T06:07:32+08:00",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": null,
+        "note": "运行后按 provider token 遥测估算，不等同于账户实扣金额。"
+      },
+      "evidence": {
+        "planned_run_root": "target/r8-i08/ic09-feedback-compaction",
+        "subject_commit": "eccec163d9d2c16e887c5fa2c6b17128a3a5e6f0",
+        "scenario": "single-file-fast-fix",
+        "projection_policy": "map-request",
+        "repeat": 1,
+        "retry_limit": 0,
+        "cache_candidate_fingerprint": "cf157ba701ea8e88c80eeb8396f7b1cc8d9062b9c565e86b7add3595b89cb41b",
+        "stop_conditions": "达到 24 个 Provider requests、260000 input、10000 output、1200 秒或 CNY 0.28 任一上限即停止；任一业务、协议、usage、identity 异常立即停止，禁止自动补跑。",
+        "usage_evidence_status": "pending"
+      }
+    },
     {
       "record_id": "WAR-20260817-045635-R8-I08-ICB",
       "record_type": "run_batch",
