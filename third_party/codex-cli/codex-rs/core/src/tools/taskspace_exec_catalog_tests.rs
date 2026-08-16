@@ -204,14 +204,23 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
             .contains("do not also patch that owner to `in_flight`")
     );
     let description = declaration["description"].as_str().unwrap();
-    assert_eq!(description.matches("Map lifecycle contract:").count(), 1);
+    assert_eq!(
+        description.matches("Node state-machine contract:").count(),
+        1
+    );
     for required in [
         "Root stays `in_flight` while the Map is open",
-        "already `ready` to `in_flight` or `completed`",
-        "mechanically rederive a not-started Work node between `waiting` and `ready`",
-        "A Tool outcome never completes its owner",
-        "The same Map update cannot patch that child out of `waiting`",
-        "Only `finish_map` completes Root and Finish",
+        "`waiting` means at least one non-Root parent is incomplete",
+        "`ready` means every non-Root parent is `completed`",
+        "`in_flight` means the Agent has started work",
+        "`completed` means the Agent has explicitly recorded completion",
+        "changing parents may rederive a not-started node between `waiting` and `ready`",
+        "only `ready -> in_flight`, `ready -> completed`, or `in_flight -> completed`",
+        "No other explicit state transition is accepted",
+        "Tool success, failure, or cancellation records an outcome but never completes the owner",
+        "the sequence's Map operation is applied before its Tool actions",
+        "Tool outcomes do not unlock descendants",
+        "Only `finish_map` may change ready Finish and open Root to `completed`",
         "completed Work nodes remain completed",
     ] {
         assert!(description.contains(required), "missing {required}");

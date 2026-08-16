@@ -12,15 +12,25 @@ Agent-visible 状态机合同。与此同时，首轮示例只创建 `inspect`�
 
 ## 2. 修复
 
-`taskspace_exec.description` 现在包含唯一 `Map lifecycle contract`，明确：
+`taskspace_exec.description` 现在包含唯一 `Node state-machine contract`。它不是泛化提示，而是按照状态机的实际执行顺序明确：
 
-- `parents` 是依赖事实；Root 是直接 Work 子节点的已满足边界；
-- 尚未启动节点根据非 Root parents 在 Waiting/Ready 间机械派生；
-- Agent 可显式执行 Ready -> InFlight、Ready -> Completed、InFlight -> Completed；Tool action 可机械启动 Ready owner，
-  Tool outcome 不自动完成节点；
-- 同一个 Map update 不能把原本 Waiting 的子节点直接改出 Waiting；`update_and_work` 可先完成父节点，再通过 Tool action
-  启动已派生为 Ready 的子节点；
-- Finish、Root 和 reopen 的特殊生命周期保持原有实现。
+- Root、Work、Finish 三种节点角色及其边界；
+- Waiting、Ready、InFlight、Completed 四种状态分别意味着什么；
+- Runtime 派生、Agent 显式更新、Tool dispatch 三类触发者各自能触发哪些转换；
+- Map update 先于 Tool dispatch 提交，因此父节点完成后可在 `update_and_work` 中启动直接子节点；
+- Tool 结果只记录 outcome，不完成 owner，也不解锁后代；
+- Finish、Root 和 reopen 的特殊生命周期。
+
+协议明确列出 Work 节点唯一允许的显式转换：
+
+```text
+waiting <-> ready                         Runtime 根据 parents 派生，仅限尚未启动节点
+ready -> in_flight                        Agent state patch 或 Tool dispatch
+ready -> completed                        Agent state patch
+in_flight -> completed                    Agent state patch
+```
+
+其他显式状态转换全部非法。这样 Agent 无需从错误反馈或分散字段说明中反推状态机。
 
 Runtime 状态规则没有改变。全局约束和合法序列设计文档同步到现有真实实现，不再错误暗示每个节点都必须经过 InFlight。
 

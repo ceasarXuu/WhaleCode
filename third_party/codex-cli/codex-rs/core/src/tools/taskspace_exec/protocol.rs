@@ -19,13 +19,14 @@ Tool contract:
 - Each client action keeps its native Tool input in `input` and declares one owner `node_id`; namespaced Tools also declare `namespace`.
 - Tool array order supplies stable action identity. It does not create Tool dependencies; result-dependent work belongs in a later request.
 
-Map lifecycle contract:
-- `parents` defines the dependency DAG. Root stays `in_flight` while the Map is open and counts as satisfied for its direct Work children.
-- A Work node is `waiting` while any non-Root parent is incomplete. The Runtime mechanically derives `ready` after every Map update when all non-Root parents are `completed`.
-- An Agent-authored state patch may move a Work node already `ready` to `in_flight` or `completed`, and one already `in_flight` to `completed`; these explicit transitions do not move backward. Changing `parents` may mechanically rederive a not-started Work node between `waiting` and `ready`.
-- A Tool action on a `ready` owner mechanically starts it as `in_flight`; do not also patch that owner to `in_flight` in the same sequence. A Tool outcome never completes its owner.
-- Completing a parent in a Map update can make a `waiting` child `ready` only after that update. The same Map update cannot patch that child out of `waiting`; `update_and_work` can perform the parent update first and then start the child through its Tool action.
-- Finish readiness derives from its parents. Only `finish_map` completes Root and Finish, and only when Finish is `ready`. `reopen_map` reopens Root and Finish after user follow-up; completed Work nodes remain completed.
+Node state-machine contract:
+- Roles: `parents` defines the dependency DAG. Root stays `in_flight` while the Map is open and counts as satisfied for its direct Work children. Work nodes carry the task steps. Finish is the unique terminal node.
+- Work states: `waiting` means at least one non-Root parent is incomplete and the node is not executable; `ready` means every non-Root parent is `completed` and the node is executable; `in_flight` means the Agent has started work; `completed` means the Agent has explicitly recorded completion.
+- Runtime-derived transitions: initialization, adding a Work node, or changing `parents` derives each not-started Work node as `waiting` or `ready`. Later parent completion rederives eligible `waiting` children as `ready`; changing parents may rederive a not-started node between `waiting` and `ready`.
+- Agent-triggered transitions: a state patch may perform only `ready -> in_flight`, `ready -> completed`, or `in_flight -> completed`. No other explicit state transition is accepted.
+- Tool-triggered transition: dispatching a Tool action on a `ready` owner mechanically performs `ready -> in_flight`; do not also patch that owner to `in_flight` in the same sequence. Tool success, failure, or cancellation records an outcome but never completes the owner.
+- Commit timing: the sequence's Map operation is applied before its Tool actions. Completing a parent can therefore unlock its direct child for Tool work in `update_and_work`, but the same Map update cannot also patch a child that entered the sequence as `waiting` out of `waiting`. Tool outcomes do not unlock descendants.
+- Boundary lifecycle: Finish readiness is Runtime-derived from its parents. Only `finish_map` may change ready Finish and open Root to `completed`. `reopen_map` returns Root to `in_flight` and rederives Finish after user follow-up; completed Work nodes remain completed.
 - A batch contains at most one `apply_patch` action.
 - The complete sequence is preflighted before unexecuted side effects. The Runtime does not add, infer, reorder, or repair Agent actions.
 
