@@ -236,6 +236,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     参数序列化、frontier 误选和冗余状态转换异常登记。
 69. [`68-client-work-restoration-repeat10-result.md`](68-client-work-restoration-repeat10-result.md)：恢复后的十轮扩大复验、首次序列、
     业务闭环、独立异常频率、成本、缓存和 Map 证据。
+70. [`69-owner-state-feedback-repeat5-result.md`](69-owner-state-feedback-repeat5-result.md)：成功 Tool 反馈增加 owner state 的单变量实现、
+    五轮真实结果、Waiting frontier 因果证伪、顶层 client Tool 独立异常与候选回退。
 ## 4. 推进规则
 
 - R8 已知问题队列继续暂停，直到该主方案完成生产接入并重新盘点 I01～I10。

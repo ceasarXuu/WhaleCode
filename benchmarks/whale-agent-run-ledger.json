@@ -1,15 +1,15 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-16T23:50:21+08:00",
+  "updated_at": "2026-08-16T23:52:16+08:00",
   "entries": [
     {
       "record_id": "WAR-20260816-235021-OWNER-STATE-R5",
       "record_type": "run_batch",
-      "status": "planned",
-      "started_at": null,
-      "ended_at": null,
-      "elapsed_calendar_seconds": 0,
-      "aggregate_agent_wall_time_ms": 0,
+      "status": "settled",
+      "started_at": "2026-08-16T23:51:33+08:00",
+      "ended_at": "2026-08-16T23:52:16+08:00",
+      "elapsed_calendar_seconds": 43,
+      "aggregate_agent_wall_time_ms": 75039,
       "reason": "单变量验证 client Tool 成功反馈增加真实 owner_state_after 后，patch-to-verify 边界的 I04-FRONTIER-EARLY 是否下降。",
       "authorization": {
         "required": true,
@@ -39,25 +39,36 @@
         ],
         "repeats_per_arm_per_sample": 5,
         "planned_sample_runs": 5,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "pending"
+        "actual_sample_runs": 5,
+        "api_requests": 30,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
-        "input": 0,
-        "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "input": 436223,
+        "cached_input": 407424,
+        "uncached_input": 28799,
+        "output": 8369
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated",
         "currency": "CNY",
-        "amount": null,
+        "amount": 0.05368548,
         "actual_billed_amount": null,
-        "components": null,
-        "pricing_snapshot": null,
-        "formula": null,
-        "note": "待运行后按 provider request-facts 结算。"
+        "components": {
+          "cached_input": 0.00814848,
+          "uncached_input": 0.028799,
+          "output": 0.016738
+        },
+        "pricing_snapshot": {
+          "model": "deepseek-v4-flash",
+          "captured_at": "2026-08-16T23:50:21+08:00",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": "407424/1e6*0.02 + 28799/1e6*1.0 + 8369/1e6*2.0 = 0.05368548 CNY",
+        "note": "按 provider request-facts usage 和冻结价格估算，不等同于账户实扣金额。"
       },
       "evidence": {
         "planned_run_root_pattern": "target/r8-owner-state-feedback/repeat5-{1..5}",
@@ -68,10 +79,16 @@
         "retry_limit": 0,
         "run_head": "96254de8112935155c0e919d777d4ee4b91dec5b",
         "whale_binary_sha256": "5cf9d12d6622312dc0abb778fae2e3b0f10486c3adaa06ec49b35dd22cd5f6ae",
-        "actual_run_roots": [],
+        "actual_run_roots": [
+          "target/r8-owner-state-feedback/repeat5-1/single-file-fast-fix/20260816-235133-958",
+          "target/r8-owner-state-feedback/repeat5-2/single-file-fast-fix/20260816-235134-006",
+          "target/r8-owner-state-feedback/repeat5-3/single-file-fast-fix/20260816-235134-020",
+          "target/r8-owner-state-feedback/repeat5-4/single-file-fast-fix/20260816-235133-989",
+          "target/r8-owner-state-feedback/repeat5-5/single-file-fast-fix/20260816-235134-251"
+        ],
         "coe": "coe/2026-08-16-23-06-r8-waiting-frontier-selection.md",
         "stop_conditions": "达到 60 个 Provider 请求、750000 input、20000 output、600 秒或 1 元任一上限即停止；不自动重试。",
-        "outcome": "planned"
+        "outcome": "四轮到达 patch-to-verify 边界，其中两轮在明确收到 owner_state_after=in_flight 后仍选择 work@verify，FRONTIER-EARLY 为 2/4，未优于 4/10 基线；另一路第二请求生成未声明顶层 exec_command，被 response contract 正确拒绝并终止。候选实现未晋升并已回退。"
       }
     },
     {

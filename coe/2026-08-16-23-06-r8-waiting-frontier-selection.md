@@ -1,7 +1,7 @@
 # Problem P-001: Agent 高频提前选择 Waiting 后继节点
 - Status: open
 - Created: 2026-08-16 23:06
-- Updated: 2026-08-16 23:06
+- Updated: 2026-08-16 23:56
 - Objective: 解释 `single-file-fast-fix` 当前 TaskSpace Exec 合同下 Waiting frontier 误选约 40% 复发的发生机制与主要诱因，并在证据不足时阻止提示词或 Runtime 约束继续扩张。
 - Symptoms:
   - client work 恢复 repeat=10 中，Run 6/8/9/10 在 `apply_patch@fix` 成功后的下一请求直接提交 `work(exec_command@verify)`。
@@ -23,6 +23,7 @@
   - Run 9 reasoning 明确知道 `fix` 仍为 `in_flight`，仍然选择 `work@verify`。
   - 4 次 Waiting reject 后，Agent 均准确解释未完成父节点并在下一请求修正。
   - 当前成功 feedback 写有 outer `status=completed` 和 client `outcome=succeeded`，但不返回 owner 的当前节点状态；完整 Map 只由 `read_map` 返回。
+  - owner-state 单变量候选曾返回 `owner_state_after=in_flight`；四轮到达 patch-to-verify 边界仍有 2/4 误选，候选已回退。
   - repeat=10 无 cache-shape、Tool choice 或 capability identity 切换，也无 Provider retry。
 - Ruled out:
   - Runtime 错误计算 `verify` readiness。
@@ -33,7 +34,7 @@
   - 先用单变量实验区分“结果反馈缺少 owner state”和“闭集分支选择/命名不显著”两类诱因；未经该证据不得追加提示词或 Runtime 自动完成节点。
   - 候选修复必须保持 Tool outcome 不自动完成节点、Agent 决定 lifecycle、Runtime 只守 DAG 硬边界。
   - 后续真实复验需证明 Waiting 频率和请求成本下降，且不引入冗余状态转换、Map 坍缩、缓存或 Standard 回归。
-- Current conclusion: 已确认的直接机制是：动态 Map frontier 不能由静态 Function schema 表达，`work` 与 `update_and_work` 在 Provider schema 层都可生成；Agent 在自然的“补丁成功后立刻测试”路径中以 4/10 选择了语法更短的 `work`，Runtime 到动态 preflight 才能拒绝。成功反馈的局部措辞与状态省略、以及 Base 中“不要在每个 minor Tool result 后更新 lifecycle”的原则可能提高该选择概率，但尚未由单变量证据坐实。继续增加同义提示文字不具备当前证据支持。
+- Current conclusion: 已确认的直接机制是：动态 Map frontier 不能由静态 Function schema 表达，`work` 与 `update_and_work` 在 Provider schema 层都可生成；Agent 在自然的“补丁成功后立刻测试”路径中会省略 lifecycle handoff，Runtime 到动态 preflight 才能拒绝。单变量 owner-state 反馈在实际到达边界的四轮中仍误选 2/4，且两次 trace 均证明 Agent 已收到 `fix=in_flight`；该候选不通过并已回退。当前优先候选收敛为序列分支结构显著性，而不是继续增加反馈字段、提示文字或 Runtime 状态职责。
 - Related hypotheses:
   - H-001
   - H-002
@@ -129,7 +130,7 @@
   - not closed
 
 ## Hypothesis H-003: 成功 feedback 的作用域不清和 owner state 省略提高误选概率
-- Status: unverified
+- Status: closed
 - Parent: P-001
 - Claim: outer `status=completed`、client `outcome=succeeded` 强调 Tool/Exec 完成，而 feedback 不携带 `fix` 仍为 `in_flight` 的事实，使局部上下文更容易触发“下一步直接测试”。
 - Layer: sub-cause
@@ -158,17 +159,19 @@
   - Instrumentation status: none
   - Instrumentation lifecycle:
     - none
-- Evidence gate: pending
+- Evidence gate: satisfied
 - Related evidence:
   - E-004
   - E-005
-- Conclusion: 反馈确实省略节点 post-state且术语作用域容易混淆，但 Run 9 明确知道 `fix=in_flight` 仍误选，证明它最多是贡献因素，不是充分根因。
-- Repair design readiness: blocked until controlled evidence
-- Next step: 不直接实现；先与 schema 显著性候选比较最小成本和可证伪性。
+  - E-008
+  - E-009
+- Conclusion: 反馈省略是事实，但补充机械 owner state 后四个有效边界仍有两次误选；两次失败均逐字收到 `owner_state_after=in_flight`。当前数据不支持把该字段作为 Waiting 修复，且已直接证明状态省略不是必要或充分根因。小样本不能排除极小概率贡献，但该分支因无实际收益而关闭。
+- Repair design readiness: not applicable
+- Next step: 回到 H-002 的 schema 分支显著性单变量，不继续扩展 feedback。
 - Blocker:
-  - 缺少单变量真实证据。
+  - none
 - Close reason:
-  - not closed
+  - controlled candidate failed acceptance and was reverted
 
 ## Hypothesis H-004: Waiting 规则或拒绝反馈缺失
 - Status: refuted
@@ -394,3 +397,48 @@
   ```
 - Interpretation: 该原则产品方向正确，但一次 patch 是否属于 meaningful boundary 由 Agent 解释；当前 trace 没有直接引用该原则，故仅为待验证交互因素。
 - Time: 2026-08-16 23:06
+
+## Evidence E-008: owner state 候选只增加忠实 feedback
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: focused-test
+- Source: candidate `96254de81`；`taskspace_exec_handler_tests`
+- Prediction or plan link:
+  - H-003 单变量实现边界
+- Matched signal:
+  - 每条 client result 必填复制 persisted candidate Map 的 owner state；schema、Base、DAG、拒绝和 Tool 执行逻辑不变
+  - TaskSpace Exec 聚焦测试 67 passed；缓存门禁通过
+- Correlation keys:
+  - candidate binary SHA-256 `5cf9d12d...f6ae`
+- Raw content:
+  ```text
+  client_results[].owner_state_after = canonical owner state after the batch
+  ```
+- Interpretation: 真实运行中的差异可归因于 feedback owner state，而不是其他序列或 Runtime 规则改动。
+- Time: 2026-08-16 23:50
+
+## Evidence E-009: 显式 owner state 后 Waiting 仍为 2/4
+- Related hypotheses:
+  - H-003
+  - H-002
+- Direction: refutes
+- Type: fix-validation
+- Source: `target/r8-owner-state-feedback/repeat5-{1..5}/single-file-fast-fix/*`
+- Prediction or plan link:
+  - H-003 增加 owner state 应降低 Waiting 误选
+- Matched signal:
+  - Run 1/3 的 patch success feedback 均逐字包含 `fix + owner_state_after=in_flight + outcome=succeeded`
+  - 两轮下一 reasoning 仍为 patch applied -> run tests，并提交 `work@verify`
+  - Run 2/4 正确；Run 5 因独立顶层 client Tool 逃逸未到达目标边界
+- Correlation keys:
+  - Run 1 `call_00_poaU1mHXDwweh9urdfwX8395`
+  - Run 3 `call_00_ARW8Ox8ImjsfftndjA9k9977`
+- Raw content:
+  ```text
+  eligible frontier transitions: 4
+  FRONTIER-EARLY: 2/4
+  historical current baseline: 4/10
+  ```
+- Interpretation: 字段已进入上下文但没有改变两次错误行动；候选未观察到下降，不能晋升。实现由 `52d209637` 回退。
+- Time: 2026-08-16 23:56
