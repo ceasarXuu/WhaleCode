@@ -1,6 +1,6 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-16T18:34:37+08:00",
+  "updated_at": "2026-08-16T18:38:30+08:00",
   "entries": [
     {
       "record_id": "WAR-20260816-005101-INIT-MAP-CANDIDATE1",
@@ -88,11 +88,11 @@
     {
       "record_id": "WAR-20260816-183437-INIT-MAP-CANDIDATE1-SUPPLEMENT",
       "record_type": "run_batch",
-      "status": "planned",
-      "started_at": null,
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "status": "settled",
+      "started_at": "2026-08-16T18:36:04.6816401+08:00",
+      "ended_at": "2026-08-16T18:37:21.5630286+08:00",
+      "elapsed_calendar_seconds": 76.881,
+      "aggregate_agent_wall_time_ms": 26305,
       "reason": "补足候选 1 被左右臂交替占用的两个 TaskSpace 观测；分别以全新 repeat=1 运行，确保 pair-001/right 均为 map-request，不重跑前三个有效 TaskSpace 观测。",
       "authorization": {
         "required": false,
@@ -122,25 +122,36 @@
         ],
         "repeats_per_arm_per_sample": 2,
         "planned_sample_runs": 2,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "pending"
+        "actual_sample_runs": 2,
+        "api_requests": 10,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
-        "input": 0,
-        "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "input": 143644,
+        "cached_input": 135040,
+        "uncached_input": 8604,
+        "output": 3018
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated",
         "currency": "CNY",
-        "amount": null,
+        "amount": 0.0173408,
         "actual_billed_amount": null,
-        "components": null,
-        "pricing_snapshot": null,
-        "formula": null,
-        "note": "等待两次独立 repeat=1 的 provider 遥测结算。"
+        "components": {
+          "cached_input": 0.0027008,
+          "uncached_input": 0.008604,
+          "output": 0.006036
+        },
+        "pricing_snapshot": {
+          "model": "deepseek-v4-flash",
+          "captured_at": "2026-07-31T08:59:29+08:00",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": "135040/1e6*0.02 + 8604/1e6*1.0 + 3018/1e6*2.0 = 0.0173408 CNY",
+        "note": "按 rollout request trace 与冻结价格估算；第二轮 metrics 顶层 usage 缺失，使用同 artifact 的 request-summary.rollout_trace 完整 usage。"
       },
       "evidence": {
         "planned_run_roots": [
@@ -152,7 +163,12 @@
         "projection_policy": "map-request",
         "repeat": 2,
         "retry_limit": 0,
-        "stop_conditions": "达到 24 个 Provider 请求、400,000 input、16,000 output、300 秒、候选 1 累计费用 1.25 元或总包 5 元任一上限即停止。"
+        "stop_conditions": "达到 24 个 Provider 请求、400,000 input、16,000 output、300 秒、候选 1 累计费用 1.25 元或总包 5 元任一上限即停止。",
+        "actual_run_roots": [
+          "target/r8-initialize-map-candidates/candidate1-feedback-supplement-1/single-file-fast-fix/20260816-183604-674",
+          "target/r8-initialize-map-candidates/candidate1-feedback-supplement-2/single-file-fast-fix/20260816-183655-623"
+        ],
+        "outcome": "两轮均首发 object。第一轮 Agent complete 且公开/隐藏验证通过；第二轮在成功 initialize_and_work 后绕过 taskspace_exec，生成未暴露的顶层 exec_command，2 请求后中断且验证失败。该异常未触发候选 1 的类型反馈，不作为反馈修复效果证据。"
       }
     },
     {

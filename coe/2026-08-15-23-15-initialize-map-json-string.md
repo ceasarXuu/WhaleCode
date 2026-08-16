@@ -1,7 +1,7 @@
 # Problem P-001: initialize_map 偶发被二次序列化为 JSON string
 - Status: open
 - Created: 2026-08-15 23:15
-- Updated: 2026-08-16 01:20
+- Updated: 2026-08-16 18:40
 - Objective: 确认 `taskspace_exec.initialize_map` 类型错误的实际发生层、频率和可验证根因，避免把模型输出错误误归因给 Runtime。
 - Symptoms:
   - 同一 Function Tool schema 下，Agent 有时把应为 object 的 `initialize_map` 写成包含 JSON 文本的 string。
@@ -200,6 +200,7 @@
 - Related evidence:
   - E-005
   - E-007
+  - E-008
 - Conclusion: confirmed
 - Repair design readiness: ready for narrow feedback design; implementation still requires user authorization
 - Next step: 将机械 schema violation 忠实表达为 `expected object, actual string`，不得解析、改写或接受错误值；单独验证恢复率。
@@ -351,3 +352,24 @@
   ```
 - Interpretation: 候选 1 的实现没有引入解析、自愈或语义替代；它只修复已确认的反馈缺失。真实 Agent 恢复率仍需单独运行验证。
 - Time: 2026-08-16 01:20
+
+## Evidence E-008: 候选 1 五轮真实运行未触发类型反馈
+- Related hypotheses:
+  - H-004
+- Direction: neutral
+- Type: experiment
+- Source: `docs/v0.0.5/build-R8/taskspace-exec/59-initialize-map-candidate1-feedback-result.md`
+- Prediction or plan link:
+  - 检验 expected/actual 反馈是否提高 string 首发后的恢复稳定性，同时不引入其他回归。
+- Matched signal:
+  - 五个有效 TaskSpace 观测的首次 `initialize_map` 均为 object，因而类型反馈 0 次触发。4/5 完整通过；另 1 轮在成功初始化后逃逸为未暴露的顶层 `exec_command`，与类型反馈无关。Request 2+ 加权缓存命中率为 92.18%。
+- Correlation keys:
+  - `subject=326e1430c`
+  - `taskspace_capability_identity=49fd49b9a28b...`
+- Raw content:
+  ```text
+  first initialize_map types: object, object, object, object, object
+  expected/actual feedback triggers: 0
+  ```
+- Interpretation: 聚焦测试和真实运行均未显示反馈修复造成回归，但本轮缺少 string 触发条件，不能评价恢复率收益，也不能把 0/5 解释为首发生成改进。
+- Time: 2026-08-16 18:40
