@@ -6,6 +6,10 @@ fn section(cost: &ProviderWireSectionCost, kind: SectionKind) -> &ProviderWireSe
     &cost.sections[kind.index()]
 }
 
+fn history(cost: &ProviderWireSectionCost, kind: HistoryKind) -> &ProviderWireHistoryCost {
+    &cost.history_breakdown[kind.index()]
+}
+
 #[test]
 fn every_message_is_classified_exactly_once() {
     let wire = json!({
@@ -139,6 +143,41 @@ fn responses_instructions_are_measured_separately_from_other_payload() {
             .map(|section| section.bytes)
             .sum::<usize>(),
         cost.section_bytes_total
+    );
+}
+
+#[test]
+fn responses_history_items_are_classified_once_by_wire_structure() {
+    let wire = json!({
+        "instructions": "base",
+        "input": [
+            {"type": "message", "role": "user", "content": []},
+            {"type": "message", "role": "assistant", "content": []},
+            {"type": "reasoning", "summary": [], "encrypted_content": null},
+            {"type": "function_call", "name": "taskspace_exec", "arguments": "{}", "call_id": "ts-1"},
+            {"type": "function_call_output", "call_id": "ts-1", "output": "done"},
+            {"type": "function_call", "name": "exec_command", "arguments": "{}", "call_id": "tool-1"},
+            {"type": "function_call_output", "call_id": "tool-1", "output": "done"},
+            {"type": "web_search_call", "status": "completed"},
+            {"type": "compaction", "encrypted_content": "opaque"},
+            {"type": "ghost_snapshot", "ghost_commit": {}}
+        ]
+    });
+
+    let cost = ProviderWireSectionCost::measure(&wire, "input");
+    let counts = HistoryKind::ALL
+        .iter()
+        .map(|kind| history(&cost, *kind).count)
+        .collect::<Vec<_>>();
+
+    assert_eq!(counts, vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    assert_eq!(counts.iter().sum::<usize>(), 10);
+    assert_eq!(
+        cost.history_breakdown
+            .iter()
+            .map(|entry| entry.bytes)
+            .sum::<usize>(),
+        section(&cost, SectionKind::NaturalHistory).bytes
     );
 }
 
@@ -293,5 +332,11 @@ fn serialized_section_cost_never_contains_raw_payload_content() {
             .as_array()
             .map(Vec::len),
         Some(8)
+    );
+    assert_eq!(
+        serde_json::from_str::<Value>(&serialized).expect("valid JSON")["history_breakdown"]
+            .as_array()
+            .map(Vec::len),
+        Some(10)
     );
 }
