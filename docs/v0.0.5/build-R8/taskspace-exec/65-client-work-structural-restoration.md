@@ -2,7 +2,7 @@
 
 - Date: 2026-08-16
 - Scope: TaskSpace Exec 工作型序列
-- Status: 生产代码与离线测试完成；真实 Agent 和缓存回归待验收
+- Status: 生产代码、离线测试和免费缓存门禁完成；真实 Agent 与付费缓存回归待验收
 
 ## 1. 问题表现
 
@@ -47,9 +47,10 @@ Map 并补上 work。业务最终可恢复，但每次都会浪费一次 Provide
 | 四类工作 schema 要求 `tools` 且 `minItems=1` | passed |
 | 缺失/空 `tools` 的 decode 负向测试 | passed |
 | 同响应存在 Provider fact 仍不能替代 client work | passed |
+| `python3 scripts/cache-regression/check_cache_regression_gate.py --source index` | PASS；surface `602b2906...adff`，发布保持阻断 |
 
 `taskspace_production_tool_wire` 快照此前仍停留在已废弃的 Hosted 双写和旧初始化 `$ref` 结构。本次将该专用快照机械更新为
 当前生产 wire，并由上述 final-wire 测试锁定；Standard final wire 同批保持通过。
 
-真实 Agent 行为与 Provider 缓存尚未复验。该变更会修改 TaskSpace Exec Tool declaration，必须先通过缓存敏感面门禁，再按项目
-预算规则申请最小真实回归；离线完成不等于 I03 关闭。
+真实 Agent 行为与 Provider 缓存尚未复验。缓存敏感面门禁已识别并接受该可比较候选结构，但没有晋升真实 accepted baseline；
+后续仍须按项目预算规则申请最小真实回归。离线完成不等于 I03 关闭。
