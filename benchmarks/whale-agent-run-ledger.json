@@ -1,7 +1,74 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-16T18:38:30+08:00",
+  "updated_at": "2026-08-16T18:43:24+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260816-184324-INIT-MAP-CANDIDATE2",
+      "record_type": "run_batch",
+      "status": "planned",
+      "started_at": null,
+      "ended_at": null,
+      "elapsed_calendar_seconds": null,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "initialize_map 候选 2 单变量实验：仅将 initialize_map object schema 从 $ref 改为同合同的就地展开，使用五个独立 single-file-fast-fix × map-request × repeat=1 观测首发参数类型。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "USER-20260816-INIT-MAP-CANDIDATES-CNY5",
+        "reference": "用户明确批准四个候选分别改动和验证，总预算不超过 5 元；本记录仅覆盖候选 2 的五个独立 TaskSpace 观测，零自动重试。",
+        "budget_summary": {
+          "provider_requests": 60,
+          "input_tokens": 1000000,
+          "output_tokens": 40000,
+          "elapsed_seconds": 900,
+          "estimated_cost": 1.25,
+          "currency": "CNY"
+        },
+        "note": "候选 2 独立上限 1.25 元；四候选累计硬上限 5 元，已结算约 0.0776 元。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "model": "deepseek-v4-flash",
+        "batch_count": 5,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "map-request-candidate2-inline-schema"
+        ],
+        "repeats_per_arm_per_sample": 5,
+        "planned_sample_runs": 5,
+        "actual_sample_runs": 0,
+        "api_requests": 0,
+        "api_requests_evidence_status": "pending"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "planned",
+        "currency": "CNY",
+        "amount": null,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": null,
+        "formula": null,
+        "note": "等待五个独立 repeat=1 的 provider 遥测结算。"
+      },
+      "evidence": {
+        "planned_run_root_pattern": "target/r8-initialize-map-candidates/candidate2-inline-{1..5}",
+        "subject_commit": "847da1c37",
+        "scenario": "single-file-fast-fix",
+        "projection_policy": "map-request",
+        "repeat": 5,
+        "retry_limit": 0,
+        "stop_conditions": "达到 60 个 Provider 请求、1,000,000 input、40,000 output、900 秒、候选 2 费用 1.25 元或总包 5 元任一上限即停止。"
+      }
+    },
     {
       "record_id": "WAR-20260816-005101-INIT-MAP-CANDIDATE1",
       "record_type": "run_batch",
