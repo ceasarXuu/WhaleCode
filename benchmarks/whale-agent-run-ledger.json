@@ -1,11 +1,11 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-17T02:10:06+08:00",
+  "updated_at": "2026-08-17T02:13:06+08:00",
   "entries": [
     {
       "record_id": "WAR-20260817-020757-AFFECTED-STATE-R5",
       "record_type": "run_batch",
-      "status": "running",
+      "status": "planned",
       "started_at": "2026-08-17T02:10:06+08:00",
       "ended_at": null,
       "elapsed_calendar_seconds": null,
@@ -61,7 +61,17 @@
       },
       "evidence": {
         "subject_commit": "a36a42939e1ecb799c75c5af80a171c7a71011ca",
-        "planned_run_root_pattern": "target/r8-affected-node-state-feedback/repeat5-{1..5}",
+        "planned_run_root_pattern": "target/r8-feedback-candidate/repeat5-{1..5}",
+        "pre_provider_harness_attempts": [
+          {
+            "run_root_pattern": "target/r8-affected-node-state-feedback/repeat5-{1..5}",
+            "outcome": "provider_credential_missing before Provider; zero API requests"
+          },
+          {
+            "run_root_pattern": "target/r8-affected-node-state-feedback/repeat5-{1..5}",
+            "outcome": "neutral-cwd guard rejected the treatment-bearing path token 'node' before Provider; zero API requests"
+          }
+        ],
         "scenario": "single-file-fast-fix",
         "projection_policy": "map-request",
         "repeat": 5,
