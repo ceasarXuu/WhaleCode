@@ -1,6 +1,6 @@
 # R8-I08 Input 成本根因定位计划
 
-- Status: In Progress / IC-03 complete
+- Status: In Progress / IC-04 complete
 - Created: 2026-08-17
 - Product Authority: [`../taskspace-exec/00-product-contract.md`](../taskspace-exec/00-product-contract.md#confirmed-product-decisions)
 - Applicable Decisions: PD1、PD2、PD3、PD4、PD6、PD7、PD9、PD10
@@ -110,7 +110,7 @@ section_area(kind) = sum(request.section_bytes[kind])
 | IC-01 | 修正 section 成本口径 | `provider_wire_sections.rs`、wire trace fixture | 将 Responses `instructions` 从 `other_payload` 独立为 `base_instructions`；保持每个 payload byte 只归属一次 | 消除 Base 重复相加风险，得到真实固定前缀面积 | 仅观察 schema 增加一个 section kind；Provider payload 零变化 | Chat/Responses fixture；各 section bytes 之和逐字等于 payload bytes；缓存门禁 source 检查 | 需要保存原始提示词内容或改变 payload 时停止 | complete；见 [`01-ic01-section-attribution-result.md`](01-ic01-section-attribution-result.md) |
 | IC-02 | 拆分自然历史结构 | 同一 observer、`ResponseItem` 结构分类 | 按结构类型拆分 user、assistant、client call/output、`taskspace_exec` call/output、Provider-hosted item 和 projection；只记录 count/bytes/hash | 判断 outer 历史、Map 反馈和普通 Tool 结果各占多少，不读取 reasoning 语义 | 增加结构化观测字段，不增加 Agent context 或 Runtime 决策 | 合成 mixed history 每 item 恰好归类一次；原文不进入 trace；总 bytes 闭合 | 需要启发式解析自然语言或记录敏感 body 时停止 | complete；见 [`02-ic02-history-breakdown-result.md`](02-ic02-history-breakdown-result.md) |
 | IC-03 | 拆分 Tool declaration | TaskSpace Catalog/final-wire fixture | 结构化统计顶层每个 Tool、`taskspace_exec` 外层序列、Map schema、TaskSpace metadata、原生 client Tool 合同和 transport wrapper bytes | 判断 26,688 bytes 中哪些是 Standard 共用合同、哪些是 TaskSpace 独有成本 | 只读 analyzer；不改变 schema 序列化 | 分项之和等于 `tools` section；同一原生 ToolSpec identity 只统计一次 | 需要改 schema 才能测量时停止 | complete；见 [`03-ic03-tool-breakdown-result.md`](03-ic03-tool-breakdown-result.md) |
-| IC-04 | 建立免费同历史静态对照 | final-wire payload builder fixtures | 用同一有效 ToolSpec 快照构造 Standard/TaskSpace 的首请求、一次读取、一次修改结果和七轮累计历史 | 隔离 Agent 随机行为，测出固定 Tool/Base 与等价 Tool 历史的纯结构差值 | 合成 transcript 只能证明机制，不证明模型行为 | Standard/TaskSpace payload bytes、section area、ToolSpec identity、历史增量逐场景表格 | fixture 为迎合结论省略真实 outer result 或 Map 操作时停止 | planned |
+| IC-04 | 建立免费静态线材对照 | final-wire payload builder fixtures | 用生产请求构造路径捕获 Standard/TaskSpace 首请求；多轮历史改由 IC-05/IC-06 的真实 trace 承担，不手造迎合结论的 transcript | 隔离首请求固定 Tool/Base 面积，限定固定结构可解释的成本上界 | 现有两夹具的 system/history 不同，只能对 Tool 与总面积建立边界 | Provider payload bytes、section closure、Tool 子结构逐项表格 | 需要改写产品 payload 或接受无关旧快照时停止 | complete-with-scope；见 [`04-ic04-static-wire-result.md`](04-ic04-static-wire-result.md) |
 | IC-05 | 离线复算最近真实 trace | 最新干净 repeat=5 和历史异常批次 | 用新 observer 能表达的旧字段先建立 v1 边界；新细分无法追溯时明确 unavailable，不伪造 | 量化固定面积、历史增长、异常请求面积，并挑选真实 A/B 的观察重点 | 旧 trace 无原始 payload，部分细分必然 unavailable | 5 轮逐请求表；干净/异常分层；Provider usage、request identity、section total 对账 | 需要从 hash 反推内容或用估计补缺时停止 | planned |
 | IC-06 | 首轮真实双臂定位 | Docker benchmark；`single-file-fast-fix` | 当前 commit 下 Standard 与 `map-request` 各 repeat=1；不改协议 | 获得同版本总 input、请求数、每请求体量、section area 和动作路径 | 2 个付费 sample；模型随机性不足以给稳定频率 | 两臂业务/oracle 通过；无协议异常；能力 identity 一致；逐请求成本表 | 未获预算、任一业务/usage/identity 异常立即停止 | blocked-on-budget |
 | IC-07 | 扩大简单样本置信度 | 与 IC-06 完全相同 | 仅在 IC-06 可比较且根因仍受随机性影响时扩到每臂累计 repeat=3 | 区分结构差值和单轮动作波动 | 最多再增加 4 个 sample；属于大规模运行，必须专项预算 | 总和/均值/中位数；逐 run 异常不被均值隐藏 | IC-06 已足够定位、出现新问题或预算未批准则不执行 | deferred |
