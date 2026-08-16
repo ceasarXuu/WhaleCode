@@ -1,7 +1,71 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-17T02:57:40+08:00",
+  "updated_at": "2026-08-17T03:14:07+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260817-031407-BASE-LIFECYCLE-R5",
+      "record_type": "run_batch",
+      "status": "planned",
+      "started_at": null,
+      "ended_at": null,
+      "elapsed_calendar_seconds": null,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "验证把简洁节点状态机心智模型提升到 TaskSpace Base instructions 后，Agent 的 Waiting frontier 误选和非法状态转换是否下降。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "USER-20260817-BASE-LIFECYCLE-R5",
+        "reference": "用户在收到完整预算说明后明确回复‘批准’。",
+        "budget_summary": {
+          "provider_requests": 60,
+          "input_tokens": 750000,
+          "output_tokens": 20000,
+          "elapsed_seconds": 600,
+          "estimated_cost": 1.0,
+          "currency": "CNY"
+        },
+        "note": "single-file-fast-fix × map-request × repeat=5；五个独立 repeat=1 可并行；每轮最多 12 个 Provider requests，零自动重试。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "model": "deepseek-v4-flash",
+        "batch_count": 5,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "map-request-base-lifecycle"
+        ],
+        "repeats_per_arm_per_sample": 5,
+        "planned_sample_runs": 5,
+        "actual_sample_runs": 0,
+        "api_requests": 0,
+        "api_requests_evidence_status": "pending"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "planned",
+        "currency": "CNY",
+        "amount": 1.0,
+        "actual_billed_amount": null
+      },
+      "evidence": {
+        "subject_commit": "79f382966b31e6798b3da29c5552a54fe7d99f9c",
+        "planned_run_root_pattern": "target/r8-base-lifecycle/repeat5-{1..5}",
+        "scenario": "single-file-fast-fix",
+        "projection_policy": "map-request",
+        "repeat": 5,
+        "retry_limit": 0,
+        "stop_conditions": "达到 60 个 Provider 请求、750000 input、20000 output、600 秒或 1 元任一上限即停止；证据不完整或发生未授权重试立即停止。",
+        "outcome": "pending"
+      }
+    },
     {
       "record_id": "WAR-20260817-025312-STATE-MACHINE-R5",
       "record_type": "run_batch",
