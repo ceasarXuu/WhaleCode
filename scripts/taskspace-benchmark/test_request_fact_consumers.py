@@ -79,6 +79,22 @@ class ConsumerInventoryTests(unittest.TestCase):
             discovered = GATE.discover(repo)
         self.assertEqual(discovered["scripts/taskspace-benchmark/usage_helper.py"], {"canonical"})
 
+    def test_canonical_terminal_status_dependency_is_classified(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            target = repo / "scripts/cache-regression/cache_usage_contract.py"
+            target.parent.mkdir(parents=True)
+            target.write_text(
+                "from request_facts import build_request_facts_from_events\n"
+                'status = row["terminal_status"] == "response_completed"\n',
+                encoding="utf-8",
+            )
+            discovered = GATE.discover(repo)
+        self.assertEqual(
+            discovered["scripts/cache-regression/cache_usage_contract.py"],
+            {"canonical", "terminal"},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

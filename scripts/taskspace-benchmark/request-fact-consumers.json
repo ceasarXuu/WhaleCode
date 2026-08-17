@@ -32,6 +32,6 @@
     {"path":"scripts/cache-regression/cache_result_integrity.py","role":"consumer","observed_sources":["canonical"]},
     {"path":"scripts/cache-regression/cache_run_analysis.py","role":"consumer","observed_sources":["canonical"]},
     {"path":"scripts/cache-regression/run_cache_hit_regression.py","role":"consumer","observed_sources":["canonical"]},
-    {"path":"scripts/cache-regression/cache_usage_contract.py","role":"consumer","observed_sources":["canonical"]}
+    {"path":"scripts/cache-regression/cache_usage_contract.py","role":"consumer","observed_sources":["canonical","terminal"]}
   ]
 }
