@@ -1,6 +1,6 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-18T04:03:36+08:00",
+  "updated_at": "2026-08-18T06:06:19+08:00",
   "entries": [
     {
       "record_id": "WAR-20260818-040158-CACHE-REGRESSION-3E3BBA3B",
@@ -9524,11 +9524,11 @@
     {
       "record_id": "WAR-20260818-055427-R8-FOUR-ARM-R3",
       "record_type": "run_batch",
-      "status": "planned",
-      "started_at": null,
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "status": "settled",
+      "started_at": "2026-08-18T05:58:19.429200+08:00",
+      "ended_at": "2026-08-18T06:06:19.034909+08:00",
+      "elapsed_calendar_seconds": 479.605709,
+      "aggregate_agent_wall_time_ms": 605563,
       "reason": "在同一当前版本、模型、Docker 环境和复杂 client-tool 样本上，对 Standard、map-always、map-append、map-request 四臂各运行 3 次，比较正确性、请求、token、缓存、耗时、费用和 Map 行为。",
       "authorization": {
         "required": true,
@@ -9560,22 +9560,26 @@
         ],
         "repeats_per_arm_per_sample": 3,
         "planned_sample_runs": 12,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "pending"
+        "actual_sample_runs": 12,
+        "api_requests": 123,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
-        "input": 0,
-        "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "input": 2293313,
+        "cached_input": 2099840,
+        "uncached_input": 193473,
+        "output": 74212
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated",
         "currency": "CNY",
-        "amount": null,
+        "amount": 0.3838938,
         "actual_billed_amount": null,
-        "components": null,
+        "components": {
+          "cached_input": 0.0419968,
+          "uncached_input": 0.193473,
+          "output": 0.148424
+        },
         "pricing_snapshot": {
           "model": "deepseek-v4-flash",
           "captured_at": "2026-08-18",
@@ -9584,11 +9588,12 @@
           "uncached_input_per_million": 1.0,
           "output_per_million": 2.0
         },
-        "formula": "每个 sample run 按 provider 完整 usage 估算并硬限制为 0.08 CNY；12 次聚合上限 0.96 CNY。",
-        "note": "计划值；运行结束后按 cached/uncached/output token 结算。"
+        "formula": "2099840/1e6*0.02 + 193473/1e6*1.0 + 74212/1e6*2.0 = 0.3838938 CNY",
+        "note": "按 123 个完整 Provider usage 记录和冻结价格估算；不等同于账户实扣金额。"
       },
       "evidence": {
         "planned_run_root": "target/r8-four-arm/WAR-20260818-055427-R8-FOUR-ARM-R3",
+        "actual_run_root": "target/r8-four-arm/WAR-20260818-055427-R8-FOUR-ARM-R3/data",
         "subject_commit": "4fe2f3557eab1ca07836dfdc9e0f909b73329ea7",
         "scenario": "subscription-billing-repair",
         "arms": "standard,map-always,map-append,map-request",
@@ -9596,7 +9601,16 @@
         "execution": "docker",
         "whale_binary_sha256": "a1c15de942d39362f86659af37589250e0aaa52c6e1f87d6f959dcaed09299ca",
         "stop_conditions": "每次运行零自动重试；单次执行、业务、usage 或 0.08 CNY Provider 成本边界失败即停止该臂后续运行并保留证据。",
-        "outcome": "planned"
+        "durable_evidence_path": "benchmarks/taskspace/r8/evidence/WAR-20260818-055427-R8-FOUR-ARM-R3.json",
+        "result_document_path": "docs/v0.0.5/build-R8/I01/03-i01-four-arm-repeat3-result.md",
+        "usage_evidence_status": "complete",
+        "business_successes": 12,
+        "public_validation_passes": 12,
+        "hidden_oracle_passes": 12,
+        "taskspace_protocol_reject_count": 3,
+        "pre_provider_invalid_harness_attempts": 6,
+        "pre_provider_request_count": 0,
+        "outcome": "completed_with_observer_findings"
       }
     }
   ]
