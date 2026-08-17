@@ -2,7 +2,7 @@
 
 - Date: 2026-08-15
 - Scope: Provider-hosted Tool 的 TaskSpace 记录边界
-- Status: 生产代码已实现，离线验证通过；最小真实缓存回归因独立的 Exec 参数类型错误未通过业务验收
+- Status: PR-05 离线收口完成；Provider 聚合生产命中待独立预算
 
 ## 1. 产品决策
 
@@ -74,3 +74,10 @@ wrapper。Map 始终未创建，Provider-hosted Tool 也未发生，因此该运
 
 当前可确认缓存结构没有回归；不能据此宣称 Provider 归纳在线通过，也不能把 Exec 参数错误归因为本次 Provider 归纳实现。
 该错误继续归入 I03 的 Function Tool 参数稳定性，不在本专题内扩张修复范围。
+
+## 7. PR-05 离线收口
+
+2026-08-18 以当前生产代码重新执行 TaskSpace Exec 77、Provider DAG 4、持久化聚合 1、State 16、observer、zero-base 和
+cache gate，全部通过。活动源码中旧双写和 pending 机制为零；详细证据见
+[`81-provider-hosted-pr05-offline-closure.md`](81-provider-hosted-pr05-offline-closure.md)。当前不再修改实现，下一步只申请
+一次真实 `provider-web-search-probe` 预算验证生产命中。

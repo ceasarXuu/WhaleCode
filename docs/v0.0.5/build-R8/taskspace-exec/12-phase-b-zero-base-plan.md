@@ -427,7 +427,7 @@ Ready -> InFlight 只由 Agent 声明的 Tool action 触发；Runtime 不选节�
 | PR-02 | 删除待归属 Store | 删除 migration、模型、Store API、CAS 消费和重启测试 | fresh SQLite TaskSpace tests | implemented |
 | PR-03 | 建立按需聚合 | response 完成后按原生 Tool 名创建/复用 Root 下 Completed 节点，追加机械 Action，并连接 Finish | 0/1/N、重复、失败、闭合 Map、名称冲突测试 | implemented offline |
 | PR-04 | 明确 escape 边界 | 无 Map 或同名 Agent 节点冲突时不覆盖、不建队列，只记录 `taskspace.provider_actions_escaped` | 冲突确定性测试 + observer 事件 fixture | implemented offline |
-| PR-05 | 收口与发布门禁 | 更新活动文档、运行 focused/state tests、缓存敏感面门禁 | 无真实 Whale Agent run；真实行为复验需另行预算 | in progress |
+| PR-05 | 收口与发布门禁 | 更新活动文档、运行 focused/state tests、缓存敏感面门禁 | 无真实 Whale Agent run；真实行为复验需另行预算 | verified offline；production pending |
 
 ## 6. 证据校准
 

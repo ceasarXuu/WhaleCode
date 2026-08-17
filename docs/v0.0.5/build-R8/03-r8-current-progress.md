@@ -77,7 +77,7 @@ xychart-beta
 
 | 未完成项 | 原因 | 不完成的影响 | 下一验收 |
 |---|---|---|---|
-| Provider-hosted Runtime 机械归纳 | 当前 PR-01～PR-04 仅离线实现，PR-05 尚未完成生产验收 | Web Search/Image 等动作可能未在 Map 中留下可证明记录 | 单一 hosted sample，需另行预算 |
+| Provider-hosted Runtime 机械归纳 | PR-01～PR-05 已离线完成，尚无当前版本生产命中 | Web Search/Image 等动作可能未在 Map 中留下可证明记录 | 单一 hosted sample，需另行预算 |
 | I05 逃逸恢复在线分支 | 最新自然样本没有触发逃逸 | 不能证明目标模型收到失败后会稳定恢复且无请求放大 | 不人为诱导；复杂自然样本出现时随 trace 验收 |
 | I03/I04 复杂动作 | 最新证据是简单线性任务 | fork/join、多 Ready 节点和跨节点连续动作仍可能出现错误选择 | 选择一个现有复杂 sample，Standard/map-request 各一次起步 |
 | I01 三 projection | 只对 map-request 做了当前版本验收 | 无法比较 always/append/request 的最终一致性与固有成本 | 每种策略保持同 Runtime，仅测 projection 差异 |
