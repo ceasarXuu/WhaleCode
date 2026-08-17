@@ -2,8 +2,8 @@
 
 - Date: 2026-08-18
 - Commit: `e596d2f27`
-- Status: 工程修复完成，等待获批真实运行验收
-- API usage: 0
+- Status: 工程修复完成；真实正常路径无回归，逃逸恢复分支未自然触发，保持 verifying
+- API usage: 关联账本 `WAR-20260818-013746-R8-I05-I07-ACCEPT-R3`
 
 ## 1. 产品问题
 
@@ -34,3 +34,10 @@ Standard 模式、合法 `taskspace_exec`、原生 client Tool schema 和 Map �
 
 以上只证明 Runtime 恢复链正确。真实验收仍需确认目标模型收到配对反馈后会继续使用 `taskspace_exec` 完成任务，且不会产生
 新的重复请求或上下文异常。
+
+## 4. 真实验收补充
+
+2026-08-18 的 `standard / map-request × repeat=3` 共 6 次运行全部完成业务、公开测试和隐藏 oracle；3 次 TaskSpace
+均正确闭合 Map，没有 Fatal、顶层 client Tool 逃逸或反馈重复。该结果证明正常生产路径无回归，但没有自然触发逃逸，
+因此不能替代“Agent 收到配对失败后继续完成任务”的在线分支证据。完整数据见
+[`78-i05-i07-repeat3-acceptance-result.md`](78-i05-i07-repeat3-acceptance-result.md)。

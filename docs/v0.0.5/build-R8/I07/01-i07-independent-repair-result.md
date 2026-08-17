@@ -2,8 +2,8 @@
 
 - Date: 2026-08-05
 - Scope: `I07-W0`～`I07-W8`、`I07-W10`
-- Status: 独立修复与对抗性闭环完成；完整 I07 保持 queued
-- API usage: 0；全部验证均为本地确定性 fixture
+- Status: 独立修复、对抗性闭环与生产验收完成；I07 closed
+- API usage: 离线修复为 0；生产验收关联 `WAR-20260818-013746-R8-I05-I07-ACCEPT-R3`
 
 ## 1. 产品结果
 
@@ -87,13 +87,14 @@ python3 scripts/cache-regression/check_cache_regression_gate.py --source index
 - request facts 生成继续使用 Harness 已有的本地 Python 进程；
 - 缓存敏感面门禁仍要求后续经用户授权的真实回归才能晋升发布基线。
 
-## 5. 未完成边界
+## 5. 独立修复结束时的未完成边界
 
 - `I07-W9`：TaskSpace Exec outer call、internal item/node 与 Provider facts 的身份关联；
 - `I07-W11`：新协议稳定后另行申请最小真实预算，执行生产 trace 逐 ID 对账；
 - 上述工作不得重建第二套 Provider 计数规则，也不得让 observer 反向控制 Agent 或 Tool。
 
-因此本结果关闭的是“当前协议下可独立修复的观测缺陷”，不关闭全局问题 `R8-I07`。
+截至 2026-08-05，本结果只关闭“当前协议下可独立修复的观测缺陷”，尚未关闭全局问题 `R8-I07`；后续第 6～8 节记录了
+剩余接线、生产验收与最终关闭。
 
 ## 6. 2026-08-17 当前生产反例修复
 
@@ -119,3 +120,14 @@ python3 scripts/cache-regression/check_cache_regression_gate.py --source index
 
 Python request-fact 测试 22/22、五层 trace、Provider token identity、完整 observability report 和 performance self-test
 均通过。该修复没有运行 Whale Agent；I07 仍等待获批真实矩阵验证实际产物结算和失败停止合同。
+
+## 8. 2026-08-18 生产验收与关闭
+
+获批的 `single-file-fast-fix × (standard + map-request) × repeat=3` 共完成 6 次真实运行、41 个 Provider 请求。3/3 Pair
+双侧业务、公开测试和隐藏 oracle 全部通过；TaskSpace 3/3 Map 完整闭合且没有图警告。
+
+六个 side 的 canonical facts 合计满足 `41 logical = 41 boundary = 41 completed = 41 usage`，并且 local-only、
+boundary-unattributed、duplicate、retry、failed/cancelled 和 finding 均为 0。真实命令显式启用
+`-StopOnAnySideFailure`；本轮没有故意制造失败，停止分支由确定性 runner 测试覆盖。请求事实、Map 完成判定、显式停止参数、
+最终聚合和账本结算已经形成同一条可复算生产证据链，因此关闭 `R8-I07`。完整结果见
+[`../taskspace-exec/78-i05-i07-repeat3-acceptance-result.md`](../taskspace-exec/78-i05-i07-repeat3-acceptance-result.md)。
