@@ -9594,7 +9594,7 @@
         "arms": "standard,map-always,map-append,map-request",
         "repeat": 3,
         "execution": "docker",
-        "whale_binary_sha256": "ce6b13ca5d5821a935f4086054679492a73c568bcb5b7b54da2b3c674ad3dcad",
+        "whale_binary_sha256": "a1c15de942d39362f86659af37589250e0aaa52c6e1f87d6f959dcaed09299ca",
         "stop_conditions": "每次运行零自动重试；单次执行、业务、usage 或 0.08 CNY Provider 成本边界失败即停止该臂后续运行并保留证据。",
         "outcome": "planned"
       }
