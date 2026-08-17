@@ -11,6 +11,9 @@
 - Ledger: `WAR-20260817-215521-R8-E3-CLOSURE-R3`
 - Evidence: `target/whale-agent-runs/WAR-20260817-215521-R8-E3-CLOSURE-R3/single-file-fast-fix/20260817-215618-477`
 
+`R8-E3` 是本次闭环实验标签；benchmark manifest 的正式 `evidence_target` 为 `E2`。本轮可以提供当前生产 trace 和行为证据，
+不能替代 I01/I07 等关闭合同中明确要求的正式 E3。
+
 ## 1. 结论
 
 本实验没有通过完整关闭验收。Standard 3/3 完成；TaskSpace 只有 2/3 完成。失败轮首次

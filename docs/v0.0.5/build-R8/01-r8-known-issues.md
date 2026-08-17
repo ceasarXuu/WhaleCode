@@ -327,6 +327,7 @@
 > 未执行声明停止条件。I03 明确未通过，I05/I07 保持开放，I04 获得有限正向证据；成功 Pair 的 TaskSpace 请求数/input/
 > 平均每请求 input 分别为 Standard 的 `1.17x/1.40x/1.20x`。详见
 > [`I08/10-r8-e3-current-production-repeat3-result.md`](I08/10-r8-e3-current-production-repeat3-result.md)。
+> `R8-E3` 为实验标签，runner 正式 evidence target 是 E2，不能替代 I01/I07 关闭合同要求的正式 E3。
 
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
