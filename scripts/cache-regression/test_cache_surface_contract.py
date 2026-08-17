@@ -137,7 +137,9 @@ class CacheSurfaceContractTest(unittest.TestCase):
         self.assertEqual(matrix["change_report"]["type"], "final_wire_snapshot_set")
         taskspace = commands["taskspace_final_wire"]
         self.assertEqual(taskspace["argv"][-1], "taskspace_production_tool_wire")
-        self.assertNotIn("change_report", taskspace)
+        self.assertEqual(
+            taskspace["change_report"]["type"], "final_wire_snapshot_set"
+        )
         self.assertEqual(commands["taskspace_contract"]["argv"][-1], "taskspace_exec")
         self.assertNotIn("tool_wire_contract", commands)
         baseline_patterns = self.contract["free_validation"]["semantic_baseline_globs"]

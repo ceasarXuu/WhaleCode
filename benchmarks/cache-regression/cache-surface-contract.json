@@ -188,7 +188,8 @@
   "free_validation": {
     "run_on_release": true,
     "semantic_baseline_globs": [
-      "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_contract__standard_two_request_final_wire.snap"
+      "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_contract__standard_two_request_final_wire.snap",
+      "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_final_wire__taskspace_production_tool_wire.snap"
     ],
     "commands": [
       {
@@ -311,12 +312,12 @@
     ]
   },
   "pricing_snapshot": {
-    "currency": "USD",
-    "captured_at": "2026-07-31",
-    "source": "https://api-docs.deepseek.com/quick_start/pricing/",
-    "cached_input_per_million": 0.0028,
-    "uncached_input_per_million": 0.14,
-    "output_per_million": 0.28
+    "currency": "CNY",
+    "captured_at": "2026-08-18",
+    "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+    "cached_input_per_million": 0.02,
+    "uncached_input_per_million": 1.0,
+    "output_per_million": 2.0
   },
   "provider_hard_limits": {
     "deepseek-v4-flash": {

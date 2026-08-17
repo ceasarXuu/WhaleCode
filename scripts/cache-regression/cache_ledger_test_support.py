@@ -39,7 +39,9 @@ def write_settled_ledger(
                         "status": "granted",
                         "id": authorization["authorization_id"],
                         "reference": authorization["approval_reference"],
-                        "budget_summary": proposal["maximums"],
+                        "budget_summary": proposal.get(
+                            "approved_maximums", proposal.get("maximums")
+                        ),
                     },
                     "execution": {
                         "provider": route_identity["logical_provider_id"],

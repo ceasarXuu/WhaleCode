@@ -57,6 +57,7 @@ runner 有发现能力，但不证明当前源码指纹门禁的覆盖范围正�
 | [19-provider-terminal-usage-repair.md](19-provider-terminal-usage-repair.md) | provider terminal usage 唯一事实源与 binary-health 前置修复 | implementation verified；真实双臂待预算 |
 | [20-single-arm-exit-contract-repair.md](20-single-arm-exit-contract-repair.md) | 单臂 cache smoke 与双臂 E2 退出语义冲突修复 | implementation verified；真实双臂待预算 |
 | [21-mvt0-accepted-baseline-result.md](21-mvt0-accepted-baseline-result.md) | MVT-0 双臂真实结果、trace 与 accepted baseline | accepted |
+| [22-approved-budget-contract-v3.md](22-approved-budget-contract-v3.md) | 用户批准预算与 Provider 理论容量分离、请求间 usage 预算监督 | implementation verified；真实复验待执行 |
 | [对抗性审查](../../../../vs_review/2026-07-31-cache-regression-surface-review.md) | 独立审查漏报、误报和控制面完整性 | historical findings closed |
 | [收尾对抗性审查](../../../../vs_review/2026-08-01-r8-cache-gate-closeout-review.md) | CR-21.2 至 CR-23 多轮独立闭环审查 | closure passed；P0/P1=0 |
 

@@ -11,7 +11,8 @@ function Start-TaskspaceProviderBoundary {
         [string]$ProviderSecret,
         [int]$RequestHardLimit,
         [string]$Model,
-        [string]$ProviderBaseUrl = 'https://api.deepseek.com'
+        [string]$ProviderBaseUrl = 'https://api.deepseek.com',
+        [hashtable]$BudgetLimits = @{}
     )
     if ($RequestHardLimit -lt 1) { throw 'provider_boundary_limit_invalid: hard limit must be positive' }
     if ($Model -notmatch '^deepseek-') {
@@ -46,6 +47,13 @@ function Start-TaskspaceProviderBoundary {
         $createArgs += @(Get-TaskspaceContainerMountArg $secretPath '/run/secrets/deepseek_api_key' -ReadOnly)
         $createArgs += @(
             '--env', "PROVIDER_REQUEST_HARD_LIMIT=$RequestHardLimit",
+            '--env', "PROVIDER_INPUT_TOKEN_HARD_LIMIT=$([int64]$BudgetLimits.input_token_limit)",
+            '--env', "PROVIDER_OUTPUT_TOKEN_HARD_LIMIT=$([int64]$BudgetLimits.output_token_limit)",
+            '--env', "PROVIDER_ESTIMATED_COST_HARD_LIMIT=$([double]$BudgetLimits.estimated_cost_limit)",
+            '--env', "PROVIDER_BUDGET_CURRENCY=$([string]$BudgetLimits.currency)",
+            '--env', "PROVIDER_CACHED_INPUT_RATE_PER_MILLION=$([double]$BudgetLimits.cached_input_rate_per_million)",
+            '--env', "PROVIDER_UNCACHED_INPUT_RATE_PER_MILLION=$([double]$BudgetLimits.uncached_input_rate_per_million)",
+            '--env', "PROVIDER_OUTPUT_RATE_PER_MILLION=$([double]$BudgetLimits.output_rate_per_million)",
             '--env', "PROVIDER_ALLOWED_MODEL=$Model",
             '--env', "PROVIDER_UPSTREAM_BASE_URL=$ProviderBaseUrl",
             '--env', 'PROVIDER_BOUNDARY_EVENTS_PATH=/supervisor/events.jsonl',
@@ -75,6 +83,7 @@ function Start-TaskspaceProviderBoundary {
             secret_path = $secretPath
             proxy_base_url = 'http://provider-proxy:8080'
             request_hard_limit = $RequestHardLimit
+            budget_limits = $BudgetLimits
             expected_model = $Model
         }
     } catch {

@@ -75,7 +75,8 @@ def validate_ledger(
     )
     require(
         exact_json_equal(
-            entry["authorization"].get("budget_summary"), proposal["maximums"]
+            entry["authorization"].get("budget_summary"),
+            proposal.get("approved_maximums", proposal.get("maximums")),
         ),
         "cache ledger budget summary mismatch",
     )

@@ -2174,3 +2174,27 @@
 - Matched signal: P0=0、P1=0；195 项 Python 0 skip，Schema、ledger 与正式阻断状态一致。
 - Interpretation: R8 缓存门禁工程问题可关闭；真实 accepted baseline 仍需独立用户预算。
 - Time: 2026-08-01
+
+## Hypothesis H-057: 缓存 smoke 授权对象错误地采用 Provider 理论容量
+- Status: confirmed
+- Claim: v2 预算提案把 `请求数 × Provider 单请求最大上下文/输出` 写成 `maximums`，授权合同又要求用户逐字批准该字段；用户选择的 token 和费用上限只作为事后观测阈值，因此专用 runner 无法忠实表达较小的真实预算授权。
+- Predictions:
+  - 12 请求、40 万 input、2 万 output 的选择会生成 1200 万 input、460.8 万 output 的 `approved_maximums`。
+  - runner 只在 sample 完成后检查 token 阈值，无法在后续 Provider 请求前阻断累计超额。
+- Diagnostic evidence plan:
+  - 静态追踪 `build_budget_proposal`、`validate_authorization`、`execute_attempts` 和 Provider boundary。
+  - 用合同测试断言新提案的授权额度等于用户选择，Provider 容量单独披露，并在已结算 usage 达到额度后拒绝下一请求。
+- Conclusion: 由 E-064 坐实；修复采用新提案/授权版本，历史证据只读兼容。
+
+## Evidence E-064: 理论容量被强制升级为用户授权额度
+- Related hypotheses: H-057
+- Direction: supports
+- Type: code-path-proof
+- Source: `scripts/cache-regression/cache_budget.py`、`cache_run_contract.py`、`run_cache_hit_regression.py`、`scripts/taskspace-benchmark/docker/provider_boundary_proxy.py`
+- Matched signal:
+  - `cache_budget.py` 以 Provider 单请求最大 input/output 乘以请求数构造 `maximums`。
+  - `cache_run_contract.py` 要求 `authorization.approved_maximums == proposal.maximums`。
+  - 用户选择的 input/output 仅进入 `per_sample_run_observation_thresholds`，`run_cache_hit_regression.py` 在整个 sample 返回后才检查。
+  - Provider boundary 运行中只维护请求计数，不维护 terminal usage 或累计费用。
+- Interpretation: 授权文件无法表达用户批准的真实 token/费用上限，且执行层缺少请求间累计预算阻断；根因不是价格换算或展示问题。
+- Time: 2026-08-18

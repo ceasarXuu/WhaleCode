@@ -182,7 +182,7 @@ def execute_attempts(
 ) -> tuple[str | None, bool, bool, bool]:
     selection = proposal["selection"]
     limits = proposal["per_sample_run_limits"]
-    thresholds = proposal["per_sample_run_observation_thresholds"]
+    thresholds = proposal["per_sample_run_budget_limits"]
     stop_at = None
     cancelled = False
     cleanup_failed = False

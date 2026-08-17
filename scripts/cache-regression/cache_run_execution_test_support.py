@@ -71,16 +71,18 @@ class CacheRunExecutionFixture(unittest.TestCase):
                 "elapsed_seconds": 60,
                 "cleanup_grace_seconds": 120,
             },
-            "per_sample_run_observation_thresholds": {
+            "per_sample_run_budget_limits": {
                 "input_tokens": 1000,
                 "output_tokens": 100,
+                "estimated_cost": 0.5,
+                "currency": "USD",
             },
-            "maximums": {
+            "approved_maximums": {
                 "provider_requests": 20,
-                "input_tokens": 20_000_000,
-                "output_tokens": 7_680_000,
+                "input_tokens": 2000,
+                "output_tokens": 200,
                 "elapsed_seconds": 360,
-                "estimated_cost": 4.9504,
+                "estimated_cost": 1.0,
                 "currency": "USD",
             },
             "provider_hard_limits": {

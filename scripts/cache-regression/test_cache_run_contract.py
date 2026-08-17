@@ -67,9 +67,10 @@ class CacheRunContractTest(unittest.TestCase):
                     {"id": "prompt", "globs": ["prompt/**"], "reason": "prompt"}
                 ],
                 "pricing_snapshot": {
-                    "currency": "USD",
-                    "uncached_input_per_million": 0.14,
-                    "output_per_million": 0.28,
+                    "currency": "CNY",
+                    "cached_input_per_million": 0.02,
+                    "uncached_input_per_million": 1.0,
+                    "output_per_million": 2.0,
                 },
                 "provider_hard_limits": {
                     "deepseek-v4-flash": {
@@ -132,7 +133,7 @@ class CacheRunContractTest(unittest.TestCase):
             "proposal_id": self.proposal["proposal_id"],
             "proposal_sha256": self.proposal["proposal_sha256"],
             "approved_selection": self.proposal["selection"],
-            "approved_maximums": self.proposal["maximums"],
+            "approved_maximums": self.proposal["approved_maximums"],
         }
         self.authorization_path = (
             self.repo / "benchmarks/cache-regression/authorization.json"

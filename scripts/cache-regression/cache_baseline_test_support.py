@@ -11,12 +11,12 @@ from cache_boundary_test_support import (
     write_provider_boundary_evidence,
     write_provider_wire_trace,
 )
-from cache_budget import BUDGET_PROPOSAL_SCHEMA_VERSION
+from cache_budget import LEGACY_BUDGET_PROPOSAL_SCHEMA_VERSION
 from cache_cost import complete_cost_from_counts
 from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256, file_sha256
 from cache_arm_identity import fixture_arm_identity
 from cache_run_analysis import analyze_artifacts
-from cache_run_contract import AUTHORIZATION_SCHEMA_VERSION
+from cache_run_contract import LEGACY_AUTHORIZATION_SCHEMA_VERSION
 from cache_provider_route_test_support import bind_route, materialize_route_summary
 from cache_source_evidence import protected_manifest
 from cache_surface import load_contract, surface_snapshot, write_json
@@ -184,7 +184,7 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
         "currency": "USD",
     }
     proposal = {
-        "schema_version": BUDGET_PROPOSAL_SCHEMA_VERSION,
+        "schema_version": LEGACY_BUDGET_PROPOSAL_SCHEMA_VERSION,
         "created_at": "2026-07-31T12:00:00+08:00",
         "subject_commit": git(repo, "rev-parse", "HEAD"),
         "surface_sha256": surface,
@@ -246,7 +246,7 @@ def stage_accepted_promotion(repo: Path, contract_path: Path) -> None:
     write_json(proposal_path, proposal)
 
     authorization = {
-        "schema_version": AUTHORIZATION_SCHEMA_VERSION,
+        "schema_version": LEGACY_AUTHORIZATION_SCHEMA_VERSION,
         "status": "granted",
         "approved_by": "user",
         "authorization_id": "CBA-FIXTURE-001",

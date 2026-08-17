@@ -7,6 +7,13 @@ param(
     [string]$Model = "deepseek-v4-flash",
     [int]$TimeoutSeconds = 900, [int]$ValidationTimeoutSeconds = 420, [int]$ValidationPretestTimeoutSeconds = 120, [int]$ValidationTestTimeoutSeconds = 420,
     [int]$ProviderRequestHardLimit = 0,
+    [int]$ProviderInputTokenHardLimit = 0,
+    [int]$ProviderOutputTokenHardLimit = 0,
+    [double]$ProviderEstimatedCostHardLimit = 0,
+    [string]$ProviderBudgetCurrency = "",
+    [double]$ProviderCachedInputRatePerMillion = 0,
+    [double]$ProviderUncachedInputRatePerMillion = 0,
+    [double]$ProviderOutputRatePerMillion = 0,
     [string[]]$ConfigOverride = @('model_reasoning_effort="max"'),
     [string]$AdditionalConfigOverride = "",
     [ValidateSet("map-always", "map-append", "map-request")]
@@ -54,6 +61,13 @@ function ConvertTo-TaskspaceSampleNameList {
 
 if ($Repeats -lt 1) { throw "Repeats must be >= 1" }
 if ($ProviderRequestHardLimit -lt 0) { throw "ProviderRequestHardLimit must be >= 0" }
+foreach ($value in @($ProviderInputTokenHardLimit, $ProviderOutputTokenHardLimit, $ProviderEstimatedCostHardLimit, $ProviderCachedInputRatePerMillion, $ProviderUncachedInputRatePerMillion, $ProviderOutputRatePerMillion)) {
+    if ($value -lt 0) { throw "Provider budget limits and rates must be >= 0" }
+}
+$providerTokenBudgetEnabled = $ProviderInputTokenHardLimit -gt 0 -or $ProviderOutputTokenHardLimit -gt 0 -or $ProviderEstimatedCostHardLimit -gt 0
+if ($providerTokenBudgetEnabled -and ($ProviderRequestHardLimit -le 0 -or [string]::IsNullOrWhiteSpace($ProviderBudgetCurrency) -or $ProviderInputTokenHardLimit -le 0 -or $ProviderOutputTokenHardLimit -le 0 -or $ProviderEstimatedCostHardLimit -le 0 -or $ProviderUncachedInputRatePerMillion -le 0 -or $ProviderOutputRatePerMillion -le 0)) {
+    throw "provider_budget_contract_incomplete: token and cost limits require a complete provider boundary budget"
+}
 if ($ProviderRequestHardLimit -gt 0 -and $Model -notmatch '^deepseek-') {
     throw "provider_boundary_model_mismatch: provider boundary requires a DeepSeek model, got $Model"
 }
@@ -307,6 +321,15 @@ if (-not [string]::IsNullOrWhiteSpace($AdditionalConfigOverride)) {
 }
 $effectiveConfigOverrides += @($containerContract.agent_config_overrides | ForEach-Object { [string]$_ })
 $providerRouting = $null
+$providerBudget = @{
+    input_token_limit = $ProviderInputTokenHardLimit
+    output_token_limit = $ProviderOutputTokenHardLimit
+    estimated_cost_limit = $ProviderEstimatedCostHardLimit
+    currency = $ProviderBudgetCurrency
+    cached_input_rate_per_million = $ProviderCachedInputRatePerMillion
+    uncached_input_rate_per_million = $ProviderUncachedInputRatePerMillion
+    output_rate_per_million = $ProviderOutputRatePerMillion
+}
 if ($ProviderRequestHardLimit -gt 0) {
     $effectiveConfigOverrides += @(Get-TaskspaceProviderBoundaryConfigOverrides $containerContract)
     $providerRouting = Get-TaskspaceProviderBoundaryRouteEvidence $containerContract

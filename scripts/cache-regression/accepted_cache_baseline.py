@@ -264,7 +264,9 @@ def validate_run_evidence(
         result["attempts"],
         started_at,
         ended_at,
-        proposal["maximums"]["elapsed_seconds"],
+        proposal.get("approved_maximums", proposal.get("maximums"))[
+            "elapsed_seconds"
+        ],
     )
     require(
         all(
@@ -288,7 +290,10 @@ def validate_run_evidence(
                 result,
                 observation,
                 proposal["per_sample_run_limits"],
-                proposal["per_sample_run_observation_thresholds"],
+                proposal.get(
+                    "per_sample_run_budget_limits",
+                    proposal.get("per_sample_run_observation_thresholds"),
+                ),
                 source,
             )
         )

@@ -163,6 +163,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         container_resource_contract = $containerContract.resources
         provider_param_status = $providerParamStatus
         provider_request_hard_limit = $ProviderRequestHardLimit
+        provider_budget = $providerBudget
         provider_routing = $providerRouting
         config_overrides = @($effectiveConfigOverrides)
         taskspace_projection_policy = $TaskSpaceProjectionPolicy
@@ -214,7 +215,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
             }
             Write-TaskspaceJson ([pscustomobject]@{ logical_mode = $side.LogicalMode; argv = @($args); common_argv_without_treatment = @($commonArgs); treatment_delta = $treatmentDelta; execution_substrate = "docker"; container_workdir = $executionRepoDir; child_environment = $childEnvironment; provider_routing = $providerRouting }) (Join-Path $side.ArtifactDir "whale-argv.json")
             $started = Get-Date
-            $containerExec = Invoke-TaskspaceDockerAgent $containerRunId $manifest.Id ("pair-{0:000}" -f $repeat) $side $containerImage $containerContract $WhaleBin $args $childEnvironment $env:DEEPSEEK_API_KEY $ProviderRequestHardLimit $Model $TimeoutSeconds
+            $containerExec = Invoke-TaskspaceDockerAgent $containerRunId $manifest.Id ("pair-{0:000}" -f $repeat) $side $containerImage $containerContract $WhaleBin $args $childEnvironment $env:DEEPSEEK_API_KEY $ProviderRequestHardLimit $Model $TimeoutSeconds $providerBudget
             $exitCode = [int]$containerExec.exit_code
             $timedOut = [bool]$containerExec.timed_out
             $finished = Get-Date

@@ -197,7 +197,9 @@ def planned_entry(
             "status": "granted",
             "id": authorization["authorization_id"],
             "reference": authorization["approval_reference"],
-            "budget_summary": proposal["maximums"],
+            "budget_summary": proposal.get(
+                "approved_maximums", proposal.get("maximums")
+            ),
             "note": f"严格绑定预算提案 {proposal['proposal_id']}。",
         },
         "execution": {

@@ -162,7 +162,7 @@ class PromoteCacheBaselineFixture:
             "proposal_id": self.proposal["proposal_id"],
             "proposal_sha256": self.proposal["proposal_sha256"],
             "approved_selection": self.proposal["selection"],
-            "approved_maximums": self.proposal["maximums"],
+            "approved_maximums": self.proposal["approved_maximums"],
         }
         self.authorization_path = (
             self.repo / "benchmarks/cache-regression/authorization.json"
