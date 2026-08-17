@@ -263,7 +263,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 82. [`../I10/01-i10-capability-identity-closure.md`](../I10/01-i10-capability-identity-closure.md)：Catalog、dispatch、wire、
     trace 与 observer 共用同一 Runtime-only 身份的 I10 关闭结算。
 83. [`81-provider-hosted-pr05-offline-closure.md`](81-provider-hosted-pr05-offline-closure.md)：Provider Root 机械归纳的 focused、
-    State、observer、zero-base 与缓存门禁离线收口，以及生产预算停点。
+    State、observer、zero-base 与缓存门禁离线收口；获批生产运行进一步确认 `web_search` 单节点归纳、无空节点、Map 闭合和
+    预算内完整 usage。
 ## 4. 推进规则
 
 - TaskSpace Exec 已完成生产接入和 I01～I10 重映射；后续状态与顺序只以

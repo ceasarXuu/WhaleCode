@@ -2,8 +2,8 @@
 
 - Report date: 2026-08-18
 - Source plans: `00-r8-charter.md`、`01-r8-known-issues.md`、`taskspace-exec/12-phase-b-zero-base-plan.md`
-- Scope: `whalecode-alpha` branch，commit `1e44b6e23`
-- Latest runtime evidence: `WAR-20260818-013746-R8-I05-I07-ACCEPT-R3`
+- Scope: `whalecode-alpha` branch，commit `099e47ff1`
+- Latest runtime evidence: `WAR-20260818-040158-CACHE-REGRESSION-3E3BBA3B`
 - Scoring: 十个 R8 全局问题等权；每项按已验证验收条件计 `0/25/50/75/100`
 
 ## 1. 完成度总览
@@ -22,8 +22,8 @@ xychart-beta
   bar [100, 75, 100, 88, 100, 75, 50]
 ```
 
-85.0% 不等于发布完成度。当前代码和最小真实链路已经可运行，但复杂 DAG、三种 projection 的一致性、Provider-hosted
-机械归纳生产证据和复杂样本成本仍未验收。
+85.0% 不等于发布完成度。当前代码和最小真实链路已经可运行，Provider-hosted 机械归纳已有生产证据；复杂 DAG、三种
+projection 的一致性和复杂样本成本仍未验收。
 
 ## 2. 全局问题状态
 
@@ -49,7 +49,7 @@ xychart-beta
 | B2 Exec Contract | 100% | `taskspace_exec`、静态 catalog、Map/client 合法输入与预检落地 | 无 |
 | B3 Execution & Feedback | 100% | 原生 Router dispatch、逐 Tool 低延迟结算、唯一 outer result 与恢复链落地 | 无离线 blocker |
 | B4 Observability | 100% | canonical request facts、身份链、缓存门禁、性能报告和对抗性闭环完成 | 无 |
-| B5 Production Integration | 75% | Codex Exec 基建对齐、JSON 自愈、反馈分类、真实简单样本闭环 | I05 恢复分支和 Provider-hosted 聚合缺少生产命中 |
+| B5 Production Integration | 75% | Codex Exec 基建对齐、JSON 自愈、反馈分类、真实简单样本闭环及 Provider-hosted Root 归纳生产命中 | I05 恢复分支未自然在线命中 |
 | B6 Closed Sequences | 75% | L1～L8 闭集、四状态模型、DAG 预检和 simple repeat=3 通过 | 复杂 DAG 与多能力场景未通过完整验收 |
 
 ## 4. 目标与工程收益
@@ -71,13 +71,17 @@ xychart-beta
 | map-request | 3 | 3/3 | 21 | 321,120 | 299,136 | 21,984 | 6,289 | 92.35% | 53.956s |
 
 总计 41 requests、565,214 input、10,023 output，低谷估算费用 CNY 0.1121053。该结果证明当前简单样本稳定，
-不证明复杂样本、Provider-hosted Tool 或另外两种 projection 已稳定。
+不证明复杂样本或另外两种 projection 已稳定。
+
+Provider-hosted 专项另完成 `provider-web-search-probe × map-request × repeat=1`：10 requests、267,288 input、
+239,232 cached、28,056 uncached、5,225 output，request 2+ cache hit 89.03%，CNY 0.04329064。业务与 Map 均闭合，
+唯一 `web_search` Root 子节点归纳三条响应级 Action，未创建空 Hosted 节点。该结果关闭 Provider-hosted PR-05，
+但不外推另外两种 projection 或复杂 DAG。
 
 ## 6. 未完成工作
 
 | 未完成项 | 原因 | 不完成的影响 | 下一验收 |
 |---|---|---|---|
-| Provider-hosted Runtime 机械归纳 | PR-01～PR-05 已离线完成，尚无当前版本生产命中 | Web Search/Image 等动作可能未在 Map 中留下可证明记录 | 单一 hosted sample，需另行预算 |
 | I05 逃逸恢复在线分支 | 最新自然样本没有触发逃逸 | 不能证明目标模型收到失败后会稳定恢复且无请求放大 | 不人为诱导；复杂自然样本出现时随 trace 验收 |
 | I03/I04 复杂动作 | 最新证据是简单线性任务 | fork/join、多 Ready 节点和跨节点连续动作仍可能出现错误选择 | 选择一个现有复杂 sample，Standard/map-request 各一次起步 |
 | I01 三 projection | 只对 map-request 做了当前版本验收 | 无法比较 always/append/request 的最终一致性与固有成本 | 每种策略保持同 Runtime，仅测 projection 差异 |
@@ -87,10 +91,9 @@ xychart-beta
 
 | 优先级 | 动作 | 依赖 | 验收方式 |
 |---:|---|---|---|
-| P0 | 完成 Provider-hosted 机械归纳 PR-05 | 不恢复双写/pending | 离线回归后申请单一 hosted sample 预算 |
 | P1 | 选择一个复杂 DAG sample 验收 I03/I04 | P0 项无 blocker | Standard/map-request 各 repeat=1，异常即停 |
 | P1 | 重评 I01 的三 projection 一致性 | I03/I04 复杂路径稳定 | 三种 projection 同 Runtime 对照 |
 | P2 | 完成 I08 复杂成本与产品阈值判断 | I01～I07、I09～I10 收敛 | 请求/token/cache/time/cost 全量对比 |
 
-下一步不建议继续修改提示词、状态机或合法序列。应先用现有证据关闭可关闭项，再补 Provider-hosted 生产证据，最后才进入
-复杂 DAG 与成本验收。
+下一步不建议继续修改提示词、状态机或合法序列。Provider-hosted 生产证据已补齐，应先关闭可关闭项，再进入复杂 DAG、
+三 projection 与成本验收；任何新的真实运行都需重新申请预算。

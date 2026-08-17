@@ -336,6 +336,14 @@
 > `request-facts.json`，raw wire 只提供独有 shape/LCP 元数据，重复 wire attempt/terminal fail closed。TaskSpace Exec 77/77、
 > request-fact 22/22 及完整本地报告链通过；尚未运行 Whale Agent，两项继续 `verifying`。
 
+> **Provider-hosted Runtime 机械归纳生产验收（2026-08-18）**：获批的
+> `provider-web-search-probe × map-request × repeat=1` 完成业务、验证和 Map 闭合。10 个 Provider 请求 usage 完整，
+> 267,288 input / 239,232 cached / 28,056 uncached / 5,225 output，request 2+ cache hit 89.03%，冻结价格估算
+> CNY 0.04329064。四个 `web_search_call` 内部 item 按三次 Provider 响应聚合成三条逻辑 Action；持久化 Map 只有一个
+> Root 子节点 `web_search`，状态 Completed，Finish 依赖该节点，未预建其他 Hosted 空节点。PR-05 生产验收关闭；它不改变
+> I03 对 Agent 组织 Map/client 动作的 `verifying` 状态。详见
+> [`taskspace-exec/81-provider-hosted-pr05-offline-closure.md`](taskspace-exec/81-provider-hosted-pr05-offline-closure.md)。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。
@@ -389,7 +397,7 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 最新 3 次 TaskSpace 均无 Waiting/frontier 拒绝，全部节点闭合；简单样本正向证据不足以外推关闭 | verifying | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 最新 repeat=3 的请求/input/平均每请求 input/Agent wall 为 `1.05x/1.32x/1.25x/1.33x`；无异常重试，复杂样本外推未执行 | [investigating](I08/10-r8-e3-current-production-repeat3-result.md) | GI-008 |
 
-问题总数：**10**；Open：**5**；Closed：**5**。当前停点：**Provider-hosted Runtime 机械归纳的生产验收预算**。
+问题总数：**10**；Open：**5**；Closed：**5**。Provider-hosted Runtime 机械归纳已通过生产验收，当前没有该专题停点。
 I07 已由 41 个真实请求关闭；I05 的 Fatal 恢复缺口已离线修复且正常路径无回归，不在未实现清单中；I08 的小型等价压缩按用户决定暂缓，
 不回删 Map、合法序列或状态机硬合同。
 

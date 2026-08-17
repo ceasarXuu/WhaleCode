@@ -1,0 +1,38 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v2",
+  "status": "granted",
+  "approved_by": "user",
+  "approved_at": "2026-08-18T03:59:37+08:00",
+  "authorization_id": "CBA-20260818-R8-PROVIDER-HOSTED-V3-F8A519EBAC18D638",
+  "approval_reference": "用户于 2026-08-18 在收到完整预算说明后明确回复‘批准预算’，随后明确要求修复旧授权放大缺陷。本授权仅覆盖 deepseek-v4-flash、provider-web-search-probe × map-request × repeat=1，最多 12 个 Provider 请求、400,000 input、20,000 output、0.44 CNY 冻结价格估算额度、720 秒执行时间，零自动重试；任一业务、usage、预算或运行异常立即停止。该额度严格小于用户批准的 1.40 CNY 总包。",
+  "proposal_id": "CBP-F8A519EBAC18D638",
+  "proposal_sha256": "598473e0152022636353b0290f3d2662278673dec0aac96f619236502b7e5b82",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "provider-web-search-probe"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 1,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 1,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "验证 R8 Provider hosted web_search 在生产 map-request 路径中由 Runtime 机械聚合到 Root 专用节点；用户批准单样本单臂 repeat=1、零重试，任一业务、usage、预算或运行异常立即停止。"
+  },
+  "approved_maximums": {
+    "provider_requests": 12,
+    "input_tokens": 400000,
+    "output_tokens": 20000,
+    "elapsed_seconds": 840,
+    "estimated_cost": 0.44,
+    "currency": "CNY"
+  }
+}

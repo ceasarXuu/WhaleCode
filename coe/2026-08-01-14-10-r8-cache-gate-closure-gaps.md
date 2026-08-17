@@ -2198,3 +2198,15 @@
   - Provider boundary 运行中只维护请求计数，不维护 terminal usage 或累计费用。
 - Interpretation: 授权文件无法表达用户批准的真实 token/费用上限，且执行层缺少请求间累计预算阻断；根因不是价格换算或展示问题。
 - Time: 2026-08-18
+
+## Evidence E-065: 批准预算成为执行边界并通过真实结算
+- Related hypotheses: H-057
+- Direction: supports
+- Type: fix-validation
+- Source: commit `099e47ff1`；run `WAR-20260818-040158-CACHE-REGRESSION-3E3BBA3B`
+- Matched signal:
+  - v3 提案把 12 requests、400,000 input、20,000 output、CNY 0.44 写入 `approved_maximums`；Provider 理论容量只进入独立披露字段。
+  - Provider boundary 在 10 个响应后逐次结算 267,288 input、239,232 cached、5,225 output 和 CNY 0.04329064；10/10 usage 完整。
+  - 运行未触及任何批准上限，零重试；账本按同一授权合同结算。
+- Interpretation: 真实运行证明批准的 token、费用和请求数由执行边界直接消费，不再被 Provider 理论容量放大，也不再只依赖 sample 结束后的事后检查。
+- Time: 2026-08-18

@@ -1,7 +1,122 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-18T01:42:48+08:00",
+  "updated_at": "2026-08-18T04:03:36+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260818-040158-CACHE-REGRESSION-3E3BBA3B",
+      "record_type": "run_batch",
+      "status": "settled",
+      "started_at": "2026-08-18T04:02:07+08:00",
+      "ended_at": "2026-08-18T04:03:36+08:00",
+      "elapsed_calendar_seconds": 89.613,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "验证 R8 Provider hosted web_search 在生产 map-request 路径中由 Runtime 机械聚合到 Root 专用节点；用户批准单样本单臂 repeat=1、零重试，任一业务、usage、预算或运行异常立即停止。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260818-R8-PROVIDER-HOSTED-V3-F8A519EBAC18D638",
+        "reference": "用户于 2026-08-18 在收到完整预算说明后明确回复‘批准预算’，随后明确要求修复旧授权放大缺陷。本授权仅覆盖 deepseek-v4-flash、provider-web-search-probe × map-request × repeat=1，最多 12 个 Provider 请求、400,000 input、20,000 output、0.44 CNY 冻结价格估算额度、720 秒执行时间，零自动重试；任一业务、usage、预算或运行异常立即停止。该额度严格小于用户批准的 1.40 CNY 总包。",
+        "budget_summary": {
+          "provider_requests": 12,
+          "input_tokens": 400000,
+          "output_tokens": 20000,
+          "elapsed_seconds": 840,
+          "estimated_cost": 0.44,
+          "currency": "CNY"
+        },
+        "note": "严格绑定预算提案 CBP-F8A519EBAC18D638。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "3a0d653c4ff47202a65735f6622d4c26d20d2c099b98fea07efbfddf1175712a",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "provider-web-search-probe"
+        ],
+        "arm_ids": [
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 10,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 267288,
+        "cached_input": 239232,
+        "uncached_input": 28056,
+        "output": 5225
+      },
+      "monetary_cost": {
+        "status": "estimated",
+        "currency": "CNY",
+        "amount": 0.04329064,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.00478464,
+          "uncached_input": 0.028056,
+          "output": 0.01045
+        },
+        "pricing_snapshot": {
+          "currency": "CNY",
+          "captured_at": "2026-08-18",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "按完整 provider token 遥测和冻结价格估算。"
+      },
+      "evidence": {
+        "planned_run_root": "target/cache-hit-regression/WAR-20260818-040158-CACHE-REGRESSION-3E3BBA3B",
+        "subject_commit": "099e47ff13797c1dd0420c1b379a462c056e0665",
+        "surface_sha256": "bc4ae37dd3b6e2ce14598cb724a9529b794502e88376c202ca34028e9cabf4e8",
+        "proposal_id": "CBP-F8A519EBAC18D638",
+        "proposal_contract_sha256": "598473e0152022636353b0290f3d2662278673dec0aac96f619236502b7e5b82",
+        "proposal_path": "benchmarks/cache-regression/proposals/2026-08-18-provider-hosted-production-v3.json",
+        "proposal_sha256": "a82a445afcfb24af97aa5f1b83e8bd0510c7ace5f94b4edf488729ecced5cda8",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260818-R8-PROVIDER-HOSTED-V3-F8A519EBAC18D638.json",
+        "authorization_sha256": "309022b73de987fdfb8712432c844dc2cb30d8d4524e89ed833f9b6be860dd69",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "provider-web-search-probe"
+          ],
+          "arms": [
+            "map-request"
+          ],
+          "repeat": 1,
+          "planned_sample_runs": 1,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 1,
+          "stop_conditions": [
+            "after_any_run_failure",
+            "after_any_business_failure",
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "验证 R8 Provider hosted web_search 在生产 map-request 路径中由 Runtime 机械聚合到 Root 专用节点；用户批准单样本单臂 repeat=1、零重试，任一业务、usage、预算或运行异常立即停止。"
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_run_failure",
+          "after_any_business_failure",
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "complete",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260818-040158-CACHE-REGRESSION-3E3BBA3B/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "b4ed0753fb1e614af590f287db2f7c7cecb634e6f28fa623d4655e0f4d86f109",
+        "actual_run_root": "target/cache-hit-regression/WAR-20260818-040158-CACHE-REGRESSION-3E3BBA3B",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260818-040158-CACHE-REGRESSION-3E3BBA3B.json",
+        "runner_exit_code": 0,
+        "outcome": "completed"
+      }
+    },
     {
       "record_id": "WAR-20260818-013746-R8-I05-I07-ACCEPT-R3",
       "record_type": "run_batch",
