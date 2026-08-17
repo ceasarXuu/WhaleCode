@@ -106,3 +106,16 @@ python3 scripts/cache-regression/check_cache_regression_gate.py --source index
 
 聚焦测试、benchmark harness、E3 harness guardrails 和历史失败 trace 离线重算均通过；没有运行 Whale Agent。I07 继续
 保持 `verifying`，只剩获批真实运行对本次接线的最终验收。
+
+## 7. 2026-08-18 Consumer 漂移闭环
+
+提交 `7a4346156` 修复首轮对抗性审查发现的第二套请求事实模型：
+
+- `r7-request-observability.ps1` 不再从 raw terminal 重建请求身份、attempt、完成状态或 usage；
+- 生产矩阵把已经封存的 `request-facts.json` 直接传给 observer，避免重复生成或双重解释；
+- raw wire 读取只保留其独有的 message shape、LCP、transport 和 final-control identity；
+- 相同的重复 wire attempt/terminal 现在由 canonical facts 明确标为不可比较，重复 rollout 状态快照仍保持幂等；
+- consumer inventory 增加代码合同，禁止 observer 重新读取 terminal 身份字段。
+
+Python request-fact 测试 22/22、五层 trace、Provider token identity、完整 observability report 和 performance self-test
+均通过。该修复没有运行 Whale Agent；I07 仍等待获批真实矩阵验证实际产物结算和失败停止合同。

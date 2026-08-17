@@ -454,3 +454,28 @@ real Whale Agent runs: 0
   ```
 - Interpretation: 当前协议下可独立修复的 I07 缺陷已完成；W9/W11 仍依赖 TaskSpace Exec，不因本结果自动关闭
 - Time: 2026-08-05 08:58
+
+## Evidence E-014: R7 observer 第二套请求事实模型被删除
+- Related hypotheses:
+  - H-001
+  - H-002
+- Direction: supports
+- Type: deterministic-test
+- Source: commit `7a4346156`
+- Prediction or plan link:
+  - 请求身份、attempt、terminal 和 usage 必须只有 canonical `request-facts.json` 一个权威模型
+- Matched signal:
+  - 生产 report 将已封存的 request facts 直接传入 observer
+  - observer 不再解析 raw terminal identity/status/usage，只读取 wire 独有的 shape、LCP、transport 和 final-control identity
+  - 重复 wire attempt/terminal 由 canonical facts 标记为 incomparable；重复 rollout 状态快照仍保持幂等
+  - consumer inventory 的代码合同禁止 observer 重新读取 terminal 身份字段
+- Raw content:
+  ```text
+  Python request facts: 22/22 passed
+  R7 five-layer trace analysis passed
+  R7 provider token identity passed
+  R7 request observability report passed
+  performance observation self-test passed
+  ```
+- Interpretation: I07 的生产消费者不再维护平行请求事实模型；本结果仍是离线证据，真实运行产物和停止结算待获批验收
+- Time: 2026-08-18

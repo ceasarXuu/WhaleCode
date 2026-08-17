@@ -252,6 +252,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     缺失/多余统一唯一候选，历史 13 次 syntax reject 分类、正式上下文替换和离线验证证据。
 77. [`76-single-closing-delimiter-self-heal-repeat5-result.md`](76-single-closing-delimiter-self-heal-repeat5-result.md)：当前自愈版本
     五轮真实验证；5/5 完成，1 次缺 `}` 自愈在同一请求完成 patch，零 syntax reject；多余符号删除分支未自然触发。
+78. [`77-i05-client-escape-recovery-result.md`](77-i05-client-escape-recovery-result.md)：顶层 client Tool 逃逸在参数解析前零执行拒绝、
+    同 `call_id` 正式反馈、可继续请求与完整性硬失败边界的离线结果。
 ## 4. 推进规则
 
 - R8 已知问题队列继续暂停，直到该主方案完成生产接入并重新盘点 I01～I10。

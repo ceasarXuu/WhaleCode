@@ -1837,3 +1837,20 @@
   但两个独立 response item 的首次共现仍未稳定，I03 不能关闭。证据不支持 Runtime 自动绑定、跨响应 pending、
   默认 Root 或 Web Search 内部 action 映射，当前缓存候选不晋升。
 - Time: 2026-08-14
+
+## Evidence E-052: 顶层 Client Tool 逃逸获得可继续的同身份失败反馈
+- Related hypotheses:
+  - H-021
+- Direction: supports
+- Type: deterministic-test
+- Source: commit `e596d2f27`
+- Prediction or plan link:
+  - forbidden 顶层 client Tool 必须在副作用前拒绝，并把准确失败结果送入下一请求，而不是终止整个会话
+- Matched signal:
+  - malformed `exec_command(arguments={})` 在原生参数解析前被拒绝，历史中保留原调用和同 `call_id` 失败结果
+  - client handler 调用计数为 0，反馈明确 Tool 未执行并要求使用 `taskspace_exec`
+  - client escape 与多个 Exec 同时出现时，多 Exec 完整性错误仍为 Fatal
+  - 同响应已完成的 Web Search action 在 recoverable escape 下仍被机械保存
+  - TaskSpace Exec 77/77、`cargo fmt --check` 和免费 final-wire 缓存门禁通过
+- Interpretation: I05 的 Fatal 恢复工程缺口已离线闭合；Runtime 没有自动包装、执行或绑定错误动作。目标模型收到反馈后的在线纠正稳定性仍待获批真实验收
+- Time: 2026-08-18

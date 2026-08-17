@@ -1,7 +1,7 @@
 # R8 已知问题唯一账本
 
 - Created: 2026-07-31
-- Updated: 2026-08-16
+- Updated: 2026-08-18
 - Authority: R8 当前问题状态的唯一事实源
 - Historical evidence: `docs/v0.0.5/build-R7/47-r7.1-global-issue-register-legacy.md`
 
@@ -329,6 +329,12 @@
 > [`I08/10-r8-e3-current-production-repeat3-result.md`](I08/10-r8-e3-current-production-repeat3-result.md)。
 > `R8-E3` 为实验标签，runner 正式 evidence target 是 E2，不能替代 I01/I07 关闭合同要求的正式 E3。
 
+> **I05/I07 离线收敛（2026-08-18）**：`e596d2f27` 在原生参数解析前把 forbidden 顶层 client Tool 逃逸转换为
+> 同 `call_id`、零执行、可继续请求的正式失败反馈；多 Exec、响应身份与 Map 快照等完整性错误仍保持 Fatal，同响应已完成
+> Hosted action 不丢失。`7a4346156` 删除 R7 observer 内平行的 terminal/usage 解析，生产报告统一消费 canonical
+> `request-facts.json`，raw wire 只提供独有 shape/LCP 元数据，重复 wire attempt/terminal fail closed。TaskSpace Exec 77/77、
+> request-fact 22/22 及完整本地报告链通过；尚未运行 Whale Agent，两项继续 `verifying`。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。
@@ -374,16 +380,17 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 1 | R8-I09 | F0 | P0 | 恢复旧任务时可能接受内部关系损坏的任务地图 | 只恢复结构完整的地图；损坏时停止且不改变当前事实 | 当前关系 Store、hydrate 校验和 State 回归继续成立 | [closed](I09/01-i09-store-hydrate-repair-result.md) | GI-009 |
 | 2 | R8-I01 | F1 | P0 | 一轮工作后 Agent 可能收到互相竞争的新旧进度 | 每轮只有一个可继续使用的结果，revision 不成为 Agent 填表负担 | 当前双臂 34 个请求无 retry/duplicate；旧双版本链仍为零。只覆盖 `map-request`，三 projection 验收未完成 | [verifying](I01/00-i01-response-final-revision-repair-plan.md) | GI-001 |
 | 3 | R8-I06 | F2 | P0 | 组合工具内部动作可能绕过归属和单 Patch 硬门 | 所有 TaskSpace client 动作先过同一请求级预检，普通 Tool 保持原生 | 自然出现的顶层 `exec_command` 被副作用前硬拒绝；成功运行每请求最多一个 Patch。硬门在线成立，仍待正式关闭结算 | verifying | GI-006 |
-| 4 | R8-I05 | F3 | P1 | 拒绝原因可能重复或混淆错误发生的协议层级 | 忠实返回一次失败，并准确区分语法、合同、预检与执行错误；未提交候选不得表现为已保存状态 | 复合 JSON 错误获得准确、零副作用反馈并纠正；顶层 client escape 却直接 Fatal，缺少可纠正反馈路径 | verifying | GI-005 |
+| 4 | R8-I05 | F3 | P1 | 拒绝原因可能重复或混淆错误发生的协议层级 | 忠实返回一次失败，并准确区分语法、合同、预检与执行错误；未提交候选不得表现为已保存状态 | `e596d2f27` 已将顶层 client escape 改为同 `call_id`、零执行、可继续请求的正式反馈；完整性错误仍 Fatal，待真实 Agent 纠正路径验收 | verifying | GI-005 |
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 当前 final wire 无 Exec output body 重复或 orphan output；旧 carrier/Event Store 仍为零。保持静态关闭候选 | verifying | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 当前 TaskSpace trace 的 capability identity 68 次一致且无冲突；生产 identity 正向证据已取得，待正式关闭结算 | [verifying](I10/00-i10-capability-identity-repair-plan.md) | GI-010 |
-| 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | `827b660a4` 已修正 Map 完成判断、usage 唯一口径，并增加显式 `-StopOnAnySideFailure` 执行合同；历史 trace 离线重算通过，待下一次获批真实运行验收 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
+| 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | `827b660a4` 修正 Map/usage/停止合同；`7a4346156` 删除 observer 的第二套 terminal/usage 模型并统一 canonical facts；本地报告链通过，待真实产物验收 | [verifying](I07/00-i07-observability-trust-repair-plan.md) | GI-007 |
 | 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与 client 动作 | 稳定生成初始化并执行、完成并继续、完成并结束；Provider-hosted Tool 当前不参与 Agent 归属协议 | 当前 repeat=3 中 1 次顶层 client escape 导致失败、1 次复合 JSON/schema 错误后纠正；动作组织明确未通过 | verifying | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 两次到达交接的运行均无 Waiting frontier 或非法 `waiting -> in_flight`；失败轮未到达交接，正向证据不足以关闭 | verifying | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 成功 Pair 的请求/input/平均每请求 input 为 `1.17x/1.40x/1.20x`，与 IC-09 同方向；小型 3.03% 候选按用户决定暂缓，异常请求仍优先 | [investigating](I08/10-r8-e3-current-production-repeat3-result.md) | GI-008 |
 
-问题总数：**10**；Open：**9**；Closed：**1**。当前停点：**I03 顶层 client escape / 复合参数不稳定、I05 Fatal 恢复缺口，
-以及 I07 本次工程修复的真实运行验收**。I08 的小型等价压缩按用户决定暂缓，不回删 Map、合法序列或状态机硬合同。
+问题总数：**10**；Open：**9**；Closed：**1**。当前停点：**I03 顶层 client escape / 复合参数稳定性，以及 I05/I07
+工程修复的真实运行验收**。I05 的 Fatal 恢复缺口已离线修复，不在未实现清单中；I08 的小型等价压缩按用户决定暂缓，
+不回删 Map、合法序列或状态机硬合同。
 
 ## 4. VA-04A 证据边界
 
@@ -391,9 +398,9 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 |---|---|---|---|
 | 确定性关闭 | I09 | 关系 Store hydrate 仍拒绝非法图，State 134 项通过 | 无 |
 | 静态关闭候选 | I01、I02、I06 | 旧根因和旧生产路径为零，新 Exec 的内部 revision、零副作用预检和不可绕过入口有确定性测试 | 目标模型是否仍产生 stale 重试或非法组合 |
-| 工程修复待生产验收 | I05 | JSON/schema reject 仍能准确反馈且零副作用 | forbidden 顶层 client Tool 当前直接 Fatal，Agent 无纠正机会 |
+| 工程修复待生产验收 | I05 | JSON/schema reject 与 forbidden 顶层 client Tool 均有准确、同调用身份、零副作用反馈；后者允许下一请求纠正 | 尚未用目标模型确认纠正后能继续完成任务且不产生异常请求放大 |
 | 工程完成待关闭结算 | I10 | 当前 TaskSpace trace 的 capability identity 在 68 个跨层位置逐值一致 | 三 projection 完整生产验收尚未执行 |
-| 工程修复待生产验收 | I07 | 当前 34 个请求身份完整；成功 Patch declaration/result 均 1/1；`827b660a4` 的历史 trace 重算已消除 Map 误报并恢复 canonical usage，runner 停止合同有独立回归测试 | 尚未在新的获批真实矩阵中验证显式停止参数与产物结算 |
+| 工程修复待生产验收 | I07 | 当前 34 个请求身份完整；`827b660a4` 修正 Map/usage/停止合同；`7a4346156` 使生产 observer 只消费 canonical 请求事实并对重复 wire 事实 fail closed | 尚未在新的获批真实矩阵中验证显式停止参数、实际 artifact 与最终结算 |
 | outer wire 与 handoff 在线观察 | I03 | 唯一机械自愈继续按边界工作，首次初始化 3/3 合法 | 1/3 顶层 client escape、1/3 复合 JSON/schema 错误，整体未通过 |
 | 当前行为已观察 | I04 | 两次到达交接的运行均无 Waiting frontier 或非法显式派生状态 | 失败轮未到达交接，当前只有 2 个有效行为样本 |
 | 成本已定位、机械反馈已收敛 | I08 | 两个成功 Pair 的总 input 为 1.398x、平均每请求 input 为 1.198x，与 IC-09 稳定同方向 | I03/I05 异常仍会破坏完成率与总成本；复杂样本外推未执行 |

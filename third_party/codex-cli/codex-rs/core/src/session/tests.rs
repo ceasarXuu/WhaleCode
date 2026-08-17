@@ -7521,7 +7521,7 @@ async fn tool_calls_reopen_mailbox_delivery_for_current_turn() {
         id: None,
         name: "test_tool".to_string(),
         namespace: None,
-        arguments: "{}".to_string(),
+        arguments: "{\"cmd\":".to_string(),
         call_id: "call-1".to_string(),
     };
     let mut ctx = HandleOutputCtx {

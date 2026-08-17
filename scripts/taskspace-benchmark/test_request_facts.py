@@ -90,6 +90,16 @@ class RequestFactsTests(unittest.TestCase):
         self.assertEqual(facts["availability"]["completion"], "incomparable")
         self.assertEqual(facts["availability"]["usage"], "incomparable")
 
+    def test_equal_duplicate_wire_attempt_fails_closed(self) -> None:
+        shape = self._shape("r1", "l1", 1, 1, "a" * 64)
+        terminal = self._terminal("r1", "l1", 1, "response_completed")
+        path = self._write("wire-duplicate-attempt.jsonl", [shape, shape, terminal])
+
+        facts = build_request_facts(wire_path=path)
+
+        self.assertIn("wire_attempt_duplicate", self._codes(facts))
+        self.assertEqual(facts["availability"]["attempt"], "incomparable")
+
     def test_completed_without_boundary_and_unknown_boundary_fail_closed(self) -> None:
         wire = self._write(
             "wire.jsonl",
