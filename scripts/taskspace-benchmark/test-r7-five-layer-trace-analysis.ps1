@@ -389,9 +389,9 @@ try {
     $wirePath = Join-Path $tempRoot "wire.jsonl"
     $resultHash = ("a" * 64) -join ""
     Write-Lines $wirePath @(
-        @{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_shape_recorded"; request_id = "wire-1"; logical_request_id = "wire-1-logical"; attempt_seq = 1; transport = "responses_http"; request_index = 1; provider_wire_api = "ChatCompletions"; lcp_message_count = 0; message_shapes = @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }); taskspace_final_control_result_identity = @{ count = 0; results = @() }; section_cost = @{ sections = @(@{ kind = "tools"; estimated_tokens = 100 }, @{ kind = "active_projection"; estimated_tokens = 20 }) } },
+        @{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_shape_recorded"; request_id = "wire-1"; logical_request_id = "wire-1-logical"; attempt_seq = 1; transport = "responses_http"; status = "payload_captured"; request_index = 1; provider_payload_sha256 = "a" * 64; provider_wire_api = "ChatCompletions"; lcp_message_count = 0; message_shapes = @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }); taskspace_final_control_result_identity = @{ count = 0; results = @() }; section_cost = @{ sections = @(@{ kind = "tools"; estimated_tokens = 100 }, @{ kind = "active_projection"; estimated_tokens = 20 }) } },
         @{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_request_terminal"; request_id = "wire-1"; logical_request_id = "wire-1-logical"; attempt_seq = 1; transport = "responses_http"; status = "response_completed"; input_tokens = 100; cached_input_tokens = 0; output_tokens = 10; reasoning_output_tokens = 4; total_tokens = 110 },
-        @{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_prefix_broken"; request_id = "wire-2"; logical_request_id = "wire-2-logical"; attempt_seq = 1; transport = "responses_websocket"; request_index = 2; provider_wire_api = "Responses"; lcp_message_count = 2; message_shapes = @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }, @{ index = 2; role = "assistant" }, @{ index = 3; role = "tool" }, @{ index = 4; role = "tool" }); taskspace_final_control_result_identity = @{ count = 1; results = @(@{ message_index = 4; item_kind = "function_call_output"; wire_role = $null; control_call_id_sha256 = $resultHash; canonical_revision = 2; settled = $true }) }; section_cost = @{ sections = @(@{ kind = "tools"; estimated_tokens = 100 }, @{ kind = "active_projection"; estimated_tokens = 40 }) } },
+        @{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_prefix_broken"; request_id = "wire-2"; logical_request_id = "wire-2-logical"; attempt_seq = 1; transport = "responses_websocket"; status = "payload_captured"; request_index = 2; provider_payload_sha256 = "b" * 64; provider_wire_api = "Responses"; lcp_message_count = 2; message_shapes = @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }, @{ index = 2; role = "assistant" }, @{ index = 3; role = "tool" }, @{ index = 4; role = "tool" }); taskspace_final_control_result_identity = @{ count = 1; results = @(@{ message_index = 4; item_kind = "function_call_output"; wire_role = $null; control_call_id_sha256 = $resultHash; canonical_revision = 2; settled = $true }) }; section_cost = @{ sections = @(@{ kind = "tools"; estimated_tokens = 100 }, @{ kind = "active_projection"; estimated_tokens = 40 }) } },
         @{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_request_terminal"; request_id = "wire-2"; logical_request_id = "wire-2-logical"; attempt_seq = 1; transport = "responses_websocket"; status = "response_completed"; input_tokens = 200; cached_input_tokens = 20; output_tokens = 12; reasoning_output_tokens = 5; total_tokens = 212 }
     )
     $sections = Get-R7WireSectionSummary $wirePath
@@ -420,9 +420,9 @@ try {
 
     $retryWirePath = Join-Path $tempRoot "wire-retry.jsonl"
     Write-Lines $retryWirePath @(
-        @{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_shape_recorded"; request_id = "retry-logical:attempt-1"; logical_request_id = "retry-logical"; attempt_seq = 1; transport = "responses_http"; request_index = 1; provider_wire_api = "ChatCompletions"; lcp_message_count = 0; message_shapes = @(); taskspace_final_control_result_identity = @{ count = 0; results = @() } },
+        @{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_shape_recorded"; request_id = "retry-logical:attempt-1"; logical_request_id = "retry-logical"; attempt_seq = 1; transport = "responses_http"; status = "payload_captured"; request_index = 1; provider_payload_sha256 = "c" * 64; provider_wire_api = "ChatCompletions"; lcp_message_count = 0; message_shapes = @(); taskspace_final_control_result_identity = @{ count = 0; results = @() } },
         @{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_request_terminal"; request_id = "retry-logical:attempt-1"; logical_request_id = "retry-logical"; attempt_seq = 1; transport = "responses_http"; status = "retry_unauthorized" },
-        @{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_prefix_preserved"; request_id = "retry-logical:attempt-2"; logical_request_id = "retry-logical"; attempt_seq = 2; transport = "responses_http"; request_index = 2; provider_wire_api = "ChatCompletions"; lcp_message_count = 2; message_shapes = @(); taskspace_final_control_result_identity = @{ count = 0; results = @() } },
+        @{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_prefix_preserved"; request_id = "retry-logical:attempt-2"; logical_request_id = "retry-logical"; attempt_seq = 2; transport = "responses_http"; status = "payload_captured"; request_index = 2; provider_payload_sha256 = "d" * 64; provider_wire_api = "ChatCompletions"; lcp_message_count = 2; message_shapes = @(); taskspace_final_control_result_identity = @{ count = 0; results = @() } },
         @{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_request_terminal"; request_id = "retry-logical:attempt-2"; logical_request_id = "retry-logical"; attempt_seq = 2; transport = "responses_http"; status = "response_completed"; input_tokens = 120; cached_input_tokens = 100; output_tokens = 8; reasoning_output_tokens = 2; total_tokens = 128 }
     )
     $retryRequests = New-R7RequestRows
@@ -454,7 +454,7 @@ try {
     Write-Lines $duplicateTerminalPath $duplicateTerminalRows
     $duplicateTerminalRejected = $false
     try { Get-R7WireRequestInventory $duplicateTerminalPath | Out-Null }
-    catch { $duplicateTerminalRejected = $_.Exception.Message -like "*incomplete physical request rows" }
+    catch { $duplicateTerminalRejected = $_.Exception.Message -like "Canonical request facts are unavailable*wire_terminal_duplicate*" }
     if (-not $duplicateTerminalRejected) {
         throw "Duplicate provider terminal did not fail closed"
     }
@@ -471,7 +471,10 @@ try {
     Write-Lines $reorderedAttemptPath $reorderedAttemptRows
     $reorderedAttemptRejected = $false
     try { Get-R7WireRequestInventory $reorderedAttemptPath | Out-Null }
-    catch { $reorderedAttemptRejected = $_.Exception.Message -like "*attempts are missing, duplicated, or reordered*" }
+    catch {
+        $reorderedAttemptRejected =
+            $_.Exception.Message -like "Canonical request facts are unavailable*logical_attempt_sequence_invalid*"
+    }
     if (-not $reorderedAttemptRejected) {
         throw "Reordered provider retry attempts did not fail closed"
     }

@@ -12,7 +12,9 @@ function Write-WireFixture([string]$Path, $Terminal) {
         logical_request_id = "logical-1"
         attempt_seq = 1
         transport = "responses_http"
+        status = "payload_captured"
         request_index = 1
+        provider_payload_sha256 = "a" * 64
         provider_wire_api = "ChatCompletions"
         lcp_message_count = 0
         message_shapes = @()
@@ -53,7 +55,9 @@ function Assert-InvalidTokenFixture([string]$Name, [scriptblock]$Mutation) {
     try {
         Get-R7WireRequestInventory $path | Out-Null
     } catch {
-        $rejected = $_.Exception.Message -match "incomplete physical request rows"
+        $rejected = $_.Exception.Message -match (
+            "Canonical request facts are unavailable.*usage_(missing|invalid)"
+        )
     }
     if (-not $rejected) {
         throw "Provider token fixture was accepted: $Name"
@@ -111,7 +115,9 @@ try {
         logical_request_id = "logical-1"
         attempt_seq = "1"
         transport = "responses_http"
+        status = "payload_captured"
         request_index = "1"
+        provider_payload_sha256 = "a" * 64
         provider_wire_api = "ChatCompletions"
         lcp_message_count = 0
         message_shapes = @()
@@ -129,7 +135,7 @@ try {
         Get-R7WireRequestInventory $identityPath | Out-Null
     } catch {
         $identityRejected = $_.Exception.Message -match (
-            "invalid nonnegative Int64|incomplete physical request rows"
+            "Canonical request facts are unavailable.*(identity_incomplete|attempt_evidence_invalid)"
         )
     }
     if (-not $identityRejected) {

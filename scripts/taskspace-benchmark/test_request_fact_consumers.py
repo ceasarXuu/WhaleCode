@@ -24,6 +24,17 @@ class ConsumerInventoryTests(unittest.TestCase):
         )
         self.assertEqual(GATE.compare(GATE.discover(repo), inventory), [])
 
+    def test_r7_observer_does_not_rebuild_terminal_or_usage_facts(self) -> None:
+        repo = Path(__file__).resolve().parents[2]
+        source = (
+            repo
+            / "scripts/taskspace-benchmark/lib/r7-request-observability.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Invoke-TaskspaceRequestFactsGenerator", source)
+        self.assertNotIn("provider.chat_wire_request_terminal", source)
+        self.assertNotIn("terminal_logical_request_id", source)
+        self.assertNotIn("terminal_attempt_seq", source)
+
     def test_unknown_reader_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)

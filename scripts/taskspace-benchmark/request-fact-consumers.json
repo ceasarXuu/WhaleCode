@@ -13,7 +13,7 @@
     {"path":"scripts/taskspace-benchmark/lib/provider-section-cost.ps1","role":"consumer","observed_sources":["canonical","local_attempt"]},
     {"path":"scripts/taskspace-benchmark/lib/metrics-extractor.ps1","role":"consumer","observed_sources":["canonical"]},
     {"path":"scripts/taskspace-benchmark/lib/timing.ps1","role":"consumer","observed_sources":["terminal"]},
-    {"path":"scripts/taskspace-benchmark/lib/r7-request-observability.ps1","role":"consumer","observed_sources":["canonical","terminal"]},
+    {"path":"scripts/taskspace-benchmark/lib/r7-request-observability.ps1","role":"canonical_derived","observed_sources":["canonical","terminal"]},
     {"path":"scripts/taskspace-benchmark/lib/pair-report.ps1","role":"consumer","observed_sources":["canonical"]},
     {"path":"scripts/taskspace-benchmark/lib/r7-request-facts-provenance.ps1","role":"consumer","observed_sources":["canonical"]},
     {"path":"scripts/taskspace-benchmark/lib/r7-artifact-provenance.ps1","role":"consumer","observed_sources":["canonical"]},

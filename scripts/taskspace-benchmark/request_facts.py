@@ -104,6 +104,7 @@ def _put_once(
     request_id: str,
     counters: Counter[str],
     count_equal: bool = True,
+    equal_finding_code: str | None = None,
     line_number: int | None = None,
 ) -> None:
     if key not in target:
@@ -111,6 +112,15 @@ def _put_once(
     elif target[key] == value:
         if count_equal:
             counters["duplicate_event_count"] += 1
+        if equal_finding_code is not None:
+            findings.append(
+                _finding(
+                    equal_finding_code,
+                    source,
+                    request_id=request_id,
+                    line_number=line_number,
+                )
+            )
     else:
         findings.append(_finding("identity_conflict", source, request_id=request_id, line_number=line_number))
 
@@ -222,6 +232,7 @@ def _parse_wire(
                 "wire",
                 request_id,
                 counters,
+                equal_finding_code="wire_attempt_duplicate",
                 line_number=event.get("_request_facts_line_number"),
             )
             continue
@@ -234,7 +245,17 @@ def _parse_wire(
                 terminal["usage"] = _usage(event)
             except ValueError as error:
                 findings.append(_finding(str(error), "wire", request_id=request_id, line_number=event.get("_request_facts_line_number")))
-        _put_once(row, "terminal", terminal, findings, "wire", request_id, counters, line_number=event.get("_request_facts_line_number"))
+        _put_once(
+            row,
+            "terminal",
+            terminal,
+            findings,
+            "wire",
+            request_id,
+            counters,
+            equal_finding_code="wire_terminal_duplicate",
+            line_number=event.get("_request_facts_line_number"),
+        )
 
 
 def _normalized_rows(

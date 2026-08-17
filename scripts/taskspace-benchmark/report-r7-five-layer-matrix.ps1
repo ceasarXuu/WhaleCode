@@ -163,7 +163,7 @@ foreach ($run in @($manifest.runs)) {
     $requestSummary = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path ([string]$row.artifact_dir) "request-summary.json") | ConvertFrom-Json -Depth 50
     $requestFacts = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path ([string]$row.artifact_dir) "request-facts.json") | ConvertFrom-Json -Depth 100
     $sectionSummary = Get-R7WireSectionSummary $wireTracePath
-    $wireInventory = @(Get-R7WireRequestInventory $wireTracePath)
+    $wireInventory = @(Get-R7WireRequestInventory $wireTracePath $requestFacts)
     if ([string]$requestFacts.schema_version -ne "whalecode-request-facts-v1" -or
         [string]$requestFacts.availability.attempt -ne "measured" -or
         [string]$requestFacts.availability.completion -ne "measured") {
@@ -245,7 +245,8 @@ foreach ($run in @($manifest.runs)) {
         Add-R7WireFactsToRequestPath `
             @($requestPath) `
             $wireTracePath `
-            ([int]$flat.provider_local_attempts)
+            ([int]$flat.provider_local_attempts) `
+            $requestFacts
     )
     $requestObservability = Get-R7RequestObservabilitySummary @($requestPath)
     if (-not [bool]$requestObservability.classification_reconciled) {

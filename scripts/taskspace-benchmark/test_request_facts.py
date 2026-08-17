@@ -79,6 +79,17 @@ class RequestFactsTests(unittest.TestCase):
         self.assertEqual(facts["summary"]["usage_record_count"], 1)
         self.assertEqual(facts["summary"]["duplicate_event_count"], 1)
 
+    def test_equal_duplicate_wire_terminal_fails_closed(self) -> None:
+        shape = self._shape("r1", "l1", 1, 1, "a" * 64)
+        terminal = self._terminal("r1", "l1", 1, "response_completed")
+        path = self._write("wire-duplicate-terminal.jsonl", [shape, terminal, terminal])
+
+        facts = build_request_facts(wire_path=path)
+
+        self.assertIn("wire_terminal_duplicate", self._codes(facts))
+        self.assertEqual(facts["availability"]["completion"], "incomparable")
+        self.assertEqual(facts["availability"]["usage"], "incomparable")
+
     def test_completed_without_boundary_and_unknown_boundary_fail_closed(self) -> None:
         wire = self._write(
             "wire.jsonl",

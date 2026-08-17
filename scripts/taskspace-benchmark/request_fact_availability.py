@@ -24,6 +24,8 @@ def classify_availability(
         "attempt_index_sequence_invalid",
         "logical_attempt_sequence_invalid",
         "logical_completion_sequence_invalid",
+        "wire_attempt_duplicate",
+        "wire_terminal_duplicate",
     }
     rollout_errors = {
         "json_invalid",
