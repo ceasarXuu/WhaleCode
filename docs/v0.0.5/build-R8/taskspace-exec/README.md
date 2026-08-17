@@ -258,7 +258,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     停止参数、成本和缓存的 Standard/map-request 三轮真实验收。
 ## 4. 推进规则
 
-- R8 已知问题队列继续暂停，直到该主方案完成生产接入并重新盘点 I01～I10。
+- TaskSpace Exec 已完成生产接入和 I01～I10 重映射；后续状态与顺序只以
+  [`../01-r8-known-issues.md`](../01-r8-known-issues.md) 为准，不在本目录维护第二套问题队列。
 - 唯一允许在 Phase A 前实施的全局问题子范围是 TX-00：修复 I07 已坐实的 usage/request 聚合错误；它不改变 Tool、
   Map、prompt 或 provider 行为。
 - 旧三类方案不得保留 active runtime、schema、parser、adapter 或兼容 fixture；历史文档只作证据，不得作为实现依赖。

@@ -4,6 +4,7 @@
 - Updated: 2026-08-18
 - Authority: R8 当前问题状态的唯一事实源
 - Historical evidence: `docs/v0.0.5/build-R7/47-r7.1-global-issue-register-legacy.md`
+- Current progress report: [`03-r8-current-progress.md`](03-r8-current-progress.md)
 
 > **VA-04A 离线重映射（2026-08-09）**：TaskSpace Exec Phase B4 已完成观测、固定离线门禁和当前源码重映射。
 > 此前的 Tool schema 入侵、顶层结构化容器和 sibling 配对路线已封存在

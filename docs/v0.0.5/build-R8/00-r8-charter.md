@@ -2,9 +2,10 @@
 
 - Version: v0.0.5 build-R8
 - Created: 2026-07-31
-- Updated: 2026-08-05
+- Updated: 2026-08-18
 - Status: Active
 - Previous milestone: `docs/v0.0.5/build-R7/`
+- Current progress: [`03-r8-current-progress.md`](03-r8-current-progress.md)
 
 ## 1. 立项目的
 
@@ -144,9 +145,11 @@ R8 使用外部规范校验协议边界，但不照搬外部架构：
 
 ## 8. 当前主方案
 
-2026-08-05 起，R8 暂停原问题队列，优先实施
-[`taskspace-exec/`](taskspace-exec/README.md)。该方案以 Function Call 形态的 `taskspace_exec` 作为 TaskSpace 唯一
-client/map 入口，承担合法序列与节点绑定；provider-hosted Tool 保持原生执行，并在 exec 中双写归属供 Runtime 核对。
+2026-08-05，R8 曾暂停原问题队列并优先实施 [`taskspace-exec/`](taskspace-exec/README.md)。当前主方案已完成离线骨架、
+问题重映射和简单样本生产闭环，R8 已恢复按 [`01-r8-known-issues.md`](01-r8-known-issues.md) 逐题推进。该方案以 Function Call
+形态的 `taskspace_exec` 作为 TaskSpace 唯一
+client/map 入口，承担合法序列与节点绑定。Provider-hosted Tool 保持原生执行，不进入 Agent 双写或延迟归属协议；Runtime
+在实际发生后按原生 Tool 名向 Root 下的专用 Completed 节点机械归纳，无法安全归纳时允许逃逸并记录诊断。
 
-此前的普通 Tool schema 入侵、独立顶层结构化容器和 control manifest + sibling calls 路线已降级为封存候选。封存
-只停止其生产实施，不删除已经形成的 Router、provider identity、状态正交和反例证据。
+此前的普通 Tool schema 入侵、独立顶层结构化容器、control manifest + sibling calls、Provider 双写和 pending 归属路线
+均已封存，不得作为 active 实现依赖。原生 Router、provider identity、状态正交和反例证据继续复用。
