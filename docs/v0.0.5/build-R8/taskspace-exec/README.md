@@ -256,6 +256,12 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     同 `call_id` 正式反馈、可继续请求与完整性硬失败边界的离线结果。
 79. [`78-i05-i07-repeat3-acceptance-result.md`](78-i05-i07-repeat3-acceptance-result.md)：I05 正常路径与 I07 请求事实、Map、
     停止参数、成本和缓存的 Standard/map-request 三轮真实验收。
+80. [`79-i06-tool-boundary-closure.md`](79-i06-tool-boundary-closure.md)：统一 preflight、顶层 client 旁路零副作用拒绝、
+    单 Patch 和原生 dispatch 的 I06 关闭结算。
+81. [`80-i02-single-feedback-closure.md`](80-i02-single-feedback-closure.md)：成功、拒绝和内部失败均只产生一个同 ID outer
+    Tool 反馈的 I02 关闭结算。
+82. [`../I10/01-i10-capability-identity-closure.md`](../I10/01-i10-capability-identity-closure.md)：Catalog、dispatch、wire、
+    trace 与 observer 共用同一 Runtime-only 身份的 I10 关闭结算。
 ## 4. 推进规则
 
 - TaskSpace Exec 已完成生产接入和 I01～I10 重映射；后续状态与顺序只以

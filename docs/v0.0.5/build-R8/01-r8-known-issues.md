@@ -380,16 +380,16 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 |---:|---|---:|---:|---|---|---|---|---|
 | 1 | R8-I09 | F0 | P0 | 恢复旧任务时可能接受内部关系损坏的任务地图 | 只恢复结构完整的地图；损坏时停止且不改变当前事实 | 当前关系 Store、hydrate 校验和 State 回归继续成立 | [closed](I09/01-i09-store-hydrate-repair-result.md) | GI-009 |
 | 2 | R8-I01 | F1 | P0 | 一轮工作后 Agent 可能收到互相竞争的新旧进度 | 每轮只有一个可继续使用的结果，revision 不成为 Agent 填表负担 | 当前双臂 34 个请求无 retry/duplicate；旧双版本链仍为零。只覆盖 `map-request`，三 projection 验收未完成 | [verifying](I01/00-i01-response-final-revision-repair-plan.md) | GI-001 |
-| 3 | R8-I06 | F2 | P0 | 组合工具内部动作可能绕过归属和单 Patch 硬门 | 所有 TaskSpace client 动作先过同一请求级预检，普通 Tool 保持原生 | 自然出现的顶层 `exec_command` 被副作用前硬拒绝；成功运行每请求最多一个 Patch。硬门在线成立，仍待正式关闭结算 | verifying | GI-006 |
+| 3 | R8-I06 | F2 | P0 | 组合工具内部动作可能绕过归属和单 Patch 硬门 | 所有 TaskSpace client 动作先过同一请求级预检，普通 Tool 保持原生 | 顶层 client 旁路在零副作用边界拒绝；完整计划统一预检；成功路径每请求最多一个 Patch 并走原生 Router | [closed](taskspace-exec/79-i06-tool-boundary-closure.md) | GI-006 |
 | 4 | R8-I05 | F3 | P1 | 拒绝原因可能重复或混淆错误发生的协议层级 | 忠实返回一次失败，并准确区分语法、合同、预检与执行错误；未提交候选不得表现为已保存状态 | `e596d2f27` 完成同 `call_id`、零执行、可继续反馈；repeat=3 正常路径无回归，但未自然触发逃逸恢复分支 | verifying | GI-005 |
-| 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 当前 final wire 无 Exec output body 重复或 orphan output；旧 carrier/Event Store 仍为零。保持静态关闭候选 | verifying | GI-002 |
-| 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 当前 TaskSpace trace 的 capability identity 68 次一致且无冲突；生产 identity 正向证据已取得，待正式关闭结算 | [verifying](I10/00-i10-capability-identity-repair-plan.md) | GI-010 |
+| 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 成功、拒绝和内部失败只返回一个 outer output；最新三次生产运行 `18 calls = 18 outputs`，无副本或 orphan | [closed](taskspace-exec/80-i02-single-feedback-closure.md) | GI-002 |
+| 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 身份沿 dispatch/request/wire/trace/report 传播；最新 21 个 TaskSpace wire 请求身份一致且无冲突 | [closed](I10/01-i10-capability-identity-closure.md) | GI-010 |
 | 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | 真实矩阵 41 logical/boundary/completed/usage 完全一致，无孤儿、重复、重试或 finding；Map、停止参数和账本同链可复算 | [closed](I07/01-i07-independent-repair-result.md) | GI-007 |
 | 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与 client 动作 | 稳定生成初始化并执行、完成并继续、完成并结束；Provider-hosted Tool 当前不参与 Agent 归属协议 | 最新简单样本 repeat=3 全部完成且无 escape/JSON reject；历史异常未在更复杂动作面复验，继续观察 | verifying | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 最新 3 次 TaskSpace 均无 Waiting/frontier 拒绝，全部节点闭合；简单样本正向证据不足以外推关闭 | verifying | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 最新 repeat=3 的请求/input/平均每请求 input/Agent wall 为 `1.05x/1.32x/1.25x/1.33x`；无异常重试，复杂样本外推未执行 | [investigating](I08/10-r8-e3-current-production-repeat3-result.md) | GI-008 |
 
-问题总数：**10**；Open：**8**；Closed：**2**。当前停点：**I03 动作组织稳定性，以及 I05 逃逸恢复分支的自然在线证据**。
+问题总数：**10**；Open：**5**；Closed：**5**。当前停点：**Provider-hosted Runtime 机械归纳的生产验收预算**。
 I07 已由 41 个真实请求关闭；I05 的 Fatal 恢复缺口已离线修复且正常路径无回归，不在未实现清单中；I08 的小型等价压缩按用户决定暂缓，
 不回删 Map、合法序列或状态机硬合同。
 
@@ -398,9 +398,10 @@ I07 已由 41 个真实请求关闭；I05 的 Fatal 恢复缺口已离线修复�
 | 分类 | 问题 | 当前可下结论 | 当前不能下结论 |
 |---|---|---|---|
 | 确定性关闭 | I09 | 关系 Store hydrate 仍拒绝非法图，State 134 项通过 | 无 |
-| 静态关闭候选 | I01、I02、I06 | 旧根因和旧生产路径为零，新 Exec 的内部 revision、零副作用预检和不可绕过入口有确定性测试 | 目标模型是否仍产生 stale 重试或非法组合 |
+| 静态关闭候选 | I01 | 旧双版本链为零，新 Exec 内部 revision 有确定性测试 | 三 projection 的最终一致性尚未验收 |
+| 已关闭 | I02、I06 | 单次 outer 反馈、统一预检、零副作用旁路拒绝和单 Patch 边界均有确定性与生产证据 | Agent 仍可能生成非法动作，但不再构成底层边界缺口 |
 | 工程修复、正常路径已验收 | I05 | JSON/schema reject 与 forbidden 顶层 client Tool 均有准确、同调用身份、零副作用反馈；repeat=3 正常路径全部通过 | 本轮未自然触发顶层 client escape，尚无新的恢复分支在线命中证据 |
-| 工程完成待关闭结算 | I10 | 当前 TaskSpace trace 的 capability identity 在 68 个跨层位置逐值一致 | 三 projection 完整生产验收尚未执行 |
+| 已关闭 | I10 | 最新 21 个 TaskSpace wire 请求身份一致；Catalog、dispatch、wire、trace 与 observer 共用同一值 | Projection 不参与能力身份计算，其三臂验收归入 I01/I08 |
 | 已关闭 | I07 | 41 个真实请求的 logical/boundary/completed/usage 完全一致；Map 完成、显式停止参数、实际 artifact 与账本结算同链可复算 | 本轮无失败，未刻意在线触发停止分支；该分支由确定性 runner 测试覆盖 |
 | 当前简单样本稳定 | I03 | 最新 repeat=3 全部完成 Map 初始化、工作、验证和 Finish，无 escape、JSON/schema reject 或重试 | 尚未用复杂动作样本证明历史不稳定已普遍消失 |
 | 当前行为已观察 | I04 | 最新 3 次 TaskSpace 均无 Waiting/frontier 拒绝，全部工作节点闭合 | 简单线性样本不足以覆盖复杂依赖 frontier |
@@ -413,8 +414,8 @@ Protocol 183、workspace、zero-base 和 cache gate 全部通过，详见
 [`21-phase-b4-performance-observer-result.md`](taskspace-exec/21-phase-b4-performance-observer-result.md)。完整重映射结论见
 [`23-phase-b4-issue-remap-result.md`](taskspace-exec/23-phase-b4-issue-remap-result.md)。
 
-I10 后续离线补证为 TaskSpace Exec 58、Core 1857/3、workspace、zero-base、性能观察 fixture 和缓存门禁通过，见
-[`I10 修复计划与结果`](I10/00-i10-capability-identity-repair-plan.md)。
+I10 后续离线补证为 TaskSpace Exec、Core、workspace、zero-base、性能观察 fixture 和缓存门禁通过，生产 trace 的 21 个
+TaskSpace wire 请求身份一致，见 [`I10 关闭结算`](I10/01-i10-capability-identity-closure.md)。
 
 旧 control/sibling 真实运行、旧 developer carrier 缓存结果和旧请求放大数字只保留在各专题历史文档中，不再作为当前
 问题的产品证据。VA-04B 只使用最终生产入口的获批 trace 更新状态。
@@ -424,7 +425,7 @@ I10 后续离线补证为 TaskSpace Exec 58、Core 1857/3、workspace、zero-bas
 | 上游问题 | 关闭后必须重评 | 原因 |
 |---|---|---|
 | I09 旧任务恢复可信性 | I01、I04 | 先确保恢复出的任务地图可信，才有资格评价后续进度版本和节点选择 |
-| I01/I02/I05/I06 静态候选 | I03、I04、I08 | Phase B5 同一 trace 同时确认旧根因未复现，再评价 Agent 行为与成本 |
+| I01/I05 | I03、I04、I08 | 后续复杂 trace 同时确认旧根因未复现，再评价 Agent 行为与成本 |
 | I10 稳定的工具能力版本 | I07、I08 | 性能报告必须能区分“工具变了”和“任务变了” |
 | I03 稳定的动作组合 | I04 | 先解决通用动作组织问题，再判断节点顺序错误是否仍是独立问题 |
 | I01～I07、I09～I10 | I08 | 成本是最终验收，不作为底层设计的先验优化目标 |

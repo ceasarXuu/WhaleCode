@@ -1,7 +1,7 @@
 # I10 TaskSpace 能力身份修复计划
 
 - Created: 2026-08-09
-- Status: implementation-verified；production trace pending
+- Status: closed；见 [`01-i10-capability-identity-closure.md`](01-i10-capability-identity-closure.md)
 - Product Authority: [`../taskspace-exec/00-product-contract.md`](../taskspace-exec/00-product-contract.md)
 - Applicable decisions: Runtime 维护机械身份；Agent 不回显 `capability_id`；普通 Tool 和 Standard 保持原生
 - Parent plan: [`../taskspace-exec/12-phase-b-zero-base-plan.md`](../taskspace-exec/12-phase-b-zero-base-plan.md)
@@ -47,7 +47,8 @@ Provider wire 独立记录最终 `tools_hash`，Exec 日志和性能报告无法
 
 ## 6. 后续顺序
 
-`ID-01A -> ID-01B -> ID-01C -> ID-01D -> VA-02 -> VA-03 -> VA-04B`。真实 Provider 验证仍需独立预算。
+`ID-01A -> ID-01B -> ID-01C -> ID-01D -> VA-02 -> VA-04B`。能力身份已取得当前生产 trace；三 projection 不参与
+Catalog/identity 计算，其对照归入 I01/I08，不再作为 I10 门槛。
 
 ## 7. 离线结果
 
@@ -56,4 +57,5 @@ Provider wire 独立记录最终 `tools_hash`，Exec 日志和性能报告无法
 - `ResponsesApiRequest` 等值测试证明 identity 只进入 Runtime metadata 与 trace，不改变实际 provider request。
 - 缓存门禁发现 accepted snapshot 的 Standard Skills developer 内容相对当前环境已漂移，并将提交标记为可比较候选、
   发布继续阻断；该差异不在 TaskSpace identity 或 Tool payload。是否晋升缓存基线仍需用户批准的专用真实回归。
-- I10 的静态缺口已修复，但在 VA-02/VA-03 取得当前生产 trace 前保持 `verifying`，不提前关闭。
+- 当前三次 TaskSpace 生产运行的 21 个 Provider wire 请求使用同一 identity，且 observer 无缺失或冲突；关闭结算见
+  [`01-i10-capability-identity-closure.md`](01-i10-capability-identity-closure.md)。
