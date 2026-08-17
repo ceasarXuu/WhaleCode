@@ -112,6 +112,20 @@
 3. 账本声明“业务/oracle 失败即停止”，runner 在 Pair 1 TaskSpace 失败后仍自动执行 Pair 2/3。没有超预算或自动重试，
    但停止合同没有被机械执行，后续真实矩阵前必须修正或显式改写停止策略。
 
+### 6.1 后续工程修复（`827b660a4`）
+
+上述三个缺口已完成不依赖 Provider 的工程修复：
+
+1. Map 告警直接检查持久化节点状态，不再把 `open_leaf_nodes=0` 等同于“全部节点已闭合”；本轮失败 trace 离线重算后仅保留
+   真实的 `external_validation_failed`。
+2. `token_usage_record_count` 直接读取 canonical `request-facts.summary.usage_record_count`；同一失败 trace 从错误的 `null`
+   恢复为 `2`。
+3. runner 新增显式 `-StopOnAnySideFailure`。启用时任一实际运行侧业务、执行、公开验证或隐藏 oracle 失败，当前 Pair 证据先完成
+   落盘，随后记录 `pair-stop-condition.json` 并跳过剩余 repeat；run/sample 状态按实际完成轮数标记为 `stopped`，不得无意 resume。
+
+停止策略不再从账本自然语言中推断。需要该策略的真实运行必须把参数写入实际命令；本次只完成离线验证，I07 仍为
+`verifying`，未消费新的 Whale Agent 预算。
+
 ## 7. 当前停点
 
 本轮不继续修改协议或消费真实预算。下一步应先处理两个明确问题：

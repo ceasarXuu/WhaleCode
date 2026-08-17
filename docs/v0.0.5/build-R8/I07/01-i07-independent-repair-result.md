@@ -94,3 +94,15 @@ python3 scripts/cache-regression/check_cache_regression_gate.py --source index
 - 上述工作不得重建第二套 Provider 计数规则，也不得让 observer 反向控制 Agent 或 Tool。
 
 因此本结果关闭的是“当前协议下可独立修复的观测缺陷”，不关闭全局问题 `R8-I07`。
+
+## 6. 2026-08-17 当前生产反例修复
+
+提交 `827b660a4` 修复后续 repeat=3 暴露的三个硬缺口：
+
+- Map 完成告警从持久化节点状态推导，不再用 `open_leaf_nodes=0` 猜测所有节点终止；
+- request summary 的 usage 行数与 canonical `request-facts` 共用唯一事实；
+- runner 通过显式 `-StopOnAnySideFailure` 执行失败停止策略，保留当前 Pair 证据、记录跳过轮次，并按实际完成轮数结算
+  `stopped/exit_code=1`，停止产物不能被普通 resume 绕过。
+
+聚焦测试、benchmark harness、E3 harness guardrails 和历史失败 trace 离线重算均通过；没有运行 Whale Agent。I07 继续
+保持 `verifying`，只剩获批真实运行对本次接线的最终验收。
