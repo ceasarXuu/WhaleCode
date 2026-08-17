@@ -21,10 +21,12 @@ use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::router::ToolCall;
 use crate::tools::router::ToolCallSource;
 use crate::tools::router::ToolRouter;
+use crate::tools::taskspace_exec::TASKSPACE_EXEC_TOOL_NAME;
 use crate::tools::taskspace_exec::TaskSpaceExecResponseScope;
 use crate::tools::taskspace_exec::TaskSpaceExecSelfHeal;
 use codex_protocol::error::CodexErr;
 use codex_protocol::models::ResponseInputItem;
+use codex_protocol::models::ResponseItem;
 use codex_tools::ToolSpec;
 
 #[derive(Clone)]
@@ -96,6 +98,51 @@ impl ToolCallRuntime {
         self.router.self_heal_taskspace_response_item(item)
     }
 
+    pub(crate) fn reject_taskspace_top_level_client_item(
+        &self,
+        item: &ResponseItem,
+    ) -> Option<ResponseInputItem> {
+        self.router.taskspace_response_scope().as_ref()?;
+        let (call_id, tool, custom) = match item {
+            ResponseItem::FunctionCall {
+                name,
+                namespace,
+                call_id,
+                ..
+            } if namespace.is_some() || name != TASKSPACE_EXEC_TOOL_NAME => (
+                call_id.clone(),
+                namespace
+                    .as_ref()
+                    .map_or_else(|| name.clone(), |value| format!("{value}.{name}")),
+                false,
+            ),
+            ResponseItem::CustomToolCall { call_id, name, .. } => {
+                (call_id.clone(), name.clone(), true)
+            }
+            ResponseItem::LocalShellCall { call_id, id, .. } => (
+                call_id.as_ref().or(id.as_ref())?.clone(),
+                "local_shell".to_string(),
+                false,
+            ),
+            _ => return None,
+        };
+        let output = codex_protocol::models::FunctionCallOutputPayload {
+            body: codex_protocol::models::FunctionCallOutputBody::Text(
+                taskspace_top_level_client_rejection(&tool),
+            ),
+            success: Some(false),
+        };
+        if custom {
+            Some(ResponseInputItem::CustomToolCallOutput {
+                call_id,
+                name: Some(tool),
+                output,
+            })
+        } else {
+            Some(ResponseInputItem::FunctionCallOutput { call_id, output })
+        }
+    }
+
     #[instrument(level = "trace", skip_all)]
     pub(crate) fn handle_tool_call(
         self,
@@ -115,13 +162,26 @@ impl ToolCallRuntime {
         call: ToolCall,
         cancellation_token: CancellationToken,
     ) -> impl std::future::Future<Output = ToolCallResponse> {
-        let error_call = call.clone();
-        let future = self.handle_tool_call_with_source_and_status(
-            call,
-            ToolCallSource::Direct,
-            cancellation_token,
-        );
         async move {
+            let error_call = call.clone();
+            if self.router.taskspace_response_scope().is_some()
+                && (call.provider_tool_name.namespace.is_some()
+                    || call.provider_tool_name.name != TASKSPACE_EXEC_TOOL_NAME)
+            {
+                let tool = call.provider_tool_name.display();
+                let error =
+                    FunctionCallError::RespondToModel(taskspace_top_level_client_rejection(&tool));
+                return ToolCallResponse {
+                    response: Ok(Self::failure_response(error_call, error)),
+                    cancelled: false,
+                    execution_failed: true,
+                };
+            }
+            let future = self.handle_tool_call_with_source_and_status(
+                call,
+                ToolCallSource::Direct,
+                cancellation_token,
+            );
             match future.await {
                 Ok(response) => ToolCallResponse {
                     response: Ok(response.result.into_response()),
@@ -316,6 +376,12 @@ impl ToolCallRuntime {
             format!("aborted by user after {secs:.1}s")
         }
     }
+}
+
+fn taskspace_top_level_client_rejection(tool: &str) -> String {
+    format!(
+        "TaskSpace rejects top-level client Tool `{tool}`. This client Tool was not executed. Submit client work inside one `taskspace_exec` sequence and bind each action to its `node_id`."
+    )
 }
 
 fn function_call_error_model_visible_message(error: &FunctionCallError) -> String {

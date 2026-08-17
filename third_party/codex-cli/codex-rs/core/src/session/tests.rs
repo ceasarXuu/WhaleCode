@@ -7584,6 +7584,42 @@ async fn malformed_tool_arguments_are_recorded_as_standard_tool_feedback() {
 }
 
 #[tokio::test]
+async fn taskspace_client_escape_is_rejected_before_argument_parsing_with_paired_feedback() {
+    let (sess, tc, _rx) = make_session_and_context_with_rx().await;
+    let item = ResponseItem::FunctionCall {
+        id: None,
+        name: "exec_command".to_string(),
+        namespace: None,
+        arguments: "{}".to_string(),
+        call_id: "escape-1".to_string(),
+    };
+    let mut ctx = HandleOutputCtx {
+        sess: Arc::clone(&sess),
+        turn_context: Arc::clone(&tc),
+        tool_runtime: test_taskspace_tool_runtime(Arc::clone(&sess), Arc::clone(&tc)),
+        cancellation_token: CancellationToken::new(),
+    };
+
+    let output = handle_output_item_done(&mut ctx, item, None)
+        .await
+        .expect("TaskSpace escape should return typed feedback");
+
+    assert!(output.needs_follow_up);
+    assert!(output.tool_future.is_none());
+    let history = sess.clone_history().await;
+    assert!(history.raw_items().iter().any(|item| {
+        matches!(item, ResponseItem::FunctionCall { call_id, .. } if call_id == "escape-1")
+    }));
+    assert!(history.raw_items().iter().any(|item| {
+        matches!(item, ResponseItem::FunctionCallOutput { call_id, output }
+            if call_id == "escape-1"
+                && matches!(&output.body, FunctionCallOutputBody::Text(text)
+                    if text.contains("inside one `taskspace_exec` sequence")
+                        && text.contains("was not executed")))
+    }));
+}
+
+#[tokio::test]
 async fn taskspace_self_heal_replaces_the_item_before_history_is_recorded() {
     let (sess, tc, _rx) = make_session_and_context_with_rx().await;
     let runtime = test_taskspace_tool_runtime(Arc::clone(&sess), Arc::clone(&tc));

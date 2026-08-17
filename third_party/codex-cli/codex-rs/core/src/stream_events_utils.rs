@@ -225,6 +225,20 @@ pub(crate) async fn handle_output_item_done(
     let mut output = OutputItemResult::default();
     let plan_mode = ctx.turn_context.collaboration_mode.mode == ModeKind::Plan;
 
+    if let Some(response) = ctx
+        .tool_runtime
+        .reject_taskspace_top_level_client_item(&item)
+    {
+        record_completed_response_item(ctx.sess.as_ref(), ctx.turn_context.as_ref(), &item).await;
+        if let Some(response_item) = response_input_to_response_item(&response) {
+            ctx.sess
+                .record_conversation_items(&ctx.turn_context, std::slice::from_ref(&response_item))
+                .await;
+        }
+        output.needs_follow_up = true;
+        return Ok(output);
+    }
+
     match ToolRouter::build_tool_call(ctx.sess.as_ref(), item.clone()).await {
         // The model emitted a tool call; log it, persist the item immediately, and queue the tool execution.
         Ok(Some(call)) => {

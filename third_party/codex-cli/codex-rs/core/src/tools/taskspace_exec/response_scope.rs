@@ -27,6 +27,7 @@ struct ResponseScopeState {
     complete: bool,
     terminal: bool,
     error: Option<String>,
+    recoverable_error: Option<String>,
     exec_call_id: Option<String>,
     exec_call_count: usize,
     exec_claimed: bool,
@@ -125,15 +126,19 @@ impl TaskSpaceExecResponseScope {
             }
             return;
         }
-        if let Some(tool) = unexpected_client_tool(item) {
+        if let Some((tool, recoverable)) = unexpected_client_tool(item) {
             let mut state = self
                 .state
                 .lock()
                 .expect("TaskSpace response scope poisoned");
-            if state.error.is_none() {
-                state.error = Some(format!(
-                    "TaskSpace response contains forbidden top-level client Tool `{tool}`"
-                ));
+            if state.error.is_none() && state.recoverable_error.is_none() {
+                let message =
+                    format!("TaskSpace response contains forbidden top-level client Tool `{tool}`");
+                if recoverable {
+                    state.recoverable_error = Some(message);
+                } else {
+                    state.error = Some(message);
+                }
             }
             return;
         }
@@ -253,6 +258,28 @@ impl TaskSpaceExecResponseScope {
         }
         Ok(())
     }
+
+    pub(crate) fn is_recoverable_rejection(&self, message: &str) -> bool {
+        let state = self
+            .state
+            .lock()
+            .expect("TaskSpace response scope poisoned");
+        state.terminal && state.recoverable_error.as_deref() == Some(message)
+    }
+
+    pub(crate) fn provider_actions_for_recoverable_rejection(
+        &self,
+        message: &str,
+    ) -> Result<Vec<TaskSpaceProviderActionFact>, String> {
+        let state = self
+            .state
+            .lock()
+            .expect("TaskSpace response scope poisoned");
+        if !state.terminal || state.recoverable_error.as_deref() != Some(message) {
+            return Err("TaskSpace response is not a recoverable rejection".to_string());
+        }
+        provider_actions(&state)
+    }
 }
 
 #[cfg(test)]
@@ -302,6 +329,9 @@ fn validate_finalized(state: &ResponseScopeState) -> Result<(), String> {
     if state.exec_call_count == 1 && state.response.is_none() {
         return Err("TaskSpace response has no provider response identity".to_string());
     }
+    if let Some(error) = state.recoverable_error.as_ref() {
+        return Err(error.clone());
+    }
     Ok(())
 }
 
@@ -334,18 +364,22 @@ fn provider_actions(
         .collect())
 }
 
-fn unexpected_client_tool(item: &ResponseItem) -> Option<String> {
+fn unexpected_client_tool(item: &ResponseItem) -> Option<(String, bool)> {
     match item {
         ResponseItem::FunctionCall {
             name, namespace, ..
-        } if namespace.is_some() || name != TASKSPACE_EXEC_TOOL_NAME => Some(
+        } if namespace.is_some() || name != TASKSPACE_EXEC_TOOL_NAME => Some((
             namespace
                 .as_ref()
                 .map_or_else(|| name.clone(), |namespace| format!("{namespace}.{name}")),
-        ),
-        ResponseItem::LocalShellCall { .. } => Some("local_shell".to_string()),
-        ResponseItem::CustomToolCall { name, .. } => Some(name.clone()),
-        ResponseItem::ToolSearchCall { .. } => Some("tool_search".to_string()),
+            true,
+        )),
+        ResponseItem::LocalShellCall { call_id, id, .. } => Some((
+            "local_shell".to_string(),
+            call_id.as_ref().or(id.as_ref()).is_some(),
+        )),
+        ResponseItem::CustomToolCall { name, .. } => Some((name.clone(), true)),
+        ResponseItem::ToolSearchCall { .. } => Some(("tool_search".to_string(), false)),
         _ => None,
     }
 }
@@ -514,7 +548,81 @@ mod tests {
 
         let error = scope.finalize(true, Some(response_identity())).unwrap_err();
         assert!(error.contains("forbidden top-level client Tool `inspect`"));
+        assert!(scope.is_recoverable_rejection(&error));
         assert!(scope.claim_response("outer").is_err());
+    }
+
+    #[test]
+    fn integrity_rejection_is_not_recoverable() {
+        let scope = TaskSpaceExecResponseScope::default();
+        scope.begin_request("map-1", Some(7)).unwrap();
+        for call_id in ["outer-1", "outer-2"] {
+            scope.record_completed_item(&ResponseItem::FunctionCall {
+                id: None,
+                name: TASKSPACE_EXEC_TOOL_NAME.into(),
+                namespace: None,
+                arguments: "{}".into(),
+                call_id: call_id.into(),
+            });
+        }
+
+        let error = scope.finalize(true, Some(response_identity())).unwrap_err();
+        assert!(!scope.is_recoverable_rejection(&error));
+    }
+
+    #[test]
+    fn client_escape_does_not_hide_multiple_exec_integrity_failure() {
+        let scope = TaskSpaceExecResponseScope::default();
+        scope.begin_request("map-1", Some(7)).unwrap();
+        scope.record_completed_item(&ResponseItem::FunctionCall {
+            id: None,
+            name: "inspect".into(),
+            namespace: None,
+            arguments: "{}".into(),
+            call_id: "bypass".into(),
+        });
+        for call_id in ["outer-1", "outer-2"] {
+            scope.record_completed_item(&ResponseItem::FunctionCall {
+                id: None,
+                name: TASKSPACE_EXEC_TOOL_NAME.into(),
+                namespace: None,
+                arguments: "{}".into(),
+                call_id: call_id.into(),
+            });
+        }
+
+        let error = scope.finalize(true, Some(response_identity())).unwrap_err();
+        assert!(error.contains("more than one Exec call"));
+        assert!(!scope.is_recoverable_rejection(&error));
+    }
+
+    #[test]
+    fn recoverable_client_rejection_preserves_completed_hosted_actions() {
+        let scope = TaskSpaceExecResponseScope::default();
+        scope.begin_request("map-1", Some(7)).unwrap();
+        scope.record_completed_item(&ResponseItem::WebSearchCall {
+            id: Some("ws-1".into()),
+            status: Some("completed".into()),
+            action: None,
+        });
+        scope.record_completed_item(&ResponseItem::FunctionCall {
+            id: None,
+            name: "inspect".into(),
+            namespace: None,
+            arguments: "{}".into(),
+            call_id: "bypass".into(),
+        });
+
+        let error = scope.finalize(true, Some(response_identity())).unwrap_err();
+        let actions = scope
+            .provider_actions_for_recoverable_rejection(&error)
+            .unwrap();
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].tool, "web_search");
+        assert_eq!(
+            actions[0].action_id,
+            "taskspace/provider/response-1/web_search"
+        );
     }
 
     #[test]

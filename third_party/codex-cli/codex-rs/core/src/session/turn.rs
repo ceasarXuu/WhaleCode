@@ -2036,7 +2036,7 @@ async fn try_run_sampling_request(
     let mut assistant_message_stream_parsers = AssistantMessageStreamParsers::new(plan_mode);
     let mut plan_mode_state = plan_mode.then(|| PlanModeStreamState::new(&turn_context.sub_id));
     let receiving_span = trace_span!("receiving_stream");
-    let outcome: CodexResult<SamplingRequestResult> = loop {
+    let mut outcome: CodexResult<SamplingRequestResult> = loop {
         let handle_responses = trace_span!(
             parent: &receiving_span,
             "handle_responses",
@@ -2475,10 +2475,19 @@ async fn try_run_sampling_request(
     )
     .await;
 
+    let mut recoverable_taskspace_rejection = None;
     let provider_actions = if let Some(scope) = taskspace_response_scope.as_ref() {
-        scope
-            .finalize(response_completed, taskspace_response_identity)
-            .map_err(taskspace_response_reconciliation_error)?
+        match scope.finalize(response_completed, taskspace_response_identity) {
+            Ok(actions) => actions,
+            Err(message) if scope.is_recoverable_rejection(&message) => {
+                let actions = scope
+                    .provider_actions_for_recoverable_rejection(&message)
+                    .map_err(taskspace_response_reconciliation_error)?;
+                recoverable_taskspace_rejection = Some(message);
+                actions
+            }
+            Err(message) => return Err(taskspace_response_reconciliation_error(message)),
+        }
     } else {
         Vec::new()
     };
@@ -2489,10 +2498,22 @@ async fn try_run_sampling_request(
         .await
         .map_err(taskspace_response_reconciliation_error)?;
 
-    if let Some(scope) = taskspace_response_scope.as_ref() {
-        scope
-            .ensure_reconciled()
-            .map_err(taskspace_response_reconciliation_error)?;
+    if let Some(message) = recoverable_taskspace_rejection {
+        warn!(
+            event_name = "taskspace.exec.response_rejected",
+            reason_code = "recoverable_client_tool_escape",
+            reason = %message,
+            "TaskSpace response rejected; model may correct the request"
+        );
+        if let Ok(result) = outcome.as_mut() {
+            result.needs_follow_up = true;
+        }
+    } else {
+        if let Some(scope) = taskspace_response_scope.as_ref() {
+            scope
+                .ensure_reconciled()
+                .map_err(taskspace_response_reconciliation_error)?;
+        }
     }
 
     if cancellation_token.is_cancelled() {

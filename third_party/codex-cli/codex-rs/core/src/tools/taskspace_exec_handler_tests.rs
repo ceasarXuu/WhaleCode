@@ -5,6 +5,8 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use codex_protocol::models::FunctionCallOutputBody;
+use codex_protocol::models::ResponseInputItem;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::MapRuntimeMode;
 use codex_tools::AdditionalProperties;
@@ -28,6 +30,7 @@ use crate::tools::context::FunctionToolOutput;
 use crate::tools::context::ToolCallSource;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolPayload;
+use crate::tools::parallel::ToolCallRuntime;
 
 #[test]
 fn waiting_preflight_feedback_names_parents_and_mechanical_batch_boundary() {
@@ -746,10 +749,13 @@ async fn production_router_exposes_only_exec_and_hosted_and_blocks_client_bypass
     let mut builder = ToolRegistryBuilder::new();
     builder.push_spec(inspect_spec());
     builder.push_spec(hosted_spec());
-    builder.register_handler("inspect", Arc::new(LedgerAwareHandler::default()));
-    let router = ToolRouter::from_builder_for_test(builder)
-        .into_taskspace(&[])
-        .unwrap();
+    let client_handler = Arc::new(LedgerAwareHandler::default());
+    builder.register_handler("inspect", Arc::clone(&client_handler));
+    let router = Arc::new(
+        ToolRouter::from_builder_for_test(builder)
+            .into_taskspace(&[])
+            .unwrap(),
+    );
     let visible = router
         .model_visible_specs()
         .into_iter()
@@ -758,12 +764,14 @@ async fn production_router_exposes_only_exec_and_hosted_and_blocks_client_bypass
     assert_eq!(visible, vec!["taskspace_exec", "web_search"]);
 
     let (session, turn) = make_session_and_context().await;
-    let result = router
-        .dispatch_tool_call_with_code_mode_result(
-            Arc::new(session),
-            Arc::new(turn),
-            CancellationToken::new(),
-            Arc::new(Mutex::new(TurnDiffTracker::new())),
+    let runtime = ToolCallRuntime::new(
+        router,
+        Arc::new(session),
+        Arc::new(turn),
+        Arc::new(Mutex::new(TurnDiffTracker::new())),
+    );
+    let result = runtime
+        .handle_tool_call_with_status(
             ToolCall {
                 provider_tool_name: ToolName::plain("inspect"),
                 dispatch_tool_name: ToolName::plain("inspect"),
@@ -772,8 +780,21 @@ async fn production_router_exposes_only_exec_and_hosted_and_blocks_client_bypass
                     arguments: "{}".into(),
                 },
             },
-            ToolCallSource::Direct,
+            CancellationToken::new(),
         )
         .await;
-    assert!(result.is_err());
+    assert!(result.execution_failed);
+    assert_eq!(client_handler.calls.load(Ordering::SeqCst), 0);
+    let ResponseInputItem::FunctionCallOutput { call_id, output } =
+        result.response.expect("model-visible rejection")
+    else {
+        panic!("expected a function call rejection")
+    };
+    assert_eq!(call_id, "bypass");
+    let FunctionCallOutputBody::Text(message) = output.body else {
+        panic!("expected textual rejection")
+    };
+    assert!(message.contains("top-level client Tool `inspect`"));
+    assert!(message.contains("was not executed"));
+    assert!(message.contains("inside one `taskspace_exec` sequence"));
 }
