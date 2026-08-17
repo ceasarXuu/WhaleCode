@@ -47,6 +47,48 @@ function Write-TaskspaceRunEvent {
     ($row | ConvertTo-Json -Depth 20 -Compress) | Add-Content -LiteralPath $path -Encoding UTF8
 }
 
+function Get-TaskspacePairStopDecision {
+    param(
+        [bool]$StopOnAnySideFailure,
+        [object[]]$SideMetrics = @()
+    )
+    $failedSides = New-Object System.Collections.Generic.List[object]
+    if ($StopOnAnySideFailure) {
+        foreach ($metrics in @($SideMetrics)) {
+            $reasons = New-Object System.Collections.Generic.List[string]
+            if ($null -eq $metrics) {
+                $reasons.Add("metrics_unavailable")
+            } else {
+                if (-not ($metrics.PSObject.Properties.Name -contains "business_success") -or
+                    $metrics.business_success -ne $true) {
+                    $reasons.Add("business_success_false")
+                }
+                foreach ($field in @("exec_exit_code", "public_validation_exit_code", "hidden_oracle_exit_code")) {
+                    if ($metrics.PSObject.Properties.Name -contains $field -and
+                        $null -ne $metrics.$field -and [int]$metrics.$field -ne 0) {
+                        $reasons.Add("${field}_nonzero")
+                    }
+                }
+                if ($metrics.PSObject.Properties.Name -contains "exec_timed_out" -and [bool]$metrics.exec_timed_out) {
+                    $reasons.Add("exec_timed_out")
+                }
+            }
+            if ($reasons.Count -gt 0) {
+                $failedSides.Add([pscustomobject]@{
+                        side = if ($null -ne $metrics -and $metrics.PSObject.Properties.Name -contains "mode") { [string]$metrics.mode } else { "unknown" }
+                        logical_mode = if ($null -ne $metrics -and $metrics.PSObject.Properties.Name -contains "logical_mode") { [string]$metrics.logical_mode } else { "unknown" }
+                        reasons = @($reasons.ToArray())
+                    })
+            }
+        }
+    }
+    [pscustomobject]@{
+        stop = $failedSides.Count -gt 0
+        code = if ($failedSides.Count -gt 0) { "any_side_failure" } else { "none" }
+        failed_sides = @($failedSides.ToArray())
+    }
+}
+
 function Find-TaskspaceLatestRunDir {
     param(
         [Parameter(Mandatory = $true)][string]$RunRoot,
@@ -168,6 +210,12 @@ function Set-TaskspaceBenchmarkRunPhase {
         $status["exit_code"] = 3
         $status["resume_allowed"] = $false
         $status["force_rerun_required"] = $true
+    } elseif ($Phase -eq "stopped") {
+        $status["run_validity"] = "valid"
+        $status["diagnostic_comparison_enabled"] = $true
+        $status["exit_code"] = 1
+        $status["resume_allowed"] = $false
+        $status["force_rerun_required"] = $true
     } elseif (-not $status.Contains("run_validity")) {
         $status["run_validity"] = "valid"
         $status["diagnostic_comparison_enabled"] = $true
@@ -238,11 +286,11 @@ function Set-TaskspaceSampleStatus {
         resume_command = $ResumeCommand
         run_validity = if ($Phase -eq "invalid_harness") { "invalid_harness" } elseif ($Phase -eq "ineligible") { "ineligible" } else { "valid" }
         diagnostic_comparison_enabled = ($Phase -ne "invalid_harness")
-        exit_code = if ($Phase -eq "invalid_harness") { 3 } elseif ($Phase -eq "ineligible") { 2 } else { 0 }
-        resume_allowed = ($Phase -ne "invalid_harness")
-        force_rerun_required = ($Phase -eq "invalid_harness")
-        abort_scope = if ($Phase -eq "invalid_harness") { "sample" } else { "none" }
-        abort_phase = ""
+        exit_code = if ($Phase -eq "invalid_harness") { 3 } elseif ($Phase -eq "ineligible") { 2 } elseif ($Phase -eq "stopped") { 1 } else { 0 }
+        resume_allowed = ($Phase -notin @("invalid_harness", "stopped"))
+        force_rerun_required = ($Phase -in @("invalid_harness", "stopped"))
+        abort_scope = if ($Phase -in @("invalid_harness", "stopped")) { "sample" } else { "none" }
+        abort_phase = if ($Phase -eq "stopped") { "stop_condition" } else { "" }
         abort_signature = ""
     }
     Write-TaskspaceAtomicJson $status (Join-Path $RunDir "sample-status.json")

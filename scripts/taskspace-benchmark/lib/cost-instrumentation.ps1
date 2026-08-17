@@ -1334,7 +1334,7 @@ function New-TaskspaceRequestSummary {
         availability = if ($requestTraceMeasured) { "measured" } else { "request_trace_unavailable" }
         model_request_count_source = if ($requestTraceMeasured) { "request_facts_completed_usage" } else { "unavailable" }
         model_request_count = $requestCount
-        token_usage_record_count = $TokenSummary.model_request_count
+        token_usage_record_count = $rolloutTrace.model_request_count
         avg_input_tokens_per_request = if ($requestTraceMeasured -and $null -ne $rolloutTrace.input_tokens) { [Math]::Round([double]$rolloutTrace.input_tokens / [double]$requestCount, 4) } else { $null }
         avg_output_tokens_per_request = if ($requestTraceMeasured -and $null -ne $rolloutTrace.output_tokens) { [Math]::Round([double]$rolloutTrace.output_tokens / [double]$requestCount, 4) } else { $null }
         max_input_tokens_per_request = $rolloutTrace.max_input_tokens_per_request

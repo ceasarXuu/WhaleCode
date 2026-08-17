@@ -166,6 +166,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         provider_routing = $providerRouting
         config_overrides = @($effectiveConfigOverrides)
         taskspace_projection_policy = $TaskSpaceProjectionPolicy
+        stop_on_any_side_failure = [bool]$StopOnAnySideFailure
         sandbox_mode = "docker_hard_boundary"
         oracle_isolation_policy = $OracleIsolationPolicy
         logical_mode_map = @{ left = $pair.Left.LogicalMode; right = $pair.Right.LogicalMode }
@@ -463,6 +464,27 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         Write-Host "RunDir: $runDir"
         Write-Host "PairAbort: $($abort.abort_path)"
         exit 3
+    }
+    $stopDecision = Get-TaskspacePairStopDecision ([bool]$StopOnAnySideFailure) @($selectedSides | ForEach-Object { $metricsBySide[[string]$_.Name] })
+    if ([bool]$stopDecision.stop) {
+        $stopConditionTriggered = $true
+        $stopConditionReason = [string]$stopDecision.code
+        $stopConditionArtifact = Join-Path $pair.PairDir "pair-stop-condition.json"
+        $skippedRepeats = if ($repeat -lt $Repeats) { @(($repeat + 1)..$Repeats) } else { @() }
+        Write-TaskspaceJson ([pscustomobject]@{
+                schema_version = "taskspace-pair-stop-condition-v1"
+                reason = $stopConditionReason
+                repeat = $repeat
+                failed_sides = @($stopDecision.failed_sides)
+                skipped_repeats = $skippedRepeats
+            }) $stopConditionArtifact
+        Write-TaskspaceRunEvent $runDir "run_stop_condition_triggered" @{
+            reason = $stopConditionReason
+            repeat = $repeat
+            artifact = $stopConditionArtifact
+            skipped_repeats = $skippedRepeats
+        }
+        break
     }
     if ([string]$manifest.EvidenceTarget -eq "E3" -and $repeat -eq 1 -and $Repeats -gt 1) {
         $sentinel = Get-TaskspaceSentinelAbortDecision $standardMetrics $taskspaceMetrics

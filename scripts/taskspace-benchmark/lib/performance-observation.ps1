@@ -120,8 +120,11 @@ function Get-PerformanceMapFacts {
     $openLeaves = Get-PerformanceCount (Get-PerformanceProperty $Metrics "open_leaf_nodes")
     $resultCount = Get-PerformanceCount (Get-PerformanceProperty $graph "result_count")
     $unreviewed = Get-PerformanceCount (Get-PerformanceProperty $graph "unreviewed_result_count")
+    $allNodesTerminal = $nodes.Count -gt 0 -and @($nodes | Where-Object {
+            [string]$_.status -notin @("completed", "failed", "cancelled")
+        }).Count -eq 0
     if ($mapCount -gt 0 -and $nodeCount -gt 1 -and $edgeCount -eq 0) { $Warnings.Add("multi_node_map_without_edges") }
-    if ($mapCount -gt 0 -and $openLeaves -eq 0 -and $taskStatus -eq "active") { $Warnings.Add("root_task_active_after_nodes_closed") }
+    if ($mapCount -gt 0 -and $allNodesTerminal -and $taskStatus -eq "active") { $Warnings.Add("root_task_active_after_nodes_closed") }
     if ($unreviewed -gt 0) { $Warnings.Add("unreviewed_results_present") }
     [pscustomobject]@{
         map_count = $mapCount

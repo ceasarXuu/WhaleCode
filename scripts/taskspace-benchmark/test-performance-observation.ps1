@@ -558,6 +558,26 @@ Assert-True ([string]$partialScopeReport.comparison_scope_status -eq "unavailabl
 Assert-True ((Get-Content -Raw -Encoding UTF8 -LiteralPath $partialScopeResult.event_log_path) -match '"event":"performance_comparison_scope_invalid"') "invalid comparison scope did not emit its stable event"
 [IO.File]::WriteAllText($pair1ModePath, $pair1ModeOriginal, [Text.UTF8Encoding]::new($false))
 
+$activeMapArtifacts = Join-Path $RunRoot "active-map-artifacts"
+Write-Json ([pscustomobject]@{
+        source = [pscustomobject]@{ mapStore = [pscustomobject]@{ availability = "measured" } }
+        maps = @([pscustomobject]@{ id = "map-active" })
+        nodes = @(
+            [pscustomobject]@{ id = "root"; title = "Root"; status = "in_flight"; results = @() },
+            [pscustomobject]@{ id = "inspect"; title = "Inspect"; status = "in_flight"; results = @() },
+            [pscustomobject]@{ id = "finish"; title = "Finish"; status = "waiting"; results = @() }
+        )
+        edges = @(
+            [pscustomobject]@{ from = "root"; to = "inspect" },
+            [pscustomobject]@{ from = "inspect"; to = "finish" }
+        )
+        tasks = @([pscustomobject]@{ id = "task-active"; status = "active" })
+    }) (Join-Path $activeMapArtifacts "observability/action-map-observability.json")
+$activeMapWarnings = New-Object System.Collections.Generic.List[string]
+$activeMapFacts = Get-PerformanceMapFacts $activeMapArtifacts ([pscustomobject]@{ open_leaf_nodes = 0 }) $activeMapWarnings
+Assert-True ($activeMapFacts.node_count -eq 3) "active map fixture was not read"
+Assert-True (-not @($activeMapWarnings).Contains("root_task_active_after_nodes_closed")) "active nodes were misreported as a fully closed map"
+
 if ($failures.Count -gt 0) {
     $failures | ForEach-Object { Write-Error $_ }
     exit 1

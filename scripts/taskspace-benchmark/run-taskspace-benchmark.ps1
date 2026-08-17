@@ -39,6 +39,7 @@ param(
     [ValidateSet("both", "left", "right")]
     [string]$RunSide = "both",
     [switch]$ForceRerun,
+    [switch]$StopOnAnySideFailure,
     [switch]$AllowStaleWhaleBin,
     [switch]$PlanOnly
 )
@@ -96,6 +97,9 @@ if (-not $resuming) {
     Write-TaskspaceRunEvent $runDir "resume_requested" @{ stale_lock = $stale; command_line = $commandLine }
     if ($existingStatus -and $existingStatus.PSObject.Properties.Name -contains "run_validity" -and [string]$existingStatus.run_validity -eq "invalid_harness" -and -not $ForceRerun) {
         throw "Run is invalid_harness and cannot be resumed without -ForceRerun: $runDir"
+    }
+    if ($existingStatus -and [string]$existingStatus.phase -eq "stopped" -and -not $ForceRerun) {
+        throw "Run was stopped by an executable stop condition and cannot be resumed without -ForceRerun: $runDir"
     }
     if (-not $stale -and $existingStatus.phase -notin @("completed", "ineligible")) {
         throw "Run appears active and is not stale: $runDir"
@@ -159,6 +163,7 @@ Update-TaskspaceBenchmarkRunStatusFields $runDir @{
     code_complete_marker_sha256 = $CodeCompleteMarkerSha256
     run_side = $RunSide
     taskspace_projection_policy = $TaskSpaceProjectionPolicy
+    stop_on_any_side_failure = [bool]$StopOnAnySideFailure
 } | Out-Null
 $promptCopy = Join-Path $runDir "prompt.txt"
 Write-Text $promptCopy $prompt
@@ -314,8 +319,12 @@ Write-TaskspaceRunEvent $runDir "container_image_ready" @{
 
 $pairReports = New-Object System.Collections.Generic.List[object]
 $probe = $null
+$stopConditionTriggered = $false
+$stopConditionReason = ""
+$stopConditionArtifact = ""
 . (Join-Path $PSScriptRoot "run-taskspace-benchmark-pairs.ps1")
 
+$completedPairCount = @($pairReports.ToArray()).Count
 $runSummaryPath = Join-Path $runDir "run-summary.md"
 Write-TaskspaceRunSummary -Path $runSummaryPath -Reports @($pairReports.ToArray())
 $sampleTimingPath = Write-TaskspaceSampleTiming -RunDir $runDir -SampleId $manifest.Id -TaskListHash $TaskListHash -SourceVersion $SourceVersion -ProfileHash $ProfileHash
@@ -325,17 +334,27 @@ if ($EnableAggregate) {
     $aggregatePath = Join-Path $runDir "aggregate-report.md"
     Write-TaskspaceAggregateReport -Path $aggregatePath -Reports @($pairReports.ToArray())
     $auditPending = @($pairReports.ToArray() | Where-Object { @($_.evidence.e3_gate_failures) -contains "e3_human_review_not_completed" }).Count -gt 0
-    $finalPhase = if ($auditPending) { "audit_required" } else { "finalize" }
-    Set-TaskspaceSampleStatus $runDir $manifest.Id $finalPhase $Repeats $Repeats "" "" $aggregatePath $runSummaryPath $commandLine | Out-Null
+    $finalPhase = if ($stopConditionTriggered) { "stopped" } elseif ($auditPending) { "audit_required" } else { "finalize" }
+    Set-TaskspaceSampleStatus $runDir $manifest.Id $finalPhase $completedPairCount $completedPairCount "" "" $aggregatePath $runSummaryPath $commandLine | Out-Null
 } else {
-    Set-TaskspaceSampleStatus $runDir $manifest.Id "completed" $Repeats $Repeats "" "" "" $runSummaryPath $commandLine | Out-Null
+    $finalPhase = if ($stopConditionTriggered) { "stopped" } else { "completed" }
+    Set-TaskspaceSampleStatus $runDir $manifest.Id $finalPhase $completedPairCount $completedPairCount "" "" "" $runSummaryPath $commandLine | Out-Null
 }
-$runFinalReady = $EnableAggregate.IsPresent -and -not ($manifest.EvidenceTarget -eq "E3" -and @($pairReports.ToArray() | Where-Object { @($_.evidence.e3_gate_failures) -contains "e3_human_review_not_completed" }).Count -gt 0)
-Set-TaskspaceBenchmarkRunPhase $runDir "completed" $Repeats $Repeats $runFinalReady | Out-Null
+$runFinalReady = -not $stopConditionTriggered -and $EnableAggregate.IsPresent -and -not ($manifest.EvidenceTarget -eq "E3" -and @($pairReports.ToArray() | Where-Object { @($_.evidence.e3_gate_failures) -contains "e3_human_review_not_completed" }).Count -gt 0)
+$runFinalPhase = if ($stopConditionTriggered) { "stopped" } else { "completed" }
+Set-TaskspaceBenchmarkRunPhase $runDir $runFinalPhase $completedPairCount $completedPairCount $runFinalReady | Out-Null
+if ($stopConditionTriggered) {
+    Update-TaskspaceBenchmarkRunStatusFields $runDir @{
+        stop_condition_triggered = $true
+        stop_condition_reason = $stopConditionReason
+        stop_condition_artifact = $stopConditionArtifact
+    } | Out-Null
+}
 Write-Host "RunDir: $runDir"
 Write-Host "RunSummary: $runSummaryPath"
 Write-Host "SampleTiming: $sampleTimingPath"
 foreach ($report in $pairReports) { Write-Host "PairReport: $($report.pair_report)" }
 
 $failedPairs = @(Get-TaskspaceFailedReports $pairReports ([string]$manifest.EvidenceTarget))
+if ($stopConditionTriggered) { exit 1 }
 if ($failedPairs.Count -gt 0 -and -not $AllowNonE2Result) { exit 1 }

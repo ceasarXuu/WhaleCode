@@ -16,6 +16,28 @@ New-Item -ItemType Directory -Path $artifactDir -Force | Out-Null
 $jsonlPath = Join-Path $RunRoot "whale-exec.jsonl"
 $obsPath = Join-Path $RunRoot "action-map-observability.json"
 
+$canonicalFacts = [pscustomobject]@{
+    analyzer_version = "fixture"
+    sources = [pscustomobject]@{ rollout = [pscustomobject]@{ status = "read" } }
+    availability = [pscustomobject]@{ usage = "measured" }
+    findings = @()
+    summary = [pscustomobject]@{
+        usage_record_count = 2
+        state_snapshot_count = 1
+        usage = [pscustomobject]@{
+            input_tokens = 30; output_tokens = 7; cached_input_tokens = 20
+            distribution = [pscustomobject]@{
+                max_input_tokens = 20; p95_input_tokens = 20; first_input_tokens = 10; last_input_tokens = 20
+                max_output_tokens = 4; p95_output_tokens = 4; first_output_tokens = 3; last_output_tokens = 4
+                max_cached_input_tokens = 15; p95_cached_input_tokens = 15
+            }
+        }
+    }
+}
+$legacyTokenSummaryWithoutCount = [pscustomobject]@{ model_request_count = $null; parse_status = "ok"; parse_errors = 0 }
+$canonicalRequestSummary = New-TaskspaceRequestSummary "fixture.jsonl" $legacyTokenSummaryWithoutCount "rollout.jsonl" $canonicalFacts
+Assert-True ([int]$canonicalRequestSummary.token_usage_record_count -eq 2) "request summary did not use canonical request-facts usage count"
+
 (@(
     [pscustomobject]@{ type = "response.completed"; response = [pscustomobject]@{ usage = [pscustomobject]@{ input_tokens = 10; output_tokens = 5; cached_input_tokens = 2 } } }
 ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 8 }) | Set-Content -LiteralPath $jsonlPath -Encoding UTF8
