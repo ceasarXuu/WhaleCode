@@ -117,6 +117,7 @@ section_area(kind) = sum(request.section_bytes[kind])
 | IC-08 | 复杂样本外推 | `subscription-billing-repair` 或届时最小充分复杂样本 | Standard 与 `map-request` 各 repeat=1，保持 IC-06 全部变量 | 判断固定成本结论是否被长历史、复杂 Map 或更多 Tool 结果改变 | 2 个付费 sample；不用于修改 Map 产品设计 | 同业务/oracle、section area、Map、请求路径和成本明细 | 简单样本根因未定位或复杂样本不具代表性时停止 | deferred |
 | IC-09 | 单变量因果验证 | Agent-visible `taskspace_exec` 成功反馈 | 删除固定、重复、派生和空的机械字段；保留原生结果、节点归属、当前状态、真实状态变化和 Waiting 依赖 | 降低 Exec 历史载体，不改变 Runtime 执行和 Map 语义 | capability identity 改变；已通过缓存门禁候选检查和真实双臂 | 静态 trace 反算、聚焦回归、Standard/map-request 各 1 次后追加 repeat=5 稳定性验证 | 反馈解析、状态理解、业务、缓存或成本回归即停止并回退 | complete / repeat5-validated；10/10 业务通过，成功 Exec output 平均缩小 27.65%；见 [`08-ic09-feedback-compaction-repeat5-result.md`](08-ic09-feedback-compaction-repeat5-result.md) |
 | IC-10 | 审计剩余增量是否为必要设计成本 | 当前代码、IC-09 final wire/rollout 和历史单变量实验 | 将重复语义、JSON 外壳、状态范围、非法请求和 reasoning 分别审计；不改生产行为 | 区分有依据成本、等价压缩候选和异常成本，避免为降 input 删除核心能力 | 纯静态分析；不产生 Agent 行为结论 | 分项 bytes 闭合；每个删除候选必须指出消费者、证据和风险 | 需要推断 reasoning 语义、修改 Runtime 或启动真实运行时停止 | complete；只发现 unavailable child `message`/恒定 `state` 小候选，当前优先验证异常修复；见 [`09-ic10-intentional-cost-boundary-audit.md`](09-ic10-intentional-cost-boundary-audit.md) |
+| IC-11 | 当前生产版本闭环复验 | 当前 HEAD、Docker benchmark、`single-file-fast-fix` | Standard 与 `map-request` 各 repeat=3，不在矩阵中改代码 | 同一 trace 复验 I03/I04 修复、I01/I02/I05/I06/I07/I10 边界并重算 I08 | 6 个付费 sample；自然暴露新的顶层 Tool escape 和 observer 缺口 | 逐请求 trace、Map、Patch、request facts、cache 和成本；异常逐轮保留 | 业务/oracle 失败、硬门绕过、身份不可对账或预算触顶时停止；零重试 | complete-with-failure；Standard 3/3、TaskSpace 2/3；见 [`10-r8-e3-current-production-repeat3-result.md`](10-r8-e3-current-production-repeat3-result.md) |
 
 ## 6. 测试顺序
 
@@ -129,6 +130,8 @@ IC-01 精确固定字段
   -> 汇报第一轮根因候选和真实预算
   -> IC-06 双臂 repeat=1
   -> 按证据决定 IC-07 / IC-08 / IC-09
+  -> IC-10 审计必要成本边界
+  -> IC-11 当前生产版本闭环复验
 ```
 
 不得先运行四臂或 repeat=10。`map-always`、`map-append` 会引入 projection policy 变量，本轮首先定位 Standard 与最省
