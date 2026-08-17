@@ -38,6 +38,15 @@ function Resolve-TaskspaceExecResultOutput {
     Get-Content -Raw -Encoding UTF8 -LiteralPath $path
 }
 
+function Get-TaskspaceExecRejectionClass {
+    param([string]$Output)
+    if ($Output -match '^taskspace_exec rejected:\s*invalid JSON syntax') { return 'syntax' }
+    if ($Output -match '^taskspace_exec rejected:\s*invalid top-level contract') { return 'contract' }
+    if ($Output -match '^taskspace_exec rejected:\s*Tool action \d+ targeted work node .* in state ') { return 'state' }
+    if ($Output -match '^taskspace_exec rejected:\s*preflight:') { return 'preflight_other' }
+    'unknown'
+}
+
 function New-TaskspaceExecObservation {
     param([string]$Availability = 'missing')
     [pscustomobject]@{
@@ -57,6 +66,13 @@ function New-TaskspaceExecObservation {
         client_result_count = $null
         provider_result_count = $null
         failed_action_count = $null
+        rejected_call_count = $null
+        rejected_syntax_call_count = $null
+        rejected_contract_call_count = $null
+        rejected_state_call_count = $null
+        rejected_preflight_other_call_count = $null
+        rejected_preflight_call_count = $null
+        rejected_unknown_call_count = $null
         trace_event_count = $null
         correlated_request_count = $null
         correlated_outer_call_count = $null
@@ -81,6 +97,9 @@ function Get-TaskspaceExecObservation {
     $execCount = 0; $mapCalls = 0; $clientCalls = 0; $providerActions = 0
     $nodeBindings = 0; $shell = 0; $patch = 0; $other = 0
     $clientResults = 0; $providerResults = 0; $failedActions = 0
+    $rejectionCounts = @{
+        syntax = 0; contract = 0; state = 0; preflight_other = 0; unknown = 0
+    }
     $findings = [Collections.Generic.List[string]]::new()
     $integrityFindings = [Collections.Generic.List[string]]::new()
     $rejectedCalls = @{}
@@ -137,6 +156,8 @@ function Get-TaskspaceExecObservation {
             if ($rawOutput.StartsWith('taskspace_exec rejected:')) {
                 $failedActions++
                 $rejectedCalls[$callId] = $true
+                $rejectionClass = Get-TaskspaceExecRejectionClass $rawOutput
+                $rejectionCounts[$rejectionClass] = [int]$rejectionCounts[$rejectionClass] + 1
                 continue
             }
             try {
@@ -313,6 +334,13 @@ function Get-TaskspaceExecObservation {
         client_action_count = [int]$clientCalls; provider_action_count = [int]$providerActions
         node_binding_count = [int]$nodeBindings; client_result_count = [int]$clientResults
         provider_result_count = [int]$providerResults; failed_action_count = [int]$failedActions
+        rejected_call_count = [int]$rejectedCalls.Count
+        rejected_syntax_call_count = [int]$rejectionCounts.syntax
+        rejected_contract_call_count = [int]$rejectionCounts.contract
+        rejected_state_call_count = [int]$rejectionCounts.state
+        rejected_preflight_other_call_count = [int]$rejectionCounts.preflight_other
+        rejected_preflight_call_count = [int]$rejectionCounts.state + [int]$rejectionCounts.preflight_other
+        rejected_unknown_call_count = [int]$rejectionCounts.unknown
         trace_event_count = [int]$traceEvents; correlated_request_count = [int]$correlatedRequests.Count
         correlated_outer_call_count = [int]$correlatedOuterCalls.Count
         capability_identity = if ($traceIdentities.Count -eq 1) { [string]$traceIdentities[0] } else { $null }

@@ -38,6 +38,50 @@ $legacyTokenSummaryWithoutCount = [pscustomobject]@{ model_request_count = $null
 $canonicalRequestSummary = New-TaskspaceRequestSummary "fixture.jsonl" $legacyTokenSummaryWithoutCount "rollout.jsonl" $canonicalFacts
 Assert-True ([int]$canonicalRequestSummary.token_usage_record_count -eq 2) "request summary did not use canonical request-facts usage count"
 
+$wireProjectionEvents = @(
+    [pscustomobject]@{
+        request_id = "request-1"
+        section_cost = [pscustomobject]@{
+            active_projection_identity = [pscustomobject]@{
+                count = 1; kind = "bootstrap"; projection_sha256 = ("a" * 64)
+                map_id_sha256 = $null; revision = $null
+            }
+            sections = @([pscustomobject]@{ kind = "active_projection"; estimated_tokens = 80 })
+        }
+    },
+    [pscustomobject]@{
+        request_id = "request-2"
+        section_cost = [pscustomobject]@{
+            active_projection_identity = [pscustomobject]@{
+                count = 2; kind = "active"; projection_sha256 = ("b" * 64)
+                map_id_sha256 = ("c" * 64); revision = 4
+            }
+            sections = @([pscustomobject]@{ kind = "active_projection"; estimated_tokens = 220 })
+        }
+    }
+)
+$wireProjectionSummary = New-TaskspaceContextProjectionSummary `
+    -ProviderCacheTraceEvents $wireProjectionEvents
+Assert-True ([string]$wireProjectionSummary.availability -eq "measured") "final-wire projection was not authoritative"
+Assert-True ([int]$wireProjectionSummary.projection_count -eq 3) "append projection instances were not counted"
+Assert-True ([int]$wireProjectionSummary.projection_observed_request_count -eq 2) "projection request count drifted"
+Assert-True ([int]$wireProjectionSummary.bootstrap_projection_count -eq 1) "bootstrap projection request was not counted"
+Assert-True ([int]$wireProjectionSummary.active_projection_count -eq 1) "active projection request was not counted"
+Assert-True ([int]$wireProjectionSummary.projection_tokens_total -eq 300) "final-wire projection tokens drifted"
+Assert-True ([string]$wireProjectionSummary.events[0].source -eq "provider_final_wire") "projection source was not final wire"
+
+$wireAbsentSummary = New-TaskspaceContextProjectionSummary -ProviderCacheTraceEvents @(
+    [pscustomobject]@{
+        request_id = "request-3"
+        section_cost = [pscustomobject]@{
+            active_projection_identity = [pscustomobject]@{ count = 0; kind = "unavailable" }
+            sections = @([pscustomobject]@{ kind = "active_projection"; estimated_tokens = 0 })
+        }
+    }
+)
+Assert-True ([string]$wireAbsentSummary.availability -eq "measured_absent") "measured projection absence was reported unavailable"
+Assert-True ([int]$wireAbsentSummary.projection_absent_request_count -eq 1) "projection absence request count drifted"
+
 (@(
     [pscustomobject]@{ type = "response.completed"; response = [pscustomobject]@{ usage = [pscustomobject]@{ input_tokens = 10; output_tokens = 5; cached_input_tokens = 2 } } }
 ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 8 }) | Set-Content -LiteralPath $jsonlPath -Encoding UTF8

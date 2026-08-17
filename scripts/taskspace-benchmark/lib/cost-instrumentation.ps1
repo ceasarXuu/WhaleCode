@@ -2110,39 +2110,90 @@ function New-TaskspaceContextProjectionTraceEvents {
     @($events.ToArray())
 }
 
+function New-TaskspaceContextProjectionWireEvents {
+    param([AllowNull()][object[]]$ProviderCacheTraceEvents = $null)
+    $events = New-Object System.Collections.Generic.List[object]
+    foreach ($request in @($ProviderCacheTraceEvents)) {
+        $sectionCost = Get-TaskspaceCostProperty $request @("section_cost")
+        $identity = Get-TaskspaceCostProperty $sectionCost @("active_projection_identity")
+        if ($null -eq $identity) { continue }
+        $projectionCount = Convert-TaskspaceTraceInt (Get-TaskspaceCostProperty $identity @("count"))
+        if ($projectionCount -le 0) { continue }
+        $activeSection = @((Get-TaskspaceCostProperty $sectionCost @("sections")) | Where-Object {
+                [string](Get-TaskspaceCostProperty $_ @("kind")) -eq "active_projection"
+            } | Select-Object -First 1)
+        $estimatedTokens = if ($activeSection.Count -gt 0) {
+            Convert-TaskspaceTraceNullableInt (Get-TaskspaceCostProperty $activeSection[0] @("estimated_tokens"))
+        } else { $null }
+        $events.Add([pscustomobject]@{
+            schema_version = "taskspace-context-projection-event-v2"
+            projection_id = [string](Get-TaskspaceCostProperty $identity @("projection_sha256"))
+            task_id = ""
+            map_id = ""
+            map_id_sha256 = [string](Get-TaskspaceCostProperty $identity @("map_id_sha256"))
+            mode = "taskspace"
+            revision = Convert-TaskspaceTraceNullableInt (Get-TaskspaceCostProperty $identity @("revision"))
+            projection_kind = [string](Get-TaskspaceCostProperty $identity @("kind"))
+            projection_instance_count = [int]$projectionCount
+            estimated_tokens = $estimatedTokens
+            protected_miss_count = 0
+            protected_missing_sections = @()
+            source = "provider_final_wire"
+            trace_event_id = [string](Get-TaskspaceCostProperty $request @("request_id"))
+        })
+    }
+    @($events.ToArray())
+}
+
 function New-TaskspaceContextProjectionSummary {
     param(
         [AllowEmptyString()][string]$JsonlPath = "",
         [AllowEmptyString()][string]$ObservabilityJsonPath = "",
-        [AllowEmptyString()][string]$RolloutJsonlPath = ""
+        [AllowEmptyString()][string]$RolloutJsonlPath = "",
+        [AllowNull()][object[]]$ProviderCacheTraceEvents = $null
     )
     $sourcePresent = $false
     foreach ($path in @($JsonlPath, $ObservabilityJsonPath, $RolloutJsonlPath)) {
         if (-not [string]::IsNullOrWhiteSpace($path) -and (Test-Path -LiteralPath $path)) { $sourcePresent = $true }
     }
-    $blockEvents = @(Get-TaskspaceContextProjectionBlocks $JsonlPath $ObservabilityJsonPath $RolloutJsonlPath | ForEach-Object {
-            New-TaskspaceContextProjectionEvent $_
-        })
-    $events = @($blockEvents) + @(New-TaskspaceContextProjectionTraceEvents $ObservabilityJsonPath $RolloutJsonlPath)
+    $wireRequests = if ($null -eq $ProviderCacheTraceEvents) { @() } else { @($ProviderCacheTraceEvents) }
+    $wireEvents = @(New-TaskspaceContextProjectionWireEvents $ProviderCacheTraceEvents)
+    if ($wireRequests.Count -gt 0) {
+        $events = $wireEvents
+    } else {
+        $blockEvents = @(Get-TaskspaceContextProjectionBlocks $JsonlPath $ObservabilityJsonPath $RolloutJsonlPath | ForEach-Object {
+                New-TaskspaceContextProjectionEvent $_
+            })
+        $events = @($blockEvents) + @(New-TaskspaceContextProjectionTraceEvents $ObservabilityJsonPath $RolloutJsonlPath)
+    }
     $tokenValues = @($events | Where-Object { $null -ne $_.estimated_tokens } | ForEach-Object { [int64]$_.estimated_tokens })
     $tokenTotal = [int64]0
     foreach ($value in $tokenValues) { $tokenTotal += [int64]$value }
     $protectedMiss = 0
     foreach ($event in $events) { $protectedMiss += [int]$event.protected_miss_count }
-    $activeProjectionCount = @($events | Where-Object { [string]$_.projection_kind -in @("active_replacement", "current_projection", "request_snapshot", "bootstrap_required", "r6_rooted_map_epoch", "r6_bootstrap") }).Count
+    $projectionCount = 0
+    foreach ($event in $events) {
+        $instanceCount = Get-TaskspaceCostProperty $event @("projection_instance_count")
+        $projectionCount += if ($null -ne $instanceCount) { [int]$instanceCount } else { 1 }
+    }
+    $activeProjectionCount = @($events | Where-Object { [string]$_.projection_kind -in @("active", "active_replacement", "current_projection", "request_snapshot", "bootstrap_required", "r6_rooted_map_epoch", "r6_bootstrap") }).Count
+    $bootstrapProjectionCount = @($events | Where-Object { [string]$_.projection_kind -eq "bootstrap" }).Count
     $shadowProjectionCount = @($events | Where-Object { [string]$_.projection_kind -eq "shadow" }).Count
     [pscustomobject]@{
-        schema_version = "taskspace-context-projection-summary-v1"
+        schema_version = "taskspace-context-projection-summary-v2"
         source_path = $JsonlPath
         observability_source_path = $ObservabilityJsonPath
         rollout_source_path = $RolloutJsonlPath
-        availability = if ($events.Count -gt 0) { "measured" } elseif ($sourcePresent) { "projection_unavailable" } else { "source_missing" }
-        projection_count = [int]$events.Count
+        availability = if ($events.Count -gt 0) { "measured" } elseif ($wireRequests.Count -gt 0) { "measured_absent" } elseif ($sourcePresent) { "projection_unavailable" } else { "source_missing" }
+        projection_count = [int]$projectionCount
+        projection_observed_request_count = [int]$events.Count
+        projection_absent_request_count = if ($wireRequests.Count -gt 0) { [int]($wireRequests.Count - $events.Count) } else { 0 }
         projection_tokens_total = if ($tokenValues.Count -gt 0) { $tokenTotal } else { $null }
         projection_tokens_max = if ($tokenValues.Count -gt 0) { ($tokenValues | Measure-Object -Maximum).Maximum } else { $null }
         projection_tokens_avg = if ($tokenValues.Count -gt 0) { [Math]::Round([double]$tokenTotal / [double]$tokenValues.Count, 4) } else { $null }
         protected_miss_count = [int]$protectedMiss
         active_projection_count = [int]$activeProjectionCount
+        bootstrap_projection_count = [int]$bootstrapProjectionCount
         shadow_projection_count = [int]$shadowProjectionCount
         events = @($events)
     }
@@ -2196,13 +2247,14 @@ function Write-TaskspaceCostInstrumentationArtifacts {
     $control = New-TaskspaceControlUsageSummary $JsonlPath $ObservabilityJsonPath $rolloutScanPath
     $replay = New-TaskspaceReplaySummary $ArtifactDir
     $outputRefEvents = @(New-TaskspaceOutputRefEvents $ObservabilityJsonPath $ArtifactDir)
-    $projection = New-TaskspaceContextProjectionSummary $JsonlPath $ObservabilityJsonPath $rolloutScanPath
-    $projection | Add-Member -NotePropertyName rollout_scan_policy -NotePropertyValue $scanPolicy -Force
     $budget = New-TaskspaceBudgetArtifacts $ObservabilityJsonPath $rolloutScanPath
     $exactPayloadScanEvents = @(New-TaskspaceExactPayloadScanEvents $ObservabilityJsonPath $rolloutScanPath)
     $activeReplacement = New-TaskspaceActiveReplacementArtifacts $budget.budget_events $exactPayloadScanEvents
     $providerRequest = New-TaskspaceProviderRequestArtifacts $budget.budget_events $request
     $providerCacheTrace = New-TaskspaceProviderCacheTraceArtifacts $budget.budget_events $providerWireTracePath $requestFacts
+    $projection = New-TaskspaceContextProjectionSummary `
+        $JsonlPath $ObservabilityJsonPath $rolloutScanPath $providerCacheTrace.provider_cache_trace_events
+    $projection | Add-Member -NotePropertyName rollout_scan_policy -NotePropertyValue $scanPolicy -Force
     $stateCommitDisplacement = New-TaskspaceStateCommitDisplacementSummary $ObservabilityJsonPath
     $spawnNodeBudget = New-TaskspaceSpawnNodeBudgetSummary $ObservabilityJsonPath $rolloutScanPath
     $spawnNodeBudget | Add-Member -NotePropertyName rollout_scan_policy -NotePropertyValue $scanPolicy -Force

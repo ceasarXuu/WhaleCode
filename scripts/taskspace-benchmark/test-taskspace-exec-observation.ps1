@@ -156,6 +156,9 @@ try {
     $rejectedFacts = Get-TaskspaceExecObservation $temp $null
     Assert-Equal $rejectedFacts.availability 'measured' 'canonical rejection was treated as malformed output'
     Assert-Equal $rejectedFacts.failed_action_count 1 'outer Exec rejection was not counted as failure'
+    Assert-Equal $rejectedFacts.rejected_call_count 1 'outer Exec rejection total drifted'
+    Assert-Equal $rejectedFacts.rejected_preflight_other_call_count 1 'generic preflight rejection was not classified'
+    Assert-Equal $rejectedFacts.rejected_preflight_call_count 1 'preflight rejection aggregate drifted'
 
     @(
         [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
@@ -173,9 +176,35 @@ try {
     Assert-Equal $invalidArgumentsFacts.exec_count 1 'malformed outer Exec was not counted'
     Assert-Equal $invalidArgumentsFacts.nested_action_count 0 'unparsed calls were counted as executed actions'
     Assert-Equal $invalidArgumentsFacts.failed_action_count 1 'malformed outer Exec rejection was not counted'
+    Assert-Equal $invalidArgumentsFacts.rejected_syntax_call_count 1 'JSON syntax rejection was not classified'
+    Assert-Equal $invalidArgumentsFacts.rejected_unknown_call_count 0 'known syntax rejection was classified as unknown'
     if (@($invalidArgumentsFacts.findings | Where-Object { $_ -eq 'exec_arguments_invalid:outer-1' }).Count -ne 1) {
         throw 'malformed outer Exec diagnostic finding missing'
     }
+
+    @(
+        [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
+                type = 'function_call'; name = 'taskspace_exec'; call_id = 'contract-1'; arguments = '{}'
+            } },
+        [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
+                type = 'function_call_output'; call_id = 'contract-1'
+                output = 'taskspace_exec rejected: invalid top-level contract: $.initialize_map: value has the wrong JSON type. No Map or Tool actions were executed.'
+            } },
+        [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
+                type = 'function_call'; name = 'taskspace_exec'; call_id = 'state-1'; arguments = '{}'
+            } },
+        [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
+                type = 'function_call_output'; call_id = 'state-1'
+                output = 'taskspace_exec rejected: Tool action 0 targeted work node `diagnose` in state `waiting`; incomplete direct parent nodes: ["understand"]. No Map or Tool actions were executed.'
+            } }
+    ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 15 } |
+        Set-Content -LiteralPath (Join-Path $temp 'rollout.jsonl') -Encoding UTF8
+    $classifiedFacts = Get-TaskspaceExecObservation $temp $null
+    Assert-Equal $classifiedFacts.rejected_call_count 2 'classified rejection total drifted'
+    Assert-Equal $classifiedFacts.rejected_contract_call_count 1 'top-level contract rejection was not classified'
+    Assert-Equal $classifiedFacts.rejected_state_call_count 1 'waiting-node rejection was not classified'
+    Assert-Equal $classifiedFacts.rejected_preflight_call_count 1 'state rejection was not included in the preflight aggregate'
+    Assert-Equal $classifiedFacts.rejected_unknown_call_count 0 'known rejections were classified as unknown'
 
     $wire = Get-Content -Raw -Encoding UTF8 (Join-Path $temp 'provider-wire-trace.jsonl') | ConvertFrom-Json
     $wire.taskspace_capability_identity = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'

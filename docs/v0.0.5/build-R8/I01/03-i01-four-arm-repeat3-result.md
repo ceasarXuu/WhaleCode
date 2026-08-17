@@ -121,6 +121,10 @@ Standard 2 次、`map-append` 1 次直接执行 `python` 时未使用项目 `pyt
 因此成本、usage、Map 和 provider final-wire 结果仍可用，但 projection 与拒绝子类型必须读取权威 trace，不能依赖旧
 派生字段。I07 从 closed 回到 verifying，修复只应统一 observer 事实源和分类，不改 Runtime 产品行为。
 
+后续状态：该缺口已按上述边界修复，并使用本轮原始 trace 离线回放通过；见
+[`I07 final-wire observer 增量修复结果`](../I07/02-i07-final-wire-observer-repair-result.md)。历史运行生成时的旧报告保留，
+不反向改写原始证据。
+
 ## 8. 问题重评
 
 | 问题 | 本轮结论 |

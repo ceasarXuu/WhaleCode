@@ -2,7 +2,7 @@
 
 - Status: Closed；独立修复、TaskSpace Exec integration、对抗性闭环与生产验收完成
 - Authority: [`00-i07-observability-trust-repair-plan.md`](00-i07-observability-trust-repair-plan.md)
-- Result: [`01-i07-independent-repair-result.md`](01-i07-independent-repair-result.md)
+- Results: [`01-i07-independent-repair-result.md`](01-i07-independent-repair-result.md)、[`02-i07-final-wire-observer-repair-result.md`](02-i07-final-wire-observer-repair-result.md)
 - Global issue: [`../01-r8-known-issues.md`](../01-r8-known-issues.md) 中的 `R8-I07`
 - TaskSpace Exec integration: [`../taskspace-exec/02-engineering-plan.md`](../taskspace-exec/02-engineering-plan.md) 的 `TX-00`、`TX-11`
 
@@ -14,4 +14,5 @@
 1. 在 TaskSpace Exec 开工前独立修复已经坐实的 request/usage 双计、边界误判和证据新鲜度问题（已完成）；
 2. 随 TaskSpace Exec 新协议接入，修正本地尝试、上游请求和 Provider 完成事实之间的身份与阶段关系。
 
-两部分均已完成，并由 `WAR-20260818-013746-R8-I05-I07-ACCEPT-R3` 的 41 个真实请求完成逐身份验收；完整 I07 已关闭。
+两部分均已完成，并由 `WAR-20260818-013746-R8-I05-I07-ACCEPT-R3` 的 41 个真实请求完成逐身份验收。后续四臂运行发现的
+final-wire projection 与 Exec reject 分类漏报也已通过既有 123 个真实请求离线回放闭环；完整 I07 已关闭。

@@ -101,14 +101,14 @@ function Write-TaskspacePerformanceObservation {
     $lines.Add("")
     $lines.Add("## TaskSpace Exec")
     $lines.Add("")
-    $lines.Add("| Repeat | Mode | Capability | Exec | Map ops | Client | Provider | Node bindings | Client results | Provider results | Failed | Trace events | Request links | Outer links | Status |")
-    $lines.Add("|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
+    $lines.Add("| Repeat | Mode | Capability | Exec | Map ops | Client | Provider | Node bindings | Client results | Provider results | Failed | Rejected | Syntax | Contract | State | Other preflight | Unknown | Trace events | Request links | Outer links | Status |")
+    $lines.Add("|---:|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|")
     foreach ($row in $rows) {
         if ($row.observation_status -in @("skipped", "invalid") -or
             $row.actions.action_protocol -ne "taskspace_exec") {
-            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
+            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |")
         } else {
-            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.actions.capability_identity) | $(Format-PerformanceValue $row.actions.taskspace_exec) | $(Format-PerformanceValue $row.actions.map_operations) | $(Format-PerformanceValue $row.actions.client_actions) | $(Format-PerformanceValue $row.actions.provider_actions) | $(Format-PerformanceValue $row.actions.node_bindings) | $(Format-PerformanceValue $row.actions.client_results) | $(Format-PerformanceValue $row.actions.provider_results) | $(Format-PerformanceValue $row.actions.failed_tools) | $(Format-PerformanceValue $row.actions.exec_trace_events) | $(Format-PerformanceValue $row.actions.correlated_requests) | $(Format-PerformanceValue $row.actions.correlated_outer_calls) | $(Format-PerformanceValue $row.actions.exec_observation_status) |")
+            $lines.Add("| $(Format-PerformanceValue $row.repeat) | $($row.logical_mode) | $(Format-PerformanceValue $row.actions.capability_identity) | $(Format-PerformanceValue $row.actions.taskspace_exec) | $(Format-PerformanceValue $row.actions.map_operations) | $(Format-PerformanceValue $row.actions.client_actions) | $(Format-PerformanceValue $row.actions.provider_actions) | $(Format-PerformanceValue $row.actions.node_bindings) | $(Format-PerformanceValue $row.actions.client_results) | $(Format-PerformanceValue $row.actions.provider_results) | $(Format-PerformanceValue $row.actions.failed_tools) | $(Format-PerformanceValue $row.actions.exec_rejected_calls) | $(Format-PerformanceValue $row.actions.exec_rejected_syntax_calls) | $(Format-PerformanceValue $row.actions.exec_rejected_contract_calls) | $(Format-PerformanceValue $row.actions.exec_rejected_state_calls) | $(Format-PerformanceValue $row.actions.exec_rejected_preflight_other_calls) | $(Format-PerformanceValue $row.actions.exec_rejected_unknown_calls) | $(Format-PerformanceValue $row.actions.exec_trace_events) | $(Format-PerformanceValue $row.actions.correlated_requests) | $(Format-PerformanceValue $row.actions.correlated_outer_calls) | $(Format-PerformanceValue $row.actions.exec_observation_status) |")
         }
     }
     $lines.Add("")

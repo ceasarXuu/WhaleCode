@@ -392,13 +392,13 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 4 | R8-I05 | F3 | P1 | 拒绝原因可能重复或混淆错误发生的协议层级 | 忠实返回一次失败，并准确区分语法、合同、预检与执行错误；未提交候选不得表现为已保存状态 | `e596d2f27` 完成同 `call_id`、零执行、可继续反馈；repeat=3 正常路径无回归，但未自然触发逃逸恢复分支 | verifying | GI-005 |
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 成功、拒绝和内部失败只返回一个 outer output；最新三次生产运行 `18 calls = 18 outputs`，无副本或 orphan | [closed](taskspace-exec/80-i02-single-feedback-closure.md) | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 身份沿 dispatch/request/wire/trace/report 传播；最新 21 个 TaskSpace wire 请求身份一致且无冲突 | [closed](I10/01-i10-capability-identity-closure.md) | GI-010 |
-| 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | Provider request/usage 仍完整；新四臂发现旧 projection summary 漏掉 final-wire projection，且三次 reject 的子类计数为零 | [verifying](I01/03-i01-four-arm-repeat3-result.md) | GI-007 |
+| 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | final-wire projection 成为权威来源；四臂回放得到 always `4+26`、append `3+29`、request absent `31`，合同/状态/语法拒绝各 1 | [closed](I07/02-i07-final-wire-observer-repair-result.md) | GI-007 |
 | 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与 client 动作 | 稳定生成初始化并执行、完成并继续、完成并结束；Provider-hosted Tool 当前不参与 Agent 归属协议 | 复杂 client-tool 样本 9/9 完成，但 2/9 TaskSpace runs 出现可恢复协议错误；零副作用硬门有效，Agent 行为仍需收敛 | verifying | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点 | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 四臂复杂样本复现 1 次 waiting/frontier 误选；Runtime 正确拒绝并由 Agent 下一请求纠正 | verifying | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 复杂样本四臂 repeat=3：always/append/request 总 input 为 Standard `1.25x/1.60x/1.32x`，费用为 `2.83x/2.09x/2.43x` | [investigating](I01/03-i01-four-arm-repeat3-result.md) | GI-008 |
 
-问题总数：**10**；Open：**6**；Closed：**4**。Provider-hosted Runtime 机械归纳已通过生产验收，当前没有该专题停点。
-I07 的 canonical request/usage 对账仍成立，但因新发现 projection/reject 分类漏报重新 verifying；I05 的 Fatal 恢复缺口已离线修复且正常路径无回归，不在未实现清单中；I08 的小型等价压缩按用户决定暂缓，
+问题总数：**10**；Open：**5**；Closed：**5**。Provider-hosted Runtime 机械归纳已通过生产验收，当前没有该专题停点。
+I07 的 canonical request/usage、projection 和 Exec reject 分类均已从既有真实 trace 复算闭环；I05 的 Fatal 恢复缺口已离线修复且正常路径无回归，不在未实现清单中；I08 的小型等价压缩按用户决定暂缓，
 不回删 Map、合法序列或状态机硬合同。
 
 ## 4. VA-04A 证据边界
@@ -410,7 +410,7 @@ I07 的 canonical request/usage 对账仍成立，但因新发现 projection/rej
 | 已关闭 | I02、I06 | 单次 outer 反馈、统一预检、零副作用旁路拒绝和单 Patch 边界均有确定性与生产证据 | Agent 仍可能生成非法动作，但不再构成底层边界缺口 |
 | 工程修复、正常路径已验收 | I05 | JSON/schema reject 与 forbidden 顶层 client Tool 均有准确、同调用身份、零副作用反馈；repeat=3 正常路径全部通过 | 本轮未自然触发顶层 client escape，尚无新的恢复分支在线命中证据 |
 | 已关闭 | I10 | 最新 21 个 TaskSpace wire 请求身份一致；Catalog、dispatch、wire、trace 与 observer 共用同一值 | Projection 不参与能力身份计算，其三臂验收归入 I01/I08 |
-| 重新 verifying | I07 | 123 个 Provider 请求 usage 完整，final-wire projection 可复算 | 旧 summary 对 projection 假阴性；三次明确 reject 未进入对应子类计数 |
+| 已关闭 | I07 | 123 个 Provider 请求 usage 完整；final-wire projection 与三次 reject 均可由当前 observer 准确复算 | 无；修复不改变 Runtime 或 Provider payload |
 | 复杂样本可完成 | I03 | 三 projection 共 9/9 业务与 oracle 通过，Map 全闭合 | 2/9 runs 出现类型/JSON 协议错误，尚不能称为稳定无异常 |
 | 当前行为已观察 | I04 | 9 张 Map 最终全部闭合，硬门无副作用且 Agent 可恢复 | 复现 1 次 waiting/frontier 误选；样本仍是线性 DAG，未覆盖 fork/join |
 | 复杂成本已测 | I08 | always/append/request 的请求、input、缓存、wall 和费用取舍已量化 | 只有一个复杂样本；产品阈值与多样本外推未完成 |
