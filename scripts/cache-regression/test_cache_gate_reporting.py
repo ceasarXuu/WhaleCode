@@ -11,9 +11,22 @@ from check_cache_regression_gate import (
     is_promotion_transition,
     print_free_validation_failure,
 )
+from cache_surface import is_cache_control_plane_path
 
 
 class CacheGateReportingTest(unittest.TestCase):
+    def test_semantic_snapshot_is_not_misclassified_as_gate_policy(self) -> None:
+        snapshot = (
+            "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/"
+            "all__suite__cache_final_wire__taskspace_production_tool_wire.snap"
+        )
+        self.assertFalse(is_cache_control_plane_path(snapshot))
+        self.assertTrue(
+            is_cache_control_plane_path(
+                "third_party/codex-cli/codex-rs/core/tests/suite/cache_final_wire.rs"
+            )
+        )
+
     def test_discovery_state_does_not_infer_product_acceptance(self) -> None:
         validation = {
             "passed": False,
