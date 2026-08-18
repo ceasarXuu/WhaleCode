@@ -8,46 +8,46 @@
 > 本文记录的 `exec_command -> shell action` 候选基于错误的替代层级，commit `3750a3932` 已整体回退。以下实现与运行数据
 > 仅作为失败候选的历史证据保留，不代表现行架构或修复方向。
 
-## 根因
+## 已纠正的诊断
 
-Provider 最终顶层只声明 `taskspace_exec` 和 Provider-hosted Tool，没有声明 `exec_command`。但旧
-`taskspace_exec` schema、示例和成功反馈仍把工作表达为：
+Provider 最终顶层只声明 `taskspace_exec` 和 Provider-hosted Tool，没有声明 `exec_command`。`taskspace_exec`
+内部按原生名称表达 client Tool 是目标设计的一部分：
 
 ```json
 {"tools":[{"tool":"exec_command","node_id":"inspect","input":{"cmd":"pwd"}}]}
 ```
 
-这不是单纯的 Runtime 内部复用，而是向 Agent 再次暴露了一个与 Provider 顶层 Function Call 同形的内层 Tool。
-历史逃逸调用同时携带原生 `cmd` 和 wrapper 专属 `node_id`，证明模型把该内层分支提升到了顶层。
+历史逃逸调用同时携带原生 `cmd` 和 wrapper 专属 `node_id`，证明模型会把这个内部调用机械提升为顶层
+`function_call(name=exec_command)`；但该证据不能推出“内部原生 Tool 不应暴露”。Codex `exec` 同样向 Agent 暴露内部
+原生 Tool，只是使用 `tools.exec_command(...)` 命名空间，而不是 TaskSpace 当前的结构化 `tools[].tool` 判别字段。
 
-## 修复
+在 `subscription-billing-repair × standard/always/append/request × repeat=3` 的历史四臂证据中，三个 TaskSpace 臂合计
+`7/9` 轮、`11` 次顶层 `exec_command` 逃逸；每个受影响运行的第一次逃逸都紧跟一个成功的 `taskspace_exec` 反馈，且该反馈
+包含 `client_results[].tool="exec_command"`。这对“成功反馈重复裸工具名会放大下一轮层级提升”构成强关联证据，但尚无只改变
+反馈字段的 A/B，因此不能写成唯一根因。
 
-Agent 可见合同改为 TaskSpace 自身的动作语言：
+## 已回退的错误候选
+
+候选曾把 Agent 可见合同改为 TaskSpace 自建动作语言：
 
 ```json
 {"actions":[{"kind":"shell","node_id":"inspect","parameters":{"cmd":"pwd"}}]}
 ```
 
-1. `taskspace_exec` 直接承载 Map 操作和 TaskSpace action，不嵌套普通 client Tool。
-2. Runtime catalog 保存 `kind -> 原生 ToolName` 的机械映射；dispatch 继续复用原 Router、handler、权限、hook 和结果转换。
-3. 终端、进程输入、Patch、图片读取和 Tool Search 分别显示为 `shell`、`process_input`、`patch`、`inspect_image` 和
-   `discover_tools`；其他能力使用不会与顶层 Function Tool 同名的 `client::...` action identity。
-4. 成功反馈改为 `action_results[].action`，Map Action 也记录 action identity，不把原生 `exec_command` 重新注入上下文。
-5. 旧 `tools[] / tool / input` 直接拒绝，不保留兼容、迁移或双协议分支。
-6. Standard 工具声明和原生 Tool 实现未修改。
+该候选错误地把“`taskspace_exec` 替代 Codex 顶层 `exec` 超级工具”理解成“TaskSpace 还要替代 Exec 内部原生 Tool”。真实运行
+只把被提升名称从 `exec_command` 改成了 `shell`，并未解决层级提升。commit `3750a3932` 已由 `ab23d8f5b` 整体回退；当前
+恢复 `tools[] / tool / input`、原生 Tool identity、原生 Router 与结果合同，不保留 `shell` 兼容分支。
 
-## 离线验收
+## 回退验收
 
 - `cargo test -p codex-core taskspace --lib --locked`: 123 passed。
-- `cargo test -p codex-core base_instructions_profile --lib --locked`: 6 passed。
-- `taskspace_raw_newline_self_heal_replaces_the_item_before_history_is_recorded`: passed。
-- 最终 TaskSpace declaration 断言不含 `exec_command`、`write_stdin` 和 `"tool"` 字段。
-- 原生 dispatch 测试证明 `kind=shell` 仍机械路由到 `exec_command -> shell_command` handler。
+- 当前 schema 恢复 `tools[].tool="exec_command"`，并继续由 Runtime 机械解析到原生 Router。
+- TaskSpace 顶层 Tool 集合仍不声明 `exec_command`；非法顶层 client Tool 的零副作用拒绝边界不变。
 
 ## 证据边界
 
-本轮坐实了旧协议的结构诱因并完成离线修复。I03 只有在真实运行中证明初始化、后续工作、Patch、验证和结束均持续使用
-`taskspace_exec`，且不再生成顶层普通 Function Tool 后才能关闭。
+本轮只完成错误候选回退和根因边界纠正，没有完成新的生产修复。I03 只有在新的单变量修复和真实运行中证明初始化、后续工作、
+Patch、验证和结束均持续使用 `taskspace_exec`，且不再生成顶层普通 Function Tool 后才能关闭。
 
 ## 真实运行复验
 

@@ -1,14 +1,15 @@
-# Problem P-001: TaskSpace 内部 action 被高频提升为顶层 Function Call
+# Problem P-001: TaskSpace 内部 client Tool 被提升为顶层 Function Call
 - Status: open
 - Created: 2026-08-19 07:24
-- Updated: 2026-08-19 07:24
-- Objective: 解释原生 action 协议下 `shell` 被提升为未声明顶层 Function Call 的发生机制，并在证据不足时阻止继续通过改名、提示词堆叠或 Runtime 自动包裹掩盖问题。
+- Updated: 2026-08-19 11:20
+- Objective: 解释原生 `tools[]` 协议下 `exec_command` 被提升为未声明顶层 Function Call 的发生机制，并在证据不足时阻止继续通过改名、提示词堆叠或 Runtime 自动包裹掩盖问题。
 - Symptoms:
   - 最新复杂样本的三次有效 TaskSpace 运行中，两次运行生成顶层 `shell`，合计五个调用。
   - Pair 001 先正确执行 `taskspace_exec(actions.kind=shell)`，下一请求却并行生成三个顶层 `shell`。
   - Pair 003 首次工作前并行生成两个顶层 `shell`，随后在拒绝反馈后改用 `taskspace_exec`。
+  - 错误 `shell` 候选回退后，历史四臂基线显示三个 TaskSpace 臂中 `7/9` 轮发生顶层 `exec_command` 逃逸，共 11 次。
 - Expected behavior:
-  - Agent 只将 `taskspace_exec` 作为 client/Map 动作的顶层 Function Tool；`shell` 只能作为其内部 action identity 出现。
+  - Agent 只将 `taskspace_exec` 作为 client/Map 动作的顶层 Function Tool；内部 client Tool 保持原生 identity 和输入合同，但不会被提升为顶层 Function Call。
 - Actual behavior:
   - Provider 接受并返回了未在顶层 Tool 集合声明的 `function_call(name=shell)`；Runtime 在副作用前拒绝，Agent 下一请求恢复。
 - Impact:
@@ -18,7 +19,7 @@
   - `release-dispatch-repair`，实际 TaskSpace pairs 001/003/005，`deepseek-v4-flash`，`map-request`。
   - Evidence root: `target/whale-agent-runs/WAR-20260819-064028-R8-NATIVE-ACTION-R5/release-dispatch-repair/20260819-065901-736`。
 - Environment:
-  - branch `whalecode-alpha`；commit `e8024ec779f2884a41f15db9792aafe65854ccce`；TaskSpace base `3.1.0`；action protocol commit `3750a3932`。
+  - branch `whalecode-alpha`；错误 action protocol commit `3750a3932` 已由 `ab23d8f5b` 回退；当前恢复原生 `tools[]` 协议。
 - Known facts:
   - 三次 TaskSpace 请求面的顶层普通 `exec_command` 为零，顶层 Tool 集合没有声明 `shell`。
   - Base instructions 和 `taskspace_exec` description 都明确说明 action 不是独立顶层 Tool。
@@ -26,6 +27,10 @@
   - Pair 001 的非法参数是内部 action 的机械扁平化：`kind=shell` 变为 Function 名称，`parameters.cmd` 被提升，wrapper-only `node_id` 被保留。
   - Pair 003 的非法参数来自同一内层参数合同，但漏掉 `node_id`，因此 Runtime 无法忠实自动包回 Exec。
   - 所有五次调用均在副作用前拒绝，Agent 在下一请求纠正。
+  - `taskspace_exec` 替代的是 Codex 顶层 `exec` 超级工具，不替代或重命名 Exec 内部原生 Tool；内部 `exec_command` 暴露本身符合产品定义。
+  - 历史四臂基线 subject commit `4fe2f3557` 使用 TaskSpace base `3.0.5`；Standard 只作为正常顶层 `exec_command` 对照，不计逃逸。
+  - 四臂基线的 9 次 TaskSpace 中 7 次发生逃逸；这 7 次的第一次逃逸都紧跟成功 `taskspace_exec` output，且 output 包含 `client_results[].tool="exec_command"`。
+  - Codex `exec` 也暴露原生内部 Tool，但通过 `tools.exec_command(...)` 命名空间表达；其 outer result 默认突出 `Script completed/failed`，不会机械回显独立的内部 Tool identity 字段。
 - Ruled out:
   - Runtime 将内层 action 提升为顶层调用。
   - TaskSpace 顶层重新声明了普通 client Tool。
@@ -35,19 +40,20 @@
   - 候选必须消除或显著降低“内层 action 被理解为独立 Function”的结构诱因，而不修改普通 Tool 原生合同、不让 Runtime 推断节点归属、不增加 Standard 分支。
   - 离线必须证明最终顶层 Tool 集合仍只有 `taskspace_exec` 与 Provider-hosted Tool，内部能力仍可完整机械路由。
   - 真实复验必须在同等复杂样本上覆盖首次初始化和后续工作，且不再出现任何顶层 client/action identity 逃逸；真实预算另行批准。
-- Current conclusion: 根因已收敛为两个共同条件：TaskSpace action schema 仍把 `shell` 暴露为具有完整原生参数和命令式说明的可调用式分支，模型会把该分支机械提升为顶层 Function；DeepSeek Responses 路径又没有在 Provider 侧把 Function 名称硬限制在已声明集合。禁止文字存在且在线可见，因此继续增加同义提示不是主修复方向。成功反馈再次突出 `action=shell` 可能是后续调用的放大因素，但不是必要条件，因为 Pair 003 在任何成功反馈前已逃逸。
+- Current conclusion: 直接生成机制已经坐实：DeepSeek 会把 `taskspace_exec` 内部 client Tool 的裸 identity 和原生参数机械提升为顶层 Function Call，且 Provider 不限制未声明 Function 名称，使违约输出到达 Runtime。错误 `shell` 候选只改变了被提升名称，没有消除机制，因此已回退。对于恢复后的原生 `exec_command` 协议，四臂证据显示成功反馈中再次出现 `client_results[].tool="exec_command"` 与下一轮逃逸高度绑定，是当前最强放大候选；但尚无只改变反馈表示的 A/B，不能宣称它是唯一概率根因，也不能据此删除或改名内部原生 Tool。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
   - H-004
+  - H-005
 - Resolution basis:
   - direct mechanism satisfied；repair candidate not selected
 - Close reason:
   - not closed
 
 ## Hypothesis H-001: 内层 action schema 仍被模型识别为可调用 Function
-- Status: confirmed
+- Status: closed
 - Parent: P-001
 - Claim: `taskspace_action.anyOf` 的每个分支以 `kind=shell` 作为判别名，携带完整原生参数 schema，并复用“Runs a command...”说明；模型据此把分支提升为顶层 `function_call(name=shell)`。
 - Layer: root-cause
@@ -84,13 +90,13 @@
   - E-001
   - E-002
   - E-003
-- Conclusion: 两种非法参数形状都来自同一内层 action 合同；改名仅改变了被提升的 Function 名称，没有消除抽象层级混淆。
-- Repair design readiness: ready for candidate design after user confirmation
-- Next step: 设计最小结构单变量，优先移除“可调用式 action identity + 原生 imperative branch description”的组合信号，不做 Runtime 自动包裹。
+- Conclusion: 两种非法参数形状都来自同一内层 action 合同，证明“内部判别值可能被提升”的机制；但该证据不支持把原生内部 Tool 替换成 TaskSpace 自建 action。`shell` 候选已被产品层级澄清推翻并回退。
+- Repair design readiness: not ready; this hypothesis cannot select a replacement vocabulary
+- Next step: 转入 H-005，调查如何保留原生 Tool identity 同时增强 outer/inner 结构边界。
 - Blocker:
   - 核心协议候选需要用户确认；真实复验需要独立预算。
 - Close reason:
-  - not closed
+  - superseded by product-layer clarification and revert `ab23d8f5b`
 
 ## Hypothesis H-002: 成功反馈中的 action identity 放大后续提升
 - Status: unverified
@@ -102,6 +108,7 @@
   - H-001
 - Rationale:
   - Pair 001 首次正确调用后，成功反馈明确返回 `action=shell`，下一响应立即产生三个顶层 `shell`。
+  - 恢复原生协议的历史四臂证据中，7 个受影响 TaskSpace 运行的第一次 `exec_command` 逃逸全部紧跟一个含 `client_results[].tool="exec_command"` 的成功反馈。
 - Falsifiable predictions:
   - If true: 在输入 schema 不变时，仅降低成功反馈中独立 action 名的可调用显著性，会降低“正确一次后再逃逸”。
   - If false: 逃逸频率不变，或多数逃逸都发生在首次成功反馈前。
@@ -126,9 +133,9 @@
 - Related evidence:
   - E-004
   - E-005
-- Conclusion: Pair 001 支持其作为候选放大因素；Pair 003 证明它不是必要根因，当前不能据此直接修改反馈合同。
+- Conclusion: 对恢复后的原生协议，该因素具有 `7/7` 受影响运行的顺序关联；Pair 003 的 `shell` 首轮逃逸证明成功反馈不是所有 carrier 的必要条件。当前可列为最强放大候选，尚不能升级为唯一根因。
 - Repair design readiness: blocked until isolated
-- Next step: 先解决 H-001 的输入合同结构，再决定是否仍需反馈单变量。
+- Next step: 若进入修复实验，只改变成功反馈对内部 Tool identity 的作用域表达，保持请求 schema、原生 Tool、Base、DAG 和拒绝逻辑不变。
 - Blocker:
   - 缺少隔离实验。
 - Close reason:
@@ -385,3 +392,150 @@
   ```
 - Interpretation: 反馈语义有效且 Agent具备正确规则；首选错误来自生成偏置而非规则完全不可理解。
 - Time: 2026-08-19 07:24
+
+## Hypothesis H-005: 内部原生 Tool identity 缺少稳定的作用域边界
+- Status: confirmed
+- Parent: P-001
+- Claim: `taskspace_exec` 正确保留内部原生 Tool，但当前结构化表示同时在请求的 `tools[].tool` 和响应的 `client_results[].tool` 中使用裸 Tool identity；DeepSeek 会把该内部判别值误当成 Provider 顶层 Function 名称。问题是作用域区分不足，不是原生 Tool identity 本身错误。
+- Layer: root-cause
+- Factor relation: all_of
+- Depends on:
+  - H-003
+- Rationale:
+  - 逃逸名称和参数可由内部调用机械导出，且同时保留 TaskSpace wrapper 专属 `node_id`；顶层请求没有声明对应 Function。
+  - 错误候选把内部判别值从 `exec_command` 改成 `shell` 后，逃逸名称也同步变为 `shell`。
+  - Codex `exec` 保留相同原生能力，但用 `tools.exec_command(...)` 明确内部命名空间，并由 outer `exec` 返回脚本级状态。
+- Falsifiable predictions:
+  - If true: 保留原生 Tool identity 和输入合同，仅改变内部 identity 的作用域表达或成功反馈显著性，就能降低逃逸而不影响原生 dispatch。
+  - If false: 逃逸与内部 identity 表示无关，或在不暴露任何内部 identity 的响应后仍以同等概率产生同名顶层调用。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 内部调用到非法顶层调用的名称、参数和顺序映射。
+  - Signal: `tools[].tool`、`client_results[].tool`、下一响应 Function name/arguments、顶层 Tool 集合。
+  - Capture method: 四臂历史 trace、owner-state trace、错误 `shell` 候选 trace 与 Codex `exec` 静态对照。
+  - Event name or marker:
+    - `function_call(name=exec_command)`
+    - `function_call(name=shell)`
+  - Correlation keys:
+    - outer call ID
+    - next provider request
+  - Differentiates from:
+    - 顶层 Tool 重新声明
+    - Runtime 改写
+    - Base 明确允许直接调用
+  - Supports if:
+    - 逃逸值可由内部 identity 和 input 机械导出，且顶层声明始终不存在该 Function。
+  - Refutes if:
+    - 非法调用来自独立顶层声明、Runtime 合成或与内部 identity 无关的名称/参数。
+  - Instrumentation status: existing permanent traces sufficient for direct mechanism
+  - Instrumentation lifecycle:
+    - retain
+- Evidence gate: satisfied for direct mechanism; repair variable not selected
+- Related evidence:
+  - E-002
+  - E-003
+  - E-009
+  - E-010
+  - E-011
+  - E-012
+- Conclusion: 内部调用被提升的直接机制已证实；现有证据要求修复作用域表达，而不是删除、改名或替代原生内部 Tool。成功反馈是否为主要概率触发器仍由 H-002 单独验证。
+- Repair design readiness: diagnostic boundary ready; no production candidate selected
+- Next step: 先设计反馈单变量候选及离线合同，真实 A/B 另行申请预算。
+- Blocker:
+  - 缺少反馈单变量真实 A/B。
+- Close reason:
+  - not closed
+
+## Evidence E-009: 错误 shell 候选已整体回退且原生协议离线通过
+- Related hypotheses:
+  - H-001
+  - H-005
+- Direction: supports
+- Type: fix-validation
+- Source: commit `ab23d8f5b` and focused test output
+- Prediction or plan link:
+  - 产品澄清要求恢复原生内部 Tool identity，不保留兼容分支。
+- Matched signal:
+  - `3750a3932` 的 `actions[].kind=shell` 生产改动被完整反向应用；`cargo test -p codex-core taskspace --lib --locked` 为 123 passed。
+- Correlation keys:
+  - `ab23d8f5b`
+- Raw content:
+  ```text
+  Revert "fix(taskspace): expose native actions through exec"
+  test result: ok. 123 passed; 0 failed
+  ```
+- Interpretation: 当前调查基线重新是原生 `tools[]`，后续结论不得继续以 `shell` 方案为目标设计。
+- Time: 2026-08-19 11:20
+
+## Evidence E-010: 历史四臂中 TaskSpace 逃逸为 7/9 轮和 11 次
+- Related hypotheses:
+  - H-002
+  - H-005
+- Direction: supports
+- Type: historical-trace-audit
+- Source: `WAR-20260818-055427-R8-FOUR-ARM-R3` twelve rollouts
+- Prediction or plan link:
+  - H-005 内部 identity 会被提升；H-002 统计 post-success 顺序。
+- Matched signal:
+  - Standard `a0` 的顶层 `exec_command` 是正常声明调用，不计逃逸。
+  - Map Always `a1`: 2/3 轮、3 次逃逸。
+  - Map Append `a2`: 3/3 轮、4 次逃逸。
+  - Map Request `a3`: 2/3 轮、4 次逃逸。
+- Correlation keys:
+  - subject commit `4fe2f3557eab1ca07836dfdc9e0f909b73329ea7`
+  - TaskSpace base `3.0.5`
+- Raw content:
+  ```text
+  a1: 2/3 affected, 3 calls
+  a2: 3/3 affected, 4 calls
+  a3: 2/3 affected, 4 calls
+  total: 7/9 affected, 11 calls
+  ```
+- Interpretation: 恢复后的原生协议存在跨 projection 模式的高频层级逃逸，不能把 owner-state 单轮复发视为孤例。
+- Time: 2026-08-19 11:20
+
+## Evidence E-011: 四臂每个受影响运行的第一次逃逸都紧跟 client result
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: sequence-analysis
+- Source: `WAR-20260818-055427-R8-FOUR-ARM-R3` TaskSpace rollouts
+- Prediction or plan link:
+  - H-002 post-success exposure should precede the first escape in affected runs.
+- Matched signal:
+  - 7 个受影响运行的第一次非法 `function_call(name=exec_command)` 之前，最近的 Tool output 都是成功 `taskspace_exec` output，且都含 `client_results[].tool="exec_command"`。
+  - 同一运行中的第二次逃逸通常紧跟第一次零副作用拒绝，属于一次错误选择的并行或连续放大，不另算首次触发。
+- Correlation keys:
+  - a1/r1
+  - a1/r2
+  - a2/r1
+  - a2/r2
+  - a2/r3
+  - a3/r1
+  - a3/r2
+- Raw content:
+  ```text
+  first escape after successful client_results: 7/7 affected runs
+  first-turn escape before any taskspace_exec success: 0/9 TaskSpace runs
+  ```
+- Interpretation: 成功反馈重复裸 Tool identity 是高可信放大候选；顺序关联本身仍不能替代隔离 A/B。
+- Time: 2026-08-19 11:20
+
+## Evidence E-012: Codex exec 通过命名空间和 outer 状态隔离内部 Tool
+- Related hypotheses:
+  - H-005
+- Direction: supports
+- Type: code-location
+- Source: `codex-rs/code-mode/src/description.rs` and `core/src/tools/code_mode/mod.rs`
+- Prediction or plan link:
+  - 成熟 Exec 设计应保留原生 Tool 同时建立明确 outer/inner 作用域。
+- Matched signal:
+  - 内部调用写为 `await tools.exec_command(...)`；nested Tool 结果只存在于脚本内，除非 Agent 显式 `text(result)`；outer result 首先返回 `Script completed/failed`。
+- Correlation keys:
+  - `PUBLIC_TOOL_NAME=exec`
+- Raw content:
+  ```text
+  await tools.exec_command(...)
+  Script completed
+  ```
+- Interpretation: 这不是 TaskSpace 修复的直接证明，但反驳“必须隐藏原生内部 Tool”，并提供作用域隔离的成熟结构对照。
+- Time: 2026-08-19 11:20
