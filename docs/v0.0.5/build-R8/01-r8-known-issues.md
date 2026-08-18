@@ -393,8 +393,8 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 成功、拒绝和内部失败只返回一个 outer output；最新三次生产运行 `18 calls = 18 outputs`，无副本或 orphan | [closed](taskspace-exec/80-i02-single-feedback-closure.md) | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 身份沿 dispatch/request/wire/trace/report 传播；最新 21 个 TaskSpace wire 请求身份一致且无冲突 | [closed](I10/01-i10-capability-identity-closure.md) | GI-010 |
 | 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | 最新 I04 rollout 有 1 次 canonical `TransitionInvalid`，pair report 却把 control/preflight/protocol/state failure 全部报为 0 | [verifying](I04/01-fork-join-live-validation-result.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与 client 动作 | 稳定生成初始化并执行、完成并继续、完成并结束；Provider-hosted Tool 当前不参与 Agent 归属协议 | 新 DAG 样本业务通过；其同批完成父子节点的动作顺序合法，旧拒绝已重分类为 Runtime 批内状态推导缺口并完成离线修复 | verifying | GI-003 |
-| 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点，或没有利用可并行 frontier | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 自然 DAG 样本两臂业务通过；TaskSpace 仍形成五节点线性链，fork/join 未观察到；顺序 patch 事务缺口已离线修复 | [verifying](I04/01-fork-join-live-validation-result.md) | GI-004 |
+| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与 client 动作 | 稳定生成初始化并执行、完成并继续、完成并结束；Provider-hosted Tool 当前不参与 Agent 归属协议 | 最新行为验收业务通过，但出现 1 次顶层 `exec_command` 逃逸；Runtime 零副作用拒绝后恢复 | verifying | GI-003 |
+| 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点，或没有利用可并行 frontier | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 顺序 patch 事务离线通过，最新生产运行无 `TransitionInvalid`；但目标同批父子完成未自然命中，Map 仍为线性链 | [verifying](I04/03-ordered-map-patch-live-validation-result.md) | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 复杂样本四臂 repeat=3：always/append/request 总 input 为 Standard `1.25x/1.60x/1.32x`，费用为 `2.83x/2.09x/2.43x` | [investigating](I01/03-i01-four-arm-repeat3-result.md) | GI-008 |
 
 问题总数：**10**；Open：**5**；Closed：**5**。Provider-hosted Runtime 机械归纳已通过生产验收，当前没有该专题停点。
@@ -411,8 +411,8 @@ I07 因最新 I04 trace 证实漏报而从 `closed` 恢复为 `verifying`；I05 
 | 工程修复、正常路径已验收 | I05 | JSON/schema reject 与 forbidden 顶层 client Tool 均有准确、同调用身份、零副作用反馈；repeat=3 正常路径全部通过 | 本轮未自然触发顶层 client escape，尚无新的恢复分支在线命中证据 |
 | 已关闭 | I10 | 最新 21 个 TaskSpace wire 请求身份一致；Catalog、dispatch、wire、trace 与 observer 共用同一值 | Projection 不参与能力身份计算，其三臂验收归入 I01/I08 |
 | 观测回归待修 | I07 | canonical request/usage 与 projection 仍可复算 | 最新 rollout 的 `TransitionInvalid` 被 pair observer 漏报，不能关闭 |
-| 复杂样本可完成 | I03 | 三 projection 共 9/9 业务与 oracle 通过；新 DAG 样本也完成；该样本的同批父子完成不是 Agent 状态错误 | 顺序 patch 修复尚未获得真实运行证据，其他历史动作异常仍使 I03 保持 verifying |
-| 当前行为已观察 | I04 | 新自然 DAG 样本两臂业务通过，Map 合法闭合；顺序 patch 事务已完成离线修复 | TaskSpace 仍为线性链，未自然形成 fork/join；新事务语义尚待生产验收 |
+| 复杂样本可完成 | I03 | 三 projection 共 9/9 业务与 oracle 通过；最新行为验收也完成 | 最新运行仍有 1 次顶层 client Tool 逃逸，其他历史动作异常也未关闭 |
+| 当前行为已观察 | I04 | 顺序 patch 事务离线通过；最新复杂运行 Map 合法闭合且无 `TransitionInvalid` | 同批父子完成没有自然命中；TaskSpace 仍为线性链，未形成 fork/join |
 | 复杂成本已测 | I08 | always/append/request 的请求、input、缓存、wall 和费用取舍已量化 | 只有一个复杂样本；产品阈值与多样本外推未完成 |
 
 本轮 B4 证据为：TaskSpace Exec 57、settlement/recovery 11、State 134、Core 1856/3、CLI 5、Viewer 4、App Server

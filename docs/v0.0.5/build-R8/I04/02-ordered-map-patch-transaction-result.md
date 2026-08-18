@@ -2,7 +2,7 @@
 
 - Date: 2026-08-19
 - Scope: Runtime 状态事务、TaskSpace Exec 协议与确定性测试
-- Status: offline passed / cache gate pending / production validation pending
+- Status: offline passed / cache live check passed / production target sequence not observed
 
 ## 1. 根因
 
@@ -27,5 +27,8 @@ patch 可以操作刚解锁的子节点。候选 Map 仍只在整批全部通过
 
 ## 4. 未完成验收
 
-TaskSpace Exec 的 Agent 可见 description 已同步新规则，属于缓存敏感面。必须先通过缓存回归门禁，再申请最小真实运行预算，
-确认目标模型能在一个请求中稳定提交父节点、刚解锁子节点与 Finish，并且不再产生历史额外请求。
+TaskSpace Exec 的 Agent 可见 description 已同步新规则，属于缓存敏感面。两臂缓存回归已经通过，复杂样本也完成业务、
+公开测试、隐藏 Oracle 与 Map 闭合，且没有 `TransitionInvalid`。但 Agent 本轮使用
+`fix completed + verify work`，随后 `verify completed + finish`，没有自然生成同批完成父子节点的目标序列，因此生产能力
+命中仍待后续自然证据，不能用“没有拒绝”替代该验收。详见
+[`03-ordered-map-patch-live-validation-result.md`](03-ordered-map-patch-live-validation-result.md)。

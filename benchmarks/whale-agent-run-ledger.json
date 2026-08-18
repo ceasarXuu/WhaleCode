@@ -1,7 +1,219 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-18T22:36:43+08:00",
+  "updated_at": "2026-08-19T05:43:58+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260819-054148-R8-I04-ORDERED-PATCH-R1",
+      "record_type": "run_batch",
+      "status": "settled",
+      "started_at": "2026-08-19T05:42:52+08:00",
+      "ended_at": "2026-08-19T05:43:58+08:00",
+      "elapsed_calendar_seconds": 66,
+      "aggregate_agent_wall_time_ms": 54688,
+      "reason": "验证 ordered Map patch 事务能否在复杂自然样本中于同一 update_and_finish 内依序完成父节点、刚解锁子节点与 Finish，且不产生历史 TransitionInvalid 或额外恢复请求。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260819-R8-I04-ORDERED-PATCH-BEHAVIOR",
+        "reference": "用户于 2026-08-19 在收到三次 sample run 的完整预算后明确回复‘批准’；前两次缓存回归实际费用 0.0297912 元，本记录使用剩余预算执行最后一次行为验收。",
+        "budget_summary": {
+          "provider_requests": 18,
+          "input_tokens": 230000,
+          "output_tokens": 8000,
+          "elapsed_seconds": 600,
+          "estimated_cost": 0.15,
+          "currency": "CNY"
+        },
+        "note": "仅 release-dispatch-repair × map-request × repeat=1；零重试；与同次用户批准的缓存回归合计费用硬上限 0.50 元。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": ["release-dispatch-repair"],
+        "arm_ids": ["map-request"],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 12,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 218859,
+        "cached_input": 200704,
+        "uncached_input": 18155,
+        "output": 6473
+      },
+      "monetary_cost": {
+        "status": "estimated",
+        "currency": "CNY",
+        "amount": 0.03511508,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.00401408,
+          "uncached_input": 0.018155,
+          "output": 0.012946
+        },
+        "pricing_snapshot": {
+          "model": "deepseek-v4-flash",
+          "captured_at": "2026-08-18",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": "200704/1e6*0.02 + 18155/1e6*1.0 + 6473/1e6*2.0 = 0.03511508 CNY",
+        "note": "按 12 个完整 Provider usage 记录和冻结价格估算；与同次批准的缓存回归合计 0.06490628 元。"
+      },
+      "evidence": {
+        "planned_run_root": "target/whale-agent-runs/WAR-20260819-054148-R8-I04-ORDERED-PATCH-R1",
+        "subject_commit": "5c8f428533e306581f62d5bb7b5179fc0f396fe6",
+        "scenario": "release-dispatch-repair",
+        "arm": "map-request",
+        "repeat": 1,
+        "execution": "docker",
+        "stop_conditions": "任一执行、业务、usage 或预算边界失败立即停止；零自动重试。",
+        "actual_run_root": "target/whale-agent-runs/WAR-20260819-054148-R8-I04-ORDERED-PATCH-R1/release-dispatch-repair/20260819-054243-335",
+        "pair_report_path": "target/whale-agent-runs/WAR-20260819-054148-R8-I04-ORDERED-PATCH-R1/release-dispatch-repair/20260819-054243-335/pair-001/pair-report.md",
+        "taskspace_graph_health_path": "target/whale-agent-runs/WAR-20260819-054148-R8-I04-ORDERED-PATCH-R1/release-dispatch-repair/20260819-054243-335/pair-001/right/artifacts/graph-health.json",
+        "taskspace_rollout_path": "target/whale-agent-runs/WAR-20260819-054148-R8-I04-ORDERED-PATCH-R1/release-dispatch-repair/20260819-054243-335/pair-001/right/artifacts/rollout.jsonl",
+        "business_successes": 1,
+        "public_validation_passes": 1,
+        "hidden_oracle_passes": 1,
+        "taskspace_map_shape": {
+          "nodes": 5,
+          "edges": 4,
+          "max_depth": 4,
+          "max_in_degree": 1,
+          "max_out_degree": 1,
+          "shape": "chain",
+          "map_complete": true
+        },
+        "transition_invalid_count": 0,
+        "top_level_client_escape_count": 1,
+        "ordered_parent_child_completion_observed": false,
+        "runner_exit_code": 1,
+        "runner_exit_note": "right-only run passed business, public validation, hidden oracle and Map closure; wrapper exited 1 because pair-level E2 requires the intentionally skipped Standard side and repeat>=3.",
+        "outcome": "business_passed; no TransitionInvalid; ordered parent-child completion sequence was not naturally generated, so the targeted production behavior remains unverified"
+      }
+    },
+    {
+      "record_id": "WAR-20260819-053954-CACHE-REGRESSION-E2191C90",
+      "record_type": "run_batch",
+      "status": "settled",
+      "started_at": "2026-08-19T05:40:01+08:00",
+      "ended_at": "2026-08-19T05:41:25+08:00",
+      "elapsed_calendar_seconds": 84.198,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "R8 I04 ordered Map patch transaction cache release check: the only final-wire difference is the intentional taskspace_exec description update. Run Standard and map-request once on the fixed simple sample, with zero retries and immediate stop on any failure.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260819-R8-I04-ORDERED-PATCH",
+        "reference": "用户于 2026-08-19 在收到三次 sample run 的完整验收预算后明确回复‘批准’；本授权中的两次运行仅覆盖 ordered Map patch 变更的 Standard/map-request 缓存回归。",
+        "budget_summary": {
+          "provider_requests": 36,
+          "input_tokens": 320000,
+          "output_tokens": 15000,
+          "elapsed_seconds": 1200,
+          "estimated_cost": 0.35,
+          "currency": "CNY"
+        },
+        "note": "严格绑定预算提案 CBP-2EEE9E6760802DC4。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "aa2e8e91b732a80edac5fd157c4e4c00785817da7cd24bfea2e3824caa087ba9",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "standard",
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 2,
+        "actual_sample_runs": 2,
+        "api_requests": 13,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 177132,
+        "cached_input": 156160,
+        "uncached_input": 20972,
+        "output": 2848
+      },
+      "monetary_cost": {
+        "status": "estimated",
+        "currency": "CNY",
+        "amount": 0.0297912,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.0031232,
+          "uncached_input": 0.020972,
+          "output": 0.005696
+        },
+        "pricing_snapshot": {
+          "currency": "CNY",
+          "captured_at": "2026-08-18",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "按完整 provider token 遥测和冻结价格估算。"
+      },
+      "evidence": {
+        "planned_run_root": "target/cache-hit-regression/R8-I04-ORDERED-PATCH",
+        "subject_commit": "5c8f428533e306581f62d5bb7b5179fc0f396fe6",
+        "surface_sha256": "2a900a647b04bb15daf3211ce4cc5644468659ce1eb0febf0406253c9a5ab81e",
+        "proposal_id": "CBP-2EEE9E6760802DC4",
+        "proposal_contract_sha256": "4e7de8333ce128e04a42966d8ed697288fbfbd11a79b0863d61c9e59e9a3a8cd",
+        "proposal_path": "benchmarks/cache-regression/proposals/2026-08-19-r8-i04-ordered-patch.json",
+        "proposal_sha256": "271d10fbf98e0afa8ec9ddb5cf61a7f03d603645ed4e92f433a626d9615d2a1d",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260819-R8-I04-ORDERED-PATCH.json",
+        "authorization_sha256": "6f65b17b4f18c9282c0aed7a4fe779effad317d7b7f4fb78eca03d7641169a1b",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "single-file-fast-fix"
+          ],
+          "arms": [
+            "standard",
+            "map-request"
+          ],
+          "repeat": 1,
+          "planned_sample_runs": 2,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 2,
+          "stop_conditions": [
+            "after_any_run_failure",
+            "after_any_business_failure",
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "R8 I04 ordered Map patch transaction cache release check: the only final-wire difference is the intentional taskspace_exec description update. Run Standard and map-request once on the fixed simple sample, with zero retries and immediate stop on any failure."
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_run_failure",
+          "after_any_business_failure",
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "complete",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260819-053954-CACHE-REGRESSION-E2191C90/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "c4970c58ebe61c5203deb92516b0d835831ffdc91979ac856e4cacd1bfddea78",
+        "actual_run_root": "target/cache-hit-regression/R8-I04-ORDERED-PATCH",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260819-053954-CACHE-REGRESSION-E2191C90.json",
+        "runner_exit_code": 0,
+        "outcome": "completed"
+      }
+    },
     {
       "record_id": "WAR-20260818-223200-R8-I04-DAG-R1",
       "record_type": "run_batch",

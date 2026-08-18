@@ -3,7 +3,7 @@
 - Report date: 2026-08-19
 - Source plans: `00-r8-charter.md`、`01-r8-known-issues.md`、`taskspace-exec/12-phase-b-zero-base-plan.md`
 - Scope: `whalecode-alpha` branch，验收 subject commit `413f940d7`
-- Latest runtime evidence: `WAR-20260818-223200-R8-I04-DAG-R1`
+- Latest runtime evidence: `WAR-20260819-054148-R8-I04-ORDERED-PATCH-R1`
 - Scoring: 十个 R8 全局问题等权；每项按已验证验收条件计 `0/25/50/75/100`
 
 ## 1. 完成度总览
@@ -37,8 +37,8 @@ xychart-beta
 | 5 | I02 Tool 事实单次表达 | 100% | closed | 最新三次生产运行 `18 calls = 18 outputs`，无高优先级副本、重复或 orphan | 无 |
 | 6 | I10 capability 身份 | 100% | closed | 最新 21 个 TaskSpace wire 请求身份一致，跨 Catalog/dispatch/wire/report 无冲突 | 无；projection 对照归入 I01/I08 |
 | 7 | I07 观测可信性 | 75% | verifying | canonical usage 与 projection 可复算 | 最新 I04 rollout 有 1 次 `TransitionInvalid`，observer 却报告 0 次失败 |
-| 8 | I03 动作组织稳定性 | 75% | verifying | 复杂样本三 policy 9/9 完成；最新 DAG 样本也完成；同批父子完成动作合法 | 新的顺序 patch 语义尚待真实运行，其他历史动作异常仍未关闭 |
-| 9 | I04 frontier 使用 | 75% | verifying | 新样本两臂业务通过、Map 合法闭合；顺序 patch 事务已离线修复 | TaskSpace 仍生成五节点线性链；fork/join 未观察到，新事务语义未生产验收 |
+| 8 | I03 动作组织稳定性 | 75% | verifying | 复杂样本继续完成，Runtime 对顶层 Tool 逃逸保持零副作用 | 最新行为验收仍出现 1 次顶层 `exec_command` 逃逸 |
+| 9 | I04 frontier 使用 | 75% | verifying | 顺序 patch 事务离线通过；最新复杂运行无 `TransitionInvalid` 且 Map 闭合 | 同批父子完成未自然命中；Map 仍为线性链，fork/join 未观察到 |
 | 10 | I08 成本与晋升 | 75% | investigating | 复杂样本四臂请求/input/cache/time/cost 已量化 | 只有一个复杂样本，产品阈值未确定 |
 
 ## 3. 阶段完成情况
