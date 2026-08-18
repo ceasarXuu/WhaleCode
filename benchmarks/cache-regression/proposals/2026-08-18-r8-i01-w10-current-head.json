@@ -1,7 +1,7 @@
 {
   "schema_version": "whalecode-cache-budget-proposal-v3",
-  "created_at": "2026-08-18T19:55:02+08:00",
-  "subject_commit": "4af9900dda2b61f063635b3c61bc4268261f993e",
+  "created_at": "2026-08-18T22:26:55+08:00",
+  "subject_commit": "413f940d7e846ffd029619fe38ba014fcf38736b",
   "surface_sha256": "bc4ae37dd3b6e2ce14598cb724a9529b794502e88376c202ca34028e9cabf4e8",
   "execution_identity": {
     "schema_version": "whalecode-cache-execution-identity-v1",
@@ -615,7 +615,7 @@
   },
   "trigger": {
     "gate_report_path": "benchmarks/cache-regression/gate-reports/2026-08-18-r8-i01-w10-current-head.json",
-    "gate_report_sha256": "3f1126a9a6548ae7e9b6a08d716f1bdd72aa7aa9b7d00a2f06c466b7de221d6b",
+    "gate_report_sha256": "672c412251d3ba722585dd8f2205882e128c844b0e3bdd52f711e486b36eeb48",
     "failed_free_commands": [
       "taskspace_final_wire"
     ]
@@ -713,6 +713,6 @@
     ]
   },
   "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
-  "proposal_id": "CBP-CFF95BDA9CAE67E0",
-  "proposal_sha256": "ccf7b8e8e2615af9d266f9c781bd6f177d438aec40e4bf7d5be1e437c1a419d8"
+  "proposal_id": "CBP-9D74CF85E2C39355",
+  "proposal_sha256": "5c9a017d70f4e38a29423348811431e1d26e77e7e042bfb01086699bac3193e5"
 }

@@ -1,0 +1,34 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v2",
+  "status": "granted",
+  "approved_by": "user",
+  "authorization_id": "CBA-20260818-R8-I01-W10-9D74CF85E2C39355",
+  "approval_reference": "用户于 2026-08-18 在收到 I01 三种 TaskSpace 模式缓存认证与 I04 DAG 双臂验收的完整预算后明确回复‘批准’；本授权仅覆盖 I01-W10 提案中的三次运行。首次启动因提案 HEAD 身份不一致在 Provider 前失败，零请求、零费用，本授权重新绑定相同预算和当前 HEAD。",
+  "approved_at": "2026-08-18T22:27:42+08:00",
+  "proposal_id": "CBP-9D74CF85E2C39355",
+  "proposal_sha256": "5c9a017d70f4e38a29423348811431e1d26e77e7e042bfb01086699bac3193e5",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": ["single-file-fast-fix"],
+    "arms": ["map-always", "map-append", "map-request"],
+    "repeat": 1,
+    "planned_sample_runs": 3,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 3,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "I01-W10 最小发布缓存认证：当前 final-wire 仅三个 TaskSpace projection 场景变化，使用同一简单样本对 map-always、map-append、map-request 各 repeat=1；Standard final-wire 已由免费门禁证明未变化。零重试，任一运行、业务、usage 或预算异常立即停止。"
+  },
+  "approved_maximums": {
+    "provider_requests": 36,
+    "input_tokens": 450000,
+    "output_tokens": 15000,
+    "elapsed_seconds": 1260,
+    "estimated_cost": 0.48,
+    "currency": "CNY"
+  }
+}

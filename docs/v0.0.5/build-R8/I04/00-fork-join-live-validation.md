@@ -1,7 +1,7 @@
 # R8 I04 自然 Fork/Join 生产验收
 
 - Created: 2026-08-18
-- Status: offline-ready / live-budget-pending
+- Status: live-completed / fork-join-not-observed
 - Model: `deepseek-v4-flash`
 - Candidate sample: `release-dispatch-repair`
 - Initial live matrix: `standard + map-request`，各 `repeat=1`
@@ -76,3 +76,9 @@ TaskSpace 图观察：
 
 任一运行失败、业务失败、usage 缺失或预算观察超限立即停止。真实执行前必须登记全局 Whale Agent run ledger，并取得
 用户对该专项预算的明确批准。
+
+## 7. 执行结果
+
+Standard 与 `map-request` 均通过公开测试和隐藏 Oracle；TaskSpace 最终形成五节点线性链，未自然形成 fork/join，
+I04 保持 `verifying`。完整数据与 trace 分析见
+[`01-fork-join-live-validation-result.md`](01-fork-join-live-validation-result.md)。

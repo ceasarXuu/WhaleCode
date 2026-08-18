@@ -1,0 +1,40 @@
+{
+  "schema_version": "whalecode-cache-baseline-acceptance-v1",
+  "status": "accepted",
+  "accepted_by": "user",
+  "accepted_at": "2026-08-18T22:47:51+08:00",
+  "acceptance_reference": "用户于 2026-08-18 在收到 WAR-20260818-222826-CACHE-REGRESSION-D4B2E4BE 的精确提交、模型、样本、三种 TaskSpace 模式、缓存和费用结果后明确回复‘批准’，同意晋升该结果；该接受不关闭 I03、I04、I07 或 I08，也不认可任一 projection 为默认模式。",
+  "result_path": "benchmarks/cache-regression/results/WAR-20260818-222826-CACHE-REGRESSION-D4B2E4BE.json",
+  "result_sha256": "db637ae5c61adc8c82fd20d3dd114294df5738dd3e0916187db6554d6196671f",
+  "proposal_path": "benchmarks/cache-regression/proposals/2026-08-18-r8-i01-w10-current-head.json",
+  "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260818-R8-I01-W10-9D74CF85E2C39355.json",
+  "accepted_scope": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "map-always",
+      "map-append",
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 3,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 3,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "I01-W10 最小发布缓存认证：当前 final-wire 仅三个 TaskSpace projection 场景变化，使用同一简单样本对 map-always、map-append、map-request 各 repeat=1；Standard final-wire 已由免费门禁证明未变化。零重试，任一运行、业务、usage 或预算异常立即停止。"
+  },
+  "acknowledged_unverified_scope": [],
+  "accepted_scenarios": [
+    {
+      "scenario_id": "taskspace_production_tool_wire",
+      "after_payload_sha256": "5002ed9fae0860b7376563435a09be5351fa8fa2b7fc825b6e1fbc9de0abdfd2"
+    }
+  ]
+}

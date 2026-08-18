@@ -2,7 +2,7 @@
   "schema_version": "whalecode-cache-regression-gate-v1",
   "status": "blocked",
   "source": "head",
-  "subject_commit": "4af9900dda2b61f063635b3c61bc4268261f993e",
+  "subject_commit": "413f940d7e846ffd029619fe38ba014fcf38736b",
   "actual_surface_sha256": "bc4ae37dd3b6e2ce14598cb724a9529b794502e88376c202ca34028e9cabf4e8",
   "expected_surface_sha256": "204978af2218017fe58f2322973b2a605cce6ec16e1e91f92ef4386aa1e3926b",
   "baseline_status": "accepted",
@@ -81,7 +81,7 @@
         "cwd": "third_party/codex-cli/codex-rs",
         "exit_code": 0,
         "timed_out": false,
-        "duration_ms": 856,
+        "duration_ms": 784,
         "status": "pass",
         "output_tail": [
           "  --> core/src/tools/output_reference.rs:32:17",
@@ -162,7 +162,7 @@
         "cwd": "third_party/codex-cli/codex-rs",
         "exit_code": 101,
         "timed_out": false,
-        "duration_ms": 755,
+        "duration_ms": 832,
         "status": "fail",
         "output_tail": [
           "   |",
@@ -1252,7 +1252,7 @@
         "cwd": "third_party/codex-cli/codex-rs",
         "exit_code": 0,
         "timed_out": false,
-        "duration_ms": 609,
+        "duration_ms": 606,
         "status": "pass",
         "output_tail": [
           "   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default",
@@ -1311,7 +1311,7 @@
         "cwd": "third_party/codex-cli/codex-rs",
         "exit_code": 0,
         "timed_out": false,
-        "duration_ms": 288,
+        "duration_ms": 292,
         "status": "pass",
         "output_tail": [
           "",
@@ -1335,7 +1335,7 @@
         "cwd": "third_party/codex-cli/codex-rs",
         "exit_code": 0,
         "timed_out": false,
-        "duration_ms": 319,
+        "duration_ms": 322,
         "status": "pass",
         "output_tail": [
           "",
@@ -1360,7 +1360,7 @@
         "cwd": "third_party/codex-cli/codex-rs",
         "exit_code": 0,
         "timed_out": false,
-        "duration_ms": 419,
+        "duration_ms": 417,
         "status": "pass",
         "output_tail": [
           "   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default",
@@ -1418,7 +1418,7 @@
         "cwd": "third_party/codex-cli/codex-rs",
         "exit_code": 0,
         "timed_out": false,
-        "duration_ms": 1081,
+        "duration_ms": 1071,
         "status": "pass",
         "output_tail": [
           "",
@@ -1464,12 +1464,12 @@
         "cwd": ".",
         "exit_code": 0,
         "timed_out": false,
-        "duration_ms": 48,
+        "duration_ms": 47,
         "status": "pass",
         "output_tail": [
           "................",
           "----------------------------------------------------------------------",
-          "Ran 16 tests in 0.003s",
+          "Ran 16 tests in 0.002s",
           "",
           "OK"
         ],
@@ -1478,7 +1478,12 @@
     ]
   },
   "require_clean_subject": true,
-  "release_relevant_changes": [],
+  "release_relevant_changes": [
+    {
+      "path": "benchmarks/cache-regression/authorizations/CBA-20260818-R8-I01-W10-CFF95BDA9CAE67E0.json",
+      "state": "untracked"
+    }
+  ],
   "surface_file_count": 313,
   "sensitive_changes": []
 }
