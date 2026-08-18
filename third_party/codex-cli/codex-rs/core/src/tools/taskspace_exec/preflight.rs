@@ -100,7 +100,7 @@ pub(crate) fn preflight_taskspace_exec(
         )?;
     }
 
-    for (index, call) in envelope.plan().tools.iter().enumerate() {
+    for (index, call) in envelope.plan().actions.iter().enumerate() {
         validate_client_call(index, call, candidate_map.as_ref(), envelope)?;
         if is_apply_patch(call) {
             patch_indices.push(index);
@@ -219,7 +219,7 @@ fn validate_client_call(
         .client_capability(&call.tool_name)
         .ok_or_else(|| TaskSpaceExecPreflightError::ClientCapabilityMismatch {
             index,
-            tool: call.display_name.clone(),
+            tool: call.action_name.clone(),
         })?;
     match (&call.input, &capability.capability.input) {
         (ClientCallInput::Function(value), ToolSpecCapabilityInput::Function(schema)) => {
@@ -234,7 +234,7 @@ fn validate_client_call(
         (ClientCallInput::Freeform(_), ToolSpecCapabilityInput::Freeform(_)) => Ok(()),
         _ => Err(TaskSpaceExecPreflightError::ClientCapabilityMismatch {
             index,
-            tool: call.display_name.clone(),
+            tool: call.action_name.clone(),
         }),
     }
 }

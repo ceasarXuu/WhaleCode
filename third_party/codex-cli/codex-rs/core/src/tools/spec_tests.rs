@@ -1541,9 +1541,11 @@ async fn taskspace_cp01_records_deepseek_effective_surface() {
         vec!["taskspace_exec".to_string(), "web_search".to_string()]
     );
     let declaration = serde_json::to_string(&taskspace_router.specs()).unwrap();
-    assert!(declaration.contains("exec_command"));
-    assert!(declaration.contains("write_stdin"));
-    assert!(declaration.contains("tool_search"));
+    assert!(declaration.contains("shell"));
+    assert!(declaration.contains("process_input"));
+    assert!(declaration.contains("discover_tools"));
+    assert!(!declaration.contains("exec_command"));
+    assert!(!declaration.contains("write_stdin"));
     assert!(!declaration.contains("automation_update"));
     assert!(!declaration.contains("mcp__test_server__lookup_order"));
 
@@ -1641,7 +1643,9 @@ async fn taskspace_cp01_records_code_mode_only_surface_difference() {
         vec!["taskspace_exec".to_string()]
     );
     let declaration = serde_json::to_string(&taskspace_router.specs()).unwrap();
-    assert!(declaration.contains("exec_command"));
-    assert!(declaration.contains("write_stdin"));
+    assert!(declaration.contains("shell"));
+    assert!(declaration.contains("process_input"));
+    assert!(!declaration.contains("exec_command"));
+    assert!(!declaration.contains("write_stdin"));
     assert!(!declaration.contains("exec tool declaration"));
 }

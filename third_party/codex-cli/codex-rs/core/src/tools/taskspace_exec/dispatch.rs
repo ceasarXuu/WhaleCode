@@ -22,7 +22,7 @@ use super::catalog::TaskSpaceClientTransport;
 pub(crate) struct NativeClientCall {
     pub(crate) identity: TaskSpaceExecInternalCallId,
     pub(crate) node_id: String,
-    pub(crate) display_name: String,
+    pub(crate) action_name: String,
     pub(super) call: ToolCall,
 }
 
@@ -30,7 +30,7 @@ pub(crate) struct NativeClientCall {
 pub(crate) struct DispatchedClientCall {
     pub(crate) identity: TaskSpaceExecInternalCallId,
     pub(crate) node_id: String,
-    pub(crate) display_name: String,
+    pub(crate) action_name: String,
     pub(crate) result: Option<NestedToolResult>,
     pub(crate) error: Option<String>,
     pub(crate) cancelled: bool,
@@ -68,19 +68,19 @@ pub(crate) async fn prepare_client_calls(
             .map_err(|error| native_call_rejected(item, error))?
             .ok_or_else(|| TaskSpaceExecDispatchPrepareError::NativeCallMissing {
                 identity: item.identity.clone(),
-                tool: item.call.display_name.clone(),
+                tool: item.call.action_name.clone(),
             })?;
         tracing::debug!(
             event = "taskspace_exec_client_prepared",
             outer_call_id = item.identity.outer_call_id,
             call_index = item.identity.index,
             node_id = item.call.node_id,
-            tool = item.call.display_name,
+            action = item.call.action_name,
         );
         prepared.push(NativeClientCall {
             identity: item.identity.clone(),
             node_id: item.call.node_id.clone(),
-            display_name: item.call.display_name.clone(),
+            action_name: item.call.action_name.clone(),
             call,
         });
     }
@@ -103,14 +103,14 @@ pub(crate) fn dispatch_client_calls(
             let cancellation_token = cancellation_token.clone();
             let identity = item.identity.clone();
             let node_id = item.node_id.clone();
-            let display_name = item.display_name.clone();
+            let action_name = item.action_name.clone();
             let producer = async move {
                 tracing::debug!(
                     event = "taskspace_exec_client_dispatch_started",
                     outer_call_id = item.identity.outer_call_id,
                     call_index = item.identity.index,
                     node_id = item.node_id,
-                    tool = item.display_name,
+                    action = item.action_name,
                 );
                 let handled = runtime
                     .handle_tool_call_with_nested_result_and_status(
@@ -126,7 +126,7 @@ pub(crate) fn dispatch_client_calls(
                 let mut result = DispatchedClientCall {
                     identity: item.identity,
                     node_id: item.node_id,
-                    display_name: item.display_name,
+                    action_name: item.action_name,
                     result: handled.result,
                     error: handled.error,
                     cancelled: handled.cancelled,
@@ -140,7 +140,7 @@ pub(crate) fn dispatch_client_calls(
                         outer_call_id: result.identity.outer_call_id.clone(),
                         action_id: result.identity.transport_id(),
                         node_ids: vec![result.node_id.clone()],
-                        tool_name: result.display_name.clone(),
+                        tool_name: result.action_name.clone(),
                         outcome,
                     })
                     .err();
@@ -149,7 +149,7 @@ pub(crate) fn dispatch_client_calls(
                     outer_call_id = result.identity.outer_call_id,
                     call_index = result.identity.index,
                     node_id = result.node_id,
-                    tool = result.display_name,
+                    action = result.action_name,
                     failed = result.error.is_some(),
                     cancelled = result.cancelled,
                     execution_failed = result.execution_failed,
@@ -163,7 +163,7 @@ pub(crate) fn dispatch_client_calls(
                     Ok(handle) => handle.await.unwrap_or_else(|error| DispatchedClientCall {
                         identity,
                         node_id,
-                        display_name,
+                        action_name,
                         result: None,
                         error: Some(
                             CodexErr::Fatal(format!("TaskSpace Action producer failed: {error}"))
@@ -178,7 +178,7 @@ pub(crate) fn dispatch_client_calls(
                     Err(error) => DispatchedClientCall {
                         identity,
                         node_id,
-                        display_name,
+                        action_name,
                         result: None,
                         error: Some(CodexErr::Fatal(error.clone()).to_string()),
                         cancelled: false,
@@ -250,7 +250,7 @@ fn native_response_item(
         }
         _ => Err(TaskSpaceExecDispatchPrepareError::InvalidArguments {
             identity: prepared.identity.clone(),
-            tool: prepared.call.display_name.clone(),
+            tool: prepared.call.action_name.clone(),
             reason: "client transport and input kind do not match".to_string(),
         }),
     }
@@ -263,7 +263,7 @@ fn serialize_arguments(
     serde_json::to_string(arguments).map_err(|error| {
         TaskSpaceExecDispatchPrepareError::InvalidArguments {
             identity: prepared.identity.clone(),
-            tool: prepared.call.display_name.clone(),
+            tool: prepared.call.action_name.clone(),
             reason: error.to_string(),
         }
     })
@@ -275,7 +275,7 @@ fn native_call_rejected(
 ) -> TaskSpaceExecDispatchPrepareError {
     TaskSpaceExecDispatchPrepareError::NativeCallRejected {
         identity: prepared.identity.clone(),
-        tool: prepared.call.display_name.clone(),
+        tool: prepared.call.action_name.clone(),
         reason: error.to_string(),
     }
 }

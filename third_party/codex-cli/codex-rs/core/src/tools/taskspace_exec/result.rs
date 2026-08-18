@@ -3,13 +3,13 @@ use std::collections::BTreeMap;
 use codex_code_mode::render_json_schema_to_typescript;
 use codex_tools::AdditionalProperties;
 use codex_tools::JsonSchema;
-use codex_tools::ToolSpecCapability;
 use serde::Serialize;
 use serde_json::json;
 
 use crate::action_map::TaskSpaceMapView;
 use crate::tools::context::NestedToolResult;
 
+use super::catalog::TaskSpaceClientCapability;
 use super::feedback::AffectedNodeState;
 
 #[derive(Debug, Serialize)]
@@ -19,7 +19,7 @@ pub(super) struct TaskSpaceExecResult {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     reads: Vec<MapReadResult>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    client_results: Vec<ClientResult>,
+    action_results: Vec<ActionResult>,
 }
 
 #[derive(Debug, Serialize)]
@@ -28,11 +28,11 @@ pub(super) struct MapReadResult {
 }
 
 #[derive(Debug, Serialize)]
-pub(super) struct ClientResult {
+pub(super) struct ActionResult {
     #[serde(skip)]
     pub(super) call_index: usize,
     pub(super) node_id: String,
-    pub(super) tool: String,
+    pub(super) action: String,
     pub(super) outcome: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) result: Option<NestedToolResult>,
@@ -46,18 +46,18 @@ impl TaskSpaceExecResult {
     pub(super) fn new(
         affected_node_states: Vec<AffectedNodeState>,
         reads: Vec<MapReadResult>,
-        client_results: Vec<ClientResult>,
+        action_results: Vec<ActionResult>,
     ) -> Self {
         Self {
             affected_node_states,
             reads,
-            client_results,
+            action_results,
         }
     }
 }
 
 pub(super) fn result_schema<'a>(
-    clients: impl Iterator<Item = &'a ToolSpecCapability>,
+    clients: impl Iterator<Item = &'a TaskSpaceClientCapability>,
 ) -> JsonSchema {
     let clients = clients.collect::<Vec<_>>();
     strict_object(
@@ -68,8 +68,8 @@ pub(super) fn result_schema<'a>(
             ),
             ("reads", JsonSchema::array(map_read_result_schema(), None)),
             (
-                "client_results",
-                JsonSchema::array(client_result_schema(&clients), None),
+                "action_results",
+                JsonSchema::array(action_result_schema(&clients), None),
             ),
         ],
         &[],
@@ -186,28 +186,28 @@ fn node_action_schema() -> JsonSchema {
     )
 }
 
-fn client_result_schema(clients: &[&ToolSpecCapability]) -> JsonSchema {
-    let tool_names = clients
+fn action_result_schema(clients: &[&TaskSpaceClientCapability]) -> JsonSchema {
+    let action_names = clients
         .iter()
-        .map(|client| json!(tool_label(&client.tool_name)))
+        .map(|client| json!(client.action_name))
         .collect::<Vec<_>>();
     let output_contracts = clients
         .iter()
         .filter_map(|client| {
-            client.output_schema.as_ref().map(|schema| {
+            client.capability.output_schema.as_ref().map(|schema| {
                 format!(
                     "`{}` logical output: {}",
-                    tool_label(&client.tool_name),
+                    client.action_name,
                     render_json_schema_to_typescript(schema)
                 )
             })
         })
         .collect::<Vec<_>>();
-    let tool_description = if output_contracts.is_empty() {
-        "Native Tool identity; no client capability declares a logical output schema.".into()
+    let action_description = if output_contracts.is_empty() {
+        "TaskSpace action identity; no action declares a logical output schema.".into()
     } else {
         format!(
-            "Native Tool identity. Declared logical outputs are carried inside the native result wrapper:\n{}",
+            "TaskSpace action identity. Declared logical outputs are carried inside the execution result wrapper:\n{}",
             output_contracts.join("\n")
         )
     };
@@ -215,8 +215,8 @@ fn client_result_schema(clients: &[&ToolSpecCapability]) -> JsonSchema {
         [
             ("node_id", JsonSchema::string(None)),
             (
-                "tool",
-                JsonSchema::string_enum(tool_names, Some(tool_description)),
+                "action",
+                JsonSchema::string_enum(action_names, Some(action_description)),
             ),
             ("outcome", string_enum(["succeeded", "failed", "cancelled"])),
             (
@@ -229,7 +229,7 @@ fn client_result_schema(clients: &[&ToolSpecCapability]) -> JsonSchema {
             ("error", JsonSchema::string(None)),
             ("settlement_error", JsonSchema::string(None)),
         ],
-        &["node_id", "tool", "outcome"],
+        &["node_id", "action", "outcome"],
     )
 }
 
@@ -319,13 +319,6 @@ fn string_enum<const N: usize>(values: [&str; N]) -> JsonSchema {
 fn described(mut schema: JsonSchema, description: &str) -> JsonSchema {
     schema.description = Some(description.into());
     schema
-}
-
-fn tool_label(tool_name: &codex_tools::ToolName) -> String {
-    match tool_name.namespace.as_deref() {
-        Some(namespace) => format!("{namespace} / {}", tool_name.name),
-        None => tool_name.name.clone(),
-    }
 }
 
 fn strict_object<const N: usize>(

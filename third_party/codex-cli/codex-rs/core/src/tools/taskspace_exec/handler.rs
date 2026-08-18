@@ -26,7 +26,7 @@ use super::feedback::affected_node_states;
 use super::preflight::TaskSpaceExecPreflightError;
 use super::preflight_taskspace_exec;
 use super::prepare_client_calls;
-use super::result::ClientResult;
+use super::result::ActionResult;
 use super::result::MapReadResult;
 use super::result::TaskSpaceExecResult;
 
@@ -182,7 +182,7 @@ impl ToolHandler for TaskSpaceExecHandler {
             native_calls,
             invocation.cancellation_token.clone(),
         );
-        let mut client_results = Vec::new();
+        let mut action_results = Vec::new();
         while let Some(result) = dispatched.next().await {
             let outcome = dispatched_outcome(&result);
             let settlement_error = result.settlement_error.clone();
@@ -195,38 +195,38 @@ impl ToolHandler for TaskSpaceExecHandler {
                     outer_call_id = %invocation.call_id,
                     action_id = %result.identity.transport_id(),
                     node_id = %result.node_id,
-                    tool = %result.display_name,
+                    action = %result.action_name,
                     outcome = outcome_name(outcome),
                     capability_identity = self.catalog.capability_identity(),
                     error = %error,
                 );
             }
-            client_results.push(ClientResult {
+            action_results.push(ActionResult {
                 call_index: result.identity.index,
                 node_id: result.node_id,
-                tool: result.display_name,
+                action: result.action_name,
                 outcome: outcome_name(outcome),
                 result: result.result,
                 error: result.error,
                 settlement_error,
             });
         }
-        client_results.sort_by_key(|result| result.call_index);
+        action_results.sort_by_key(|result| result.call_index);
         let reads = prepared
             .read_maps
             .into_iter()
             .map(|(_, map)| MapReadResult { map })
             .collect::<Vec<_>>();
-        let all_succeeded = client_results
+        let all_succeeded = action_results
             .iter()
             .all(|result| result.outcome == "succeeded" && result.settlement_error.is_none());
-        let client_result_count = client_results.len();
+        let action_result_count = action_results.len();
         let affected_node_states = affected_node_states(
             current_map.as_ref(),
             candidate_map.as_ref(),
             envelope.plan(),
         );
-        let output = TaskSpaceExecResult::new(affected_node_states, reads, client_results);
+        let output = TaskSpaceExecResult::new(affected_node_states, reads, action_results);
         let text = serde_json::to_string(&output).map_err(|error| {
             FunctionCallError::Fatal(format!(
                 "taskspace_exec feedback serialization failed: {error}"
@@ -243,7 +243,7 @@ impl ToolHandler for TaskSpaceExecHandler {
             map_id = %map_id,
             map_revision = ?candidate_revision,
             capability_identity = self.catalog.capability_identity(),
-            client_result_count,
+            action_result_count,
             success = all_succeeded,
         );
         Ok(FunctionToolOutput::from_text(text, Some(all_succeeded)))
@@ -279,7 +279,7 @@ fn client_action_bindings(calls: &[super::PreparedClientCall]) -> Vec<ActionBind
         .iter()
         .map(|call| ActionBinding {
             action_id: call.identity.transport_id(),
-            tool_name: call.call.display_name.clone(),
+            tool_name: call.call.action_name.clone(),
             outcome: ActionOutcome::Pending,
             node_ids: vec![call.call.node_id.clone()],
         })
@@ -353,7 +353,7 @@ fn taskspace_rejection(
 }
 
 fn render_envelope_rejection(error: &TaskSpaceExecEnvelopeError) -> String {
-    const NOTHING_EXECUTED: &str = "No Map or Tool actions were executed.";
+    const NOTHING_EXECUTED: &str = "No Map operation or TaskSpace action was executed.";
     match error {
         TaskSpaceExecEnvelopeError::PlanDecode(TaskSpaceExecPlanDecodeError::InvalidJson(
             detail,
@@ -378,10 +378,10 @@ pub(super) fn render_preflight_rejection(error: &TaskSpaceExecPreflightError) ->
             state,
             incomplete_parent_ids,
         } => format!(
-            "Tool action {index} targeted work node `{node_id}` in state `{}`; incomplete direct parent nodes: {incomplete_parent_ids:?}. Only the sequence's preceding Map operation can unlock work; Tool outcomes do not change node state. No Map or Tool actions were executed.",
+            "Action {index} targeted work node `{node_id}` in state `{}`; incomplete direct parent nodes: {incomplete_parent_ids:?}. Only the sequence's preceding Map operation can unlock work; action outcomes do not change node state. No Map operation or TaskSpace action was executed.",
             node_state_label(*state)
         ),
-        _ => format!("preflight: {error:?}. No Map or Tool actions were executed."),
+        _ => format!("preflight: {error:?}. No Map operation or TaskSpace action was executed."),
     }
 }
 

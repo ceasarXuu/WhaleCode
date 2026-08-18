@@ -115,7 +115,7 @@ fn envelope(value: Value, map: Option<&TaskSpaceMap>) -> TaskSpaceExecEnvelope {
 }
 
 fn read_tool(node_id: &str) -> Value {
-    json!({"tool": "read_file", "node_id": node_id, "input": {"path": "src/lib.rs"}})
+    json!({"kind": "client::read_file", "node_id": node_id, "parameters": {"path": "src/lib.rs"}})
 }
 
 fn complete(node_id: &str) -> Value {
@@ -194,7 +194,7 @@ fn l2_work_starts_ready_but_preserves_inflight_nodes() {
     let current = open_map();
     let prepared = preflight_taskspace_exec(
         &envelope(
-            json!({"type": "work", "tools": [read_tool("inspect")]}),
+            json!({"type": "work", "actions": [read_tool("inspect")]}),
             Some(&current),
         ),
         Some(&current),
@@ -345,7 +345,7 @@ fn l7_reopen_update_and_work_keeps_recovery_agent_authored() {
             }],
             "node_patches": [{"node_id": "finish", "parents": ["implement", "repair"]}]
         },
-        "tools": [read_tool("repair")]
+        "actions": [read_tool("repair")]
     });
     let prepared =
         preflight_taskspace_exec(&envelope(value, Some(&current)), Some(&current)).unwrap();
@@ -383,11 +383,11 @@ fn l8_finish_closes_a_map_already_ready_to_finish() {
 fn dynamic_node_arguments_patch_and_revision_errors_fail_before_dispatch() {
     let current = open_map();
     for value in [
-        json!({"type": "work", "tools": [read_tool("missing")]}),
-        json!({"type": "work", "tools": [read_tool("implement")]}),
-        json!({"type": "work", "tools": [
-            {"tool": "apply_patch", "node_id": "inspect", "input": "one"},
-            {"tool": "apply_patch", "node_id": "inspect", "input": "two"}
+        json!({"type": "work", "actions": [read_tool("missing")]}),
+        json!({"type": "work", "actions": [read_tool("implement")]}),
+        json!({"type": "work", "actions": [
+            {"kind": "patch", "node_id": "inspect", "parameters": "one"},
+            {"kind": "patch", "node_id": "inspect", "parameters": "two"}
         ]}),
     ] {
         let envelope = envelope(value, Some(&current));
@@ -399,8 +399,8 @@ fn dynamic_node_arguments_patch_and_revision_errors_fail_before_dispatch() {
             .unwrap()
             .decode_outer_call(
                 "outer",
-                &json!({"type": "work", "tools": [{
-                    "tool": "read_file", "node_id": "inspect", "input": {"path": 1}
+                &json!({"type": "work", "actions": [{
+                    "kind": "client::read_file", "node_id": "inspect", "parameters": {"path": 1}
                 }]})
                 .to_string(),
             )
@@ -411,7 +411,7 @@ fn dynamic_node_arguments_patch_and_revision_errors_fail_before_dispatch() {
     let mut changed = request.clone();
     changed.revision += 1;
     let stale = envelope(
-        json!({"type": "work", "tools": [read_tool("inspect")]}),
+        json!({"type": "work", "actions": [read_tool("inspect")]}),
         Some(&request),
     );
     assert!(matches!(

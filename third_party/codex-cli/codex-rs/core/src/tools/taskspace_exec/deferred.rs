@@ -88,7 +88,7 @@ fn loadable_specs_from_result(text: &str) -> Vec<LoadableToolSpec> {
         return Vec::new();
     };
     result
-        .get("client_results")
+        .get("action_results")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
@@ -131,7 +131,7 @@ mod tests {
 
     fn search_result(outcome: &str) -> Value {
         json!({
-            "client_results": [{
+            "action_results": [{
                 "outcome": outcome,
                 "result": {
                     "type": "tool_search",

@@ -1,7 +1,7 @@
 # R8 已知问题唯一账本
 
 - Created: 2026-07-31
-- Updated: 2026-08-18
+- Updated: 2026-08-19
 - Authority: R8 当前问题状态的唯一事实源
 - Historical evidence: `docs/v0.0.5/build-R7/47-r7.1-global-issue-register-legacy.md`
 - Current progress report: [`03-r8-current-progress.md`](03-r8-current-progress.md)
@@ -19,6 +19,14 @@
 > 后续 VA-02R 已参考最新 Codex `exec` 将 outer Tool 操作合同收敛为一份 catalog-owned description，并通过同一示例的
 > decoder/preflight 离线验证；真实 Agent 遵循仍待新预算复验，详见
 > [`taskspace-exec/25-phase-b5-protocol-authority-repair.md`](taskspace-exec/25-phase-b5-protocol-authority-repair.md)。
+
+> **I03 Agent 可见动作模型修复（2026-08-19）**：最新生产 trace 再次证明 Provider 顶层从未声明
+> `exec_command`，但旧 Exec schema、示例和反馈仍用 `tools[] / tool=exec_command / input` 把它表达成内层可调用 Tool。
+> 该同形协议是模型把内层名称提升成顶层 Function Call 的直接结构诱因。当前实现已破坏性替换为
+> `actions[] / kind=shell / parameters`；Agent 只调用 `taskspace_exec` 并直接声明 TaskSpace action，Runtime 在内部
+> dispatch 边界才恢复原生 `exec_command`。反馈与 Map Action 同样只返回 `shell`，旧 wire 无兼容分支。离线合同、
+> Router、状态、持久化和自愈测试通过；真实逃逸率尚未复验，I03 保持 `verifying`。详见
+> [`taskspace-exec/82-native-action-protocol-result.md`](taskspace-exec/82-native-action-protocol-result.md)。
 
 > **VA-02 第二轮生产证据（2026-08-10）**：模型已稳定选择顶层 `taskspace_exec`，合法第二响应可初始化
 > `root -> inspect -> fix -> verify -> finish` 并原生执行 client Tool；但两轮首响应都在无 Hosted output 时的必填
@@ -393,7 +401,7 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 成功、拒绝和内部失败只返回一个 outer output；最新三次生产运行 `18 calls = 18 outputs`，无副本或 orphan | [closed](taskspace-exec/80-i02-single-feedback-closure.md) | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 身份沿 dispatch/request/wire/trace/report 传播；最新 21 个 TaskSpace wire 请求身份一致且无冲突 | [closed](I10/01-i10-capability-identity-closure.md) | GI-010 |
 | 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | 最新 I04 rollout 有 1 次 canonical `TransitionInvalid`，pair report 却把 control/preflight/protocol/state failure 全部报为 0 | [verifying](I04/01-fork-join-live-validation-result.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与 client 动作 | 稳定生成初始化并执行、完成并继续、完成并结束；Provider-hosted Tool 当前不参与 Agent 归属协议 | 最新行为验收业务通过，但出现 1 次顶层 `exec_command` 逃逸；Runtime 零副作用拒绝后恢复 | verifying | GI-003 |
+| 8 | R8-I03 | F5 | P2 | Agent 不能稳定组织 Map 与动作 | 稳定生成初始化并执行、完成并继续、完成并结束；Provider-hosted Tool 当前不参与 Agent 归属协议 | 已删除诱发顶层提升的内层 Tool 同形 wire，离线 123 项通过；真实模型复验待预算 | verifying | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点，或没有利用可并行 frontier | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 顺序 patch 事务离线通过，最新生产运行无 `TransitionInvalid`；但目标同批父子完成未自然命中，Map 仍为线性链 | [verifying](I04/03-ordered-map-patch-live-validation-result.md) | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 复杂样本四臂 repeat=3：always/append/request 总 input 为 Standard `1.25x/1.60x/1.32x`，费用为 `2.83x/2.09x/2.43x` | [investigating](I01/03-i01-four-arm-repeat3-result.md) | GI-008 |
 

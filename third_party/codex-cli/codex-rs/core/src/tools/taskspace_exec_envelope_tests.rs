@@ -54,7 +54,7 @@ fn map(revision: u64) -> crate::action_map::rooted_dag::TaskSpaceMap {
 }
 
 fn arguments() -> &'static str {
-    r#"{"type":"work","tools":[{"tool":"read_file","node_id":"work","input":{"path":"a.rs"}}]}"#
+    r#"{"type":"work","actions":[{"kind":"client::read_file","node_id":"work","parameters":{"path":"a.rs"}}]}"#
 }
 
 #[test]
@@ -140,7 +140,7 @@ fn call_identity_is_bounded_by_the_decoded_outer_plan() {
         .unwrap();
 
     assert_eq!(envelope.outer_call_id(), "outer-1");
-    assert_eq!(envelope.plan().tools.len(), 1);
+    assert_eq!(envelope.plan().actions.len(), 1);
     assert_eq!(
         envelope.internal_call_id(1),
         Err(TaskSpaceExecEnvelopeError::CallIndexOutOfRange {

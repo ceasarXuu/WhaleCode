@@ -148,7 +148,8 @@ R8 使用外部规范校验协议边界，但不照搬外部架构：
 2026-08-05，R8 曾暂停原问题队列并优先实施 [`taskspace-exec/`](taskspace-exec/README.md)。当前主方案已完成离线骨架、
 问题重映射和简单样本生产闭环，R8 已恢复按 [`01-r8-known-issues.md`](01-r8-known-issues.md) 逐题推进。该方案以 Function Call
 形态的 `taskspace_exec` 作为 TaskSpace 唯一
-client/map 入口，承担合法序列与节点绑定。Provider-hosted Tool 保持原生执行，不进入 Agent 双写或延迟归属协议；Runtime
+client/map 入口，承担合法序列与节点绑定。Agent 在其中直接声明 TaskSpace action，不嵌套普通 client Tool；原生
+ToolSpec 和 handler 只作为 Runtime 内部执行实现。Provider-hosted Tool 保持原生执行，不进入 Agent 双写或延迟归属协议；Runtime
 在实际发生后按原生 Tool 名向 Root 下的专用 Completed 节点机械归纳，无法安全归纳时允许逃逸并记录诊断。
 
 此前的普通 Tool schema 入侵、独立顶层结构化容器、control manifest + sibling calls、Provider 双写和 pending 归属路线

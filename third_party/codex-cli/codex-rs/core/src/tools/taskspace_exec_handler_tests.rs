@@ -45,7 +45,7 @@ fn waiting_preflight_feedback_names_parents_and_mechanical_batch_boundary() {
 
     assert_eq!(
         feedback,
-        "Tool action 2 targeted work node `implement` in state `waiting`; incomplete direct parent nodes: [\"inspect\", \"design\"]. Only the sequence's preceding Map operation can unlock work; Tool outcomes do not change node state. No Map or Tool actions were executed."
+        "Action 2 targeted work node `implement` in state `waiting`; incomplete direct parent nodes: [\"inspect\", \"design\"]. Only the sequence's preceding Map operation can unlock work; action outcomes do not change node state. No Map operation or TaskSpace action was executed."
     );
 }
 
@@ -99,18 +99,18 @@ fn initialize_input() -> Value {
 }
 
 fn inspect_action(input: Value) -> Value {
-    json!({"tool": "inspect", "node_id": "work", "input": input})
+    json!({"kind": "client::inspect", "node_id": "work", "parameters": input})
 }
 
 fn inspect_action_for(node_id: &str, input: Value) -> Value {
-    json!({"tool": "inspect", "node_id": node_id, "input": input})
+    json!({"kind": "client::inspect", "node_id": node_id, "parameters": input})
 }
 
-fn initialize_work(tools: Vec<Value>) -> Value {
+fn initialize_work(actions: Vec<Value>) -> Value {
     json!({
         "type": "initialize_and_work",
         "initialize_map": initialize_input(),
-        "tools": tools
+        "actions": actions
     })
 }
 
@@ -310,7 +310,7 @@ async fn malformed_json_feedback_preserves_only_the_syntax_error() {
     let harness = harness(false).await;
     begin_scope(&harness).await;
     finalize_scope(&harness);
-    let malformed = r#"{"type":"initialize_and_work","initialize_map":{},"tools":[{"tool":"inspect","node_id":"work","input":{}}]"#;
+    let malformed = r#"{"type":"initialize_and_work","initialize_map":{},"actions":[{"kind":"client::inspect","node_id":"work","parameters":{}}]"#;
 
     let result = harness
         .handler
@@ -325,7 +325,7 @@ async fn malformed_json_feedback_preserves_only_the_syntax_error() {
     assert!(message.contains("invalid JSON syntax:"));
     assert!(!message.contains("top-level input must directly contain"));
     assert!(!message.contains("do not wrap it in an `arguments` field"));
-    assert!(message.contains("No Map or Tool actions were executed"));
+    assert!(message.contains("No Map operation or TaskSpace action was executed"));
     assert_eq!(harness.client_handler.calls.load(Ordering::SeqCst), 0);
     assert!(
         harness
@@ -368,7 +368,7 @@ async fn other_top_level_contract_errors_do_not_inject_wrapper_guidance() {
     let unknown = json!({
         "type": "initialize_and_work",
         "initialize_map": initialize_input(),
-        "tools": [inspect_action(json!({}))],
+        "actions": [inspect_action(json!({}))],
         "unexpected": true
     });
 
@@ -415,7 +415,7 @@ async fn provider_work_does_not_replace_required_client_work() {
     };
 
     assert!(error.to_string().contains("invalid top-level contract"));
-    assert!(error.to_string().contains("tools"));
+    assert!(error.to_string().contains("actions"));
     assert_eq!(harness.client_handler.calls.load(Ordering::SeqCst), 0);
     assert!(
         harness
@@ -447,7 +447,7 @@ async fn cancelled_native_call_is_settled_without_changing_node_state() {
 
     assert_eq!(output.success, Some(false));
     let feedback: Value = serde_json::from_str(&output.into_text()).unwrap();
-    assert_eq!(feedback["client_results"][0]["outcome"], "cancelled");
+    assert_eq!(feedback["action_results"][0]["outcome"], "cancelled");
     harness
         .session
         .await_taskspace_action_settlements()
@@ -565,13 +565,13 @@ async fn handler_persists_pending_then_settles_each_native_result_without_node_t
     assert!(work_state.get("previous_state").is_none());
     assert_eq!(work_state["state"], "in_flight");
     assert_eq!(
-        feedback["client_results"][0]["result"],
+        feedback["action_results"][0]["result"],
         json!({"type": "function", "output": "native-result"})
     );
-    assert!(feedback["client_results"][0].get("call_index").is_none());
-    assert!(feedback["client_results"][0].get("action_id").is_none());
-    assert_eq!(feedback["client_results"][1]["outcome"], "failed");
-    assert_eq!(feedback["client_results"][1]["error"], "expected failure");
+    assert!(feedback["action_results"][0].get("call_index").is_none());
+    assert!(feedback["action_results"][0].get("action_id").is_none());
+    assert_eq!(feedback["action_results"][1]["outcome"], "failed");
+    assert_eq!(feedback["action_results"][1]["error"], "expected failure");
     assert!(
         harness
             .client_handler
@@ -622,15 +622,15 @@ async fn internal_fatal_is_returned_once_with_successful_sibling_feedback() {
 
     assert_eq!(output.success, Some(false));
     let feedback: Value = serde_json::from_str(&output.into_text()).unwrap();
-    assert_eq!(feedback["client_results"].as_array().unwrap().len(), 2);
-    assert_eq!(feedback["client_results"][0]["outcome"], "succeeded");
+    assert_eq!(feedback["action_results"].as_array().unwrap().len(), 2);
+    assert_eq!(feedback["action_results"][0]["outcome"], "succeeded");
     assert_eq!(
-        feedback["client_results"][0]["result"],
+        feedback["action_results"][0]["result"],
         json!({"type": "function", "output": "native-result"})
     );
-    assert_eq!(feedback["client_results"][1]["outcome"], "failed");
+    assert_eq!(feedback["action_results"][1]["outcome"], "failed");
     assert_eq!(
-        feedback["client_results"][1]["error"],
+        feedback["action_results"][1]["error"],
         "Fatal error: expected fatal"
     );
     harness
@@ -794,7 +794,7 @@ async fn production_router_exposes_only_exec_and_hosted_and_blocks_client_bypass
     let FunctionCallOutputBody::Text(message) = output.body else {
         panic!("expected textual rejection")
     };
-    assert!(message.contains("top-level client Tool `inspect`"));
+    assert!(message.contains("top-level Function Tool `inspect`"));
     assert!(message.contains("was not executed"));
     assert!(message.contains("inside one `taskspace_exec` sequence"));
 }
