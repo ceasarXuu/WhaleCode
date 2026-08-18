@@ -270,6 +270,57 @@ fn l5_update_and_finish_closes_only_a_ready_finish() {
 }
 
 #[test]
+fn l5_update_and_finish_applies_dependency_patches_in_declared_order() {
+    let mut current = open_map();
+    current
+        .work_nodes
+        .iter_mut()
+        .find(|node| node.node_id == "inspect")
+        .unwrap()
+        .state = NodeState::InFlight;
+    let before = current.clone();
+    let ordered = json!({
+        "type": "update_and_finish",
+        "update_map": {
+            "add_work_nodes": [],
+            "node_patches": [
+                {"node_id": "inspect", "state": "completed"},
+                {"node_id": "implement", "state": "completed"}
+            ]
+        },
+        "finish_map": {"content": "done"}
+    });
+    let prepared =
+        preflight_taskspace_exec(&envelope(ordered, Some(&current)), Some(&current)).unwrap();
+    let map = prepared.candidate_map.unwrap();
+    assert_eq!(map.root.state, NodeState::Completed);
+    assert_eq!(
+        rooted_dag::node(&map, "inspect").unwrap().state,
+        NodeState::Completed
+    );
+    assert_eq!(
+        rooted_dag::node(&map, "implement").unwrap().state,
+        NodeState::Completed
+    );
+    assert_eq!(map.finish.state, NodeState::Completed);
+    assert_eq!(current, before);
+
+    let reversed = json!({
+        "type": "update_and_finish",
+        "update_map": {
+            "add_work_nodes": [],
+            "node_patches": [
+                {"node_id": "implement", "state": "completed"},
+                {"node_id": "inspect", "state": "completed"}
+            ]
+        },
+        "finish_map": {"content": "done"}
+    });
+    assert!(preflight_taskspace_exec(&envelope(reversed, Some(&current)), Some(&current)).is_err());
+    assert_eq!(current, before);
+}
+
+#[test]
 fn l6_read_returns_the_complete_agent_visible_map() {
     let current = open_map();
     let prepared = preflight_taskspace_exec(

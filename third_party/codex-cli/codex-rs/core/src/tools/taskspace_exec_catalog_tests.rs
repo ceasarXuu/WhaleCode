@@ -219,6 +219,8 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
         "No other explicit state transition is accepted",
         "Tool success, failure, or cancellation records an outcome but never completes the owner",
         "the sequence's Map operation is applied before its Tool actions",
+        "Map patches are applied in declared array order",
+        "Any invalid patch rejects the whole sequence with no commit",
         "Tool outcomes do not unlock descendants",
         "Only `finish_map` may change ready Finish and open Root to `completed`",
         "completed Work nodes remain completed",

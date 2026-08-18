@@ -214,3 +214,75 @@ fn canonical_transactions_derive_new_work_state_from_the_complete_graph() {
         ViolationCode::TransitionInvalid
     );
 }
+
+#[test]
+fn ordered_patches_can_complete_a_newly_unlocked_descendant_atomically() {
+    let current = new_map(
+        "map-ordered".into(),
+        node("root", NodeState::InFlight, &[]),
+        vec![
+            node("fix", NodeState::InFlight, &["root"]),
+            node("verify", NodeState::Waiting, &["fix"]),
+        ],
+        node("finish", NodeState::Waiting, &["verify"]),
+    );
+    let original = current.clone();
+    let committed = execute(
+        &current,
+        ExecuteTransaction {
+            request_revision: current.revision,
+            add_work_nodes: vec![],
+            patches: vec![
+                NodePatch {
+                    node_id: "fix".into(),
+                    state: Some(NodeState::Completed),
+                    ..Default::default()
+                },
+                NodePatch {
+                    node_id: "verify".into(),
+                    state: Some(NodeState::Completed),
+                    ..Default::default()
+                },
+            ],
+        },
+    )
+    .unwrap()
+    .map;
+
+    assert_eq!(
+        super::node(&committed, "fix").unwrap().state,
+        NodeState::Completed
+    );
+    assert_eq!(
+        super::node(&committed, "verify").unwrap().state,
+        NodeState::Completed
+    );
+    assert_eq!(committed.finish.state, NodeState::Ready);
+    assert_eq!(current, original);
+
+    let rejected = execute(
+        &current,
+        ExecuteTransaction {
+            request_revision: current.revision,
+            add_work_nodes: vec![],
+            patches: vec![
+                NodePatch {
+                    node_id: "verify".into(),
+                    state: Some(NodeState::Completed),
+                    ..Default::default()
+                },
+                NodePatch {
+                    node_id: "fix".into(),
+                    state: Some(NodeState::Completed),
+                    ..Default::default()
+                },
+            ],
+        },
+    )
+    .unwrap_err();
+    assert_eq!(
+        rejected.violations[0].code,
+        ViolationCode::TransitionInvalid
+    );
+    assert_eq!(current, original);
+}

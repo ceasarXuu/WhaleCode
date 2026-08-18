@@ -27,13 +27,16 @@ TaskSpace 最终形成 `root -> explore -> fix -> verify -> finish` 的五节点
 
 ## 3. 协议行为
 
-Agent 先完成 `fix` 并执行全量测试，随后在一个 `update_and_finish` 中尝试同时把 `fix` 与仍处于 `waiting` 的
-`verify` 标为 completed。Runtime 以 `TransitionInvalid` 原子拒绝，未执行任何 Map 或 Tool 动作。Agent 下一请求先完成
-`fix`，使 `verify` 变为可执行，再完成 `verify` 与 Finish。
+Agent 先完成 `fix` 并执行全量测试，随后在一个 `update_and_finish` 中按顺序声明 `fix -> completed`、
+`verify -> completed` 与 Finish。旧 Runtime 只在整批 patch 结束后派生状态，因此校验第二项时仍把 `verify` 视为
+`waiting`，以 `TransitionInvalid` 原子拒绝。Agent 下一请求拆开同一逻辑后成功。
+
+该 trace 后续经产品复核确认：既然 `node_patches[]` 已表达顺序，Runtime 应在每个 patch 后机械派生状态，并允许后续 patch
+操作刚解锁的节点；这不需要 Runtime 判断验证是否充分。当前修复将该拒绝从“Agent 状态错误”重分类为批内状态事务能力缺口。
 
 这说明硬边界正确且 Agent 可恢复，但也留下两项证据：
 
-1. I03 仍存在一次可恢复的动作组织错误，继续保持 `verifying`；
+1. I03 不再把该次拒绝计为 Agent 动作组织错误，但仍需在新实现生产 trace 中验证连续动作收益；
 2. 当前 observer 报告 control/preflight/protocol/state failure 均为 0，与 rollout 中的 canonical reject 不一致，
    因此 I07 从 `closed` 恢复为 `verifying`。
 

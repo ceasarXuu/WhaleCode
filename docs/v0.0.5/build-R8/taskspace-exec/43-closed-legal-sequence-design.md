@@ -181,8 +181,9 @@ in_flight --Agent 显式更新--> completed
 - Agent 修改 parents 后，尚未启动节点可在 `waiting/ready` 之间重新派生；显式 lifecycle state patch 不允许倒退；
 - `in_flight` 由 Agent 选择在节点上工作，或显式纯 Map update 表达；
 - `completed` 只由 Agent 显式 update 表达；Tool outcome 不自动完成节点；
-- 同一个 Map update 不能把原本 `waiting` 的子节点直接改为 `in_flight/completed`；完成父节点后，Runtime 才派生该子节点
-  为 `ready`。`update_and_work` 可以先完成父节点，再通过同序列 Tool action 机械启动已解锁子节点；
+- 同一个 Map update 按 `node_patches[]` 声明顺序逐项应用；每项之后 Runtime 机械派生 Waiting/Ready。后续 patch 可以把被
+  前序 parent-completion 解锁的子节点改为 `in_flight/completed`，也可以由 `update_and_work` 的后续 Tool action 机械启动；
+  任一 patch 非法则整批零提交；
 - 外部条件暂时不满足时，Agent 可将事实写入节点 `content`，继续其他 Ready 节点，或在 Map 保持未闭合时向用户
   说明当前缺少的外部条件；不再为此增加一套节点限制状态和转移规则。
 

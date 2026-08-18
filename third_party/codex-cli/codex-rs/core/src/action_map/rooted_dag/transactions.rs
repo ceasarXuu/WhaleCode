@@ -123,6 +123,7 @@ pub(crate) fn execute(
     candidate.work_nodes.extend(input.add_work_nodes);
     for patch in input.patches {
         apply_patch(&mut candidate, patch)?;
+        normalize_readiness(&mut candidate);
     }
     normalize_readiness(&mut candidate);
     candidate.revision = next_revision(current)?;
