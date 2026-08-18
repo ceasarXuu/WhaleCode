@@ -310,6 +310,14 @@
 > 候选未晋升并已回退。Run 5 独立复发一次未声明顶层 `exec_command`，被 response contract 在执行前终止，继续归 I03。
 > 详见 [`taskspace-exec/69-owner-state-feedback-repeat5-result.md`](taskspace-exec/69-owner-state-feedback-repeat5-result.md)。
 
+> **原生 action 顶层提升诊断（2026-08-19）**：最新三次有效 TaskSpace 运行中两次把内部 `kind=shell` 提升成未声明
+> 顶层 `function_call(name=shell)`，合计五个调用；Runtime 均在副作用前拒绝并由 Agent 下一请求恢复。顶层 Tool 集合没有
+> 声明 `shell`，Base 与 Tool description 也都明确禁止独立 action 调用。直接结构证据是非法调用分别把内层
+> `parameters.cmd/workdir` 提升为 Function arguments，并在一轮保留 wrapper-only `node_id`。因此当前根因不是禁止提示缺失，
+> 而是 action 分支仍以可调用式 identity、完整原生参数合同和 imperative Tool description 暴露，叠加 Provider 不限制未声明
+> Function 名称；简单改名只改变被提升的名称。完整 COE 见
+> [`../../../coe/2026-08-19-07-24-r8-taskspace-action-top-level-promotion.md`](../../../coe/2026-08-19-07-24-r8-taskspace-action-top-level-promotion.md)。
+
 > **I03 单闭合符号自愈边界补全（2026-08-17）**：历史 Run 发现一次 `apply_patch` action 尾部多出 `}`；删除任一相邻
 > 多余符号得到同一个合法参数，且与 Agent 下一请求的成功重试逐字一致。SR-01 已从“只插入一个闭合符号”收敛为“插入或删除
 > 一个 `}`/`]` 的统一候选集”，仍要求唯一候选通过当前 Catalog 完整解码。历史 13 次 syntax reject 复扫还发现一次同类
