@@ -76,7 +76,7 @@ pub(super) fn affected_node_states(
 
 fn directly_operated_node_ids(plan: &TaskSpaceExecPlan) -> BTreeSet<String> {
     let mut node_ids = plan
-        .actions
+        .tools
         .iter()
         .map(|call| call.node_id.clone())
         .collect::<BTreeSet<_>>();
@@ -167,7 +167,7 @@ mod tests {
         TaskSpaceExecPlan {
             sequence_type: "work".into(),
             pre_map: Vec::new(),
-            actions: Vec::new(),
+            tools: Vec::new(),
             terminal_map: None,
         }
     }

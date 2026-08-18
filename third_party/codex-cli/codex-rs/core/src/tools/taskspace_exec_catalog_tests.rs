@@ -92,8 +92,8 @@ fn update_input() -> Value {
     })
 }
 
-fn client_action() -> Value {
-    json!({"kind": "client::read_file", "node_id": "work", "parameters": {"value": "a"}})
+fn client_tool() -> Value {
+    json!({"tool": "read_file", "node_id": "work", "input": {"value": "a"}})
 }
 
 #[test]
@@ -122,7 +122,7 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
         .collect::<BTreeMap<_, _>>();
     assert_eq!(sequence_descriptions.len(), 8);
     assert!(sequence_descriptions["initialize_and_work"].contains("Map is blank"));
-    assert!(sequence_descriptions["initialize_and_work"].contains("required non-empty `actions`"));
+    assert!(sequence_descriptions["initialize_and_work"].contains("required non-empty `tools`"));
     assert!(sequence_descriptions["work"].contains("already Ready or InFlight"));
     assert!(sequence_descriptions["work"].contains("does not complete its owner"));
     assert!(sequence_descriptions["work"].contains("use update_and_work instead"));
@@ -144,9 +144,9 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
     assert_eq!(initialize_map["type"], "object");
     assert!(initialize_map.get("$ref").is_none());
     assert!(parameters["$defs"].get("initialize_map_input").is_none());
-    assert!(parameters["$defs"]["taskspace_action"].is_object());
+    assert!(parameters["$defs"]["tool_action"].is_object());
     assert_eq!(
-        parameters["$defs"]["taskspace_action"]["anyOf"]
+        parameters["$defs"]["tool_action"]["anyOf"]
             .as_array()
             .unwrap()
             .len(),
@@ -168,9 +168,9 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|name| name == "actions")
+                .any(|name| name == "tools")
         );
-        assert_eq!(branch["properties"]["actions"]["minItems"], 1);
+        assert_eq!(branch["properties"]["tools"]["minItems"], 1);
     }
     let rendered = declaration.to_string();
     for name in [
@@ -178,8 +178,8 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
         "update_and_work",
         "update_and_finish",
         "reopen_update_and_work",
-        "client::read_file",
-        "patch",
+        "read_file",
+        "apply_patch",
     ] {
         assert!(rendered.contains(name), "missing {name}");
     }
@@ -189,16 +189,13 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
     assert!(!rendered.contains("update_plan"));
     assert!(!rendered.contains("web_search"));
     assert!(!rendered.contains("image_generation"));
-    assert!(!rendered.contains("exec_command"));
-    assert!(!rendered.contains("write_stdin"));
-    assert!(!rendered.contains("\"tool\""));
     assert!(!rendered.contains("\"exec\""));
     assert!(!rendered.contains("\"wait\""));
     assert!(
         declaration["description"]
             .as_str()
             .unwrap()
-            .contains("TaskSpace actions")
+            .contains("only client Tool actions")
     );
     assert!(
         declaration["description"]
@@ -220,7 +217,7 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
         "changing parents may rederive a not-started node between `waiting` and `ready`",
         "only `ready -> in_flight`, `ready -> completed`, or `in_flight -> completed`",
         "No other explicit state transition is accepted",
-        "Action success, failure, or cancellation records an outcome but never completes the owner",
+        "Tool success, failure, or cancellation records an outcome but never completes the owner",
         "the sequence's Map operation is applied before its Tool actions",
         "Map patches are applied in declared array order",
         "Any invalid patch rejects the whole sequence with no commit",
@@ -239,10 +236,13 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
         .split_once("Parent completion and direct-child work example:")
         .unwrap()
         .0;
-    for required in ["\"type\":\"initialize_and_work\"", "\"kind\":\"shell\""] {
+    for required in [
+        "\"type\":\"initialize_and_work\"",
+        "\"tool\":\"exec_command\"",
+    ] {
         assert!(first_turn.contains(required), "missing {required}");
     }
-    assert!(!first_turn.contains("\"kind\":\"web_search\""));
+    assert!(!first_turn.contains("\"tool\":\"web_search\""));
     assert!(!first_turn.contains("\"execution\":\"already_executed\""));
     for forbidden in [
         "emit both",
@@ -251,7 +251,7 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
     ] {
         assert!(!description.contains(forbidden), "found {forbidden}");
     }
-    assert!(!description.contains("\"type\":\"work\",\"actions\":[{\"kind\":\"web_search\""));
+    assert!(!description.contains("\"type\":\"work\",\"tools\":[{\"tool\":\"web_search\""));
     assert!(!description.contains("single top-level entry point"));
 }
 
@@ -260,7 +260,7 @@ fn all_eight_legal_sequences_decode_and_old_wire_is_rejected() {
     let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
     let legal = [
         canonical_first_turn_example(),
-        json!({"type": "work", "actions": [client_action()]}),
+        json!({"type": "work", "tools": [client_tool()]}),
         json!({"type": "update_map", "update_map": update_input()}),
         canonical_handoff_example(),
         canonical_finish_example(),
@@ -269,7 +269,7 @@ fn all_eight_legal_sequences_decode_and_old_wire_is_rejected() {
             "type": "reopen_update_and_work",
             "reopen_map": {},
             "update_map": update_input(),
-            "actions": [client_action()]
+            "tools": [client_tool()]
         }),
         json!({"type": "finish_map", "finish_map": {"content": "done"}}),
     ];
@@ -281,7 +281,7 @@ fn all_eight_legal_sequences_decode_and_old_wire_is_rejected() {
     for old in [
         json!({"calls": []}),
         json!({"hosted_bindings": [{"tool": "web_search", "node_ids": ["work"]}]}),
-        json!({"type": "custom", "actions": [client_action()]}),
+        json!({"type": "custom", "tools": [client_tool()]}),
     ] {
         assert!(
             catalog.decode_plan(&old.to_string()).is_err(),
@@ -294,7 +294,7 @@ fn all_eight_legal_sequences_decode_and_old_wire_is_rejected() {
             "initialize_map": canonical_first_turn_example()["initialize_map"].clone()
         }),
         json!({"type": "work"}),
-        json!({"type": "work", "actions": []}),
+        json!({"type": "work", "tools": []}),
     ] {
         assert!(
             catalog
@@ -312,18 +312,18 @@ fn client_tools_decode_without_provider_wire_overlap() {
         .decode_plan(
             &json!({
                 "type": "work",
-                "actions": [
-                    client_action(),
-                    {"kind": "patch", "node_id": "fix", "parameters": "*** Begin Patch"},
-                    {"kind": "client::mcp__sample__::lookup", "node_id": "work", "parameters": {"value": "b"}}
+                "tools": [
+                    client_tool(),
+                    {"tool": "apply_patch", "node_id": "fix", "input": "*** Begin Patch"},
+                    {"tool": "lookup", "namespace": "mcp__sample__", "node_id": "work", "input": {"value": "b"}}
                 ]
             })
             .to_string(),
         )
         .unwrap();
     assert_eq!(plan.sequence_type, "work");
-    assert_eq!(plan.actions.len(), 3);
-    let namespace = &plan.actions[2];
+    assert_eq!(plan.tools.len(), 3);
+    let namespace = &plan.tools[2];
     assert_eq!(
         namespace.tool_name,
         ToolName::namespaced("mcp__sample__", "lookup")
@@ -334,14 +334,14 @@ fn client_tools_decode_without_provider_wire_overlap() {
 fn tool_shapes_are_exact_and_namespace_identity_is_lossless() {
     let catalog = TaskSpaceExecCatalog::build(&specs()).unwrap();
     for invalid in [
-        json!({"type": "work", "actions": [{"kind": "missing", "node_id": "n", "parameters": {}}]}),
-        json!({"type": "work", "actions": [{"kind": "mcp__sample__lookup", "node_id": "n", "parameters": {"value": "v"}}]}),
-        json!({"type": "work", "actions": [{"kind": "lookup", "node_id": "n", "parameters": {"value": "v"}}]}),
-        json!({"type": "work", "actions": [{"kind": "web_search", "node_ids": ["n"]}]}),
-        json!({"type": "work", "actions": [{"kind": "web_search", "execution": "requested", "node_ids": ["n"]}]}),
-        json!({"type": "work", "actions": [{"kind": "web_search", "execution": "already_executed", "node_ids": ["n"], "parameters": {"queries": ["x"]}}]}),
-        json!({"type": "work", "actions": [{"kind": "web_search", "execution": "already_executed", "node_ids": []}]}),
-        json!({"type": "work", "actions": [{"kind": "client::read_file", "node_id": "n", "parameters": {"value": "v"}, "revision": 1}]}),
+        json!({"type": "work", "tools": [{"tool": "missing", "node_id": "n", "input": {}}]}),
+        json!({"type": "work", "tools": [{"tool": "mcp__sample__lookup", "node_id": "n", "input": {"value": "v"}}]}),
+        json!({"type": "work", "tools": [{"tool": "lookup", "node_id": "n", "input": {"value": "v"}}]}),
+        json!({"type": "work", "tools": [{"tool": "web_search", "node_ids": ["n"]}]}),
+        json!({"type": "work", "tools": [{"tool": "web_search", "execution": "requested", "node_ids": ["n"]}]}),
+        json!({"type": "work", "tools": [{"tool": "web_search", "execution": "already_executed", "node_ids": ["n"], "input": {"queries": ["x"]}}]}),
+        json!({"type": "work", "tools": [{"tool": "web_search", "execution": "already_executed", "node_ids": []}]}),
+        json!({"type": "work", "tools": [{"tool": "read_file", "node_id": "n", "input": {"value": "v"}, "revision": 1}]}),
     ] {
         assert!(
             catalog.decode_plan(&invalid.to_string()).is_err(),
@@ -431,7 +431,7 @@ fn declaration_without_hosted_tools_has_no_hosted_variant() {
     assert!(
         catalog
             .decode_plan(
-                &json!({"type": "work", "actions": [{"kind": "web_search", "node_ids": ["n"]}]})
+                &json!({"type": "work", "tools": [{"tool": "web_search", "execution": "already_executed", "node_ids": ["n"]}]})
                     .to_string()
             )
             .is_err()

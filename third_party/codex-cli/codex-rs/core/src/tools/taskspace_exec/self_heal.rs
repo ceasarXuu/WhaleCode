@@ -234,7 +234,7 @@ mod tests {
     }
 
     fn valid_arguments() -> String {
-        r#"{"type":"work","actions":[{"kind":"shell","node_id":"work","parameters":{}}]}"#
+        r#"{"type":"work","tools":[{"tool":"exec_command","node_id":"work","input":{}}]}"#
             .to_string()
     }
 
@@ -255,12 +255,12 @@ mod tests {
     }
 
     #[test]
-    fn repairs_missing_action_brace_before_next_action() {
+    fn repairs_missing_tool_action_brace_before_next_action() {
         let valid = serde_json::json!({
             "type": "work",
-            "actions": [
-                {"kind": "shell", "node_id": "work", "parameters": {}},
-                {"kind": "shell", "node_id": "work", "parameters": {}}
+            "tools": [
+                {"tool": "exec_command", "node_id": "work", "input": {}},
+                {"tool": "exec_command", "node_id": "work", "input": {}}
             ]
         })
         .to_string();
@@ -279,8 +279,8 @@ mod tests {
 
     #[test]
     fn repairs_missing_node_patch_brace_after_non_ascii_content() {
-        let valid = r#"{"type":"update_and_work","update_map":{"add_work_nodes":[],"node_patches":[{"node_id":"work","state":"completed","content":"已定位到实现中的舍入精度问题，需要修改并验证。"}]},"actions":[{"kind":"shell","node_id":"work","parameters":{}}]}"#.to_string();
-        let boundary = valid.find("}]},\"actions\"").expect("node patch boundary");
+        let valid = r#"{"type":"update_and_work","update_map":{"add_work_nodes":[],"node_patches":[{"node_id":"work","state":"completed","content":"已定位到实现中的舍入精度问题，需要修改并验证。"}]},"tools":[{"tool":"exec_command","node_id":"work","input":{}}]}"#.to_string();
+        let boundary = valid.find("}]},\"tools\"").expect("node patch boundary");
         assert_eq!(valid.as_bytes()[boundary], b'}');
         let mut malformed = valid.clone();
         malformed.remove(boundary);
@@ -295,9 +295,9 @@ mod tests {
     }
 
     #[test]
-    fn repairs_one_missing_actions_array_bracket() {
+    fn repairs_one_missing_tools_array_bracket() {
         let valid = valid_arguments();
-        let boundary = valid.rfind("]}").expect("actions array boundary");
+        let boundary = valid.rfind("]}").expect("tools array boundary");
         let mut malformed = valid.clone();
         malformed.remove(boundary);
         let mut item = call(malformed);
@@ -330,7 +330,7 @@ mod tests {
 
     #[test]
     fn refuses_repairs_that_do_not_decode_as_exec_plan() {
-        let original = "{\"not_actions\":[]".to_string();
+        let original = "{\"not_tools\":[]".to_string();
         let mut item = call(original.clone());
 
         assert!(self_heal_taskspace_exec_response_item(&mut item, &catalog()).is_none());
@@ -355,8 +355,8 @@ mod tests {
     }
 
     #[test]
-    fn escapes_one_raw_newline_inside_an_action_string() {
-        let valid = r#"{"type":"work","actions":[{"kind":"patch","node_id":"fix","parameters":"*** Begin Patch\n*** End Patch"}]}"#.to_string();
+    fn escapes_one_raw_newline_inside_a_tool_string() {
+        let valid = r#"{"type":"work","tools":[{"tool":"apply_patch","node_id":"fix","input":"*** Begin Patch\n*** End Patch"}]}"#.to_string();
         let malformed = valid.replacen("\\n", "\n", 1);
         let mut item = call(malformed);
 
@@ -371,8 +371,8 @@ mod tests {
     }
 
     #[test]
-    fn refuses_multiple_raw_newlines_inside_action_strings() {
-        let valid = r#"{"type":"work","actions":[{"kind":"patch","node_id":"fix","parameters":"line one\nline two\nline three"}]}"#;
+    fn refuses_multiple_raw_newlines_inside_tool_strings() {
+        let valid = r#"{"type":"work","tools":[{"tool":"apply_patch","node_id":"fix","input":"line one\nline two\nline three"}]}"#;
         let malformed = valid.replace("\\n", "\n");
         let mut item = call(malformed.clone());
 
@@ -381,9 +381,13 @@ mod tests {
     }
 
     #[test]
-    fn removes_the_observed_extra_action_brace() {
-        let valid = r#"{"type": "work", "actions": [{"kind": "patch", "node_id": "fix", "parameters": "*** Begin Patch\n*** Update File: /workspace/src/tax_calc.py\n@@\n-    return round(subtotal * RATES[region], 1)\n+    return round(subtotal * RATES[region], 2)\n*** End Patch"}]}"#.to_string();
-        let boundary = valid.rfind("}]}").expect("action boundary") + 1;
+    fn removes_the_observed_extra_tool_action_brace() {
+        let valid = r#"{"type": "work", "tools": [{"tool": "apply_patch", "node_id": "fix", "input": "*** Begin Patch\n*** Update File: /workspace/src/tax_calc.py\n@@\n-    return round(subtotal * RATES[region], 1)\n+    return round(subtotal * RATES[region], 2)\n*** End Patch"}]}"#.to_string();
+        assert_eq!(
+            sha256(&valid),
+            "e9fa45fa32abdcf2d0da8b8c9b96c03077226e1f62c7fc056cec406dc3684db8"
+        );
+        let boundary = valid.rfind("}]}").expect("tool action boundary") + 1;
         let mut malformed = valid.clone();
         malformed.insert(boundary, '}');
         let mut item = call(malformed);
@@ -399,9 +403,9 @@ mod tests {
     }
 
     #[test]
-    fn removes_one_extra_actions_array_bracket() {
+    fn removes_one_extra_tools_array_bracket() {
         let valid = valid_arguments();
-        let boundary = valid.rfind("]}").expect("actions array boundary") + 1;
+        let boundary = valid.rfind("]}").expect("tools array boundary") + 1;
         let mut malformed = valid.clone();
         malformed.insert(boundary, ']');
         let mut item = call(malformed);

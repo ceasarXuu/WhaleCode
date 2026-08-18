@@ -12,13 +12,13 @@ use super::schema_validation::validate_json_schema;
 pub(crate) struct TaskSpaceExecPlan {
     pub(crate) sequence_type: String,
     pub(crate) pre_map: Vec<MapOperation>,
-    pub(crate) actions: Vec<ClientCall>,
+    pub(crate) tools: Vec<ClientCall>,
     pub(crate) terminal_map: Option<MapOperation>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ClientCall {
-    pub(crate) action_name: String,
+    pub(crate) display_name: String,
     pub(crate) tool_name: ToolName,
     pub(crate) node_id: String,
     pub(crate) input: ClientCallInput,
@@ -36,7 +36,7 @@ pub(crate) enum TaskSpaceExecPlanDecodeError {
     InvalidJson(String),
     UnexpectedArgumentsField,
     InvalidEnvelope(String),
-    UnknownAction { index: usize, action: String },
+    UnknownTool { index: usize, tool: String },
     InvalidCall { index: usize, reason: String },
 }
 
@@ -62,7 +62,7 @@ impl TaskSpaceExecPlan {
 
         let sequence_type = string_field(&value, "type")?;
         let mut pre_map = Vec::new();
-        let mut actions = Vec::new();
+        let mut tools = Vec::new();
         let mut terminal_map = None;
         match sequence_type {
             "initialize_and_work" => {
@@ -70,13 +70,13 @@ impl TaskSpaceExecPlan {
                     "initialize_map",
                     field(&value, "initialize_map")?,
                 )?);
-                actions = decode_actions(&value, catalog)?;
+                tools = decode_tools(&value, catalog)?;
             }
-            "work" => actions = decode_actions(&value, catalog)?,
+            "work" => tools = decode_tools(&value, catalog)?,
             "update_map" => pre_map.push(decode_map("update_map", field(&value, "update_map")?)?),
             "update_and_work" => {
                 pre_map.push(decode_map("update_map", field(&value, "update_map")?)?);
-                actions = decode_actions(&value, catalog)?;
+                tools = decode_tools(&value, catalog)?;
             }
             "update_and_finish" => {
                 pre_map.push(decode_map("update_map", field(&value, "update_map")?)?);
@@ -86,7 +86,7 @@ impl TaskSpaceExecPlan {
             "reopen_update_and_work" => {
                 pre_map.push(decode_map("reopen_map", field(&value, "reopen_map")?)?);
                 pre_map.push(decode_map("update_map", field(&value, "update_map")?)?);
-                actions = decode_actions(&value, catalog)?;
+                tools = decode_tools(&value, catalog)?;
             }
             "finish_map" => {
                 terminal_map = Some(decode_map("finish_map", field(&value, "finish_map")?)?)
@@ -96,7 +96,7 @@ impl TaskSpaceExecPlan {
         Ok(Self {
             sequence_type: sequence_type.to_string(),
             pre_map,
-            actions,
+            tools,
             terminal_map,
         })
     }
@@ -116,31 +116,36 @@ fn decode_map(
     })
 }
 
-fn decode_actions(
+fn decode_tools(
     plan: &Value,
     catalog: &TaskSpaceExecCatalog,
 ) -> Result<Vec<ClientCall>, TaskSpaceExecPlanDecodeError> {
-    let actions = field(plan, "actions")?
+    let tools = field(plan, "tools")?
         .as_array()
-        .ok_or_else(|| invalid_envelope("`actions` must be an array"))?;
-    actions
+        .ok_or_else(|| invalid_envelope("`tools` must be an array"))?;
+    tools
         .iter()
         .enumerate()
-        .map(|(index, value)| decode_action(index, value, catalog))
+        .map(|(index, value)| decode_tool(index, value, catalog))
         .collect()
 }
 
-fn decode_action(
+fn decode_tool(
     index: usize,
     value: &Value,
     catalog: &TaskSpaceExecCatalog,
 ) -> Result<ClientCall, TaskSpaceExecPlanDecodeError> {
-    let action_name = string_field(value, "kind")?;
-    match catalog.action_capability(action_name) {
-        Some(capability) => decode_client(value, capability),
-        None => Err(TaskSpaceExecPlanDecodeError::UnknownAction {
+    let namespace = value
+        .get("namespace")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let name = string_field(value, "tool")?.to_string();
+    let tool_name = ToolName::new(namespace, name);
+    match catalog.client_capability(&tool_name) {
+        Some(capability) => decode_client(value, capability, tool_name),
+        None => Err(TaskSpaceExecPlanDecodeError::UnknownTool {
             index,
-            action: action_name.to_string(),
+            tool: tool_label(&tool_name),
         }),
     }
 }
@@ -148,8 +153,9 @@ fn decode_action(
 fn decode_client(
     value: &Value,
     capability: &TaskSpaceClientCapability,
+    tool_name: ToolName,
 ) -> Result<ClientCall, TaskSpaceExecPlanDecodeError> {
-    let input = field(value, "parameters")?;
+    let input = field(value, "input")?;
     let input = match &capability.capability.input {
         ToolSpecCapabilityInput::Function(_) => ClientCallInput::Function(input.clone()),
         ToolSpecCapabilityInput::Freeform(_) => ClientCallInput::Freeform(
@@ -160,8 +166,8 @@ fn decode_client(
         ),
     };
     Ok(ClientCall {
-        action_name: capability.action_name.clone(),
-        tool_name: capability.capability.tool_name.clone(),
+        display_name: tool_label(&tool_name),
+        tool_name,
         node_id: string_field(value, "node_id")?.to_string(),
         input,
         transport: capability.transport,
@@ -182,4 +188,11 @@ fn string_field<'a>(value: &'a Value, name: &str) -> Result<&'a str, TaskSpaceEx
 
 fn invalid_envelope(reason: impl Into<String>) -> TaskSpaceExecPlanDecodeError {
     TaskSpaceExecPlanDecodeError::InvalidEnvelope(reason.into())
+}
+
+fn tool_label(tool_name: &ToolName) -> String {
+    match tool_name.namespace.as_deref() {
+        Some(namespace) => format!("{namespace} / {}", tool_name.name),
+        None => tool_name.name.clone(),
+    }
 }

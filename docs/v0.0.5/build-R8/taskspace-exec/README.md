@@ -13,13 +13,11 @@
 
 R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯一主方案：
 
-1. `taskspace_exec` 是一个 Function Call 形态的单一 TaskSpace 执行能力。Agent 直接声明 TaskSpace action，不在其中
-   嵌套或再次调用普通 client Tool；Runtime 只在执行边界把 action 机械映射到 Codex 原 Router 和 handler。
+1. `taskspace_exec` 是一个 Function Call 形态的单一外层 Tool，复用 Codex `exec/code-mode` 的内部 Tool 暴露、嵌套
+   调用和原 Router 复用方式，但不照搬其 Freeform Tool wire。
 2. TaskSpace 请求不再向 Agent 顶层暴露普通 client Tool。普通 client Tool 的能力说明由 `taskspace_exec` 从原生
    `ToolSpec` 派生；Map 操作从 canonical Action Map transaction 原语直接定义并作为平级内部 variant 暴露。
-3. Agent 在 `taskspace_exec` 内选择一个明确合法的 Map/action 顺序形状；可执行工作直接在 `actions[]` 中以
-   `kind + node_id + parameters` 声明。终端动作使用 `kind=shell`，Agent 可见合同、示例、反馈和 Map 均不再暴露
-   `exec_command`。Provider
+3. Agent 在 `taskspace_exec` 内选择一个明确合法的 Map/Tool 顺序形状；client Tool 继续在 `tools[]` 中声明。Provider
    原生调用不进入 Exec 参数或 Agent 归属协议；纯 `update_map` 继续作为受限 Map 动作合法存在。
 4. Runtime 对 client Tool 执行机械预检、解析和原生 Tool dispatch；对 Provider Tool 不重执行，也不拆分其内部步骤。
    Provider 实际发生后，Runtime 按原生名称在 Root 下按需创建 Completed 聚合节点并追加机械 Action；不提前建空节点，
@@ -32,9 +30,9 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
    Session 状态不进入 Tool declaration。
 8. Agent 不回显协议版本、能力快照身份或内部调用 ID；Runtime 从 request-local ToolSpec、outer `call_id` 和数组位置
    机械维护这些关联信息。
-9. Agent 在 Ready 节点声明 action 后，Runtime 只机械转为 InFlight；action outcome 不自动完成节点。无正向运行证据的
+9. Agent 在 Ready 节点声明 Tool action 后，Runtime 只机械转为 InFlight；Tool outcome 不自动完成节点。无正向运行证据的
    `blocked` 状态和相关规则从目标模型删除。
-10. 每个工作型序列必须在 Exec 内声明至少一个 TaskSpace action。Provider-hosted Tool 由 Runtime 独立机械归纳，不能
+10. 每个工作型序列必须在 Exec 内声明至少一个 client Tool action。Provider-hosted Tool 由 Runtime 独立机械归纳，不能
     替代 Exec 的 client work，也不恢复 Agent 双写或待归属协议。
 
 旧的普通 Tool schema 入侵、顶层结构化序列容器和 `taskspace_control.actions[] + sibling calls` 三条路线只保留历史
@@ -48,13 +46,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 - 当前 Runtime 在 response 完成后从原生 Hosted ResponseItem 机械采集事实；同一响应内同一种原生 ToolSpec 聚合为一个
   Action。首次真实调用时才创建同名 Root 子节点，后续调用追加到同一节点；节点保持 Completed 并连接 Finish。无 Map 或
   与 Agent 同名节点冲突时记录 `taskspace.provider_actions_escaped`，允许 Provider 调用暂时从 Map 逃逸。
-- 工作型序列要求非空 `actions[]`。`initialize_map` 必须提交完整 Map 和至少一个 TaskSpace action；Provider facts
-  只进入独立的 Root 机械归纳，不能使缺失 action 的 Exec 序列合法。
-
-- 2026-08-19 已删除 Agent 可见的嵌套 client Tool wire：`tools[] / tool / input` 破坏性替换为
-  `actions[] / kind / parameters`，终端能力显示为 `shell`。Runtime catalog 仍保留原生 ToolSpec 和 handler 身份，
-  仅在 dispatch 边界恢复原生调用；反馈与 Map Action 继续使用 TaskSpace action 名，避免把 `exec_command` 重新注入
-  上下文。旧 wire 无兼容分支。离线 TaskSpace 123 项、Base 6 项和历史自愈集成均通过；真实 Agent 逃逸率仍待预算复验。
+- 工作型序列已恢复非空 client `tools[]` 的结构前置条件。`initialize_map` 必须提交完整 Map 和至少一个 client work；
+  Provider facts 只进入独立的 Root 机械归纳，不能使缺失 client work 的 Exec 序列合法。
 
 - 最新 Codex 主线仍使用一个 `exec` 入口，将 Function、Freeform 和 Namespace Tool 从原 `ToolSpec` 派生为内部
   ToolDefinition，并把嵌套调用送回统一 Tool runtime。

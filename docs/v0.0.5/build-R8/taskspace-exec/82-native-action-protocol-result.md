@@ -2,7 +2,11 @@
 
 - Date: 2026-08-19
 - Issue: R8-I03
-- Status: offline complete / live partially verified / I03 remains verifying
+- Status: reverted / historical evidence only / I03 remains verifying
+
+> 2026-08-19 设计澄清：`taskspace_exec` 替代的是 Codex 顶层 `exec` 超级工具，不是替代或重命名其内部原生 Tool。
+> 本文记录的 `exec_command -> shell action` 候选基于错误的替代层级，commit `3750a3932` 已整体回退。以下实现与运行数据
+> 仅作为失败候选的历史证据保留，不代表现行架构或修复方向。
 
 ## 根因
 
@@ -58,7 +62,7 @@ Agent 可见合同改为 TaskSpace 自身的动作语言：
 3. 另一轮始终使用 `taskspace_exec`，但有两次普通 schema 错误并在下一请求纠正；
 4. 自动把非法顶层 action 包回 Exec 不可接受：两次误用没有 `node_id`，Runtime 无法忠实恢复 Agent 未声明的节点归属。
 
-这证明“去掉 `exec_command` 同形内层 Tool”是有效局部修复，但不能证明顶层 action 提升倾向已经消失。I03 保持
-`verifying`；原计划中的缓存双臂因行为验收未通过而未执行，不记录为零值结果。
+本轮只证明错误候选会把被提升名称从 `exec_command` 改成 `shell`，没有解决抽象层级逃逸。它不能证明内部原生 Tool
+应该被隐藏、改名或替换。I03 保持 `verifying`；原计划中的缓存双臂因行为验收未通过而未执行，不记录为零值结果。
 
 证据：`benchmarks/taskspace/r8/evidence/WAR-20260819-064028-R8-NATIVE-ACTION-R5.json`。

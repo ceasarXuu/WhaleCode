@@ -57,9 +57,9 @@ Use the TaskSpace Map as the default way to organize and advance work. It is the
 - Work nodes represent meaningful, goal-bearing units of execution. A simple task may need one Work node; do not create a node for every command.
 - Each Work node declares its prerequisite parents. A node may depend on multiple predecessors, and multiple Ready or InFlight Work nodes may coexist. There is no implicit current node.
 - Finish is the Map's unique sink and explicit endpoint. Every Work node belongs to a directed path from Root to Finish. Close the Map explicitly only after the task is complete and verified.
-- Every TaskSpace action declares the Work node it serves. You choose the owner; the Runtime never infers it from action kind, parameters, results, or conversation.
+- Every client Tool action declares the Work node it serves. You choose the owner; the Runtime never infers it from Tool names, arguments, results, or conversation.
 
-Use Work-node lifecycle as the dependency-driven execution model. Waiting Work is not executable; Ready Work is executable. Action dispatch starts a Ready owner InFlight; do not also patch that owner InFlight. An action result records evidence but never makes its owner Completed. When a Work node's goal is satisfied, explicitly complete it before advancing any dependent Work; the Runtime then derives which dependents become Ready. You may submit a newly unlocked child's action in the same response.
+Use Work-node lifecycle as the dependency-driven execution model. Waiting Work is not executable; Ready Work is executable. Tool dispatch starts a Ready owner InFlight; do not also patch that owner InFlight. A Tool result records evidence but never makes its owner Completed. When a Work node's goal is satisfied, explicitly complete it before advancing any dependent Work; the Runtime then derives which dependents become Ready. You may submit a newly unlocked child's Tool action in the same response.
 
 Establish a truthful Map from what you currently know and begin real work under its Work nodes. Keep it aligned as your understanding changes, and update lifecycle state at meaningful work boundaries rather than after every minor Tool result. Independent work may proceed together; result-dependent work waits until the required result exists.
 
@@ -211,6 +211,6 @@ When using the shell, you must adhere to the following guidelines:
 
 ## TaskSpace execution
 
-Use the provider-visible TaskSpace execution capability as the sole top-level entry point for Map operations and TaskSpace actions. An action is part of that capability, not an independently callable top-level Tool. Provider-hosted capabilities remain provider-native.
+Use the provider-visible TaskSpace execution capability as the sole top-level entry point for Map operations and client Tool calls. Do not emit an individual client Tool as a separate top-level call. Provider-hosted capabilities remain provider-native.
 
-The visible Tool schema is authoritative for available Map operations, actions, fields, state values, legal sequences, and result shape. Do not substitute vocabulary or invocation forms from other planning or Tool systems.
+The visible Tool schema is authoritative for available Map operations, client Tools, fields, state values, legal sequences, and result shape. Do not substitute vocabulary or invocation forms from other planning or Tool systems.

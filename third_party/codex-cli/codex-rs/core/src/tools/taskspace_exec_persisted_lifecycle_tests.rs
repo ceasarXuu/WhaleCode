@@ -126,7 +126,7 @@ async fn persisted_exec_reaches_map_rollout_and_provider_preparation() {
             "work_nodes": [{"node_id": "work", "goal": "inspect", "content": "", "parents": ["root"]}],
             "finish": {"node_id": "finish", "goal": "close", "content": "", "parents": ["work"]}
         },
-        "actions": [{"kind": "client::inspect", "node_id": "work", "parameters": {}}]
+        "tools": [{"tool": "inspect", "node_id": "work", "input": {}}]
     });
     let output = router
         .dispatch_tool_call_with_code_mode_result(

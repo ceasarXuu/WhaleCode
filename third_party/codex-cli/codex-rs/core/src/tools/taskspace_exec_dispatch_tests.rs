@@ -53,9 +53,9 @@ fn prepared_function(
     tool_name: ToolName,
     arguments: serde_json::Value,
 ) -> PreparedClientCall {
-    let action_name = match tool_name.name.as_str() {
-        "exec_command" => "shell".to_string(),
-        _ => format!("client::{}", tool_name.name),
+    let display_name = match tool_name.namespace.as_deref() {
+        Some(namespace) => format!("{namespace} / {}", tool_name.name),
+        None => tool_name.name.clone(),
     };
     PreparedClientCall {
         identity: TaskSpaceExecInternalCallId {
@@ -63,7 +63,7 @@ fn prepared_function(
             index,
         },
         call: ClientCall {
-            action_name,
+            display_name,
             tool_name,
             node_id: "work".to_string(),
             input: ClientCallInput::Function(arguments),
@@ -92,7 +92,7 @@ async fn preparation_reuses_native_alias_namespace_and_tool_search_parsing() {
                 index: 2,
             },
             call: ClientCall {
-                action_name: "patch".to_string(),
+                display_name: "apply_patch".to_string(),
                 tool_name: ToolName::plain("apply_patch"),
                 node_id: "work".to_string(),
                 input: ClientCallInput::Freeform("*** Begin Patch\n*** End Patch".to_string()),
@@ -105,7 +105,7 @@ async fn preparation_reuses_native_alias_namespace_and_tool_search_parsing() {
                 index: 3,
             },
             call: ClientCall {
-                action_name: "discover_tools".to_string(),
+                display_name: "tool_search".to_string(),
                 tool_name: ToolName::plain("tool_search"),
                 node_id: "work".to_string(),
                 input: ClientCallInput::Function(json!({"query": "calendar"})),
@@ -294,7 +294,7 @@ async fn tool_search_pairing_completion_preserves_execution_failure_status() {
             index: 0,
         },
         call: ClientCall {
-            action_name: "discover_tools".into(),
+            display_name: "tool_search".into(),
             tool_name: ToolName::plain("tool_search"),
             node_id: "work".into(),
             input: ClientCallInput::Function(json!({"query": "calendar"})),

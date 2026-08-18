@@ -49,7 +49,6 @@ pub(crate) enum TaskSpaceClientTransport {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub(super) struct TaskSpaceClientCapability {
     pub(super) capability: ToolSpecCapability,
-    pub(super) action_name: String,
     pub(super) transport: TaskSpaceClientTransport,
 }
 
@@ -128,7 +127,6 @@ impl TaskSpaceExecCatalog {
                             .insert(
                                 tool_name.clone(),
                                 TaskSpaceToolCapability::Client(TaskSpaceClientCapability {
-                                    action_name: taskspace_action_name(&capability.tool_name),
                                     capability,
                                     transport,
                                 }),
@@ -162,7 +160,6 @@ impl TaskSpaceExecCatalog {
                 tool_capabilities.insert(
                     capability.tool_name.clone(),
                     TaskSpaceToolCapability::Client(TaskSpaceClientCapability {
-                        action_name: taskspace_action_name(&capability.tool_name),
                         capability,
                         transport: TaskSpaceClientTransport::Function,
                     }),
@@ -226,20 +223,6 @@ impl TaskSpaceExecCatalog {
         }
     }
 
-    pub(super) fn action_capability(
-        &self,
-        action_name: &str,
-    ) -> Option<&TaskSpaceClientCapability> {
-        self.tool_capabilities
-            .values()
-            .find_map(|capability| match capability {
-                TaskSpaceToolCapability::Client(client) if client.action_name == action_name => {
-                    Some(client)
-                }
-                TaskSpaceToolCapability::Client(_) | TaskSpaceToolCapability::Hosted(_) => None,
-            })
-    }
-
     pub(super) fn input_schema(&self) -> &JsonSchema {
         &self.declaration.parameters
     }
@@ -252,23 +235,6 @@ impl TaskSpaceExecCatalog {
                 TaskSpaceToolCapability::Client(_) => None,
             })
             .collect()
-    }
-}
-
-fn taskspace_action_name(tool_name: &codex_tools::ToolName) -> String {
-    if tool_name.namespace.is_none() {
-        match tool_name.name.as_str() {
-            "exec_command" => return "shell".to_string(),
-            "write_stdin" => return "process_input".to_string(),
-            "apply_patch" => return "patch".to_string(),
-            "view_image" => return "inspect_image".to_string(),
-            "tool_search" => return "discover_tools".to_string(),
-            _ => {}
-        }
-    }
-    match tool_name.namespace.as_deref() {
-        Some(namespace) => format!("client::{namespace}::{}", tool_name.name),
-        None => format!("client::{}", tool_name.name),
     }
 }
 
@@ -333,14 +299,14 @@ fn build_declaration<'a>(
             TaskSpaceToolCapability::Hosted(_) => None,
         })
         .collect::<Vec<_>>();
-    let action_names = clients
+    let client_labels = clients
         .iter()
-        .map(|client| client.action_name.as_str())
+        .map(|client| client_tool_label(&client.capability.tool_name))
         .collect::<Vec<_>>();
-    let output_schema = result_schema(clients.iter().copied());
+    let output_schema = result_schema(clients.iter().map(|client| &client.capability));
     let output_schema =
         serde_json::to_value(output_schema).expect("TaskSpace Exec output schema must serialize");
-    let description = build_description(action_names.iter().copied());
+    let description = build_description(client_labels.iter().map(String::as_str));
     let structured_parameters = build_sequence_schema(tool_capabilities, map_operations);
     ResponsesApiTool {
         name: TASKSPACE_EXEC_TOOL_NAME.to_string(),
@@ -349,5 +315,12 @@ fn build_declaration<'a>(
         parameters: structured_parameters,
         output_schema: Some(output_schema),
         defer_loading: None,
+    }
+}
+
+fn client_tool_label(tool_name: &codex_tools::ToolName) -> String {
+    match tool_name.namespace.as_deref() {
+        Some(namespace) => format!("{namespace} / {}", tool_name.name),
+        None => tool_name.name.clone(),
     }
 }

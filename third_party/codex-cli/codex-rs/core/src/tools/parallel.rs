@@ -380,7 +380,7 @@ impl ToolCallRuntime {
 
 fn taskspace_top_level_client_rejection(tool: &str) -> String {
     format!(
-        "TaskSpace rejects undeclared top-level Function Tool `{tool}`. It was not executed. Express the work as an action inside one `taskspace_exec` sequence and bind that action to its `node_id`."
+        "TaskSpace rejects top-level client Tool `{tool}`. This client Tool was not executed. Submit client work inside one `taskspace_exec` sequence and bind each action to its `node_id`."
     )
 }
 

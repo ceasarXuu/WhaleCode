@@ -145,10 +145,10 @@ impl TaskSpaceExecEnvelope {
         &self,
         index: usize,
     ) -> Result<TaskSpaceExecInternalCallId, TaskSpaceExecEnvelopeError> {
-        if index >= self.plan.actions.len() {
+        if index >= self.plan.tools.len() {
             return Err(TaskSpaceExecEnvelopeError::CallIndexOutOfRange {
                 index,
-                call_count: self.plan.actions.len(),
+                call_count: self.plan.tools.len(),
             });
         }
         Ok(TaskSpaceExecInternalCallId {

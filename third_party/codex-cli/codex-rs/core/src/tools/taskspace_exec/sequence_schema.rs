@@ -10,7 +10,7 @@ use super::catalog::TaskSpaceClientCapability;
 use super::catalog::TaskSpaceToolCapability;
 
 pub(super) fn build_sequence_schema(
-    capabilities: &BTreeMap<codex_tools::ToolName, TaskSpaceToolCapability>,
+    tools: &BTreeMap<codex_tools::ToolName, TaskSpaceToolCapability>,
     map_operations: &BTreeMap<String, ToolSpecCapability>,
 ) -> JsonSchema {
     let initialize_map_schema = map_operations
@@ -31,17 +31,17 @@ pub(super) fn build_sequence_schema(
         })
         .collect::<BTreeMap<_, _>>();
     definitions.insert(
-        "taskspace_action".into(),
+        "tool_action".into(),
         JsonSchema::object_any_of(
-            capabilities
+            tools
                 .values()
                 .filter_map(|capability| match capability {
-                    TaskSpaceToolCapability::Client(client) => Some(action_schema(client)),
+                    TaskSpaceToolCapability::Client(client) => Some(client_action_schema(client)),
                     TaskSpaceToolCapability::Hosted(_) => None,
                 })
                 .collect(),
             Some(
-                "One Agent-declared TaskSpace action. Array order is stable identity, not an action dependency."
+                "One Agent-declared Tool action. Array order is stable identity, not a Tool dependency."
                     .into(),
             ),
         ),
@@ -50,12 +50,12 @@ pub(super) fn build_sequence_schema(
         vec![
             work_sequence(
                 "initialize_and_work",
-                "Use only when the TaskSpace Map is blank. Initialize the Map, then perform the first work declared in the required non-empty `actions` array.",
+                "Use only when the TaskSpace Map is blank. Initialize the Map, then perform the first client Tool work declared in the required non-empty `tools` array.",
                 [("initialize_map", initialize_map_schema)],
             ),
             work_sequence(
                 "work",
-                "Perform one or more actions from the required non-empty `actions` array when every owner is already Ready or InFlight in the current Map. A prior action outcome does not complete its owner. If a Map update must complete or change a parent first, use update_and_work instead.",
+                "Perform one or more client Tool actions from the required non-empty `tools` array when every owner is already Ready or InFlight in the current Map. A prior Tool outcome does not complete its owner. If a Map update must complete or change a parent first, use update_and_work instead.",
                 [],
             ),
             sequence(
@@ -65,7 +65,7 @@ pub(super) fn build_sequence_schema(
             ),
             work_sequence(
                 "update_and_work",
-                "Update the Map first, then perform one or more executable actions from the required non-empty `actions` array. Use this to complete or change parent nodes before working on their direct dependents. Only this preceding Map update can unlock action owners; action outcomes in this sequence do not unlock descendants.",
+                "Update the Map first, then perform one or more executable client Tool actions from the required non-empty `tools` array. Use this to complete or change parent nodes before working on their direct dependents. Only this preceding Map update can unlock client Tool owners; Tool outcomes in this sequence do not unlock descendants.",
                 [("update_map", map_ref("update_map"))],
             ),
             sequence(
@@ -83,7 +83,7 @@ pub(super) fn build_sequence_schema(
             ),
             work_sequence(
                 "reopen_update_and_work",
-                "Use after user feedback requires continuing a finished Map. Reopen it, update the Agent-authored work structure, then perform one or more executable actions from the required non-empty `actions` array.",
+                "Use after user feedback requires continuing a finished Map. Reopen it, update the Agent-authored work structure, then perform one or more executable client Tool actions from the required non-empty `tools` array.",
                 [
                     ("reopen_map", map_ref("reopen_map")),
                     ("update_map", map_ref("update_map")),
@@ -110,12 +110,12 @@ fn work_sequence<const N: usize>(
         .properties
         .as_mut()
         .expect("sequence schema is an object");
-    properties.insert("actions".into(), actions_ref());
+    properties.insert("tools".into(), tools_ref());
     schema
         .required
         .as_mut()
         .expect("sequence schema has required fields")
-        .push("actions".into());
+        .push("tools".into());
     schema
 }
 
@@ -139,8 +139,8 @@ fn sequence<const N: usize>(
     schema
 }
 
-fn actions_ref() -> JsonSchema {
-    JsonSchema::array(JsonSchema::reference("#/$defs/taskspace_action"), None).with_min_items(1)
+fn tools_ref() -> JsonSchema {
+    JsonSchema::array(JsonSchema::reference("#/$defs/tool_action"), None).with_min_items(1)
 }
 
 fn map_ref(operation: &str) -> JsonSchema {
@@ -151,7 +151,7 @@ fn map_definition_name(operation: &str) -> String {
     format!("{operation}_input")
 }
 
-fn action_schema(client: &TaskSpaceClientCapability) -> JsonSchema {
+fn client_action_schema(client: &TaskSpaceClientCapability) -> JsonSchema {
     let capability = &client.capability;
     let input = match &capability.input {
         ToolSpecCapabilityInput::Function(schema) => schema.clone(),
@@ -160,15 +160,19 @@ fn action_schema(client: &TaskSpaceClientCapability) -> JsonSchema {
             format.r#type, format.syntax, format.definition
         ))),
     };
-    let properties = BTreeMap::from([
-        ("kind".into(), exact_name(&client.action_name)),
+    let mut properties = BTreeMap::from([
+        ("tool".into(), exact_name(&capability.tool_name.name)),
         (
             "node_id".into(),
             JsonSchema::string(Some("Agent-declared owner work node.".into())),
         ),
-        ("parameters".into(), input),
+        ("input".into(), input),
     ]);
-    let required = vec!["kind".into(), "node_id".into(), "parameters".into()];
+    let mut required = vec!["tool".into(), "node_id".into(), "input".into()];
+    if let Some(namespace) = capability.tool_name.namespace.as_deref() {
+        properties.insert("namespace".into(), exact_name(namespace));
+        required.insert(1, "namespace".into());
+    }
     let mut schema = JsonSchema::object(
         properties,
         Some(required),
