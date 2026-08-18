@@ -2,7 +2,7 @@
 
 - Date: 2026-08-19
 - Issue: R8-I03
-- Status: offline complete / live verification pending
+- Status: offline complete / live partially verified / I03 remains verifying
 
 ## 根因
 
@@ -42,5 +42,23 @@ Agent 可见合同改为 TaskSpace 自身的动作语言：
 
 ## 证据边界
 
-本轮坐实了旧协议的结构诱因并完成离线修复，但没有使用 Whale Agent 预算。I03 只有在真实运行中证明初始化、后续工作、
-Patch、验证和结束均持续使用 `taskspace_exec`，且不再生成顶层普通 Function Tool 后才能关闭。
+本轮坐实了旧协议的结构诱因并完成离线修复。I03 只有在真实运行中证明初始化、后续工作、Patch、验证和结束均持续使用
+`taskspace_exec`，且不再生成顶层普通 Function Tool 后才能关闭。
+
+## 真实运行复验
+
+获批计划是 `release-dispatch-repair × map-request × repeat=5`。通用 pair runner 会在物理 left/right 间交替放置逻辑模式，
+但本轮错误使用 `RunSide=right`，实际得到 3 次 map-request 和 2 次 Standard；因此不能声称完成五次 TaskSpace 验收。
+
+三次有效 TaskSpace 运行均通过业务、公开验证、隐藏 Oracle 并闭合 Map，共 34 requests、639,189 input、569,856 cached、
+69,333 uncached、18,891 output：
+
+1. 顶层 `exec_command` 为 `0/3 runs, 0 calls`，旧同形名称提升未复现；
+2. 两轮把新的 `kind=shell` 提升成未声明顶层 `shell`，合计 5 calls；Runtime 全部在副作用前拒绝，Agent 下一请求恢复；
+3. 另一轮始终使用 `taskspace_exec`，但有两次普通 schema 错误并在下一请求纠正；
+4. 自动把非法顶层 action 包回 Exec 不可接受：两次误用没有 `node_id`，Runtime 无法忠实恢复 Agent 未声明的节点归属。
+
+这证明“去掉 `exec_command` 同形内层 Tool”是有效局部修复，但不能证明顶层 action 提升倾向已经消失。I03 保持
+`verifying`；原计划中的缓存双臂因行为验收未通过而未执行，不记录为零值结果。
+
+证据：`benchmarks/taskspace/r8/evidence/WAR-20260819-064028-R8-NATIVE-ACTION-R5.json`。

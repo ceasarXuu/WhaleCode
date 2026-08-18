@@ -25,7 +25,9 @@
 > 该同形协议是模型把内层名称提升成顶层 Function Call 的直接结构诱因。当前实现已破坏性替换为
 > `actions[] / kind=shell / parameters`；Agent 只调用 `taskspace_exec` 并直接声明 TaskSpace action，Runtime 在内部
 > dispatch 边界才恢复原生 `exec_command`。反馈与 Map Action 同样只返回 `shell`，旧 wire 无兼容分支。离线合同、
-> Router、状态、持久化和自愈测试通过；真实逃逸率尚未复验，I03 保持 `verifying`。详见
+> Router、状态、持久化和自愈测试通过。首次真实复验因错误按物理 right 选侧，仅得到 3 次 TaskSpace；三次均无顶层
+> `exec_command`，但其中两次把 `shell` action identity 提升成未声明顶层 Tool，合计 5 次并被零副作用拒绝。局部修复有效，
+> action 顶层提升倾向未关闭，I03 保持 `verifying`；未执行缓存双臂。详见
 > [`taskspace-exec/82-native-action-protocol-result.md`](taskspace-exec/82-native-action-protocol-result.md)。
 
 > **VA-02 第二轮生产证据（2026-08-10）**：模型已稳定选择顶层 `taskspace_exec`，合法第二响应可初始化

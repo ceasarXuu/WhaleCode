@@ -1,10 +1,12 @@
 {
   "schema_version": "whalecode-cache-budget-authorization-v2",
-  "status": "granted",
+  "status": "cancelled",
   "approved_by": "user",
   "authorization_id": "CBA-20260819-R8-NATIVE-ACTION",
   "approval_reference": "用户于 2026-08-19 在收到 native action protocol 的 7 次真实运行预算后明确回复‘批准预算’；其中两次运行用于 Standard/map-request 缓存回归。",
   "approved_at": "2026-08-19T06:40:28+08:00",
+  "cancelled_at": "2026-08-19T07:05:31+08:00",
+  "cancellation_reason": "Behavior validation remained incomplete and exposed residual top-level action promotion; the cache pair was stopped before execution and this authorization must not be reused.",
   "proposal_id": "CBP-7B16D4953D310820",
   "proposal_sha256": "165a65d94b138d0dcc39bf1466f8a17eb49a7a83bdf8cecc82a0c37015816824",
   "approved_selection": {

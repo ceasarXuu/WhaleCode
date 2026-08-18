@@ -1,0 +1,116 @@
+{
+  "schema_version": "r8-native-action-live-evidence-v1",
+  "record_id": "WAR-20260819-064028-R8-NATIVE-ACTION-R5",
+  "subject_commit": "3750a39327350279b199f6f1079d3986e094f6fa",
+  "whale_binary_sha256": "0dc56c552f3dcd30771fd9a742fda58c803348ebd7cf96b8b42c175485d107ca",
+  "model": "deepseek-v4-flash",
+  "scenario": "release-dispatch-repair",
+  "planned_scope": {
+    "arms": ["map-request"],
+    "repeat": 5
+  },
+  "observed_scope": {
+    "arms": ["map-request", "standard"],
+    "map_request_runs": 3,
+    "standard_runs": 2,
+    "reason": "RunSide selected the physical right side while the pair runner alternated logical treatments between left and right."
+  },
+  "run_root": "target/whale-agent-runs/WAR-20260819-064028-R8-NATIVE-ACTION-R5/release-dispatch-repair/20260819-065901-736",
+  "pre_provider_invalid_harness_attempt": "target/whale-agent-runs/WAR-20260819-064028-R8-NATIVE-ACTION-R5/release-dispatch-repair/20260819-065735-314",
+  "pairs": [
+    {
+      "pair": 1,
+      "logical_mode": "map-request",
+      "business_success": true,
+      "requests": 14,
+      "input_tokens": 268886,
+      "cached_input_tokens": 237184,
+      "output_tokens": 6908,
+      "map_nodes": 5,
+      "map_edges": 4,
+      "map_closed": true,
+      "taskspace_exec_calls": 12,
+      "top_level_exec_command_calls": 0,
+      "rejected_top_level_shell_calls": 3,
+      "taskspace_exec_schema_rejects": 0
+    },
+    {
+      "pair": 2,
+      "logical_mode": "standard",
+      "business_success": true,
+      "requests": 7,
+      "input_tokens": 98768,
+      "cached_input_tokens": 95488,
+      "output_tokens": 3918,
+      "exec_command_calls": 6
+    },
+    {
+      "pair": 3,
+      "logical_mode": "map-request",
+      "business_success": true,
+      "requests": 9,
+      "input_tokens": 169583,
+      "cached_input_tokens": 148736,
+      "output_tokens": 6049,
+      "map_nodes": 6,
+      "map_edges": 6,
+      "map_closed": true,
+      "taskspace_exec_calls": 7,
+      "top_level_exec_command_calls": 0,
+      "rejected_top_level_shell_calls": 2,
+      "taskspace_exec_schema_rejects": 0
+    },
+    {
+      "pair": 4,
+      "logical_mode": "standard",
+      "business_success": true,
+      "requests": 12,
+      "input_tokens": 177376,
+      "cached_input_tokens": 174080,
+      "output_tokens": 4336,
+      "exec_command_calls": 10
+    },
+    {
+      "pair": 5,
+      "logical_mode": "map-request",
+      "business_success": true,
+      "requests": 11,
+      "input_tokens": 200720,
+      "cached_input_tokens": 183936,
+      "output_tokens": 5934,
+      "map_nodes": 5,
+      "map_edges": 4,
+      "map_closed": true,
+      "taskspace_exec_calls": 10,
+      "top_level_exec_command_calls": 0,
+      "rejected_top_level_shell_calls": 0,
+      "taskspace_exec_schema_rejects": 2
+    }
+  ],
+  "totals": {
+    "sample_runs": 5,
+    "business_successes": 5,
+    "public_validation_passes": 5,
+    "hidden_oracle_passes": 5,
+    "requests": 53,
+    "input_tokens": 915333,
+    "cached_input_tokens": 839424,
+    "uncached_input_tokens": 75909,
+    "output_tokens": 27145,
+    "estimated_cost_cny": 0.14698748
+  },
+  "taskspace_totals": {
+    "runs": 3,
+    "business_successes": 3,
+    "requests": 34,
+    "input_tokens": 639189,
+    "cached_input_tokens": 569856,
+    "uncached_input_tokens": 69333,
+    "output_tokens": 18891,
+    "maps_closed": 3,
+    "top_level_exec_command_calls": 0,
+    "rejected_top_level_shell_calls": 5,
+    "taskspace_exec_schema_rejects": 2
+  },
+  "conclusion": "The exec_command-shaped inner protocol no longer produced top-level exec_command in TaskSpace. The model still promoted the new shell action identity to an undeclared top-level call in two of three TaskSpace runs; Runtime rejected all five attempts before side effects and the Agent recovered. I03 remains verifying."
+}
