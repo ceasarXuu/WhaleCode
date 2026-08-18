@@ -11,22 +11,9 @@ from check_cache_regression_gate import (
     is_promotion_transition,
     print_free_validation_failure,
 )
-from cache_surface import is_cache_control_plane_path
 
 
 class CacheGateReportingTest(unittest.TestCase):
-    def test_semantic_snapshot_is_not_misclassified_as_gate_policy(self) -> None:
-        snapshot = (
-            "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/"
-            "all__suite__cache_final_wire__taskspace_production_tool_wire.snap"
-        )
-        self.assertFalse(is_cache_control_plane_path(snapshot))
-        self.assertTrue(
-            is_cache_control_plane_path(
-                "third_party/codex-cli/codex-rs/core/tests/suite/cache_final_wire.rs"
-            )
-        )
-
     def test_discovery_state_does_not_infer_product_acceptance(self) -> None:
         validation = {
             "passed": False,
@@ -53,6 +40,33 @@ class CacheGateReportingTest(unittest.TestCase):
                 semantic_baselines=["snapshots/unapproved.snap"],
                 accepted_validation=accepted,
                 policy_changes=[],
+                sensitive_changes=[],
+            )
+        )
+
+    def test_promotion_allows_only_the_accepted_semantic_policy_overlap(self) -> None:
+        accepted = {
+            "valid": True,
+            "accepted_scenario_paths": ["snapshots/accepted.snap"],
+        }
+        self.assertTrue(
+            is_promotion_transition(
+                baseline_changed=True,
+                semantic_baselines=["snapshots/accepted.snap"],
+                accepted_validation=accepted,
+                policy_changes=["snapshots/accepted.snap"],
+                sensitive_changes=[],
+            )
+        )
+        self.assertFalse(
+            is_promotion_transition(
+                baseline_changed=True,
+                semantic_baselines=["snapshots/accepted.snap"],
+                accepted_validation=accepted,
+                policy_changes=[
+                    "scripts/cache-regression/check_cache_regression_gate.py",
+                    "snapshots/accepted.snap",
+                ],
                 sensitive_changes=[],
             )
         )

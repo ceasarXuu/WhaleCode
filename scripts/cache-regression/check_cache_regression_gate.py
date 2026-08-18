@@ -80,11 +80,14 @@ def is_promotion_transition(
     policy_changes: list[str],
     sensitive_changes: list[dict],
 ) -> bool:
+    non_semantic_policy_changes = sorted(
+        set(policy_changes).difference(semantic_baselines)
+    )
     return bool(
         baseline_changed
         and accepted_validation.get("valid")
         and semantic_baselines == accepted_validation.get("accepted_scenario_paths", [])
-        and not policy_changes
+        and not non_semantic_policy_changes
         and not sensitive_changes
     )
 
@@ -137,11 +140,6 @@ def main() -> int:
     )
     policy_changes = control_plane["policy_changes"]
     baseline_changed = control_plane["baseline_changed"]
-    policy_baseline_conflict = bool(policy_changes) and baseline_changed
-    policy_product_conflict = bool(policy_changes) and bool(changes)
-    baseline_product_conflict = bool(changes) and (
-        baseline_changed or bool(semantic_baselines)
-    )
     policy_only_surface_transition = (
         control_plane["contract_policy_changed"]
         and not baseline_changed
@@ -175,6 +173,14 @@ def main() -> int:
         accepted_validation=accepted_validation,
         policy_changes=policy_changes,
         sensitive_changes=changes,
+    )
+    non_semantic_policy_changes = sorted(
+        set(policy_changes).difference(semantic_baselines)
+    )
+    policy_baseline_conflict = bool(non_semantic_policy_changes) and baseline_changed
+    policy_product_conflict = bool(non_semantic_policy_changes) and bool(changes)
+    baseline_product_conflict = bool(changes) and (
+        baseline_changed or bool(semantic_baselines)
     )
     relevant_source_paths = sorted(
         {change["path"] for change in changes}.union(semantic_baselines).union(
@@ -293,6 +299,8 @@ def main() -> int:
     if passed:
         if candidate_transition:
             suffix = "（已发现可比较的候选变更；发布继续阻断）"
+        elif promotion_transition:
+            suffix = "（已接受证据晋升）"
         elif policy_changes:
             suffix = "（待验证政策变更；发布保持阻断）"
         elif baseline_status == "structural_bootstrap":
