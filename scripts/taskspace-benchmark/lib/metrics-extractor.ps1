@@ -111,12 +111,13 @@ function Test-TaskspaceOrdinaryToolBeforeReservationInRollout {
         $responseItem = Get-TaskspaceCanonicalResponseItem $event
         if ($null -eq $responseItem) { continue }
         $responseType = [string]$responseItem.type
+        $responseName = if ($responseItem.PSObject.Properties.Name -contains "name") { [string]$responseItem.name } else { "" }
         if ($responseType -in @(
                 "function_call",
                 "custom_tool_call",
                 "tool_search_call",
                 "mcp_tool_call"
-            ) -and [string]$responseItem.name -ne "taskspace_control") {
+            ) -and $responseName -ne "taskspace_control") {
             $ordinaryCallIds[[string]$responseItem.call_id] = $true
             continue
         }
@@ -283,7 +284,8 @@ function Get-TaskspaceRolloutToolStats {
             if ([string]::IsNullOrWhiteSpace($callId)) { continue }
             $name = if ($callNames.ContainsKey($callId)) { [string]$callNames[$callId] } else { "" }
             if ($name -eq "taskspace_control") { continue }
-            $failureCode = Get-TaskspaceOrdinaryToolFailureCode ([string]$payload.output)
+            $rawOutput = if ($payload.PSObject.Properties.Name -contains "output") { [string]$payload.output } else { "" }
+            $failureCode = Get-TaskspaceOrdinaryToolFailureCode $rawOutput
             if (-not [string]::IsNullOrWhiteSpace($failureCode)) {
                 [void]$failedCallIds.Add($callId)
             }

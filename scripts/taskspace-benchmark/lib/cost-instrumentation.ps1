@@ -308,13 +308,13 @@ function New-TaskspaceBudgetArtifacts {
             model_request_duration_ms = Convert-TaskspaceTraceNullableInt $tags.model_request_duration_ms
             provider_payload_sha256 = [string]$tags.provider_payload_sha256
             provider_payload_bytes = Convert-TaskspaceTraceInt $tags.provider_payload_bytes
-            provider_wire_api = [string]$tags.provider_wire_api
-            tools_count = Convert-TaskspaceTraceInt $tags.tools_count
-            tools_present = Convert-TaskspaceTraceBool $tags.tools_present $false
-            request_shape_classifier = [string]$tags.request_shape_classifier
-            messages_hash = [string]$tags.messages_hash
-            stable_prefix_hash = [string]$tags.stable_prefix_hash
-            dynamic_suffix_hash = [string]$tags.dynamic_suffix_hash
+            provider_wire_api = [string](Get-TaskspaceCostProperty $tags @("provider_wire_api"))
+            tools_count = Convert-TaskspaceTraceInt (Get-TaskspaceCostProperty $tags @("tools_count"))
+            tools_present = Convert-TaskspaceTraceBool (Get-TaskspaceCostProperty $tags @("tools_present")) $false
+            request_shape_classifier = [string](Get-TaskspaceCostProperty $tags @("request_shape_classifier"))
+            messages_hash = [string](Get-TaskspaceCostProperty $tags @("messages_hash"))
+            stable_prefix_hash = [string](Get-TaskspaceCostProperty $tags @("stable_prefix_hash"))
+            dynamic_suffix_hash = [string](Get-TaskspaceCostProperty $tags @("dynamic_suffix_hash"))
             exact_payload_scan_event_id = [string]$tags.exact_payload_scan_event_id
             exact_payload_scan_passed = Convert-TaskspaceTraceBool $tags.exact_payload_scan_passed $false
             active_projection_present = Convert-TaskspaceTraceBool $tags.active_projection_present $false
@@ -743,9 +743,11 @@ function New-TaskspaceProviderCacheTraceArtifacts {
         } else {
             $null
         }
-        $shape = [string]$event.request_shape_classifier
+        $shape = [string](Get-TaskspaceCostProperty $event @("request_shape_classifier"))
+        $toolsPresent = Convert-TaskspaceTraceBool (Get-TaskspaceCostProperty $event @("tools_present")) $false
+        $toolsCount = Convert-TaskspaceTraceInt (Get-TaskspaceCostProperty $event @("tools_count"))
         if ([string]::IsNullOrWhiteSpace($shape)) {
-            $shape = if ([bool]$event.tools_present -or [int]$event.tools_count -gt 0) { "native_tools_schema_hot_path" } else { "unknown_or_unclassified" }
+            $shape = if ($toolsPresent -or $toolsCount -gt 0) { "native_tools_schema_hot_path" } else { "unknown_or_unclassified" }
         }
         Add-TaskspaceCostCount $shapeCounts $shape
         $attemptSeq = Convert-TaskspaceTraceInt $fact.attempt_seq
@@ -761,19 +763,19 @@ function New-TaskspaceProviderCacheTraceArtifacts {
             logical_request_id = [string]$fact.logical_request_id
             model_request_index = $modelRequestIndex
             attempt_seq = $attemptSeq
-            request_phase = [string]$event.request_phase
-            task_id = [string]$event.task_id
-            map_id = [string]$event.map_id
-            node_id = [string]$event.node_id
-            provider_wire_api = [string]$event.provider_wire_api
-            transport = [string]$event.transport
-            tools_count = [int]$event.tools_count
-            tools_present = [bool]$event.tools_present
+            request_phase = [string](Get-TaskspaceCostProperty $event @("request_phase"))
+            task_id = [string](Get-TaskspaceCostProperty $event @("task_id"))
+            map_id = [string](Get-TaskspaceCostProperty $event @("map_id"))
+            node_id = [string](Get-TaskspaceCostProperty $event @("node_id"))
+            provider_wire_api = [string](Get-TaskspaceCostProperty $event @("provider_wire_api"))
+            transport = [string](Get-TaskspaceCostProperty $event @("transport"))
+            tools_count = $toolsCount
+            tools_present = $toolsPresent
             request_shape_classifier = $shape
-            stable_prefix_hash = [string]$event.stable_prefix_hash
-            dynamic_suffix_hash = [string]$event.dynamic_suffix_hash
-            messages_hash = [string]$event.messages_hash
-            provider_payload_sha256 = [string]$event.provider_payload_sha256
+            stable_prefix_hash = [string](Get-TaskspaceCostProperty $event @("stable_prefix_hash"))
+            dynamic_suffix_hash = [string](Get-TaskspaceCostProperty $event @("dynamic_suffix_hash"))
+            messages_hash = [string](Get-TaskspaceCostProperty $event @("messages_hash"))
+            provider_payload_sha256 = [string](Get-TaskspaceCostProperty $event @("provider_payload_sha256"))
             input_tokens = $inputTokens
             cached_input_tokens = $cachedTokens
             uncached_input_tokens = $uncachedTokens
@@ -1051,10 +1053,10 @@ function New-TaskspaceStateCommitDisplacementSummary {
         })
     }
     $acceptedStateCommitEvents = @($events.ToArray() | Where-Object { [string]$_.status -eq "accepted" -or [string]$_.status -eq "partial" })
-    $stateCommitCount = [int](@($acceptedStateCommitEvents | Measure-Object -Property state_commit_count -Sum).Sum)
-    $stateCommitSectionCount = [int](@($acceptedStateCommitEvents | Measure-Object -Property state_commit_section_count -Sum).Sum)
-    $modelVisibleStateCommitCount = [int](@($acceptedStateCommitEvents | Measure-Object -Property model_visible_state_commit_count -Sum).Sum)
-    $runtimeSynthesizedStateCommitCount = [int](@($acceptedStateCommitEvents | Measure-Object -Property runtime_synthesized_state_commit_count -Sum).Sum)
+    $stateCommitCount = if ($acceptedStateCommitEvents.Count -gt 0) { [int](($acceptedStateCommitEvents | Measure-Object -Property state_commit_count -Sum).Sum) } else { 0 }
+    $stateCommitSectionCount = if ($acceptedStateCommitEvents.Count -gt 0) { [int](($acceptedStateCommitEvents | Measure-Object -Property state_commit_section_count -Sum).Sum) } else { 0 }
+    $modelVisibleStateCommitCount = if ($acceptedStateCommitEvents.Count -gt 0) { [int](($acceptedStateCommitEvents | Measure-Object -Property model_visible_state_commit_count -Sum).Sum) } else { 0 }
+    $runtimeSynthesizedStateCommitCount = if ($acceptedStateCommitEvents.Count -gt 0) { [int](($acceptedStateCommitEvents | Measure-Object -Property runtime_synthesized_state_commit_count -Sum).Sum) } else { 0 }
     $legacyStateActionAttemptCount = [int]$attemptEvents.Count
     $legacyStateActionDisplacedCount = [int](@($attemptEvents.ToArray() | Where-Object { [bool]$_.displaced }).Count)
     $legacyStateActionCount = [int](@($attemptEvents.ToArray() | Where-Object { [bool]$_.allowed }).Count)
