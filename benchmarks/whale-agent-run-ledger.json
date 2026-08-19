@@ -1,6 +1,6 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-20T05:04:23+08:00",
+  "updated_at": "2026-08-20T06:25:50+08:00",
   "entries": [
     {
       "record_id": "WAR-20260819-054148-R8-I04-ORDERED-PATCH-R1",
@@ -10750,6 +10750,70 @@
         "stop_conditions": "零自动重试；业务或 Map 硬失败、usage/证据缺失、顶层 client Tool 逃逸、100 requests、1.6M input、60K output、CNY 0.45 或 20 分钟任一先到即停止。",
         "stop_reason": "first_run_business_failure_after_response_contract_rejected_multiple_exec_calls",
         "outcome": "Stopped after 1/10 planned TaskSpace runs. Request 1 initialized the Map and executed one client command. Request 2 returned two sibling taskspace_exec calls, both with type=work and individually valid client actions; the response-level contract rejected the batch because only one outer Exec is allowed. Agent exited 1, no patch was produced, and public/hidden validation failed. The failure shows Base 3.0.7 does not yet express outer-call cardinality clearly enough; it does not contradict the 18/18 explicit type result."
+      }
+    },
+    {
+      "record_id": "WAR-20260820-062550-R8-BASE308-OUTER-R10",
+      "record_type": "run_batch",
+      "status": "planned",
+      "reason": "验证 TaskSpace Base 3.0.8 明确一响应一个外层 taskspace_exec 后，多个 sibling Exec 是否停止复发，并确认业务、Map 与 usage 证据完整。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "user-approved-r8-base308-outer-r10",
+        "reference": "2026-08-20 user: 同意，提前批准预算，你改完之后直接执行",
+        "budget_summary": {
+          "maximum_sample_runs": 10,
+          "maximum_api_requests": 100,
+          "input_tokens": 1600000,
+          "output_tokens": 60000,
+          "elapsed_seconds": 1200,
+          "estimated_cost": 0.45,
+          "currency": "CNY"
+        },
+        "note": "仅限 release-dispatch-repair：Base 3.0.8 map-request repeat=10；零自动重试，不扩展样本、模式或协议候选。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "batch_count": 0,
+        "sample_ids": [
+          "release-dispatch-repair"
+        ],
+        "arm_ids": [
+          "base-3.0.8-map-request"
+        ],
+        "repeats_per_arm_per_sample": 10,
+        "planned_sample_runs": 10,
+        "actual_sample_runs": 0,
+        "api_requests": 0,
+        "api_requests_evidence_status": "pending"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "planned",
+        "currency": "CNY",
+        "amount": null,
+        "actual_billed_amount": null
+      },
+      "evidence": {
+        "planned_run_root": "target/whale-agent-runs/WAR-20260820-062550-R8-BASE308-OUTER-R10",
+        "subject_commit": "1c4e6d9ba2092b7484483f20213a4e485233d6b0",
+        "candidate_base_version": "3.0.8",
+        "candidate_base_sha256": "f1a963f8476d98dee15cba3118e962981c8f0b7231b28a5884c32fc4be234363",
+        "whale_binary_sha256": "6724d751f5b01cb3c1871480c691ebdcc4ef776c03487f26d93ef1abb6e31935",
+        "scenario": "release-dispatch-repair",
+        "arm": "base-3.0.8-map-request",
+        "repeat": 10,
+        "execution": "docker",
+        "runner_selection": "Repeats=19 + RunSide=right; odd pairs execute TaskSpace and even pairs are skipped, yielding exactly 10 Agent runs.",
+        "usage_evidence_status": "pending",
+        "stop_conditions": "零自动重试；业务或 Map 硬失败、usage/证据缺失、顶层 client Tool 逃逸、100 requests、1.6M input、60K output、CNY 0.45 或 20 分钟任一先到即停止。"
       }
     }
   ]
