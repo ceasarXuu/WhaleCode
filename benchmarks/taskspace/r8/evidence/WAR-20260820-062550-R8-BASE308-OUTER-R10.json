@@ -1,0 +1,85 @@
+{
+  "record_id": "WAR-20260820-062550-R8-BASE308-OUTER-R10",
+  "subject_commit": "1c4e6d9ba2092b7484483f20213a4e485233d6b0",
+  "scenario": "release-dispatch-repair",
+  "model": "deepseek-v4-flash",
+  "projection": "map-request",
+  "base_version": "3.0.8",
+  "planned_taskspace_runs": 10,
+  "actual_sample_runs": 13,
+  "actual_taskspace_runs": 7,
+  "actual_standard_runs_unintended": 6,
+  "stop_condition_triggered": true,
+  "stop_reason": "pair_013_closed_map_but_final_natural_response_exceeded_per_sample_request_limit",
+  "run_root": "target/whale-agent-runs/WAR-20260820-062550-R8-BASE308-OUTER-R10/release-dispatch-repair/20260820-062658-211",
+  "outer_cardinality": {
+    "taskspace_provider_responses": 59,
+    "taskspace_exec_calls": 53,
+    "responses_with_more_than_one_exec": 0,
+    "multiple_exec_rejects": 0,
+    "result": "supported_in_observed_runs"
+  },
+  "taskspace": {
+    "runs": 7,
+    "runner_business_passed": 6,
+    "code_validation_map_passed": 7,
+    "requests": 59,
+    "input": 1034123,
+    "cached_input": 917504,
+    "uncached_input": 116619,
+    "output": 32444,
+    "request_2_plus_cached_input": 836736,
+    "request_2_plus_uncached_input": 106755,
+    "request_2_plus_cache_rate": 0.88685,
+    "agent_wall_time_ms": 241706,
+    "estimated_cost_cny": 0.19985708,
+    "maps": {
+      "runs_with_one_map": 7,
+      "runs_with_five_nodes": 7,
+      "runs_with_four_edges": 7,
+      "runs_with_completed_root": 7
+    },
+    "independent_anomalies": {
+      "json_syntax_rejects": 2,
+      "top_level_exec_command_escape_rejects": 1,
+      "missing_type_contract_rejects": 1,
+      "failed_apply_patch_attempts": 1
+    }
+  },
+  "standard_unintended": {
+    "runs": 6,
+    "runner_business_passed": 6,
+    "requests": 45,
+    "input": 617616,
+    "cached_input": 601984,
+    "uncached_input": 15632,
+    "output": 19173,
+    "request_2_plus_cached_input": 535936,
+    "request_2_plus_uncached_input": 15128,
+    "request_2_plus_cache_rate": 0.97255,
+    "agent_wall_time_ms": 153248,
+    "estimated_cost_cny": 0.06601768
+  },
+  "total": {
+    "runs": 13,
+    "requests": 104,
+    "input": 1651739,
+    "cached_input": 1519488,
+    "uncached_input": 132251,
+    "output": 51617,
+    "agent_wall_time_ms": 394954,
+    "estimated_cost_cny": 0.26587476
+  },
+  "execution_deviation": {
+    "cause": "RunSide=right selects the physical side while logical modes alternate by pair; it does not select TaskSpace logical mode.",
+    "impact": "Six unplanned Standard runs were executed. The batch exceeded the declared 10 samples, 100 requests, and 1.6M input limits, while remaining below the CNY 0.45 monetary limit.",
+    "automatic_retry_or_fill": false,
+    "remaining_taskspace_runs_started": 0
+  },
+  "conclusion": {
+    "outer_cardinality_fix_supported": true,
+    "repeat_ten_completed": false,
+    "i03_closed": false,
+    "additional_runs_allowed_under_this_batch": false
+  }
+}

@@ -1197,3 +1197,23 @@
   - Base identity 为 `3.0.7` 且两个 sibling 均有 `type`，因此该失败不否定 H-012。
 - Interpretation: H-013 坐实。扩大验收按业务硬失败条件在 1/10 后停止；继续原样采样不能替代协议修复。
 - Time: 2026-08-20
+
+## Evidence E-030: Base 3.0.8 七轮未再生成 sibling outer Exec
+
+- Related hypotheses:
+  - H-013
+- Direction: supports fix
+- Type: controlled-production-validation-with-runner-deviation
+- Source: `WAR-20260820-062550-R8-BASE308-OUTER-R10`
+- Matched signal:
+  - Base 与 Tool protocol 明确一响应只生成一个 outer `taskspace_exec`，多个 client action 合并进同一 `tools[]`；Runtime
+    仍只拒绝，不合并或重排。
+  - 7 次 TaskSpace 共 59 个 Provider 响应、53 个 outer Exec call，`exec_call_count > 1` 为 0，多 outer Exec 拒绝为 0。
+  - 七次代码、公开验证、hidden oracle 和 Map 均完成；其中六次形成完整 final lifecycle，第七次 Map 闭合后生成自然语言
+    final 所需请求触及单轮 10-request 上限。
+  - 仍观察到两次 JSON syntax、一次顶层 `exec_command` 逃逸和一次缺失 `type`，均为 I03 的独立开放表现。
+- Limitation:
+  - `RunSide=right` 实际选择物理侧而不是 TaskSpace 逻辑模式，额外执行 6 次 Standard；批次超过已登记的 sample、request 和
+    input 上限，费用仍低于 CNY 0.45。发现后未补跑剩余三次 TaskSpace。
+- Interpretation: H-013 的协议修复在当前七次 TaskSpace 观察中成立；该证据不能写成 repeat=10 完成，也不能关闭整个 I03。
+- Time: 2026-08-20

@@ -464,13 +464,13 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 4 | R8-I05 | F3 | P1 | 拒绝原因可能重复或混淆错误发生的协议层级 | 忠实返回一次失败，并准确区分语法、合同、预检与执行错误；未提交候选不得表现为已保存状态 | `e596d2f27` 完成同 `call_id`、零执行、可继续反馈；repeat=3 正常路径无回归，但未自然触发逃逸恢复分支 | verifying | GI-005 |
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 成功、拒绝和内部失败只返回一个 outer output；最新三次生产运行 `18 calls = 18 outputs`，无副本或 orphan | [closed](taskspace-exec/80-i02-single-feedback-closure.md) | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 身份沿 dispatch/request/wire/trace/report 传播；最新 21 个 TaskSpace wire 请求身份一致且无冲突 | [closed](I10/01-i10-capability-identity-closure.md) | GI-010 |
-| 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或仍读取旧 Map 字段 | 请求和失败逐身份计一次；当前最简 Map、单臂运行和稀疏事件都能完成汇总 | strict-mode timing 空对象缺口已修复，失败 run 的 sample timing 与报告可离线重建 | [verifying](taskspace-exec/89-base307-repeat10-stopped-result.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 可能生成非法 Exec envelope，或把内部 client Tool 提升为未声明顶层调用 | client 动作只在每响应唯一的 `taskspace_exec` 合法序列内声明；Runtime 对非法 envelope 保持零副作用硬边界 | `type` 最新 18/18 正确；扩大验收首轮暴露同响应两个 outer Exec，证明调用基数合同仍不清楚 | [verifying](taskspace-exec/89-base307-repeat10-stopped-result.md) | GI-003 |
+| 7 | R8-I07 | F4 | P1 | 观察或运行选择工具可能漏计、重复计数，或把物理侧误当成逻辑模式 | 请求和失败逐身份计一次；单模式预算只启动声明的逻辑模式和次数 | 原始 usage 可完整汇总；最新运行证明 `RunSide` 不能作为逻辑模式过滤，错误启动了 6 次 Standard | [verifying](taskspace-exec/90-base308-outer-cardinality-result.md) | GI-007 |
+| 8 | R8-I03 | F5 | P2 | Agent 可能生成非法 Exec envelope，或把内部 client Tool 提升为未声明顶层调用 | client 动作只在每响应唯一的 `taskspace_exec` 合法序列内声明；Runtime 对非法 envelope 保持零副作用硬边界 | Base `3.0.8` 的 7 次 TaskSpace / 59 响应未再生成 sibling Exec；仍有 syntax、顶层 client 逃逸和缺失 `type` | [verifying](taskspace-exec/90-base308-outer-cardinality-result.md) | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点，或没有利用可并行 frontier | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 顺序 patch 事务离线通过，最新生产运行无 `TransitionInvalid`；但目标同批父子完成未自然命中，Map 仍为线性链 | [verifying](I04/03-ordered-map-patch-live-validation-result.md) | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 复杂样本四臂 repeat=3：always/append/request 总 input 为 Standard `1.25x/1.60x/1.32x`，费用为 `2.83x/2.09x/2.43x` | [investigating](I01/03-i01-four-arm-repeat3-result.md) | GI-008 |
 
 问题总数：**10**；Open：**5**；Closed：**5**。Provider-hosted Runtime 机械归纳已通过生产验收，当前没有该专题停点。
-I07 的默认 metrics 消费链已修复，但最新真实运行又暴露当前最简 Map 与单臂后处理兼容缺口，修复后仍待自然端到端 finalization；I05 的 Fatal 恢复缺口已离线修复且正常路径无回归，不在未实现清单中；I08 的小型等价压缩按用户决定暂缓，
+I07 的默认 metrics 消费链已修复，但最新真实运行又暴露物理 side 选择不能表达逻辑单模式预算，导致额外 Standard 运行；I05 的 Fatal 恢复缺口已离线修复且正常路径无回归，不在未实现清单中；I08 的小型等价压缩按用户决定暂缓，
 不回删 Map、合法序列或状态机硬合同。
 
 ## 4. VA-04A 证据边界
