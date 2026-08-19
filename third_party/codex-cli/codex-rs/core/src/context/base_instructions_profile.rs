@@ -9,9 +9,9 @@ use sha2::Sha256;
 pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION: &str = "1.0.2";
 pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256: &str =
     "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382";
-pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "3.0.5";
+pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "3.0.6";
 pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256: &str =
-    "e2f81354fb2f9e4831505e3a809b09e52266e5f83235f14d3d802d715b562866";
+    "8ce811065ca4dc760bb81e0e9df62e4944ca9d1ed20e2635274ec87595ea449d";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WhaleCodeBaseInstructionsProfile {
@@ -109,7 +109,6 @@ mod tests {
         const FORBIDDEN_TOOL_WIRE_FRAGMENTS: &[&str] = &[
             "*** Begin Patch",
             "*** Update File:",
-            "taskspace_exec",
             "initialize_map",
             "hosted_bindings",
             "{\"command\"",
@@ -166,7 +165,6 @@ mod tests {
             "Emit function calls to run terminal commands and apply patches",
             "emit both in the same response",
             "`apply_patch`",
-            "`exec_command`",
             "`taskspace_control`",
         ] {
             assert!(
@@ -174,10 +172,16 @@ mod tests {
                 "TaskSpace Base contains conflicting contract fragment: {forbidden}"
             );
         }
-        assert!(
-            BASE_INSTRUCTIONS_WHALECODE_TASKSPACE
-                .contains("sole top-level entry point for Map operations and client Tool calls")
-        );
+        for required in [
+            "Call `taskspace_exec` as the sole top-level Function Tool",
+            "including `exec_command`, only inside its `tools` array",
+            "never emit `exec_command` or another client Tool as a separate top-level call",
+        ] {
+            assert!(
+                BASE_INSTRUCTIONS_WHALECODE_TASKSPACE.contains(required),
+                "TaskSpace Base is missing client Tool scope rule: {required}"
+            );
+        }
     }
 
     #[test]

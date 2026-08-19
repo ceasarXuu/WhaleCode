@@ -211,6 +211,6 @@ When using the shell, you must adhere to the following guidelines:
 
 ## TaskSpace execution
 
-Use the provider-visible TaskSpace execution capability as the sole top-level entry point for Map operations and client Tool calls. Do not emit an individual client Tool as a separate top-level call. Provider-hosted capabilities remain provider-native.
+Call `taskspace_exec` as the sole top-level Function Tool for Map operations and client Tool calls. Put every client Tool, including `exec_command`, only inside its `tools` array; never emit `exec_command` or another client Tool as a separate top-level call. Provider-hosted capabilities remain provider-native.
 
 The visible Tool schema is authoritative for available Map operations, client Tools, fields, state values, legal sequences, and result shape. Do not substitute vocabulary or invocation forms from other planning or Tool systems.
