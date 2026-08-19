@@ -32,7 +32,6 @@ pub(super) struct ClientResult {
     #[serde(skip)]
     pub(super) call_index: usize,
     pub(super) node_id: String,
-    #[serde(rename = "executed_client_tool")]
     pub(super) tool: String,
     pub(super) outcome: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -205,10 +204,10 @@ fn client_result_schema(clients: &[&ToolSpecCapability]) -> JsonSchema {
         })
         .collect::<Vec<_>>();
     let tool_description = if output_contracts.is_empty() {
-        "Identity of the client Tool that already executed; no client capability declares a logical output schema.".into()
+        "Native Tool identity; no client capability declares a logical output schema.".into()
     } else {
         format!(
-            "Identity of the client Tool that already executed. Declared logical outputs are carried inside the native result wrapper:\n{}",
+            "Native Tool identity. Declared logical outputs are carried inside the native result wrapper:\n{}",
             output_contracts.join("\n")
         )
     };
@@ -216,7 +215,7 @@ fn client_result_schema(clients: &[&ToolSpecCapability]) -> JsonSchema {
         [
             ("node_id", JsonSchema::string(None)),
             (
-                "executed_client_tool",
+                "tool",
                 JsonSchema::string_enum(tool_names, Some(tool_description)),
             ),
             ("outcome", string_enum(["succeeded", "failed", "cancelled"])),
@@ -230,7 +229,7 @@ fn client_result_schema(clients: &[&ToolSpecCapability]) -> JsonSchema {
             ("error", JsonSchema::string(None)),
             ("settlement_error", JsonSchema::string(None)),
         ],
-        &["node_id", "executed_client_tool", "outcome"],
+        &["node_id", "tool", "outcome"],
     )
 }
 
