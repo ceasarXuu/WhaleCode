@@ -30,10 +30,16 @@
 > **I03 顶层 `exec_command` 逃逸三臂实验（2026-08-19）**：`B0 / 成功反馈 identity / 移除 client work 示例`
 > 各 repeat=5，15/15 业务、隐藏验证和 Map 闭合通过。逃逸分别为 `3/5 runs, 6 calls`、`3/5, 4 calls`、
 > `2/5, 6 calls`；全部发生在首个 `initialize_and_work` 同响应，早于任何成功反馈。成功反馈字段因此被时序证据排除；
-> 移除示例没有降低逃逸总量。两个候选均已回退，当前代码保持 B0。I03 继续 verifying，根因焦点收敛到 Provider
+> 移除示例没有降低逃逸总量。两个候选均已回退，该实验结算时的代码保持 B0。I03 继续 verifying，根因焦点收敛到 Provider
 > 对首响应未声明 Function 名的选择机制与可用结构性约束，不继续增加反馈语义或状态机限制。详见
 > [`taskspace-exec/83-exec-command-feedback-scope-experiment.md`](taskspace-exec/83-exec-command-feedback-scope-experiment.md) 与账本
 > `WAR-20260819-084538-R8-EXEC-FEEDBACK-SCOPE-AB`。
+
+> **I03 内层作用域合同候选（2026-08-19）**：commit `bf0b7cc8b` 只在 TaskSpace Exec 内部 catalog 的
+> `exec_command` description 中明确：该 action 只能位于 `taskspace_exec.tools`，不得作为顶层 Function Tool call。
+> Standard/native ToolSpec、其他内部 Tool、Runtime 拒绝语义和 Map 状态机均未修改；TaskSpace Exec 78 项测试通过，缓存敏感面
+> 免费 final-wire 门禁通过。该候选尚未获得新的真实 Agent 运行预算，因此只能证明实现作用域和离线正确性，不能证明逃逸率下降；
+> I03 继续 verifying。调查账本见 `coe/2026-08-19-07-24-r8-taskspace-action-top-level-promotion.md` 的 H-009/E-022。
 > **VA-02 第二轮生产证据（2026-08-10）**：模型已稳定选择顶层 `taskspace_exec`，合法第二响应可初始化
 > `root -> inspect -> fix -> verify -> finish` 并原生执行 client Tool；但两轮首响应都在无 Hosted output 时的必填
 > `hosted_bindings: []` 邻近位置生成不同的非法 JSON。I03 因首次参数稳定性继续 verifying，VA-03 保持阻断。I07 的

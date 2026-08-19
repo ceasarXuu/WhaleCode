@@ -897,3 +897,76 @@
   ```
 - Interpretation: 示例不是逃逸发生的必要条件；run 数的轻微变化不能覆盖相同的总 escape call 数和明显的批内波动。
 - Time: 2026-08-19 09:08
+
+## Hypothesis H-009: 内层 exec_command 的局部作用域合同可降低顶层提升
+- Status: verifying
+- Parent: P-001
+- Claim: 只在 TaskSpace Exec 内部 catalog 的 `exec_command` description 中明确其作用域，可降低模型把该内部 action 另写为顶层 Function Call 的概率，同时不改变 Standard Tool 合同和其他内部 Tool。
+- Layer: interaction
+- Factor relation: part_of
+- Depends on:
+  - H-006
+- Rationale:
+  - 逃逸全部发生在首响应，候选必须作用于首请求已有的 Tool schema，而不能依赖后续反馈。
+  - 当前有效设计只有 `exec_command` 出现同型逃逸，不支持扩大为所有内部 Tool 的通用协议。
+  - `exec_command` 的原生输入 schema 和 identity 必须保留；最小候选是在其 TaskSpace 内层 description 中补足 outer/inner 作用域。
+- Falsifiable predictions:
+  - If true: 同版本复杂样本中，首响应顶层 `exec_command` 逃逸相对 B0 明显下降，且初始化、业务、Map 和其他 Tool 行为不回归。
+  - If false: 逃逸频率不降、错误迁移到其他 Tool，或 Agent 无法正常构造内层 `exec_command`。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 仅为 TaskSpace 内层 `exec_command` 增加“只能位于 `taskspace_exec.tools`，不得作为顶层 Function Tool call”描述。
+  - Signal: 首响应逃逸 run/call、合法内层调用、业务/oracle、Map 闭合、请求/token/cache 和其他拒绝类型。
+  - Capture method: 使用与 B0 相同的复杂样本、projection、模型与 repeat 口径；真实运行须另行获得预算批准。
+  - Event name or marker:
+    - `function_call(name=exec_command)`
+    - first `initialize_and_work`
+  - Correlation keys:
+    - experiment arm and run index
+    - provider first response
+  - Differentiates from:
+    - 成功反馈字段
+    - work 示例
+    - Base instructions
+    - Runtime 拒绝逻辑
+  - Supports if:
+    - 逃逸相对 B0 明显下降，且没有新协议错误或业务回归。
+  - Refutes if:
+    - 逃逸无清晰下降，或错误迁移、合法内层调用下降。
+  - Instrumentation status: existing permanent traces sufficient
+  - Instrumentation lifecycle:
+    - retain
+- Evidence gate: pending live evidence
+- Related evidence:
+  - E-022
+- Conclusion: commit `bf0b7cc8b` 已完成局部合同实现和离线验证；尚无真实 Agent 行为结果，不能判断收益。
+- Repair design readiness: implemented offline; live verification pending
+- Next step: 获得新预算后与 B0 同口径复验；在此之前不继续叠加提示词或 Runtime 规则。
+- Blocker:
+  - live Whale Agent budget not approved
+
+## Evidence E-022: TaskSpace 内层作用域合同已离线落地
+- Related hypotheses:
+  - H-009
+- Direction: supports
+- Type: implementation-verification
+- Source: commit `bf0b7cc8b`
+- Prediction or plan link:
+  - H-009 要求只改变 TaskSpace 内层 `exec_command` description，保持 Standard 和其他内部 Tool 不变。
+- Matched signal:
+  - `sequence_schema.rs` 仅对无 namespace 且名称为 `exec_command` 的 TaskSpace catalog capability 追加局部作用域描述。
+  - catalog 测试确认内层描述包含 `only inside the taskspace_exec.tools array` 和 `never emit exec_command as a top-level Function Tool call`。
+  - 同一测试确认其他内部 Tool description 保持原值；Standard/native ToolSpec 构建路径未修改。
+  - `cargo test -p codex-core taskspace_exec --lib --locked` 为 78 passed、0 failed。
+  - 缓存门禁以指纹 `138a9410a2a9e20444b529c590b43a555728fbbb2d6825721f6c9cb2937e0d9f` 免费 final-wire 验证通过；发布仍等待真实回归证据。
+- Correlation keys:
+  - source commit
+  - cache-sensitive fingerprint
+- Raw content:
+  ```text
+  In TaskSpace, use `exec_command` only inside the `taskspace_exec.tools` array;
+  never emit `exec_command` as a top-level Function Tool call.
+  taskspace_exec tests: 78 passed, 0 failed
+  cache gate: free final-wire PASS; release remains blocked
+  ```
+- Interpretation: 候选的工程作用域和离线正确性已验证；该证据不包含目标模型逃逸频率，不能关闭 H-009 或 I03。
+- Time: 2026-08-19
