@@ -1,6 +1,6 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-20T03:00:57+08:00",
+  "updated_at": "2026-08-20T05:04:23+08:00",
   "entries": [
     {
       "record_id": "WAR-20260819-054148-R8-I04-ORDERED-PATCH-R1",
@@ -10564,6 +10564,83 @@
         "usage_evidence_status": "complete",
         "durable_evidence_path": "benchmarks/taskspace/r8/evidence/WAR-20260820-023538-R8-I03-CROSS-SAMPLE-R3.json",
         "outcome": "3/3 business, public validation, hidden oracle and Map closure passed; Base 3.0.6 was present in every request; top-level client Tool escape was 0/3 runs and 0 calls; one run had two recoverable zero-side-effect Exec envelope rejects; raw evidence was complete but post-processing exposed stale optional-field assumptions, repaired offline without additional Agent runs."
+      }
+    },
+    {
+      "record_id": "WAR-20260820-050331-R8-BASE307-TYPE-R5",
+      "record_type": "run_batch",
+      "status": "running",
+      "started_at": "2026-08-20T05:04:23+08:00",
+      "ended_at": null,
+      "elapsed_calendar_seconds": null,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "验证 TaskSpace Base 3.0.7 显式要求顶层 type 后，缺失 type 的 Exec envelope 是否停止复发，并确认缓存和业务行为无回归。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "user-approved-r8-base307-type-r5",
+        "reference": "2026-08-20 user: 批准预算",
+        "budget_summary": {
+          "maximum_sample_runs": 6,
+          "maximum_api_requests": 60,
+          "input_tokens": 900000,
+          "output_tokens": 35000,
+          "elapsed_seconds": 720,
+          "estimated_cost": 0.3,
+          "currency": "CNY"
+        },
+        "note": "仅限 release-dispatch-repair：Standard repeat=1 与 Base 3.0.7 map-request repeat=5；零自动重试，不扩展样本、模式或协议候选。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "batch_count": 2,
+        "sample_ids": [
+          "release-dispatch-repair"
+        ],
+        "arm_ids": [
+          "standard",
+          "base-3.0.7-map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 6,
+        "actual_sample_runs": 0,
+        "api_requests": 0,
+        "api_requests_evidence_status": "pending"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "planned",
+        "currency": "CNY",
+        "amount": 0.3,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": {
+          "model": "deepseek-v4-flash",
+          "captured_at": "2026-08-20",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": "approved hard ceiling",
+        "note": "等待真实运行结算。"
+      },
+      "evidence": {
+        "planned_run_root": "target/whale-agent-runs/WAR-20260820-050331-R8-BASE307-TYPE-R5",
+        "subject_commit": "9c2f72879",
+        "candidate_diff_sha256": "a6b98c66cd8665f907fd27634f09ba0993649e5b43d9e6997764f550b2ebd8fc",
+        "candidate_base_version": "3.0.7",
+        "candidate_base_sha256": "4fba63157655f2f71208891fddac2220d20dedbd5adb1fc1769901870315b34b",
+        "whale_binary_sha256": "d7055c93f97cef0c18ffe14ac6ed0ab01bd7f45747363224320e061be43a2693",
+        "scenario": "release-dispatch-repair",
+        "execution": "docker",
+        "stop_conditions": "零自动重试；硬边界绕过、基础设施故障、usage 缺失、60 requests、900K input、35K output、CNY 0.30 或 12 分钟任一先到即停止。普通零副作用协议拒绝只记录，不自动停止。"
       }
     }
   ]

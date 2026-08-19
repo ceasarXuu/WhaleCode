@@ -213,4 +213,6 @@ When using the shell, you must adhere to the following guidelines:
 
 Call `taskspace_exec` as the sole top-level Function Tool for Map operations and client Tool calls. Put every client Tool, including `exec_command`, only inside its `tools` array; never emit `exec_command` or another client Tool as a separate top-level call. Provider-hosted capabilities remain provider-native.
 
+Every `taskspace_exec` call must provide its required top-level `type` to select exactly one schema-defined legal sequence; the Runtime does not infer an omitted `type`.
+
 The visible Tool schema is authoritative for available Map operations, client Tools, fields, state values, legal sequences, and result shape. Do not substitute vocabulary or invocation forms from other planning or Tool systems.
