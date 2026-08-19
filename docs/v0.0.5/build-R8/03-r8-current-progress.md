@@ -3,14 +3,14 @@
 - Report date: 2026-08-20
 - Source plans: `00-r8-charter.md`、`01-r8-known-issues.md`、`taskspace-exec/12-phase-b-zero-base-plan.md`
 - Scope: `whalecode-alpha` branch，被测生产代码 commit `e246ca6a2`
-- Latest runtime evidence: `WAR-20260820-050331-R8-BASE307-TYPE-R5`
+- Latest runtime evidence: `WAR-20260820-060735-R8-BASE307-TYPE-R10`
 - Scoring: 十个 R8 全局问题等权；每项按已验证验收条件计 `0/25/50/75/100`
 
 ## 1. 完成度总览
 
 | 口径 | 分子 / 分母 | 完成度 | 含义 |
 |---|---:|---:|---|
-| R8 验证完成度 | 900 / 1000 | **90.0%** | 十个问题按实现、接入、测试和生产证据评分；I07 仍有最终 sample timing 单值兼容缺口 |
+| R8 验证完成度 | 890 / 1000 | **89.0%** | 十个问题按实现、接入、测试和生产证据评分；I03 扩大验收首轮暴露 outer call 基数缺口 |
 | 正式问题关闭率 | 5 / 10 | **50.0%** | I09、I01、I06、I02、I10 达到 `closed`；I07 回到 `verifying` |
 | TaskSpace Exec 阶段实现度 | 650 / 700 | **92.9%** | B0～B4 为 100%，B5～B6 各按 75% 计 |
 
@@ -22,7 +22,7 @@ xychart-beta
   bar [100, 75, 100, 88, 100, 75, 75]
 ```
 
-90.0% 不等于发布完成度。当前代码和三种 projection 的复杂 client-tool 链路已经可运行，Provider-hosted 机械归纳
+89.0% 不等于发布完成度。当前代码和三种 projection 的复杂 client-tool 链路已经可运行，Provider-hosted 机械归纳
 已有生产证据；I01-W10 已接受并晋升 baseline，fork/join DAG 和默认模式产品阈值仍未收敛；I07 的原始事实可复算，
 但最新后处理兼容修复还缺一次自然端到端 finalization。
 
@@ -36,8 +36,8 @@ xychart-beta
 | 4 | I05 拒绝反馈忠实性 | 75% | verifying | 同 `call_id`、零执行、可继续反馈已实现；最新 3 次正常路径无回归 | 逃逸恢复分支未自然在线命中 |
 | 5 | I02 Tool 事实单次表达 | 100% | closed | 最新三次生产运行 `18 calls = 18 outputs`，无高优先级副本、重复或 orphan | 无 |
 | 6 | I10 capability 身份 | 100% | closed | 最新 21 个 TaskSpace wire 请求身份一致，跨 Catalog/dispatch/wire/report 无冲突 | 无；projection 对照归入 I01/I08 |
-| 7 | I07 观测可信性 | 90% | verifying | 最新六轮原始请求/usage/业务证据和三轮 TaskSpace Map 均可复算；两个后处理缺口已修复 | 最终 sample timing 仍有单值兼容缺口 |
-| 8 | I03 动作组织稳定性 | 85% | verifying | Base `3.0.7` 最新三轮共 18 次 Exec 均显式携带 `type` 且零拒绝，业务/oracle/Map 3/3 通过 | 三轮不足以证明跨样本稳定；整个 I03 不关闭 |
+| 7 | I07 观测可信性 | 90% | verifying | 最新失败 run 的原始请求/usage/Map 可复算；strict-mode timing 空对象缺口已修复并可离线重建报告 | 尚缺下一次自然运行完成 runner finalization |
+| 8 | I03 动作组织稳定性 | 75% | verifying | Base `3.0.7` 的 `type` 仍全部正确 | 扩大验收第 1 轮生成同响应两个 outer Exec 并 fatal；每响应调用基数合同待补足 |
 | 9 | I04 frontier 使用 | 75% | verifying | 顺序 patch 事务离线通过；最新复杂运行无 `TransitionInvalid` 且 Map 闭合 | 同批父子完成未自然命中；Map 仍为线性链，fork/join 未观察到 |
 | 10 | I08 成本与晋升 | 75% | investigating | 复杂样本四臂请求/input/cache/time/cost 已量化 | 只有一个复杂样本，产品阈值未确定 |
 
@@ -98,6 +98,12 @@ Base `3.0.7` 显式 sequence `type` 验证实际形成 Standard 3 轮与 map-req
 input、88.77% request 2+ cache、CNY 0.07214464；Standard 为 24 requests、334,579 input、96.56%、CNY 0.03657980。
 实际矩阵偏离计划，因此不晋升缓存基线；详见
 [`Base 3.0.7 结果`](taskspace-exec/88-base307-explicit-type-r3-result.md)。
+
+后续批准的 TaskSpace `repeat=10` 扩大验收在第 1 轮按停止条件结束：第二个响应生成两个同级
+`taskspace_exec(type=work)`，Runtime 按一响应一个 outer Exec 的硬合同整批拒绝，Agent fatal 且未产生 Patch。两次请求共
+26,536 input，request 2+ cache 93.84%，CNY 0.002708。该结果不推翻显式 `type` 修复，但坐实 outer call 基数未被
+Agent-visible 协议清楚表达；详见
+[`Repeat 10 停止结果`](taskspace-exec/89-base307-repeat10-stopped-result.md)。
 
 ## 6. 未完成工作
 

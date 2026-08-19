@@ -1167,3 +1167,33 @@
   - 三轮只支持保留候选，不关闭整个 I03，也不晋升缓存基线。
 - Interpretation: H-012 在当前复杂样本获得在线支持。该结果证明提示层补足 Agent 责任有效，不构成 Runtime 语义接管。
 - Time: 2026-08-20
+
+## Hypothesis H-013: sole Tool identity 未表达每响应 outer call 基数
+
+- Status: confirmed
+- Claim: “`taskspace_exec` 是唯一顶层 Function Tool”只约束可调用的 Tool 名称，不约束同一响应中该 Tool 的调用次数；
+  若 Agent-visible Base/Tool protocol 未明确“一响应恰好一次 outer Exec，多个 client action 放入同一 `tools[]`”，模型可能
+  把可并行工作生成为多个 sibling outer Exec。
+- Predictions:
+  - 复发响应可包含多个同名 `taskspace_exec`，而不是不同 Tool 逃逸。
+  - 每个 sibling call 自身可以拥有合法 `type`、`tools[]` 和 `node_id`。
+  - response scope 在任何一个 sibling 执行前整批拒绝，证明问题位于 Agent 动作组织而非 Runtime dispatch。
+- Fix boundary:
+  - 不由 Runtime 合并、重排或选择 sibling call。
+  - 不改变普通 client Tool schema，不重新暴露顶层 client Tool。
+  - 候选只补足已有冻结不变量的 Agent-visible表达，并单变量验证。
+
+## Evidence E-029: Repeat 10 首轮生成两个 sibling outer Exec
+
+- Related hypotheses:
+  - H-013
+- Direction: supports
+- Type: production-failure-trace
+- Source: `WAR-20260820-060735-R8-BASE307-TYPE-R10`
+- Matched signal:
+  - Request 1 的单个 `initialize_and_work` 被接受并完成一个 `inspect` client action。
+  - Request 2 同时返回两个名为 `taskspace_exec` 的 Function Call；二者均为 `type=work`、owner=`inspect`，分别读取实现与测试。
+  - response scope 返回 `TaskSpace response contains more than one Exec call`，整批零执行，Agent fatal，未产生 Patch。
+  - Base identity 为 `3.0.7` 且两个 sibling 均有 `type`，因此该失败不否定 H-012。
+- Interpretation: H-013 坐实。扩大验收按业务硬失败条件在 1/10 后停止；继续原样采样不能替代协议修复。
+- Time: 2026-08-20

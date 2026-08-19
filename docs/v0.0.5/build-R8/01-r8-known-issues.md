@@ -409,6 +409,13 @@
 > 后处理另暴露 sample timing 单值兼容缺口，继续归 I07；本轮不晋升缓存基线。详见
 > [`taskspace-exec/88-base307-explicit-type-r3-result.md`](taskspace-exec/88-base307-explicit-type-r3-result.md)。
 
+> **I03 outer Exec 基数缺口（2026-08-20）**：计划的 Base `3.0.7` repeat=10 在第 1 轮按硬失败条件停止。第二个
+> Provider 响应并列生成两个 `taskspace_exec(type=work)`；两者内部动作和 `type` 均合法，但 response scope 按“一响应一个
+> outer Exec”不变量整批零执行拒绝，Agent fatal，业务与 oracle 失败。Agent-visible 文本当前只表达唯一顶层 Tool 名称，
+> 没有清楚表达每响应调用基数和“多 client action 放入同一 `tools[]`”。这是 I03 新坐实的协议表达缺口，不是 Runtime
+> 应自动合并的语义。I07 同批 strict-mode timing 空对象缺口已由 `d74d14e9b` 修复并离线重建报告。详见
+> [`taskspace-exec/89-base307-repeat10-stopped-result.md`](taskspace-exec/89-base307-repeat10-stopped-result.md)。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。
@@ -457,8 +464,8 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 4 | R8-I05 | F3 | P1 | 拒绝原因可能重复或混淆错误发生的协议层级 | 忠实返回一次失败，并准确区分语法、合同、预检与执行错误；未提交候选不得表现为已保存状态 | `e596d2f27` 完成同 `call_id`、零执行、可继续反馈；repeat=3 正常路径无回归，但未自然触发逃逸恢复分支 | verifying | GI-005 |
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 成功、拒绝和内部失败只返回一个 outer output；最新三次生产运行 `18 calls = 18 outputs`，无副本或 orphan | [closed](taskspace-exec/80-i02-single-feedback-closure.md) | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 身份沿 dispatch/request/wire/trace/report 传播；最新 21 个 TaskSpace wire 请求身份一致且无冲突 | [closed](I10/01-i10-capability-identity-closure.md) | GI-010 |
-| 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或仍读取旧 Map 字段 | 请求和失败逐身份计一次；当前最简 Map、单臂运行和稀疏事件都能完成汇总 | 最新六轮原始请求/usage/业务证据完整，三轮 TaskSpace Map 可复算；graph placeholder 与 singleton collection 已修复，最终 sample timing 仍有单值兼容缺口 | [verifying](taskspace-exec/88-base307-explicit-type-r3-result.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 可能生成非法 Exec envelope，或把内部 client Tool 提升为未声明顶层调用 | client 动作只在 `taskspace_exec` 合法序列内声明；Runtime 对非法 envelope 保持零副作用硬边界 | Base `3.0.7` 最新 3 轮共 18 次 Exec 均显式携带 `type` 且零拒绝；业务和 Map 3/3 通过 | [verifying](taskspace-exec/88-base307-explicit-type-r3-result.md) | GI-003 |
+| 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或仍读取旧 Map 字段 | 请求和失败逐身份计一次；当前最简 Map、单臂运行和稀疏事件都能完成汇总 | strict-mode timing 空对象缺口已修复，失败 run 的 sample timing 与报告可离线重建 | [verifying](taskspace-exec/89-base307-repeat10-stopped-result.md) | GI-007 |
+| 8 | R8-I03 | F5 | P2 | Agent 可能生成非法 Exec envelope，或把内部 client Tool 提升为未声明顶层调用 | client 动作只在每响应唯一的 `taskspace_exec` 合法序列内声明；Runtime 对非法 envelope 保持零副作用硬边界 | `type` 最新 18/18 正确；扩大验收首轮暴露同响应两个 outer Exec，证明调用基数合同仍不清楚 | [verifying](taskspace-exec/89-base307-repeat10-stopped-result.md) | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点，或没有利用可并行 frontier | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 顺序 patch 事务离线通过，最新生产运行无 `TransitionInvalid`；但目标同批父子完成未自然命中，Map 仍为线性链 | [verifying](I04/03-ordered-map-patch-live-validation-result.md) | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 复杂样本四臂 repeat=3：always/append/request 总 input 为 Standard `1.25x/1.60x/1.32x`，费用为 `2.83x/2.09x/2.43x` | [investigating](I01/03-i01-four-arm-repeat3-result.md) | GI-008 |
 
