@@ -1088,3 +1088,18 @@
 - Remaining evidence gap:
   - 仍需在不同自然复杂样本中观察 Base `3.0.6` 是否持续抑制顶层 client Tool 逃逸；该缺口只影响 I03 的跨样本关闭，不影响当前硬边界正确性。
 - Time: 2026-08-20
+
+## Evidence E-026: Base 3.0.6 在第二个复杂样本三轮无顶层逃逸
+- Related hypotheses:
+  - H-010
+- Direction: supports
+- Type: cross-sample-production-validation
+- Source: `WAR-20260820-023538-R8-I03-CROSS-SAMPLE-R3`
+- Matched signal:
+  - `release-dispatch-repair × map-request × repeat=3` 的 Provider wire 均为 Base `3.0.6` 和预期 hash。
+  - 3/3 业务、公开验证、hidden oracle 和 Map 闭合通过。
+  - 23 次顶层 Function Call 全部为 `taskspace_exec`；顶层 client Tool 逃逸为 0/3 runs、0 calls。
+  - 连同 E-024，两个复杂样本累计 8/8 无顶层 client Tool 逃逸。
+  - Run 1 仍有两次可恢复的 Exec envelope 拒绝；它们不推翻 H-010，但阻止关闭整个 I03。
+- Interpretation: H-010 已获得跨样本支持，Base `3.0.6` 保留且不再叠加同义提示。I03 的剩余工作收敛为 Exec envelope 参数稳定性，不再把顶层 schema 重暴露或 Runtime 提升作为开放根因。
+- Time: 2026-08-20

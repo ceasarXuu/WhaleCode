@@ -1,6 +1,6 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-20T02:35:38+08:00",
+  "updated_at": "2026-08-20T03:00:57+08:00",
   "entries": [
     {
       "record_id": "WAR-20260819-054148-R8-I04-ORDERED-PATCH-R1",
@@ -10482,11 +10482,11 @@
     {
       "record_id": "WAR-20260820-023538-R8-I03-CROSS-SAMPLE-R3",
       "record_type": "run_batch",
-      "status": "planned",
-      "started_at": null,
-      "ended_at": null,
-      "elapsed_calendar_seconds": 0,
-      "aggregate_agent_wall_time_ms": 0,
+      "status": "settled",
+      "started_at": "2026-08-20T02:40:09+08:00",
+      "ended_at": "2026-08-20T03:00:57+08:00",
+      "elapsed_calendar_seconds": 1248,
+      "aggregate_agent_wall_time_ms": 107306,
       "reason": "在不同自然复杂样本上复验 TaskSpace Base 3.0.6 是否持续抑制未声明顶层 exec_command 逃逸，并旁路观察 I04 frontier 行为。",
       "authorization": {
         "required": true,
@@ -10516,21 +10516,36 @@
         ],
         "repeats_per_arm_per_sample": 3,
         "planned_sample_runs": 3,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "pending"
+        "actual_sample_runs": 3,
+        "api_requests": 26,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
-        "input": 0,
-        "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "input": 443026,
+        "cached_input": 394752,
+        "uncached_input": 48274,
+        "output": 14204
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated",
         "currency": "CNY",
-        "amount": null,
-        "actual_billed_amount": null
+        "amount": 0.08457704,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.00789504,
+          "uncached_input": 0.048274,
+          "output": 0.028408
+        },
+        "pricing_snapshot": {
+          "model": "deepseek-v4-flash",
+          "captured_at": "2026-08-20",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": "394752/1000000*0.02 + 48274/1000000*1.0 + 14204/1000000*2.0",
+        "note": "Provider requests、usage 和费用均低于授权上限。日历耗时因三处 Provider 后处理 Harness 缺口的离线修复达到 1248 秒，超过计划 480 秒；三次 Agent wall time 合计 107.306 秒，未增加 sample 或重试。"
       },
       "evidence": {
         "planned_run_root": "target/whale-agent-runs/WAR-20260820-023538-R8-I03-CROSS-SAMPLE-R3",
@@ -10541,8 +10556,14 @@
         "execution": "docker",
         "experiment_plan": "coe/2026-08-19-07-24-r8-taskspace-action-top-level-promotion.md",
         "stop_conditions": "零自动重试；硬边界绕过、基础设施故障、usage 缺失、36 requests、700K input、25K output、CNY 0.20 或 8 分钟任一先到即停止。普通零副作用协议拒绝只记录，不自动停止。",
-        "usage_evidence_status": "pending",
-        "outcome": "pending"
+        "actual_run_roots": [
+          "target/whale-agent-runs/WAR-20260820-023538-R8-I03-CROSS-SAMPLE-R3/run-1b/release-dispatch-repair/20260820-024009-779",
+          "target/whale-agent-runs/WAR-20260820-023538-R8-I03-CROSS-SAMPLE-R3/run-2/release-dispatch-repair/20260820-025638-239",
+          "target/whale-agent-runs/WAR-20260820-023538-R8-I03-CROSS-SAMPLE-R3/run-3/release-dispatch-repair/20260820-025844-733"
+        ],
+        "usage_evidence_status": "complete",
+        "durable_evidence_path": "benchmarks/taskspace/r8/evidence/WAR-20260820-023538-R8-I03-CROSS-SAMPLE-R3.json",
+        "outcome": "3/3 business, public validation, hidden oracle and Map closure passed; Base 3.0.6 was present in every request; top-level client Tool escape was 0/3 runs and 0 calls; one run had two recoverable zero-side-effect Exec envelope rejects; raw evidence was complete but post-processing exposed stale optional-field assumptions, repaired offline without additional Agent runs."
       }
     }
   ]

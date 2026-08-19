@@ -444,13 +444,13 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 4 | R8-I05 | F3 | P1 | 拒绝原因可能重复或混淆错误发生的协议层级 | 忠实返回一次失败，并准确区分语法、合同、预检与执行错误；未提交候选不得表现为已保存状态 | `e596d2f27` 完成同 `call_id`、零执行、可继续反馈；repeat=3 正常路径无回归，但未自然触发逃逸恢复分支 | verifying | GI-005 |
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 成功、拒绝和内部失败只返回一个 outer output；最新三次生产运行 `18 calls = 18 outputs`，无副本或 orphan | [closed](taskspace-exec/80-i02-single-feedback-closure.md) | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 身份沿 dispatch/request/wire/trace/report 传播；最新 21 个 TaskSpace wire 请求身份一致且无冲突 | [closed](I10/01-i10-capability-identity-closure.md) | GI-010 |
-| 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | 默认 metrics 已直接消费唯一 Exec observer；最新三轮真实 trace 的拒绝对账为 `0/1/2`，未知分类为 0 | [closed](I07/03-i07-default-metrics-rejection-repair-result.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 可能在首个 TaskSpace 响应中把 Exec 内部的 `exec_command` 另写成未声明顶层调用 | client 动作只在 `taskspace_exec` 合法序列内声明；Runtime 仍只守零副作用硬边界 | Base `3.0.6` 同一样本 5/5 业务与 Map 通过、逃逸 0/5；当前静态复核确认顶层 schema 未重暴露 client Tool，仍缺跨样本行为证据 | verifying | GI-003 |
+| 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或仍读取旧 Map 字段 | 请求和失败逐身份计一次；当前最简 Map、单臂运行和稀疏事件都能完成汇总 | 本轮 3/3 原始证据完整，但后处理暴露旧字段和可选值假设；修复后专项离线回归通过，尚缺一次自然端到端 finalization | [verifying](taskspace-exec/87-base-client-scope-cross-sample-repeat3-result.md) | GI-007 |
+| 8 | R8-I03 | F5 | P2 | Agent 可能生成非法 Exec envelope，或把内部 client Tool 提升为未声明顶层调用 | client 动作只在 `taskspace_exec` 合法序列内声明；Runtime 对非法 envelope 保持零副作用硬边界 | Base `3.0.6` 两个复杂样本累计 8/8 无顶层逃逸；最新 3 轮仍有 1 轮出现两次可恢复 envelope 错误 | [verifying](taskspace-exec/87-base-client-scope-cross-sample-repeat3-result.md) | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点，或没有利用可并行 frontier | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 顺序 patch 事务离线通过，最新生产运行无 `TransitionInvalid`；但目标同批父子完成未自然命中，Map 仍为线性链 | [verifying](I04/03-ordered-map-patch-live-validation-result.md) | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 复杂样本四臂 repeat=3：always/append/request 总 input 为 Standard `1.25x/1.60x/1.32x`，费用为 `2.83x/2.09x/2.43x` | [investigating](I01/03-i01-four-arm-repeat3-result.md) | GI-008 |
 
-问题总数：**10**；Open：**4**；Closed：**6**。Provider-hosted Runtime 机械归纳已通过生产验收，当前没有该专题停点。
-I07 的默认 metrics 消费链漏接已修复并用原始真实 trace 离线闭环；I05 的 Fatal 恢复缺口已离线修复且正常路径无回归，不在未实现清单中；I08 的小型等价压缩按用户决定暂缓，
+问题总数：**10**；Open：**5**；Closed：**5**。Provider-hosted Runtime 机械归纳已通过生产验收，当前没有该专题停点。
+I07 的默认 metrics 消费链已修复，但最新真实运行又暴露当前最简 Map 与单臂后处理兼容缺口，修复后仍待自然端到端 finalization；I05 的 Fatal 恢复缺口已离线修复且正常路径无回归，不在未实现清单中；I08 的小型等价压缩按用户决定暂缓，
 不回删 Map、合法序列或状态机硬合同。
 
 ## 4. VA-04A 证据边界
@@ -462,8 +462,8 @@ I07 的默认 metrics 消费链漏接已修复并用原始真实 trace 离线闭
 | 已关闭 | I02、I06 | 单次 outer 反馈、统一预检、零副作用旁路拒绝和单 Patch 边界均有确定性与生产证据 | Agent 仍可能生成非法动作，但不再构成底层边界缺口 |
 | 工程修复、正常路径已验收 | I05 | JSON/schema reject 与 forbidden 顶层 client Tool 均有准确、同调用身份、零副作用反馈；repeat=3 正常路径全部通过 | 本轮未自然触发顶层 client escape，尚无新的恢复分支在线命中证据 |
 | 已关闭 | I10 | 最新 21 个 TaskSpace wire 请求身份一致；Catalog、dispatch、wire、trace 与 observer 共用同一值 | Projection 不参与能力身份计算，其三臂验收归入 I01/I08 |
-| 已关闭 | I07 | canonical request/usage、projection 与 Exec 拒绝均由唯一事实链复算；最新三轮拒绝为 `0/1/2` | 不用拒绝计数替代 Agent 行为判断 |
-| 复杂样本可完成 | I03 | 三 projection 共 9/9 业务与 oracle 通过；最新行为验收也完成 | 最新运行仍有 1 次顶层 client Tool 逃逸，其他历史动作异常也未关闭 |
+| 工程修复、待自然闭环 | I07 | canonical request/usage、projection 与 Exec 拒绝均可由原始事实复算；当前最简 Map、单臂和稀疏事件兼容缺口已离线修复 | 尚缺一次自然运行完成全部后处理；完整历史 Harness 仍有后段单值 `.Count` fixture 缺口 |
+| 复杂样本可完成 | I03 | Base `3.0.6` 两个复杂样本累计 8/8 业务、oracle 与 Map 通过，顶层 client Tool 逃逸为 0 | 最新三轮仍有 1 轮两次可恢复 Exec envelope 错误；其他 client Tool 的长期复发证据仍不足 |
 | 当前行为已观察 | I04 | 顺序 patch 事务离线通过；最新复杂运行 Map 合法闭合且无 `TransitionInvalid` | 同批父子完成没有自然命中；TaskSpace 仍为线性链，未形成 fork/join |
 | 复杂成本已测 | I08 | always/append/request 的请求、input、缓存、wall 和费用取舍已量化 | 只有一个复杂样本；产品阈值与多样本外推未完成 |
 
