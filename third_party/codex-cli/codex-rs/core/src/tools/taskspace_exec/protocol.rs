@@ -33,8 +33,21 @@ Node state-machine contract:
 Feedback contract:
 - The outer result reports every client action, preserves native client results and errors without summarization, returns current states for directly operated or mechanically changed nodes, identifies their unavailable direct Work children with exact incomplete parents, and returns the complete Map for `read_map`."#;
 
-pub(super) fn build_description<'a>(_client_tool_names: impl Iterator<Item = &'a str>) -> String {
+pub(super) fn build_description<'a>(client_tool_names: impl Iterator<Item = &'a str>) -> String {
+    let has_exec_command = client_tool_names
+        .into_iter()
+        .any(|name| name == "exec_command");
     let mut sections = vec![PROTOCOL.to_string()];
+    if has_exec_command {
+        sections.push(format!(
+            "First-turn initialization and work example:\n```json\n{}\n```",
+            canonical_first_turn_example()
+        ));
+        sections.push(format!(
+            "Parent completion and direct-child work example:\n```json\n{}\n```",
+            canonical_handoff_example()
+        ));
+    }
     sections.push(format!(
         "Read-only example:\n```json\n{}\n```",
         canonical_read_example()
