@@ -19,6 +19,13 @@ function Assert-TaskspaceManifestField {
     }
 }
 
+function Get-TaskspaceOptionalManifestField {
+    param($Manifest, [Parameter(Mandatory = $true)][string]$Name)
+    $property = if ($null -ne $Manifest) { $Manifest.PSObject.Properties[$Name] } else { $null }
+    if ($null -ne $property) { return $property.Value }
+    return $null
+}
+
 function Read-TaskspaceScenarioManifest {
     param(
         [Parameter(Mandatory = $true)][string]$RepoRoot,
@@ -71,11 +78,11 @@ function Read-TaskspaceScenarioManifest {
         PublicValidation = $manifest.oracle.public_validation
         Expected = $manifest.expected
         Thresholds = $manifest.thresholds
-        SampleOrigin = $manifest.sample_origin
-        ExternalBenchmark = $manifest.external_benchmark
-        PromptGuard = $manifest.prompt_guard
+        SampleOrigin = Get-TaskspaceOptionalManifestField $manifest "sample_origin"
+        ExternalBenchmark = Get-TaskspaceOptionalManifestField $manifest "external_benchmark"
+        PromptGuard = Get-TaskspaceOptionalManifestField $manifest "prompt_guard"
         HumanReviewRequired = $humanReviewRequired
-        E3 = $manifest.e3
+        E3 = Get-TaskspaceOptionalManifestField $manifest "e3"
     }
 }
 
