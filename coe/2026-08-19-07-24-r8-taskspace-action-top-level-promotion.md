@@ -756,7 +756,7 @@
 - Time: 2026-08-19 14:40
 
 ## Hypothesis H-007: 成功反馈中的裸 client Tool 字段是可隔离放大因素
-- Status: unverified
+- Status: rejected
 - Parent: P-001
 - Claim: 在请求侧协议完全不变时，把成功结果中的 `tool="exec_command"` 改为明确的已执行 client Tool 作用域表达，会降低后续连续 shell 被提升为顶层 Function Call 的概率。
 - Layer: interaction
@@ -792,13 +792,84 @@
   - Instrumentation status: existing permanent traces sufficient
   - Instrumentation lifecycle:
     - retain
-- Evidence gate: planned
+- Evidence gate: satisfied
 - Related evidence:
   - E-011
   - E-017
+  - E-020
+- Conclusion: 被证伪。B0 与 F1 的全部逃逸都在首个 `initialize_and_work` 响应中产生，早于任何 client result；F1 的 3/5 run 与 B0 相同，call 数 6 到 4 的变化不能建立因果关系。
+- Repair design readiness: rejected; F1 reverted
+- Next step: 不再修改后续结果 identity；转向首请求可见的协议与示例。
+- Blocker:
+  - none
+- Close reason:
+  - candidate refuted by temporal and controlled-run evidence
+
+## Evidence E-020: 反馈字段实验不能解释首轮逃逸
+- Related hypotheses:
+  - H-007
+- Direction: refutes
+- Type: controlled-experiment
+- Source: `WAR-20260819-084538-R8-EXEC-FEEDBACK-SCOPE-AB` B0/F1
+- Prediction or plan link:
+  - H-007 要求成功反馈字段先出现，随后才放大下一轮调用。
+- Matched signal:
+  - B0 为 3/5 run、6 call；F1 为 3/5 run、4 call；两臂 10 次业务与隐藏验证全部通过。
+  - 两臂全部逃逸都与首个 `initialize_and_work` 同响应产生，早于任何 `client_results`。
+- Correlation keys:
+  - experiment arm and run index
+  - first provider response
+- Raw content:
+  ```text
+  B0: 3/5 escaped runs, 6 calls
+  F1: 3/5 escaped runs, 4 calls
+  escaped position: first response, before successful client feedback
+  ```
+- Interpretation: 成功反馈既不是首轮逃逸的必要条件，也不是本实验观察到的直接诱因；F2 若仍只修改后续反馈，同样不具备因果可行性。
+- Time: 2026-08-19 09:00
+
+## Hypothesis H-008: client Tool work 示例放大内部 action 的顶层提升
+- Status: unverified
+- Parent: P-001
+- Claim: `taskspace_exec` description 中两段显式 `exec_command` work 示例，使模型在首响应正确生成 outer sequence 的同时，更容易把后续同类内部 action 另写为顶层 sibling Function Call。
+- Layer: interaction
+- Factor relation: part_of
+- Depends on:
+  - H-006
+- Rationale:
+  - 全部实验逃逸都在首响应发生，必须由首请求中已有信息解释。
+  - description 有两段完整 `tools:[{tool:"exec_command",...}]` 示例；没有其他 client Tool 的同类示例。
+  - 当前有效逃逸只涉及 `exec_command`，没有 `apply_patch` 顶层逃逸。
+- Falsifiable predictions:
+  - If true: 仅移除两段 work 示例后，首响应顶层 `exec_command` 逃逸明显低于 B0，且 schema 驱动的初始化和合法序列仍稳定。
+  - If false: 逃逸不降，或只表现为正常随机波动。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: E1 只移除两段 client work 示例，保留闭集 schema、协议正文、read/finish 示例和所有运行逻辑。
+  - Signal: 首响应逃逸 run/call、初始化成功、业务/隐藏验证、Map 闭合、其他协议异常。
+  - Capture method: 同一二进制构建流程与 `subscription-billing-repair × map-request × repeat=5`。
+  - Event name or marker:
+    - `function_call(name=exec_command)`
+    - first `initialize_and_work`
+  - Correlation keys:
+    - experiment arm and run index
+    - provider first response
+  - Differentiates from:
+    - 后续反馈显著性
+    - Base instructions
+    - Runtime 拒绝逻辑
+  - Supports if:
+    - E1 首响应逃逸清晰下降且无初始化或业务回归。
+  - Refutes if:
+    - 逃逸无清晰下降或错误迁移。
+  - Instrumentation status: existing permanent traces sufficient
+  - Instrumentation lifecycle:
+    - retain
+- Evidence gate: planned
+- Related evidence:
+  - E-020
 - Conclusion: pending experiment
-- Repair design readiness: experiment authorized; production promotion not yet decided
-- Next step: execute B0, implement F1, then execute F1 under the approved budget.
+- Repair design readiness: diagnostic experiment authorized; production promotion not yet decided
+- Next step: implement E1 as a single-variable candidate and run repeat=5.
 - Blocker:
   - none
 - Close reason:

@@ -10148,7 +10148,7 @@
     {
       "record_id": "WAR-20260819-084538-R8-EXEC-FEEDBACK-SCOPE-AB",
       "record_type": "run_batch",
-      "status": "running",
+      "status": "planned",
       "started_at": "2026-08-19T08:49:00+08:00",
       "ended_at": null,
       "elapsed_calendar_seconds": null,
@@ -10180,7 +10180,7 @@
         "arm_ids": [
           "B0-current-feedback",
           "F1-executed-client-tool",
-          "F2-call-index-conditional"
+          "E1-no-client-work-examples"
         ],
         "repeats_per_arm_per_sample": 5,
         "planned_sample_runs": 15,
@@ -10215,11 +10215,11 @@
         "planned_run_root": "target/whale-agent-runs/WAR-20260819-084538-R8-EXEC-FEEDBACK-SCOPE-AB",
         "subject_commit": "fc4a0a9e9a9caff39c079a7c2e09ea2e99f63f1e",
         "scenario": "subscription-billing-repair",
-        "arm": "B0/F1/F2-conditional",
+        "arm": "B0/F1/E1",
         "repeat": 5,
         "execution": "docker",
         "experiment_plan": "docs/v0.0.5/build-R8/taskspace-exec/83-exec-command-feedback-scope-experiment.md",
-        "stop_conditions": "零自动重试；基础设施故障、usage 缺失、新协议异常、190 requests、3M input、100K output、CNY 2.50 或 90 分钟任一先到即停止。F1 有清晰收益时不执行 F2。",
+        "stop_conditions": "零自动重试；基础设施故障、usage 缺失、新协议异常、190 requests、3M input、100K output、CNY 2.50 或 90 分钟任一先到即停止。单臂无因果可行性时立即取消。",
         "usage_evidence_status": "pending",
         "outcome": "pending"
       }

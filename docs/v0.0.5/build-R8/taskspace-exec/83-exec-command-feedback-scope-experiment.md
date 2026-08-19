@@ -1,4 +1,4 @@
-# exec_command 反馈作用域单变量实验
+# exec_command 首轮作用域单变量实验
 
 - Status: in-progress
 - Product Authority: `../02-r8-global-constraints.md`
@@ -8,8 +8,8 @@
 
 ## 目标
 
-隔离验证成功反馈中的裸 `tool="exec_command"` 是否放大下一轮顶层逃逸。实验不得改动请求侧 client Tool catalog、原生
-Tool identity、canonical 示例、Base instructions、Map/DAG、状态机、拒绝逻辑、projection 或 Standard。
+隔离验证模型可见的 TaskSpace client Tool 表达中，哪一项放大了顶层 `exec_command` 逃逸。每个实验臂只改一个变量，
+不得改动原生 Tool identity、Base instructions、Map/DAG、状态机、拒绝逻辑、projection 或 Standard。
 
 ## 执行合同
 
@@ -24,9 +24,10 @@ Tool identity、canonical 示例、Base instructions、Map/DAG、状态机、拒
 |---|---|---|---|---|
 | B0 | 当前反馈 `client_results[].tool` | 当前生产代码 | 建立当前版本逃逸率 | N/A |
 | F1 | 仅把 Agent-visible 结果字段改为 `executed_client_tool`，值和结果不变 | 请求 schema、Tool 名、参数、执行与其余反馈 | 逃逸明显低于 B0，业务和 Map 不回归 | 逃逸无下降或出现新理解错误 |
-| F2 | 仅在 F1 不通过并回退后启用；结果用稳定 `call_index` 关联原请求，不重复 Tool 名 | 其余全部保持 B0 | 逃逸下降且并行结果仍可准确关联 | 结果关联不清或行为回归 |
+| E1 | F1 回退后，仅移除 description 中两段包含 `exec_command` 的 work 示例 | 闭集 schema、协议正文、read/finish 示例及 Runtime 均保持 B0 | 首响应逃逸明显低于 B0，初始化、业务和 Map 不回归 | 逃逸无下降或初始化/序列质量下降 |
 
-F2 是条件候选，不与 F1 叠加。F1 若获得清晰收益则不执行 F2。
+F1 已证明与症状时序不相容：所有观测逃逸均发生在首个工作响应，早于任何成功反馈。原 F2 同样只改后续反馈，取消且不运行。
+E1 与 F1 不叠加；运行前生产代码已回退到 B0。
 
 ## 工作单元
 
@@ -36,7 +37,7 @@ F2 是条件候选，不与 F1 叠加。F1 若获得清晰收益则不执行 F2�
 | E1 | B0 `repeat=5` | 顶层逃逸、完成率、请求、token、缓存、耗时、费用 | 任一基础设施/usage 门禁失败即停 |
 | E2 | 实现 F1，仅改结果字段及对应 schema/tests | focused tests + cache fingerprint gate | 出现 Standard、Tool 原生合同或 wire 非预期变化即回退 |
 | E3 | F1 `repeat=5` | 与 B0 同口径逐 run 对比 | F1 不通过则回退，不在其上叠加 |
-| E4 | 条件实现和运行 F2 `repeat=5` | 与 B0 同口径；仅 F1 未通过时执行 | 预算不足或产生关联歧义即停 |
+| E4 | 实现并运行 E1 `repeat=5` | 与 B0 同口径逐 run 对比 | 无清晰收益即回退，不新增解释变量 |
 | E5 | 若缓存门禁确认 provider prefix 敏感，执行专用最简缓存回归 | 专用 runner 结果与当前指纹一致 | 最多 CNY 0.50；失败不晋升 |
 
 ## 验收
@@ -53,10 +54,16 @@ F2 是条件候选，不与 F1 叠加。F1 若获得清晰收益则不执行 F2�
 - 缓存专用回归预留 CNY 0.50；总包不超过 CNY 3.00。
 - 账本：`WAR-20260819-084538-R8-EXEC-FEEDBACK-SCOPE-AB`。
 
+## 中间结果
+
+- B0：5/5 业务与隐藏验证通过；3/5 run、6 call 出现顶层 `exec_command`；56 requests；估算 CNY 0.17073372。
+- F1：5/5 业务与隐藏验证通过；3/5 run、4 call 出现顶层 `exec_command`；48 requests；估算 CNY 0.16675288。
+- B0 与 F1 的全部逃逸都与首个 `initialize_and_work` 同响应产生，发生在任何 `client_results` 反馈之前。
+- 结论：F1 的 call 数波动不构成因果收益；成功反馈不是首轮逃逸的必要条件。F1 已通过 commit `efcb738f5` 完整回退。
+
 ## Pre-Phase Plan Rebase Gate
 
 - Rebase scope: 当前代码、H-006 根因证据和全局约束
 - Material plan delta: none
 - User approval: user-approved-direct: “设计实验并实施，提前批准不超过3元的预算总包”
 - Gate: ready
-
