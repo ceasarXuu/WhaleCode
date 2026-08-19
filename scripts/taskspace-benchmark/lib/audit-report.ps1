@@ -191,7 +191,7 @@ function Get-TaskspaceAuditReview {
     $date = if ($review.PSObject.Properties.Name -contains "date") { [string]$review.date } else { "" }
     $claimScope = if ($review.PSObject.Properties.Name -contains "claim_scope") { [string]$review.claim_scope } else { "" }
     $disagreement = ($review.PSObject.Properties.Name -contains "disagreement" -and [bool]$review.disagreement)
-    $artifactBasis = if ($review.PSObject.Properties.Name -contains "artifact_basis") { @($review.artifact_basis) } else { @() }
+    $artifactBasis = @(if ($review.PSObject.Properties.Name -contains "artifact_basis") { @($review.artifact_basis) })
     $decisionRationale = if ($review.PSObject.Properties.Name -contains "decision_rationale") { [string]$review.decision_rationale } else { "" }
     $artifactHashes = @{}
     if ($review.PSObject.Properties.Name -contains "artifact_hashes") {
