@@ -1,5 +1,5 @@
 # Problem P-001: I07 请求、用量和 Provider 边界事实被混同
-- Status: open
+- Status: fixed
 - Created: 2026-08-05 07:59
 - Updated: 2026-08-05 08:58
 - Objective: 让性能观察从唯一身份忠实还原 logical request、local attempt、boundary request、completed response 和 usage
@@ -31,18 +31,18 @@
   - 10/11 fixture报告 10 boundary、11 attempts、1 local-only failed attempt
   - 所有请求数消费者使用同一规范化事实，身份冲突 fail closed
   - TaskSpace Exec 接入前完成 I07-W0～W8，不运行真实 Whale Agent
-- Current conclusion: 当前协议的 W0～W8 独立修复与 W10 离线结算完成；完整 I07 等待 TaskSpace Exec W9/W11
+- Current conclusion: request/usage、Provider 边界、projection 与 TaskSpace Exec 拒绝均已进入唯一事实消费链；最新真实 trace 离线对账通过
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
 - Resolution basis:
-  - not satisfied
+  - `476d60802` 接入默认 metrics，最新三轮真实 trace 对账为 `0/1/2`
 - Close reason:
-  - not closed
+  - 原始漏报症状已由同一批生产 trace 的离线修复验证消除
 
 ## Hypothesis H-003: 默认 benchmark 未消费 TaskSpace Exec 拒绝事实
-- Status: confirmed
+- Status: verified
 - Parent: P-001
 - Claim: TaskSpace Exec 专用 observer 已能识别拒绝，但默认 `metrics.json` 仍只复制旧 `taskspace_control` 失败字段，导致真实 Exec 拒绝稳定漏报为零
 - Layer: root-cause
@@ -76,13 +76,34 @@
 - Related evidence:
   - E-020
   - E-021
-- Conclusion: confirmed by current trace and consumer code path
+- Conclusion: confirmed and repaired; default metrics now reports the canonical Exec observation
 - Repair design readiness: ready
 - Next step: 接入默认 metrics 并离线回放
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - E-022 以原始真实 trace 验证默认 metrics 接线恢复
+
+## Evidence E-022: 默认 metrics 修复后按真实 trace 返回 0/1/2
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: fix-validation
+- Source: `476d60802`；`WAR-20260820-000226-R8-MULTILINE-SELF-HEAL-R3/H011`
+- Prediction or plan link:
+  - H-003 的修复验证预测
+- Matched signal:
+  - run-1=0；run-2=1 个 state/preflight；run-3=2 个 state/preflight；unknown=0
+- Correlation keys:
+  - outer `call_id`
+- Raw content:
+  ```text
+  taskspace_exec_rejected_call_count: 0 / 1 / 2
+  taskspace_exec_rejected_state_call_count: 0 / 1 / 2
+  taskspace_exec_rejected_unknown_call_count: 0 / 0 / 0
+  ```
+- Interpretation: 默认 benchmark 不再隐藏已发生的 Exec 状态拒绝
+- Time: 2026-08-20 11:40
 
 ## Evidence E-020: 最新三轮真实 rollout 与默认 metrics 发生事实冲突
 - Related hypotheses:

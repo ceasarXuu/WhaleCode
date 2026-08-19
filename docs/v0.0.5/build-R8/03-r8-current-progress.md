@@ -1,17 +1,17 @@
 # R8 当前进展报告
 
-- Report date: 2026-08-19
+- Report date: 2026-08-20
 - Source plans: `00-r8-charter.md`、`01-r8-known-issues.md`、`taskspace-exec/12-phase-b-zero-base-plan.md`
-- Scope: `whalecode-alpha` branch，当前生产代码 commit `5d2516eb1`
-- Latest runtime evidence: `WAR-20260819-223533-R8-BASE-CLIENT-SCOPE-R5`
+- Scope: `whalecode-alpha` branch，当前生产代码 commit `476d60802`
+- Latest runtime evidence: `WAR-20260820-000226-R8-MULTILINE-SELF-HEAL-R3/H011`
 - Scoring: 十个 R8 全局问题等权；每项按已验证验收条件计 `0/25/50/75/100`
 
 ## 1. 完成度总览
 
 | 口径 | 分子 / 分母 | 完成度 | 含义 |
 |---|---:|---:|---|
-| R8 验证完成度 | 875 / 1000 | **87.5%** | 十个问题按实现、接入、测试和生产证据评分；I01 关闭，I07 因新 trace 证实漏报而重开 |
-| 正式问题关闭率 | 5 / 10 | **50.0%** | I09、I01、I06、I02、I10 达到 `closed` |
+| R8 验证完成度 | 900 / 1000 | **90.0%** | 十个问题按实现、接入、测试和生产证据评分；I07 默认 metrics 漏接已由原始真实 trace 离线闭环 |
+| 正式问题关闭率 | 6 / 10 | **60.0%** | I09、I01、I06、I02、I10、I07 达到 `closed` |
 | TaskSpace Exec 阶段实现度 | 650 / 700 | **92.9%** | B0～B4 为 100%，B5～B6 各按 75% 计 |
 
 ```mermaid
@@ -22,9 +22,9 @@ xychart-beta
   bar [100, 75, 100, 88, 100, 75, 75]
 ```
 
-87.5% 不等于发布完成度。当前代码和三种 projection 的复杂 client-tool 链路已经可运行，Provider-hosted 机械归纳
-已有生产证据；I01-W10 已接受并晋升 baseline，fork/join DAG 和默认模式产品阈值仍未收敛；最新 trace 使 I07
-因漏报重新进入验证。
+90.0% 不等于发布完成度。当前代码和三种 projection 的复杂 client-tool 链路已经可运行，Provider-hosted 机械归纳
+已有生产证据；I01-W10 已接受并晋升 baseline，fork/join DAG 和默认模式产品阈值仍未收敛；I07 漏报已通过
+最新真实 trace 得到可复算的修复验证。
 
 ## 2. 全局问题状态
 
@@ -36,7 +36,7 @@ xychart-beta
 | 4 | I05 拒绝反馈忠实性 | 75% | verifying | 同 `call_id`、零执行、可继续反馈已实现；最新 3 次正常路径无回归 | 逃逸恢复分支未自然在线命中 |
 | 5 | I02 Tool 事实单次表达 | 100% | closed | 最新三次生产运行 `18 calls = 18 outputs`，无高优先级副本、重复或 orphan | 无 |
 | 6 | I10 capability 身份 | 100% | closed | 最新 21 个 TaskSpace wire 请求身份一致，跨 Catalog/dispatch/wire/report 无冲突 | 无；projection 对照归入 I01/I08 |
-| 7 | I07 观测可信性 | 75% | verifying | canonical usage 与 projection 可复算 | 最新 I04 rollout 有 1 次 `TransitionInvalid`，observer 却报告 0 次失败 |
+| 7 | I07 观测可信性 | 100% | closed | canonical usage、projection 与 Exec 拒绝均可复算；最新三轮真实 trace 对账为 `0/1/2` | 无 |
 | 8 | I03 动作组织稳定性 | 75% | verifying | Base `3.0.6` 候选 5/5 业务/oracle/Map 通过，顶层逃逸为 0/5 runs、0 calls | 单一样本不足以关闭跨样本问题；仍有两次 JSON syntax 与两次 Waiting preflight |
 | 9 | I04 frontier 使用 | 75% | verifying | 顺序 patch 事务离线通过；最新复杂运行无 `TransitionInvalid` 且 Map 闭合 | 同批父子完成未自然命中；Map 仍为线性链，fork/join 未观察到 |
 | 10 | I08 成本与晋升 | 75% | investigating | 复杂样本四臂请求/input/cache/time/cost 已量化 | 只有一个复杂样本，产品阈值未确定 |
@@ -60,7 +60,7 @@ xychart-beta
 | Canonical Map 可信 | 删除平行 ledger/ref/edges，关系化持久化并机械派生 children/state | I09 关闭；最新 3/3 Map 完整闭合、图警告 0 | I09 结果、最新 repeat=3 | achieved |
 | Runtime 只守硬边界 | 普通 Tool 保持原生；TaskSpace 只增加 Exec 顺序与 node metadata | 本轮三次协议拒绝均为零副作用，9 张 Map 最终闭合 | 四臂 repeat=3 | achieved for hard boundary |
 | 反馈不丢失不重复 | 唯一 outer result、错误分类、同调用反馈、单闭合符自愈进入正式上下文 | 三次拒绝均在原 call 输出准确原因并由 Agent 恢复 | 四臂 repeat=3 | partial；错误仍发生 |
-| 观测可复算 | 请求/usage 读取 canonical facts，projection 读取 final-wire，Exec reject 由专用观察器分类 | usage/projection 已闭环；最新 canonical `TransitionInvalid` 被 observer 漏报 | 四臂结果、I04 DAG 结果 | regressed；I07 reopened |
+| 观测可复算 | 请求/usage 读取 canonical facts，projection 读取 final-wire，Exec reject 由专用观察器分类 | 默认 metrics 与专用 observer 共用事实；最新三轮拒绝对账为 `0/1/2` | 四臂结果、I07 默认 metrics 修复结果 | achieved |
 | 缓存不发生结构性塌陷 | Tool shape 静态化、缓存敏感面门禁、动态 Map 按 projection 策略处理 | 四臂零 shape transition；request 2+ 为 97.80%/84.21%/93.49%/89.39% | 四臂 repeat=3 | achieved for measured sample |
 | 成本可解释 | Tool/schema/history/feedback 分项测量，SC-01 删除重复合同 | always/append/request 总 input 为 Standard 1.25x/1.60x/1.32x，费用 2.83x/2.09x/2.43x | 四臂 repeat=3 | partial；阈值未定 |
 
@@ -90,7 +90,8 @@ cached、33,652 uncached、7,629 output，费用 CNY 0.05528696。request 2+ 命
 I04 新自然 DAG 样本两臂均完成：Standard 9 requests，TaskSpace 11 requests；TaskSpace Map 为
 `root -> explore -> fix -> verify -> finish`，未形成 fork/join。该 trace 的 `TransitionInvalid` 已确认是旧 Runtime 没有在同批
 有序 patch 之间重新派生 readiness，并非 Agent 误选 waiting 节点；顺序 patch 事务已离线修复。Observer 对历史拒绝漏报为 0
-仍是独立 I07 缺口，详见 [`I04 结果`](I04/01-fork-join-live-validation-result.md)。
+的缺口已由原始 trace 离线回放闭环，详见 [`I04 结果`](I04/01-fork-join-live-validation-result.md) 与
+[`I07 修复结果`](I07/03-i07-default-metrics-rejection-repair-result.md)。
 
 ## 6. 未完成工作
 
@@ -99,17 +100,14 @@ I04 新自然 DAG 样本两臂均完成：Standard 9 requests，TaskSpace 11 req
 | I05 逃逸恢复在线分支 | 最新自然样本没有触发逃逸 | 不能证明目标模型收到失败后会稳定恢复且无请求放大 | 不人为诱导；复杂自然样本出现时随 trace 验收 |
 | I03 协议行为 | 反馈 identity、work 示例和内层 description 均已证伪；显式 Base `3.0.6` 将同样本逃逸降至 0/5 runs、0 calls | 仍缺跨样本、其他 client Tool 和长期复发证据 | 保留候选，在后续自然复杂验收中观察；不立即继续增加提示文字 |
 | I04 复杂依赖 | 客观提供两个独立修复域的新样本仍形成线性链；顺序 patch 事务仅离线通过 | fork/join、多 Ready 节点和多父节点仍无生产证据 | 不诱导拆图；先验收新事务，再分析首次读取前初始化通用链的影响 |
-| I07 观测漏报 | rollout 有明确 `TransitionInvalid`，pair report 的失败计数为 0 | 报告会错误隐藏协议错误并污染 I03/I04 判断 | 修复 canonical reject 到 observer 的消费链并离线回放该 trace |
 | I08 产品阈值 | 单个复杂样本已量化三模式取舍 | 不能据此决定默认 projection policy | 增加代表性样本前先定义决策指标 |
 
 ## 7. 建议顺序
 
 | 优先级 | 动作 | 依赖 | 验收方式 |
 |---:|---|---|---|
-| P0 | 修复 I07 对 canonical Exec reject 的漏报 | 已有 I04 trace | 离线回放必须得到 1 次 `TransitionInvalid`，不改 Runtime payload |
-| P1 | 通过缓存门禁并最小真实验收顺序 patch 事务 | 当前离线实现 | 同一 `update_and_finish` 依序完成父节点、刚解锁子节点与 Finish，不产生拒绝或额外请求 |
-| P2 | 深入分析 I04 为何在自然 DAG 样本仍生成线性链 | I07 恢复可信 | 先查上下文与初始化时序，不用提示词诱导或 Runtime 自动拆图 |
-| P3 | 定义 I08 默认模式的产品决策指标 | 当前四臂结果 | 同时评价质量、input、缓存费用和 Map 使用，不只看单项 |
+| P0 | 通过缓存门禁并最小真实验收顺序 patch 事务 | 当前离线实现 | 同一 `update_and_finish` 依序完成父节点、刚解锁子节点与 Finish，不产生拒绝或额外请求 |
+| P1 | 深入分析 I04 为何在自然 DAG 样本仍生成线性链 | I07 已恢复可信 | 先查上下文与初始化时序，不用提示词诱导或 Runtime 自动拆图 |
+| P2 | 定义 I08 默认模式的产品决策指标 | 当前四臂结果 | 同时评价质量、input、缓存费用和 Map 使用，不只看单项 |
 
-下一步先使用已存在的 I04 trace 离线修复 I07，再为 Agent 可见协议文本变更执行缓存门禁与最小真实验收；
-不得把顺序 patch 事务扩展成 Runtime 的语义判断。
+下一步为 Agent 可见协议文本变更执行缓存门禁与最小真实验收；不得把顺序 patch 事务扩展成 Runtime 的语义判断。
