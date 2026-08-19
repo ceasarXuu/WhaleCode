@@ -2,8 +2,8 @@
 
 - Report date: 2026-08-19
 - Source plans: `00-r8-charter.md`、`01-r8-known-issues.md`、`taskspace-exec/12-phase-b-zero-base-plan.md`
-- Scope: `whalecode-alpha` branch，当前生产代码 commit `bf0b7cc8b`
-- Latest runtime evidence: `WAR-20260819-084538-R8-EXEC-FEEDBACK-SCOPE-AB`
+- Scope: `whalecode-alpha` branch，当前生产代码 commit `fe2a639f3`
+- Latest runtime evidence: `WAR-20260819-220821-R8-EXEC-SCOPE-DESCRIPTION-R5`
 - Scoring: 十个 R8 全局问题等权；每项按已验证验收条件计 `0/25/50/75/100`
 
 ## 1. 完成度总览
