@@ -9,9 +9,9 @@ use sha2::Sha256;
 pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION: &str = "1.0.2";
 pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256: &str =
     "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382";
-pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "3.0.7";
+pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "3.0.8";
 pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256: &str =
-    "4fba63157655f2f71208891fddac2220d20dedbd5adb1fc1769901870315b34b";
+    "f1a963f8476d98dee15cba3118e962981c8f0b7231b28a5884c32fc4be234363";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WhaleCodeBaseInstructionsProfile {
@@ -173,9 +173,10 @@ mod tests {
             );
         }
         for required in [
-            "Call `taskspace_exec` as the sole top-level Function Tool",
-            "including `exec_command`, only inside its `tools` array",
-            "never emit `exec_command` or another client Tool as a separate top-level call",
+            "call `taskspace_exec` exactly once as the sole top-level Function Tool",
+            "including `exec_command`, inside that one call's `tools` array",
+            "never emit sibling `taskspace_exec` calls",
+            "`exec_command`, or another client Tool as a separate top-level call",
             "must provide its required top-level `type`",
             "the Runtime does not infer an omitted `type`",
         ] {

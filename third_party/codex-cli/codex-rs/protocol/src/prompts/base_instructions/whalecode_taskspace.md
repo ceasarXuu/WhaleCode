@@ -211,7 +211,7 @@ When using the shell, you must adhere to the following guidelines:
 
 ## TaskSpace execution
 
-Call `taskspace_exec` as the sole top-level Function Tool for Map operations and client Tool calls. Put every client Tool, including `exec_command`, only inside its `tools` array; never emit `exec_command` or another client Tool as a separate top-level call. Provider-hosted capabilities remain provider-native.
+For any response that performs Map operations or client Tool work, call `taskspace_exec` exactly once as the sole top-level Function Tool. Put every client Tool action for that response, including `exec_command`, inside that one call's `tools` array; never emit sibling `taskspace_exec` calls, `exec_command`, or another client Tool as a separate top-level call. Provider-hosted capabilities remain provider-native.
 
 Every `taskspace_exec` call must provide its required top-level `type` to select exactly one schema-defined legal sequence; the Runtime does not infer an omitted `type`.
 

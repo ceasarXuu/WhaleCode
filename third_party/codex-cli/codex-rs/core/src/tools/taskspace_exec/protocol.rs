@@ -12,7 +12,7 @@ use super::map_operations::NodePatchArgs;
 use super::map_operations::UpdateMapArgs;
 use super::map_operations::WorkNodeArgs;
 
-const PROTOCOL: &str = r#"Use `taskspace_exec` as the sole top-level Function Tool for TaskSpace Map operations and client Tool actions. Provider-hosted Tools remain native Provider ToolSpecs; they are not Function Tools. Choose exactly one sequence `type` allowed by the schema.
+const PROTOCOL: &str = r#"For any response that performs TaskSpace Map operations or client Tool actions, emit exactly one `taskspace_exec` Function Call. Put all client actions for that response in that call's `tools` array; never emit sibling `taskspace_exec` calls. Provider-hosted Tools remain native Provider ToolSpecs; they are not Function Tools. Choose exactly one sequence `type` allowed by the schema.
 
 Tool contract:
 - Put only client Tool actions in the sequence's `tools` array. Every work sequence requires a non-empty `tools` array. Native Provider Tool actions remain separate and do not replace this client work.
