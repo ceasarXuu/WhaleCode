@@ -229,21 +229,10 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
     }
     assert!(!description.contains("TaskSpacePendingProviderActionsR8V1"));
     assert!(!description.contains("assign_pending_actions"));
-    let first_turn = description
-        .split_once("First-turn initialization and work example:")
-        .unwrap()
-        .1
-        .split_once("Parent completion and direct-child work example:")
-        .unwrap()
-        .0;
-    for required in [
-        "\"type\":\"initialize_and_work\"",
-        "\"tool\":\"exec_command\"",
-    ] {
-        assert!(first_turn.contains(required), "missing {required}");
-    }
-    assert!(!first_turn.contains("\"tool\":\"web_search\""));
-    assert!(!first_turn.contains("\"execution\":\"already_executed\""));
+    assert!(!description.contains("First-turn initialization and work example:"));
+    assert!(!description.contains("Parent completion and direct-child work example:"));
+    assert!(description.contains("Read-only example:"));
+    assert!(description.contains("Final work-node completion and explicit Map finish example:"));
     for forbidden in [
         "emit both",
         "native top-level Provider Tool item",
