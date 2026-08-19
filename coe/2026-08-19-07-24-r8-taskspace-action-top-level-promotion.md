@@ -1135,3 +1135,35 @@
   - TaskSpace Exec 82/82、两项正式历史替换测试和缓存敏感面门禁通过。
 - Interpretation: E-026 的第二个错误已获得确定性离线修复；它不关闭 I03，因为缺失 `type` 仍开放，且新分支尚未自然在线命中。
 - Time: 2026-08-20
+
+## Hypothesis H-012: Base 明确 sequence type 责任可降低缺失字段
+
+- Status: supported
+- Claim: `type` 决定 `taskspace_exec` 选择哪一个 schema 已定义合法序列，属于 Agent 必须显式作出的动作选择；若
+  TaskSpace Base 明确要求每次调用都携带该字段，并说明 Runtime 不代填，则缺失 `type` 应减少，而不改变序列、状态机或
+  Runtime 决策边界。
+- Predictions:
+  - Provider-visible Base identity 必须为 `3.0.7` 和当前 hash。
+  - 每次 `taskspace_exec` 都存在 schema 接受的顶层 `type`。
+  - 业务、hidden oracle、Map 闭环和其他 Exec reject 不回归。
+- Fix boundary:
+  - 不由 Runtime 推断或补写 `type`。
+  - 不新增合法序列，不改变状态转换，不重复 Tool schema 的字段定义。
+
+## Evidence E-028: Base 3.0.7 三轮共 18 次 Exec 均显式携带 type
+
+- Related hypotheses:
+  - H-012
+- Direction: supports
+- Type: controlled-production-validation
+- Source: `WAR-20260820-050331-R8-BASE307-TYPE-R5`
+- Matched signal:
+  - 三轮 TaskSpace Provider wire 均为 Base `3.0.7`、预期 hash 和 `matches_current_contract=true`。
+  - 18/18 次 `taskspace_exec` 显式携带 `type`；缺失、语法、合同、状态和执行拒绝均为 0。
+  - 3/3 业务、公开验证、hidden oracle 和 Map 闭环通过。
+  - 同一样本上一批 Base `3.0.6` 为 1/3 运行缺失 `type`，本轮为 0/3。
+- Limitation:
+  - Pair runner 交替逻辑模式，实际矩阵为 Standard 3 轮与 TaskSpace 3 轮，而非计划的 1+5。
+  - 三轮只支持保留候选，不关闭整个 I03，也不晋升缓存基线。
+- Interpretation: H-012 在当前复杂样本获得在线支持。该结果证明提示层补足 Agent 责任有效，不构成 Runtime 语义接管。
+- Time: 2026-08-20

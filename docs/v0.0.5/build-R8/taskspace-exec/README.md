@@ -269,6 +269,20 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 83. [`81-provider-hosted-pr05-offline-closure.md`](81-provider-hosted-pr05-offline-closure.md)：Provider Root 机械归纳的 focused、
     State、observer、zero-base 与缓存门禁离线收口；获批生产运行进一步确认 `web_search` 单节点归纳、无空节点、Map 闭合和
     预算内完整 usage。
+84. [`82-native-action-protocol-result.md`](82-native-action-protocol-result.md)：原生内部 action 身份与 TaskSpace outer
+    协议边界的静态结论。
+85. [`83-exec-command-feedback-scope-experiment.md`](83-exec-command-feedback-scope-experiment.md)：成功反馈 identity 的
+    单变量实验及其因果边界。
+86. [`84-exec-command-scope-description-repeat5-result.md`](84-exec-command-scope-description-repeat5-result.md)：内层
+    `exec_command` description 候选五轮结果与回退依据。
+87. [`85-explicit-base-client-scope-repeat5-result.md`](85-explicit-base-client-scope-repeat5-result.md)：Base `3.0.6`
+    显式 client Tool 作用域五轮真实结果。
+88. [`86-multiline-apply-patch-self-heal-result.md`](86-multiline-apply-patch-self-heal-result.md)：多行 Patch JSON 的
+    确定性自愈边界和真实命中证据。
+89. [`87-base-client-scope-cross-sample-repeat3-result.md`](87-base-client-scope-cross-sample-repeat3-result.md)：Base
+    `3.0.6` 第二复杂样本三轮结果与剩余 envelope 缺口。
+90. [`88-base307-explicit-type-r3-result.md`](88-base307-explicit-type-r3-result.md)：Base `3.0.7` 显式序列 `type`
+    的三轮 TaskSpace 与三轮 Standard 真实对照、成本和结论边界。
 ## 4. 推进规则
 
 - TaskSpace Exec 已完成生产接入和 I01～I10 重映射；后续状态与顺序只以

@@ -2,15 +2,15 @@
 
 - Report date: 2026-08-20
 - Source plans: `00-r8-charter.md`、`01-r8-known-issues.md`、`taskspace-exec/12-phase-b-zero-base-plan.md`
-- Scope: `whalecode-alpha` branch，当前生产代码 commit `476d60802`
-- Latest runtime evidence: `WAR-20260820-023538-R8-I03-CROSS-SAMPLE-R3`
+- Scope: `whalecode-alpha` branch，被测生产代码 commit `e246ca6a2`
+- Latest runtime evidence: `WAR-20260820-050331-R8-BASE307-TYPE-R5`
 - Scoring: 十个 R8 全局问题等权；每项按已验证验收条件计 `0/25/50/75/100`
 
 ## 1. 完成度总览
 
 | 口径 | 分子 / 分母 | 完成度 | 含义 |
 |---|---:|---:|---|
-| R8 验证完成度 | 900 / 1000 | **90.0%** | 十个问题按实现、接入、测试和生产证据评分；I07 新后处理兼容缺口已离线修复，等待自然闭环 |
+| R8 验证完成度 | 900 / 1000 | **90.0%** | 十个问题按实现、接入、测试和生产证据评分；I07 仍有最终 sample timing 单值兼容缺口 |
 | 正式问题关闭率 | 5 / 10 | **50.0%** | I09、I01、I06、I02、I10 达到 `closed`；I07 回到 `verifying` |
 | TaskSpace Exec 阶段实现度 | 650 / 700 | **92.9%** | B0～B4 为 100%，B5～B6 各按 75% 计 |
 
@@ -36,8 +36,8 @@ xychart-beta
 | 4 | I05 拒绝反馈忠实性 | 75% | verifying | 同 `call_id`、零执行、可继续反馈已实现；最新 3 次正常路径无回归 | 逃逸恢复分支未自然在线命中 |
 | 5 | I02 Tool 事实单次表达 | 100% | closed | 最新三次生产运行 `18 calls = 18 outputs`，无高优先级副本、重复或 orphan | 无 |
 | 6 | I10 capability 身份 | 100% | closed | 最新 21 个 TaskSpace wire 请求身份一致，跨 Catalog/dispatch/wire/report 无冲突 | 无；projection 对照归入 I01/I08 |
-| 7 | I07 观测可信性 | 90% | verifying | 最新 3 次原始 trace、usage、业务和 Map 均可复算；最简 Map/单臂后处理缺口已离线修复 | 修复后尚缺一次自然运行完成整个 finalization |
-| 8 | I03 动作组织稳定性 | 85% | verifying | Base `3.0.6` 两个复杂样本累计 8/8 业务/oracle/Map 通过，顶层逃逸为 0/8 runs、0 calls | 最新 3 轮仍有 1 轮发生两次可恢复 Exec envelope 错误 |
+| 7 | I07 观测可信性 | 90% | verifying | 最新六轮原始请求/usage/业务证据和三轮 TaskSpace Map 均可复算；两个后处理缺口已修复 | 最终 sample timing 仍有单值兼容缺口 |
+| 8 | I03 动作组织稳定性 | 85% | verifying | Base `3.0.7` 最新三轮共 18 次 Exec 均显式携带 `type` 且零拒绝，业务/oracle/Map 3/3 通过 | 三轮不足以证明跨样本稳定；整个 I03 不关闭 |
 | 9 | I04 frontier 使用 | 75% | verifying | 顺序 patch 事务离线通过；最新复杂运行无 `TransitionInvalid` 且 Map 闭合 | 同批父子完成未自然命中；Map 仍为线性链，fork/join 未观察到 |
 | 10 | I08 成本与晋升 | 75% | investigating | 复杂样本四臂请求/input/cache/time/cost 已量化 | 只有一个复杂样本，产品阈值未确定 |
 
@@ -93,12 +93,18 @@ I04 新自然 DAG 样本两臂均完成：Standard 9 requests，TaskSpace 11 req
 的缺口已由原始 trace 离线回放闭环，详见 [`I04 结果`](I04/01-fork-join-live-validation-result.md) 与
 [`I07 修复结果`](I07/03-i07-default-metrics-rejection-repair-result.md)。
 
+Base `3.0.7` 显式 sequence `type` 验证实际形成 Standard 3 轮与 map-request 3 轮。TaskSpace 18/18 Exec
+调用携带 `type`，零 Exec reject，业务、隐藏验收和 Map 闭环 3/3；Standard 同样 3/3。TaskSpace 为 21 requests、343,360
+input、88.77% request 2+ cache、CNY 0.07214464；Standard 为 24 requests、334,579 input、96.56%、CNY 0.03657980。
+实际矩阵偏离计划，因此不晋升缓存基线；详见
+[`Base 3.0.7 结果`](taskspace-exec/88-base307-explicit-type-r3-result.md)。
+
 ## 6. 未完成工作
 
 | 未完成项 | 原因 | 不完成的影响 | 下一验收 |
 |---|---|---|---|
 | I05 逃逸恢复在线分支 | 最新自然样本没有触发逃逸 | 不能证明目标模型收到失败后会稳定恢复且无请求放大 | 不人为诱导；复杂自然样本出现时随 trace 验收 |
-| I03 协议行为 | 显式 Base `3.0.6` 在两个复杂样本累计 8/8 无顶层 client Tool 逃逸 | 最新三轮仍有 1 轮两次可恢复 Exec envelope 错误；其他 client Tool 的长期复发证据不足 | 保留 Base，不继续增加同义提示；下一步收敛 envelope 参数稳定性 |
+| I03 协议行为 | Base `3.0.7` 最新三轮 18/18 Exec 显式携带 `type` 且零拒绝 | 样本与轮数仍不足以关闭整个 I03 | 保留 Base，不继续增加同义提示；随不同复杂样本观察 envelope 稳定性 |
 | I04 复杂依赖 | 客观提供两个独立修复域的新样本仍形成线性链；顺序 patch 事务仅离线通过 | fork/join、多 Ready 节点和多父节点仍无生产证据 | 不诱导拆图；先验收新事务，再分析首次读取前初始化通用链的影响 |
 | I08 产品阈值 | 单个复杂样本已量化三模式取舍 | 不能据此决定默认 projection policy | 增加代表性样本前先定义决策指标 |
 

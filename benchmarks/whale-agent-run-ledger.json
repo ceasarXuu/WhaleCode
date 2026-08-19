@@ -10569,11 +10569,11 @@
     {
       "record_id": "WAR-20260820-050331-R8-BASE307-TYPE-R5",
       "record_type": "run_batch",
-      "status": "running",
+      "status": "settled",
       "started_at": "2026-08-20T05:04:23+08:00",
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "ended_at": "2026-08-20T05:18:40+08:00",
+      "elapsed_calendar_seconds": 857,
+      "aggregate_agent_wall_time_ms": 164950,
       "reason": "验证 TaskSpace Base 3.0.7 显式要求顶层 type 后，缺失 type 的 Exec envelope 是否停止复发，并确认缓存和业务行为无回归。",
       "authorization": {
         "required": true,
@@ -10594,7 +10594,7 @@
       "execution": {
         "provider": "deepseek",
         "model": "deepseek-v4-flash",
-        "batch_count": 2,
+        "batch_count": 3,
         "sample_ids": [
           "release-dispatch-repair"
         ],
@@ -10602,24 +10602,32 @@
           "standard",
           "base-3.0.7-map-request"
         ],
-        "repeats_per_arm_per_sample": 1,
+        "repeats_per_arm_per_sample": 3,
         "planned_sample_runs": 6,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "pending"
+        "actual_sample_runs": 6,
+        "actual_repeats_by_arm": {
+          "standard": 3,
+          "base-3.0.7-map-request": 3
+        },
+        "api_requests": 45,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
-        "input": 0,
-        "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "input": 677939,
+        "cached_input": 623872,
+        "uncached_input": 54067,
+        "output": 21090
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated",
         "currency": "CNY",
-        "amount": 0.3,
+        "amount": 0.10872444,
         "actual_billed_amount": null,
-        "components": null,
+        "components": {
+          "cached_input": 0.01247744,
+          "uncached_input": 0.054067,
+          "output": 0.04218
+        },
         "pricing_snapshot": {
           "model": "deepseek-v4-flash",
           "captured_at": "2026-08-20",
@@ -10628,19 +10636,32 @@
           "uncached_input_per_million": 1.0,
           "output_per_million": 2.0
         },
-        "formula": "approved hard ceiling",
-        "note": "等待真实运行结算。"
+        "formula": "cached_input / 1M * 0.02 + uncached_input / 1M * 1.0 + output / 1M * 2.0",
+        "note": "按 Provider usage 与账本定价快照估算；低于 CNY 0.30 授权上限。"
       },
       "evidence": {
         "planned_run_root": "target/whale-agent-runs/WAR-20260820-050331-R8-BASE307-TYPE-R5",
-        "subject_commit": "9c2f72879",
+        "subject_commit": "e246ca6a2",
+        "harness_fix_commits": [
+          "f31ea64e8",
+          "4c9d5cf3d"
+        ],
         "candidate_diff_sha256": "a6b98c66cd8665f907fd27634f09ba0993649e5b43d9e6997764f550b2ebd8fc",
         "candidate_base_version": "3.0.7",
         "candidate_base_sha256": "4fba63157655f2f71208891fddac2220d20dedbd5adb1fc1769901870315b34b",
         "whale_binary_sha256": "d7055c93f97cef0c18ffe14ac6ed0ab01bd7f45747363224320e061be43a2693",
         "scenario": "release-dispatch-repair",
         "execution": "docker",
-        "stop_conditions": "零自动重试；硬边界绕过、基础设施故障、usage 缺失、60 requests、900K input、35K output、CNY 0.30 或 12 分钟任一先到即停止。普通零副作用协议拒绝只记录，不自动停止。"
+        "actual_run_roots": [
+          "target/whale-agent-runs/WAR-20260820-050331-R8-BASE307-TYPE-R5/arm-a/release-dispatch-repair/20260820-050744-753",
+          "target/whale-agent-runs/WAR-20260820-050331-R8-BASE307-TYPE-R5/arm-b/release-dispatch-repair/20260820-051043-738",
+          "target/whale-agent-runs/WAR-20260820-050331-R8-BASE307-TYPE-R5/arm-c/release-dispatch-repair/20260820-051334-182"
+        ],
+        "usage_evidence_status": "complete",
+        "durable_evidence_path": "benchmarks/taskspace/r8/evidence/WAR-20260820-050331-R8-BASE307-TYPE-R5.json",
+        "stop_conditions": "零自动重试；硬边界绕过、基础设施故障、usage 缺失、60 requests、900K input、35K output、CNY 0.30 或 12 分钟任一先到即停止。普通零副作用协议拒绝只记录，不自动停止。",
+        "matrix_deviation": "Runner 按 pair 交替逻辑模式，实际形成 Standard repeat=3 + TaskSpace repeat=3，而非计划的 Standard repeat=1 + TaskSpace repeat=5；未追加运行。",
+        "outcome": "6/6 business/public/hidden passed. TaskSpace 3/3 Map closure passed; 18/18 taskspace_exec calls carried type and none were rejected. Compared with the prior Base 3.0.6 same-sample batch, missing type changed from 1/3 runs to 0/3, which supports but does not close I03. Observer defects interrupted post-processing after raw usage was complete; no cache baseline was promoted."
       }
     }
   ]

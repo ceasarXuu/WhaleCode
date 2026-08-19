@@ -402,6 +402,13 @@
 > 均保持拒绝。TaskSpace Exec 82 项、两项正式历史替换测试和缓存门禁通过；尚未执行新的真实 Agent 运行，I03 继续
 > `verifying`。
 
+> **I03 显式 sequence `type` 真实验证（2026-08-20）**：`e246ca6a2` 把“每次 `taskspace_exec` 必须显式选择
+> schema 已定义的顶层 `type`，Runtime 不推断缺失值”提升到 TaskSpace Base `3.0.7`。实际运行因 pair runner 交替模式形成
+> Standard 3 轮与 TaskSpace 3 轮；TaskSpace 共 18 次 Exec 调用，`type` 缺失和所有 Exec reject 均为 0，业务、公开、隐藏
+> 与 Map 闭环均 3/3。相同样本上一批 Base `3.0.6` 为 1/3 运行缺失 `type`，本轮支持保留候选，但不因三轮证据关闭 I03。
+> 后处理另暴露 sample timing 单值兼容缺口，继续归 I07；本轮不晋升缓存基线。详见
+> [`taskspace-exec/88-base307-explicit-type-r3-result.md`](taskspace-exec/88-base307-explicit-type-r3-result.md)。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。
@@ -450,8 +457,8 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 4 | R8-I05 | F3 | P1 | 拒绝原因可能重复或混淆错误发生的协议层级 | 忠实返回一次失败，并准确区分语法、合同、预检与执行错误；未提交候选不得表现为已保存状态 | `e596d2f27` 完成同 `call_id`、零执行、可继续反馈；repeat=3 正常路径无回归，但未自然触发逃逸恢复分支 | verifying | GI-005 |
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 成功、拒绝和内部失败只返回一个 outer output；最新三次生产运行 `18 calls = 18 outputs`，无副本或 orphan | [closed](taskspace-exec/80-i02-single-feedback-closure.md) | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 身份沿 dispatch/request/wire/trace/report 传播；最新 21 个 TaskSpace wire 请求身份一致且无冲突 | [closed](I10/01-i10-capability-identity-closure.md) | GI-010 |
-| 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或仍读取旧 Map 字段 | 请求和失败逐身份计一次；当前最简 Map、单臂运行和稀疏事件都能完成汇总 | 本轮 3/3 原始证据完整，但后处理暴露旧字段和可选值假设；修复后专项离线回归通过，尚缺一次自然端到端 finalization | [verifying](taskspace-exec/87-base-client-scope-cross-sample-repeat3-result.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 可能生成非法 Exec envelope，或把内部 client Tool 提升为未声明顶层调用 | client 动作只在 `taskspace_exec` 合法序列内声明；Runtime 对非法 envelope 保持零副作用硬边界 | Base `3.0.6` 两个复杂样本累计 8/8 无顶层逃逸；最新 3 轮仍有 1 轮出现两次可恢复 envelope 错误 | [verifying](taskspace-exec/87-base-client-scope-cross-sample-repeat3-result.md) | GI-003 |
+| 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或仍读取旧 Map 字段 | 请求和失败逐身份计一次；当前最简 Map、单臂运行和稀疏事件都能完成汇总 | 最新六轮原始请求/usage/业务证据完整，三轮 TaskSpace Map 可复算；graph placeholder 与 singleton collection 已修复，最终 sample timing 仍有单值兼容缺口 | [verifying](taskspace-exec/88-base307-explicit-type-r3-result.md) | GI-007 |
+| 8 | R8-I03 | F5 | P2 | Agent 可能生成非法 Exec envelope，或把内部 client Tool 提升为未声明顶层调用 | client 动作只在 `taskspace_exec` 合法序列内声明；Runtime 对非法 envelope 保持零副作用硬边界 | Base `3.0.7` 最新 3 轮共 18 次 Exec 均显式携带 `type` 且零拒绝；业务和 Map 3/3 通过 | [verifying](taskspace-exec/88-base307-explicit-type-r3-result.md) | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点，或没有利用可并行 frontier | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 顺序 patch 事务离线通过，最新生产运行无 `TransitionInvalid`；但目标同批父子完成未自然命中，Map 仍为线性链 | [verifying](I04/03-ordered-map-patch-live-validation-result.md) | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 复杂样本四臂 repeat=3：always/append/request 总 input 为 Standard `1.25x/1.60x/1.32x`，费用为 `2.83x/2.09x/2.43x` | [investigating](I01/03-i01-four-arm-repeat3-result.md) | GI-008 |
 
@@ -468,8 +475,8 @@ I07 的默认 metrics 消费链已修复，但最新真实运行又暴露当前�
 | 已关闭 | I02、I06 | 单次 outer 反馈、统一预检、零副作用旁路拒绝和单 Patch 边界均有确定性与生产证据 | Agent 仍可能生成非法动作，但不再构成底层边界缺口 |
 | 工程修复、正常路径已验收 | I05 | JSON/schema reject 与 forbidden 顶层 client Tool 均有准确、同调用身份、零副作用反馈；repeat=3 正常路径全部通过 | 本轮未自然触发顶层 client escape，尚无新的恢复分支在线命中证据 |
 | 已关闭 | I10 | 最新 21 个 TaskSpace wire 请求身份一致；Catalog、dispatch、wire、trace 与 observer 共用同一值 | Projection 不参与能力身份计算，其三臂验收归入 I01/I08 |
-| 工程修复、待自然闭环 | I07 | canonical request/usage、projection 与 Exec 拒绝均可由原始事实复算；当前最简 Map、单臂和稀疏事件兼容缺口已离线修复 | 尚缺一次自然运行完成全部后处理；完整历史 Harness 仍有后段单值 `.Count` fixture 缺口 |
-| 复杂样本可完成 | I03 | Base `3.0.6` 两个复杂样本累计 8/8 业务、oracle 与 Map 通过，顶层 client Tool 逃逸为 0 | 最新三轮仍有 1 轮两次可恢复 Exec envelope 错误；其他 client Tool 的长期复发证据仍不足 |
+| 工程修复、待自然闭环 | I07 | canonical request/usage、projection 与 Exec 拒绝均可由原始事实复算；最新六轮原始证据完整 | graph placeholder 与 singleton collection 已修复；最终 sample timing 仍有单值兼容缺口 |
+| 复杂样本可完成 | I03 | Base `3.0.7` 最新 3 轮共 18 次 Exec 均显式携带 `type` 且零拒绝，业务、oracle 与 Map 3/3 通过 | 实际 TaskSpace 只有三轮，尚不足以证明跨样本稳定或关闭整个 I03 |
 | 当前行为已观察 | I04 | 顺序 patch 事务离线通过；最新复杂运行 Map 合法闭合且无 `TransitionInvalid` | 同批父子完成没有自然命中；TaskSpace 仍为线性链，未形成 fork/join |
 | 复杂成本已测 | I08 | always/append/request 的请求、input、缓存、wall 和费用取舍已量化 | 只有一个复杂样本；产品阈值与多样本外推未完成 |
 
