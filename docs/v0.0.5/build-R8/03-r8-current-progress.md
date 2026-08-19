@@ -37,7 +37,7 @@ xychart-beta
 | 5 | I02 Tool 事实单次表达 | 100% | closed | 最新三次生产运行 `18 calls = 18 outputs`，无高优先级副本、重复或 orphan | 无 |
 | 6 | I10 capability 身份 | 100% | closed | 最新 21 个 TaskSpace wire 请求身份一致，跨 Catalog/dispatch/wire/report 无冲突 | 无；projection 对照归入 I01/I08 |
 | 7 | I07 观测可信性 | 100% | closed | canonical usage、projection 与 Exec 拒绝均可复算；最新三轮真实 trace 对账为 `0/1/2` | 无 |
-| 8 | I03 动作组织稳定性 | 75% | verifying | Base `3.0.6` 候选 5/5 业务/oracle/Map 通过，顶层逃逸为 0/5 runs、0 calls | 单一样本不足以关闭跨样本问题；仍有两次 JSON syntax 与两次 Waiting preflight |
+| 8 | I03 动作组织稳定性 | 75% | verifying | Base `3.0.6` 候选 5/5 业务/oracle/Map 通过，顶层逃逸为 0/5 runs、0 calls；当前静态链确认未重暴露顶层 client Tool | 单一样本不足以关闭跨样本问题；仍有两次 JSON syntax 与两次 Waiting preflight |
 | 9 | I04 frontier 使用 | 75% | verifying | 顺序 patch 事务离线通过；最新复杂运行无 `TransitionInvalid` 且 Map 闭合 | 同批父子完成未自然命中；Map 仍为线性链，fork/join 未观察到 |
 | 10 | I08 成本与晋升 | 75% | investigating | 复杂样本四臂请求/input/cache/time/cost 已量化 | 只有一个复杂样本，产品阈值未确定 |
 

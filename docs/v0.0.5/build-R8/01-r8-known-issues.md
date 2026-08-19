@@ -445,7 +445,7 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 成功、拒绝和内部失败只返回一个 outer output；最新三次生产运行 `18 calls = 18 outputs`，无副本或 orphan | [closed](taskspace-exec/80-i02-single-feedback-closure.md) | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 身份沿 dispatch/request/wire/trace/report 传播；最新 21 个 TaskSpace wire 请求身份一致且无冲突 | [closed](I10/01-i10-capability-identity-closure.md) | GI-010 |
 | 7 | R8-I07 | F4 | P1 | 观察工具可能漏计、重复计数或使用过期证据 | 请求和失败逐身份计一次；协议拒绝与证据损坏分开表达，身份不一致时才不可比较 | 默认 metrics 已直接消费唯一 Exec observer；最新三轮真实 trace 的拒绝对账为 `0/1/2`，未知分类为 0 | [closed](I07/03-i07-default-metrics-rejection-repair-result.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 可能在首个 TaskSpace 响应中把 Exec 内部的 `exec_command` 另写成未声明顶层调用 | client 动作只在 `taskspace_exec` 合法序列内声明；Runtime 仍只守零副作用硬边界 | 三臂各 repeat=5：全部业务与 Map 通过；反馈字段和 work 示例均非充分根因，B0 仍有 3/5 run、6 call 逃逸 | verifying | GI-003 |
+| 8 | R8-I03 | F5 | P2 | Agent 可能在首个 TaskSpace 响应中把 Exec 内部的 `exec_command` 另写成未声明顶层调用 | client 动作只在 `taskspace_exec` 合法序列内声明；Runtime 仍只守零副作用硬边界 | Base `3.0.6` 同一样本 5/5 业务与 Map 通过、逃逸 0/5；当前静态复核确认顶层 schema 未重暴露 client Tool，仍缺跨样本行为证据 | verifying | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点，或没有利用可并行 frontier | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 顺序 patch 事务离线通过，最新生产运行无 `TransitionInvalid`；但目标同批父子完成未自然命中，Map 仍为线性链 | [verifying](I04/03-ordered-map-patch-live-validation-result.md) | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 复杂样本四臂 repeat=3：always/append/request 总 input 为 Standard `1.25x/1.60x/1.32x`，费用为 `2.83x/2.09x/2.43x` | [investigating](I01/03-i01-four-arm-repeat3-result.md) | GI-008 |
 

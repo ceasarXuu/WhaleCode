@@ -1069,3 +1069,22 @@
   ```
 - Interpretation: 显式 Base 层级合同在当前样本上产生清晰正向方向，且没有观察到错误迁移抵消；证据规模不足以关闭跨样本 I03。
 - Time: 2026-08-19 22:40
+
+## Evidence E-025: 当前生产代码未重新暴露顶层 client Tool
+- Related hypotheses:
+  - H-010
+- Direction: supports
+- Type: static-chain-revalidation
+- Source: commit `50067e581`
+- Matched signal:
+  - `ToolRouter::into_taskspace` 只把 `taskspace_exec` 以及原生 Hosted Tool 放入模型可见的顶层 Tool 集合；`exec_command`、`write_stdin` 等 client Tool 只存在于 Exec 内部 catalog。
+  - TaskSpace Base `3.0.6` 明确要求 `exec_command` 只能出现在 `taskspace_exec` 的内部序列，不能作为顶层 Function Tool。
+  - Runtime 对 Provider 返回的未声明顶层 client Tool 在执行前 fail closed，不执行 Tool，也不提交 Map 候选状态。
+  - 三项当前代码测试通过：`taskspace_cp01_records_deepseek_effective_surface`、`taskspace_base_excludes_standard_plan_and_direct_client_tool_contracts`、`response_rejects_forbidden_top_level_client_call_before_exec_claim`。
+- Interpretation:
+  - 当前代码不存在把 `exec_command` 偷偷重新加入顶层 schema 的工程回归。
+  - 历史逃逸仍应解释为 Provider 偶发返回未声明 Function 名称，而不是 Runtime 提升、Map/context 丢失或 Tool schema 重复暴露。
+  - Base `3.0.6` 是当前唯一获得在线支持且已经保留的缓解措施；在获得跨样本证据前，不继续增加同类提示文字，也不改写原生 client Tool identity。
+- Remaining evidence gap:
+  - 仍需在不同自然复杂样本中观察 Base `3.0.6` 是否持续抑制顶层 client Tool 逃逸；该缺口只影响 I03 的跨样本关闭，不影响当前硬边界正确性。
+- Time: 2026-08-20
