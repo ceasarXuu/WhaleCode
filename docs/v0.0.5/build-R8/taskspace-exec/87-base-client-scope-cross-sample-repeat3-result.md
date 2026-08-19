@@ -29,6 +29,10 @@ Base `3.0.6` 在第二个自然复杂样本上获得 3/3 正向证据；连同 `
 I03 整体仍保持 `verifying`。Run 1 先后出现一次缺少顶层 `type` 和一次 JSON syntax 错误，Runtime 均零副作用拒绝，Agent
 随后纠正并完成任务。它们不是顶层逃逸，但仍属于 Exec envelope 生成稳定性问题。
 
+后续提交 `3eeaeac3c` 已离线修复第二个错误：仅当缺失一个 action 闭合符、freeform `apply_patch` 被唯一误包为
+`input.cmd`、Patch 标记完整且归一化结果通过当前 Catalog 完整解码时，才在历史落账前机械替换。非 Patch、歧义候选和
+缺失 `type` 不自愈。该分支已有确定性回归但尚未自然在线命中，因此不改变 I03 的 `verifying` 状态。
+
 ## I04 与 I07
 
 三张 Map 都是 5 节点、4 边的线性链。没有自然形成 fork/join，也没有在同一批次完成刚解锁的父子 Work 节点，因此 I04

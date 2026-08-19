@@ -1103,3 +1103,35 @@
   - Run 1 仍有两次可恢复的 Exec envelope 拒绝；它们不推翻 H-010，但阻止关闭整个 I03。
 - Interpretation: H-010 已获得跨样本支持，Base `3.0.6` 保留且不再叠加同义提示。I03 的剩余工作收敛为 Exec envelope 参数稳定性，不再把顶层 schema 重暴露或 Runtime 提升作为开放根因。
 - Time: 2026-08-20
+
+## Hypothesis H-011: apply_patch 的复合坏形状可唯一机械归一化
+- Status: confirmed
+- Claim: E-026 Run 1 的第二次拒绝同时包含一个缺失 action 闭合符和一个 Function 风格的
+  `apply_patch.input.cmd` 包装；若只在错误邻域插入一个 `}`，再仅对完整 Patch 标记下的唯一包装候选做机械展开，
+  则可得到唯一通过当前 Catalog 完整解码的原 Agent 动作，不需要 Runtime 推断节点、序列或业务语义。
+- Predictions:
+  - 原始坏形状不能被现有单闭合符自愈器接受。
+  - 符合完整 Patch 标记、唯一 `cmd/node_id/tool` 形状的候选可恢复为同一 `node_id`、同一 Patch 正文和
+    freeform `apply_patch`。
+  - 非 Patch `cmd`、多个合法候选或最终不能通过 Catalog 解码的输入保持拒绝。
+- Diagnostic evidence plan:
+  - 用原始 trace 的 `update_and_work + input.cmd + 缺 action }` 形状建立确定性回归。
+  - 以 `TaskSpaceExecCatalog::decode_plan` 作为最终语义不变门禁，并增加非 Patch 反例。
+- Fix boundary:
+  - 不补缺失的 sequence `type`，因为选择序列属于 Agent 决策。
+  - 不接受通用 Function-to-freeform 猜测，不改变 Tool schema、Base instructions 或 Provider context。
+
+## Evidence E-027: apply_patch 复合坏形状已在唯一解码门禁下自愈
+- Related hypotheses:
+  - H-011
+- Direction: supports
+- Type: deterministic-fix-validation
+- Source: commit `3eeaeac3c`
+- Matched signal:
+  - 新回归先证明历史形状在旧实现下返回 `None`，随后验证修复操作为
+    `normalize/apply_patch_wrapper`。
+  - 修复后 plan 保持 `update_and_work`、`node_id=fix`、`tool=apply_patch` 和逐字相同 Patch 正文。
+  - 非 Patch `cmd` 包装继续拒绝；所有候选仍须全局唯一并通过当前 Catalog 完整解码。
+  - TaskSpace Exec 82/82、两项正式历史替换测试和缓存敏感面门禁通过。
+- Interpretation: E-026 的第二个错误已获得确定性离线修复；它不关闭 I03，因为缺失 `type` 仍开放，且新分支尚未自然在线命中。
+- Time: 2026-08-20

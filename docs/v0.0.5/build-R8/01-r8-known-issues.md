@@ -396,6 +396,12 @@
 > I03 对 Agent 组织 Map/client 动作的 `verifying` 状态。详见
 > [`taskspace-exec/81-provider-hosted-pr05-offline-closure.md`](taskspace-exec/81-provider-hosted-pr05-offline-closure.md)。
 
+> **I03 apply_patch 复合参数自愈（2026-08-20）**：`3eeaeac3c` 收纳跨样本 Run 1 的确定性坏形状：一个
+> Tool action 闭合符缺失，同时 freeform `apply_patch` 被误包为 `input.cmd`，并把 `node_id/tool` 卷入该对象。自愈器只在
+> 完整 Patch 标记、唯一机械候选且当前 Catalog 完整解码通过时展开包装；非 Patch 内容、歧义候选和缺失 sequence `type`
+> 均保持拒绝。TaskSpace Exec 82 项、两项正式历史替换测试和缓存门禁通过；尚未执行新的真实 Agent 运行，I03 继续
+> `verifying`。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。
