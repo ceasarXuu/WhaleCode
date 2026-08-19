@@ -1166,8 +1166,8 @@ function Get-TaskspaceTokenUsageObjects {
         if ($null -eq $Current) { return }
         if ($Current -is [string] -or $Current -is [ValueType]) { return }
         $names = @($Current.PSObject.Properties.Name)
-        $hasInput = @("input_tokens", "prompt_tokens") | Where-Object { $names -contains $_ }
-        $hasOutput = @("output_tokens", "completion_tokens") | Where-Object { $names -contains $_ }
+        $hasInput = @(@("input_tokens", "prompt_tokens") | Where-Object { $names -contains $_ })
+        $hasOutput = @(@("output_tokens", "completion_tokens") | Where-Object { $names -contains $_ })
         if ($names -contains "usage" -and $null -ne $Current.usage) {
             Visit-UsageValue $Current.usage
         }
@@ -1757,8 +1757,9 @@ function New-TaskspaceControlUsageSummary {
                 if ($kind -eq "output_ref.created") { $runtimeOutputRefCreated++ }
                 if ($kind -eq "output_ref.slice_read") { $runtimeOutputRefSliceRead++ }
                 $updateKind = [string](Get-TaskspaceCostProperty $event @("updateKind"))
-                if ([string]::IsNullOrWhiteSpace($updateKind) -and $null -ne $event.details) {
-                    $updateKind = [string](Get-TaskspaceCostProperty $event.details @("updateKind"))
+                $details = Get-TaskspaceCostProperty $event @("details")
+                if ([string]::IsNullOrWhiteSpace($updateKind) -and $null -ne $details) {
+                    $updateKind = [string](Get-TaskspaceCostProperty $details @("updateKind"))
                 }
                 if ($updateKind -like "state_commit*") { $runtimeStateCommit++ }
             }
@@ -2092,7 +2093,7 @@ function New-TaskspaceContextProjectionTraceEvents {
         $taskId = [string](Get-TaskspaceTraceField $event @("taskId", "task_id"))
         $mapId = [string](Get-TaskspaceTraceField $event @("mapId", "map_id"))
         $traceId = [string](Get-TaskspaceTraceField $event @("traceEventId", "trace_event_id", "id"))
-        $projectionKind = [string]$tags.projection_kind
+        $projectionKind = [string](Get-TaskspaceCostProperty $tags @("projection_kind"))
         if ([string]::IsNullOrWhiteSpace($projectionKind)) { $projectionKind = "current_projection" }
         $events.Add([pscustomobject]@{
             schema_version = "taskspace-context-projection-event-v1"
@@ -2100,9 +2101,9 @@ function New-TaskspaceContextProjectionTraceEvents {
             task_id = $taskId
             map_id = $mapId
             mode = "taskspace"
-            revision = Convert-TaskspaceTraceNullableInt $tags.revision
+            revision = Convert-TaskspaceTraceNullableInt (Get-TaskspaceCostProperty $tags @("revision"))
             projection_kind = $projectionKind
-            estimated_tokens = Convert-TaskspaceTraceNullableInt $tags.projection_tokens
+            estimated_tokens = Convert-TaskspaceTraceNullableInt (Get-TaskspaceCostProperty $tags @("projection_tokens"))
             protected_miss_count = 0
             protected_missing_sections = @()
             source = "runtime_trace"
@@ -2158,7 +2159,7 @@ function New-TaskspaceContextProjectionSummary {
     foreach ($path in @($JsonlPath, $ObservabilityJsonPath, $RolloutJsonlPath)) {
         if (-not [string]::IsNullOrWhiteSpace($path) -and (Test-Path -LiteralPath $path)) { $sourcePresent = $true }
     }
-    $wireRequests = if ($null -eq $ProviderCacheTraceEvents) { @() } else { @($ProviderCacheTraceEvents) }
+    $wireRequests = @(if ($null -ne $ProviderCacheTraceEvents) { @($ProviderCacheTraceEvents) })
     $wireEvents = @(New-TaskspaceContextProjectionWireEvents $ProviderCacheTraceEvents)
     if ($wireRequests.Count -gt 0) {
         $events = $wireEvents

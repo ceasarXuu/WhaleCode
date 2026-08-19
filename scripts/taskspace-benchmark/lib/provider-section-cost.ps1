@@ -183,8 +183,8 @@ function Add-TaskspaceProviderMeasuredSections {
         $Accumulator.estimated_tokens_total = [int64]$Accumulator.estimated_tokens_total + $tokens
         $rawRequestBytes = Get-TaskspaceCostProperty $section @("request_bytes")
         $rawRequestTokens = Get-TaskspaceCostProperty $section @("request_estimated_tokens")
-        $requestBytes = if ($null -eq $rawRequestBytes) { @() } else { @($rawRequestBytes) }
-        $requestTokens = if ($null -eq $rawRequestTokens) { @() } else { @($rawRequestTokens) }
+        $requestBytes = @(if ($null -ne $rawRequestBytes) { @($rawRequestBytes) })
+        $requestTokens = @(if ($null -ne $rawRequestTokens) { @($rawRequestTokens) })
         if ($RequestCount -eq 1 -and $requestBytes.Count -eq 0) { $requestBytes = @($bytes) }
         if ($RequestCount -eq 1 -and $requestTokens.Count -eq 0) { $requestTokens = @($tokens) }
         foreach ($value in $requestBytes) { $Accumulator.sections[$kind].request_bytes.Add([int64]$value) }

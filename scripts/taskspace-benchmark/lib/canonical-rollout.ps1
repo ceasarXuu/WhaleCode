@@ -1,6 +1,6 @@
 function Get-TaskspaceRolloutPayloadType {
     param($Payload)
-    if ($null -eq $Payload) { return "" }
+    if ($Payload -isnot [pscustomobject] -or $null -eq $Payload.PSObject.Properties["type"]) { return "" }
     if ([string]$Payload.type -eq "map_runtime") {
         return [string]$Payload.map_event_type
     }
@@ -9,9 +9,9 @@ function Get-TaskspaceRolloutPayloadType {
 
 function Get-TaskspaceCanonicalResponseItem {
     param($Row)
-    if ($null -eq $Row) { return $null }
+    if ($Row -isnot [pscustomobject] -or $null -eq $Row.PSObject.Properties["type"]) { return $null }
     $rowType = [string]$Row.type
-    $payload = $Row.payload
+    $payload = if ($null -ne $Row.PSObject.Properties["payload"]) { $Row.payload } else { $null }
     if ($rowType -eq "response_item") { return $payload }
     if ($rowType -eq "event_msg" -and
         $null -ne $payload -and

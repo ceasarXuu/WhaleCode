@@ -318,13 +318,23 @@ function Get-TaskspaceObservabilityToolStats {
         return [pscustomobject]@{ Completed = 0; Failed = 0; Control = 0; Availability = "missing" }
     }
     $completed = 0
+    $failed = 0
     foreach ($node in @($Observability.nodes)) {
-        foreach ($result in @($node.results)) {
-            if ([string]$result.kind -eq "main_tool_call") { $completed++ }
+        if ($null -ne $node.PSObject.Properties["actions"]) {
+            foreach ($action in @($node.actions)) {
+                $completed++
+                if ($null -ne $action.PSObject.Properties["outcome"] -and [string]$action.outcome -ne "succeeded") { $failed++ }
+            }
+            continue
+        }
+        if ($null -ne $node.PSObject.Properties["results"]) {
+            foreach ($result in @($node.results)) {
+                if ($result -is [pscustomobject] -and $null -ne $result.PSObject.Properties["kind"] -and [string]$result.kind -eq "main_tool_call") { $completed++ }
+            }
         }
     }
     if ($completed -gt 0) {
-        return [pscustomobject]@{ Completed = $completed; Failed = 0; Control = 0; Availability = "observability_results" }
+        return [pscustomobject]@{ Completed = $completed; Failed = $failed; Control = 0; Availability = "observability_actions" }
     }
     if ($Observability.PSObject.Properties.Name -contains "summary" -and
         $Observability.summary.PSObject.Properties.Name -contains "runtimeEventCounts") {
@@ -642,7 +652,10 @@ function Get-TaskspaceBenchmarkMetrics {
             $classification = [string]$_
             -not ($classification -eq "docker_run_failure" -and [bool]$lifecycle.tests_started_seen -and [bool]$lifecycle.tests_completed_seen)
         })
-    $graphHealth = Get-TaskspaceGraphHealth $obs
+    $legacyGraphSupported = $obs -and $obs.PSObject.Properties.Name -contains "nodes" -and @($obs.nodes | Where-Object {
+            $null -ne $_.PSObject.Properties["kind"] -and -not [string]::IsNullOrWhiteSpace([string]$_.kind)
+        }).Count -gt 0
+    $graphHealth = if ($legacyGraphSupported) { Get-TaskspaceGraphHealth $obs } else { Get-TaskspaceGraphHealth $null }
     $graphHealthReport = New-TaskspaceGraphHealthReport $obs $Side.Name $Side.LogicalMode
     $graphHealthPath = Join-Path $Side.ArtifactDir "graph-health.json"
     Write-TaskspaceGraphHealthReport $graphHealthReport $graphHealthPath
@@ -679,7 +692,9 @@ function Get-TaskspaceBenchmarkMetrics {
     $subagentThreadIds = @()
     if ($obs) {
         $subagentThreadIds = @($obs.nodes | ForEach-Object {
-                @($_.leases | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.agentThreadId) } | ForEach-Object { [string]$_.agentThreadId })
+                if ($null -ne $_.PSObject.Properties["leases"]) {
+                    @($_.leases | Where-Object { $null -ne $_.PSObject.Properties["agentThreadId"] -and -not [string]::IsNullOrWhiteSpace([string]$_.agentThreadId) } | ForEach-Object { [string]$_.agentThreadId })
+                }
             } | Sort-Object -Unique)
     }
     $metrics = [pscustomobject]@{
@@ -839,7 +854,11 @@ function Get-TaskspaceBenchmarkMetrics {
         edges = if ($observabilityAvailability -eq "measured" -and $obs) { @($obs.edges).Count } else { $null }
         edge_order_violations = $graphHealth.EdgeOrderViolationCount
         spawn_agent_calls = if ($obs) { @($obs.toolCalls | Where-Object { $_.tool -eq "spawn_agent" -and $_.status -eq "completed" }).Count } else { 0 }
-        subagent_results = if ($obs) { @($obs.nodes | ForEach-Object { @($_.results | Where-Object { $subagentThreadIds -contains [string]$_.sourceThreadId }) }).Count } else { 0 }
+        subagent_results = if ($obs) { @($obs.nodes | ForEach-Object {
+                    if ($null -ne $_.PSObject.Properties["results"]) {
+                        @($_.results | Where-Object { $null -ne $_.PSObject.Properties["sourceThreadId"] -and $subagentThreadIds -contains [string]$_.sourceThreadId })
+                    }
+                }).Count } else { 0 }
         open_leaf_nodes = $graphHealth.OpenLeafNodeCount
         ordinary_before_reservation = if ($Side.LogicalMode -eq "taskspace" -and $ObservabilityResult) {
             $rolloutPath = [string]$ObservabilityResult.rollout_path
