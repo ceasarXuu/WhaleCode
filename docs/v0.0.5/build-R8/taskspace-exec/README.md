@@ -109,6 +109,9 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
 - SR-04 / FF-01 后续预算包完成 3 次有效 `map-request` 复验，全部正确修复并闭合 Map；没有 syntax、wrapper 或顶层
   client 逃逸。三轮参数均原生合法，故只证明生产路径 3/3 稳定，不宣称真实自愈事件已触发。第三轮的两次 waiting
   拒绝准确返回未完成父节点并由 Agent 下一请求纠正，I04 行为仍开放。
+- H-010 后续离线修复已把多行 `apply_patch` 的裸换行和正文双引号纳入确定性 JSON string 自愈；修复候选仍需通过完整
+  Exec decoder，并在会话历史写入前替换原始参数。该结果只关闭已观察参数形态的工程缺口，尚无新的真实命中证据，见
+  [`86-multiline-apply-patch-self-heal-result.md`](86-multiline-apply-patch-self-heal-result.md)。
 - LS-09 Run A 与 Run B 均完成业务、隐藏验证和 Map 闭合，且全部顶层 client 动作保持在 `taskspace_exec` 内；但 Run B
   一次长 `apply_patch` 参数生成了含裸换行的非法 JSON，并两次用 L2 `work` 选择仍为 Waiting 的后继节点，均在零副作用
   边界被拒绝后才恢复。最终 Map 为 5 节点线性链，没有实际覆盖预定的 fork/join 或 Map 调整。Run B 请求 3+ 缓存命中

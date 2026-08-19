@@ -49,6 +49,12 @@
 > 5/5 业务/oracle/Map 闭合通过；剩余两次 JSON syntax 与两次 Waiting preflight 均零副作用恢复，总非法动作也低于 B0/H-009。
 > H-010 获得支持，候选保留；单一样本不足以关闭 I03，状态继续 verifying。详见
 > [`taskspace-exec/85-explicit-base-client-scope-repeat5-result.md`](taskspace-exec/85-explicit-base-client-scope-repeat5-result.md)。
+
+> **I03 多行 Patch JSON 自愈（2026-08-19）**：H-010 两次 syntax 的原始参数同时包含 Patch 正文裸换行与未转义双引号，
+> 并非既有“单个裸换行”分支可处理的情况。当前自愈器已支持全量 LF 转义，并对具有完整原生 Patch 边界的
+> `apply_patch.input` 执行确定性 JSON string 编码；候选必须通过完整 Exec decoder，混合第二类错误仍拒绝，修复结果在历史
+> 写入前替换原参数。13 项模块测试和 1 项历史替换测试通过，未运行真实 Agent；因此该工程缺口已离线修复，但 I03 状态不变。
+> 详见 [`taskspace-exec/86-multiline-apply-patch-self-heal-result.md`](taskspace-exec/86-multiline-apply-patch-self-heal-result.md)。
 > **VA-02 第二轮生产证据（2026-08-10）**：模型已稳定选择顶层 `taskspace_exec`，合法第二响应可初始化
 > `root -> inspect -> fix -> verify -> finish` 并原生执行 client Tool；但两轮首响应都在无 Hosted output 时的必填
 > `hosted_bindings: []` 邻近位置生成不同的非法 JSON。I03 因首次参数稳定性继续 verifying，VA-03 保持阻断。I07 的

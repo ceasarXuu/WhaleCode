@@ -39,7 +39,7 @@ pub(crate) fn self_heal_taskspace_exec_response_item(
         return None;
     }
 
-    let repaired = repair_single_syntax_error(arguments, catalog)?;
+    let repaired = repair_syntax_error(arguments, catalog)?;
     let original_arguments_sha256 = sha256(arguments);
     let repaired_arguments_sha256 = sha256(&repaired.arguments);
     *arguments = repaired.arguments;
@@ -60,29 +60,38 @@ struct RepairedArguments {
     byte_index: usize,
 }
 
-fn repair_single_syntax_error(
+fn repair_syntax_error(
     arguments: &str,
     catalog: &TaskSpaceExecCatalog,
 ) -> Option<RepairedArguments> {
     let error = serde_json::from_str::<Value>(arguments).err()?;
+
+    if let Some((candidate, byte_index)) = escape_raw_newlines_in_json_strings(arguments)
+        && catalog.decode_plan(&candidate).is_ok()
+    {
+        return Some(RepairedArguments {
+            arguments: candidate,
+            operation: "escape",
+            repair_token: "\\n",
+            byte_index,
+        });
+    }
+
+    if let Some((candidate, byte_index)) = encode_raw_apply_patch_input(arguments)
+        && catalog.decode_plan(&candidate).is_ok()
+    {
+        return Some(RepairedArguments {
+            arguments: candidate,
+            operation: "encode",
+            repair_token: "apply_patch_input",
+            byte_index,
+        });
+    }
+
     let positions = candidate_positions(arguments, error.line(), error.column());
     let mut repairs = BTreeMap::new();
 
     for byte_index in positions {
-        if is_inside_json_string(arguments, byte_index) {
-            if arguments.as_bytes().get(byte_index) == Some(&b'\n') {
-                let mut candidate = String::with_capacity(arguments.len() + 1);
-                candidate.push_str(&arguments[..byte_index]);
-                candidate.push_str("\\n");
-                candidate.push_str(&arguments[byte_index + 1..]);
-                if catalog.decode_plan(&candidate).is_ok() {
-                    repairs
-                        .entry(candidate)
-                        .or_insert(("escape", "\\n", byte_index));
-                }
-            }
-            continue;
-        }
         for (delimiter, repair_token) in [('}', "}"), (']', "]")] {
             let mut candidate = String::with_capacity(arguments.len() + 1);
             candidate.push_str(&arguments[..byte_index]);
@@ -129,6 +138,84 @@ fn repair_single_syntax_error(
         )
 }
 
+fn encode_raw_apply_patch_input(arguments: &str) -> Option<(String, usize)> {
+    const BEGIN: &str = "*** Begin Patch";
+    const END: &str = "*** End Patch";
+
+    let patch_start = arguments.find(BEGIN)?;
+    if arguments[patch_start + BEGIN.len()..].contains(BEGIN) {
+        return None;
+    }
+    let opening_quote = patch_start.checked_sub(1)?;
+    if arguments.as_bytes().get(opening_quote) != Some(&b'"') {
+        return None;
+    }
+
+    let input_prefix = arguments[..opening_quote].trim_end();
+    let input_prefix = input_prefix.strip_suffix(':')?.trim_end();
+    if !input_prefix.ends_with("\"input\"") {
+        return None;
+    }
+    let tool_field = arguments[..opening_quote].rfind("\"tool\"")?;
+    if !arguments[tool_field..opening_quote].contains("\"apply_patch\"") {
+        return None;
+    }
+
+    let end_start = arguments[patch_start..].rfind(END)? + patch_start;
+    let mut closing_quote = end_start + END.len();
+    while matches!(arguments.as_bytes().get(closing_quote), Some(b'\r' | b'\n')) {
+        closing_quote += 1;
+    }
+    if arguments.as_bytes().get(closing_quote) != Some(&b'"')
+        || !arguments[patch_start..closing_quote].contains('\n')
+    {
+        return None;
+    }
+    let suffix = arguments[closing_quote + 1..].trim_start();
+    if !suffix.starts_with('}') {
+        return None;
+    }
+
+    let encoded_patch = serde_json::to_string(&arguments[patch_start..closing_quote]).ok()?;
+    let mut candidate = String::with_capacity(arguments.len() + encoded_patch.len());
+    candidate.push_str(&arguments[..opening_quote]);
+    candidate.push_str(&encoded_patch);
+    candidate.push_str(&arguments[closing_quote + 1..]);
+    Some((candidate, opening_quote))
+}
+
+fn escape_raw_newlines_in_json_strings(arguments: &str) -> Option<(String, usize)> {
+    let mut repaired = String::with_capacity(arguments.len());
+    let mut inside_string = false;
+    let mut escaped = false;
+    let mut first_newline = None;
+
+    for (byte_index, character) in arguments.char_indices() {
+        if escaped {
+            repaired.push(character);
+            escaped = false;
+            continue;
+        }
+        match character {
+            '\\' if inside_string => {
+                repaired.push(character);
+                escaped = true;
+            }
+            '"' => {
+                repaired.push(character);
+                inside_string = !inside_string;
+            }
+            '\n' if inside_string => {
+                repaired.push_str("\\n");
+                first_newline.get_or_insert(byte_index);
+            }
+            _ => repaired.push(character),
+        }
+    }
+
+    first_newline.map(|byte_index| (repaired, byte_index))
+}
+
 fn candidate_positions(arguments: &str, line: usize, column: usize) -> BTreeSet<usize> {
     let error_offset = json_error_byte_offset(arguments, line, column);
     let start = error_offset.saturating_sub(ERROR_WINDOW_BYTES);
@@ -158,23 +245,6 @@ fn json_error_byte_offset(arguments: &str, line: usize, column: usize) -> usize 
     line_start
         .saturating_add(column.saturating_sub(1))
         .min(line_end)
-}
-
-fn is_inside_json_string(arguments: &str, byte_index: usize) -> bool {
-    let mut inside = false;
-    let mut escaped = false;
-    for byte in arguments.as_bytes().iter().take(byte_index) {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        match *byte {
-            b'\\' if inside => escaped = true,
-            b'"' => inside = !inside,
-            _ => {}
-        }
-    }
-    inside
 }
 
 fn sha256(value: &str) -> String {
@@ -371,9 +441,51 @@ mod tests {
     }
 
     #[test]
-    fn refuses_multiple_raw_newlines_inside_tool_strings() {
+    fn escapes_multiple_raw_newlines_inside_tool_strings() {
         let valid = r#"{"type":"work","tools":[{"tool":"apply_patch","node_id":"fix","input":"line one\nline two\nline three"}]}"#;
         let malformed = valid.replace("\\n", "\n");
+        let mut item = call(malformed);
+
+        let repair = self_heal_taskspace_exec_response_item(&mut item, &catalog()).expect("repair");
+
+        assert_eq!(repair.operation, "escape");
+        assert_eq!(repair.repair_token, "\\n");
+        let ResponseItem::FunctionCall { arguments, .. } = item else {
+            panic!("function call")
+        };
+        assert_eq!(arguments, valid);
+    }
+
+    #[test]
+    fn encodes_observed_raw_multiline_apply_patch_input() {
+        let patch = "*** Begin Patch\n*** Update File: /workspace/example.py\n@@\n-value = \"old\"\n+value = \"new\"\n*** End Patch\n";
+        let encoded_patch = serde_json::to_string(patch).expect("patch JSON");
+        let valid = format!(
+            r#"{{"type":"work","tools":[{{"tool":"apply_patch","node_id":"fix","input":{encoded_patch}}}]}}"#
+        );
+        let malformed = format!(
+            "{{\"type\":\"work\",\"tools\":[{{\"tool\":\"apply_patch\",\"node_id\":\"fix\",\"input\":\"{patch}\"}}]}}"
+        );
+        let mut item = call(malformed);
+
+        let repair = self_heal_taskspace_exec_response_item(&mut item, &catalog()).expect("repair");
+
+        assert_eq!(repair.operation, "encode");
+        assert_eq!(repair.repair_token, "apply_patch_input");
+        let ResponseItem::FunctionCall { arguments, .. } = item else {
+            panic!("function call")
+        };
+        assert_eq!(arguments, valid);
+    }
+
+    #[test]
+    fn refuses_raw_newlines_combined_with_another_syntax_error() {
+        let valid = r#"{"type":"work","tools":[{"tool":"apply_patch","node_id":"fix","input":"line one\nline two"}]}"#;
+        let malformed = valid
+            .replace("\\n", "\n")
+            .strip_suffix('}')
+            .expect("outer brace")
+            .to_string();
         let mut item = call(malformed.clone());
 
         assert!(self_heal_taskspace_exec_response_item(&mut item, &catalog()).is_none());
