@@ -152,6 +152,30 @@ fn declaration_is_deterministic_and_exposes_one_closed_contract() {
             .len(),
         5
     );
+    let client_actions = parameters["$defs"]["tool_action"]["anyOf"]
+        .as_array()
+        .unwrap();
+    let exec_action = client_actions
+        .iter()
+        .find(|branch| branch["properties"]["tool"]["enum"][0] == "exec_command")
+        .unwrap();
+    assert!(
+        exec_action["description"]
+            .as_str()
+            .unwrap()
+            .contains("only inside the `taskspace_exec.tools` array")
+    );
+    assert!(
+        exec_action["description"]
+            .as_str()
+            .unwrap()
+            .contains("never emit `exec_command` as a top-level Function Tool call")
+    );
+    let read_action = client_actions
+        .iter()
+        .find(|branch| branch["properties"]["tool"]["enum"][0] == "read_file")
+        .unwrap();
+    assert_eq!(read_action["description"], "Run the Tool.");
     for branch in parameters["anyOf"]
         .as_array()
         .unwrap()
