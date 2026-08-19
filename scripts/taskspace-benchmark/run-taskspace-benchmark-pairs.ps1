@@ -392,7 +392,9 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     $variableControl = Compare-TaskspacePairVariables $manifestResolved $metricsBySide["left"] $metricsBySide["right"]
     $externalProof = New-TaskspaceExternalEvidenceProof $pair $manifest $metricsBySide $sourceGuard
     $oracleLevels = @($metricsBySide["left"].oracle_isolation_level, $metricsBySide["right"].oracle_isolation_level)
-    $oracleLevels += $probe.oracle_isolation_level
+    if ($probe -and $probe.PSObject.Properties.Name -contains "oracle_isolation_level") {
+        $oracleLevels += $probe.oracle_isolation_level
+    }
     $pairOracleLevel = if ($oracleLevels -contains "failed") {
         "failed"
     } elseif ($oracleLevels -contains "soft_denylist") {
