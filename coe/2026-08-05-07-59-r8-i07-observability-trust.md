@@ -35,10 +35,99 @@
 - Related hypotheses:
   - H-001
   - H-002
+  - H-003
 - Resolution basis:
   - not satisfied
 - Close reason:
   - not closed
+
+## Hypothesis H-003: 默认 benchmark 未消费 TaskSpace Exec 拒绝事实
+- Status: confirmed
+- Parent: P-001
+- Claim: TaskSpace Exec 专用 observer 已能识别拒绝，但默认 `metrics.json` 仍只复制旧 `taskspace_control` 失败字段，导致真实 Exec 拒绝稳定漏报为零
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 最新三轮 rollout 中存在 canonical Exec reject，而同轮默认 metrics 的旧 control/preflight/state 字段全部为零
+- Falsifiable predictions:
+  - If true: 专用 observer 离线读取同一 rollout 得到非零拒绝，默认 metrics 仍为零
+  - If false: 默认 metrics 已直接消费专用 observer，或专用 observer 同样返回零
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 对比同一 artifact 的 rollout、专用 observer 和默认 metrics
+  - Signal: `taskspace_exec rejected`、`rejected_*_call_count`、旧 `control_*_failure_count`
+  - Capture method: 静态追踪消费者接线，并离线回放 `WAR-20260820-000226-R8-MULTILINE-SELF-HEAL-R3`
+  - Event name or marker:
+    - `taskspace_exec rejected:`
+  - Correlation keys:
+    - outer `call_id`
+  - Differentiates from:
+    - Runtime 没有产生拒绝
+    - observer 分类器无法识别拒绝
+  - Supports if:
+    - rollout 和专用 observer 非零，但默认 metrics 为零且代码只读取旧 control 字段
+  - Refutes if:
+    - 三者计数一致或拒绝日志不存在
+  - Instrumentation status: permanent-observability
+  - Instrumentation lifecycle:
+    - 默认 metrics 直接复用唯一 Exec observer，不复制分类逻辑
+- Evidence gate: satisfied
+- Related evidence:
+  - E-020
+  - E-021
+- Conclusion: confirmed by current trace and consumer code path
+- Repair design readiness: ready
+- Next step: 接入默认 metrics 并离线回放
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Evidence E-020: 最新三轮真实 rollout 与默认 metrics 发生事实冲突
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: runtime-trace
+- Source: `target/whale-agent-runs/WAR-20260820-000226-R8-MULTILINE-SELF-HEAL-R3/H011`
+- Prediction or plan link:
+  - H-003 的同一 artifact 对账预测
+- Matched signal:
+  - run-2 有 1 次 waiting reject；run-3 有 1 次 waiting reject 和 1 次 `TransitionInvalid`
+  - 三轮默认 `metrics.json` 的旧 sequence/control/state 失败字段仍全部为 0
+- Correlation keys:
+  - `call_00_EktJAVBAvXWDJ06BfP0s8995`
+  - `call_00_8DUlnhC45qPHmREyahHm2870`
+  - `call_00_kJnc0IRcxvY3kugY0sXi6848`
+- Raw content:
+  ```text
+  actual TaskSpace Exec rejects: run-1=0, run-2=1, run-3=2
+  default metrics reported legacy failure counts: run-1=0, run-2=0, run-3=0
+  ```
+- Interpretation: 默认结果漏报，不是拒绝未发生
+- Time: 2026-08-20 11:20
+
+## Evidence E-021: 默认 metrics 接线只读取旧 TaskSpace Control 字段
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: code-location
+- Source: `scripts/taskspace-benchmark/lib/metrics-extractor.ps1`
+- Prediction or plan link:
+  - H-003 的消费者接线预测
+- Matched signal:
+  - 默认 metrics 复制 `taskspace_control_usage.sequence_preflight_rejected_call_count` 与 `control_*_failure_count`
+  - `taskspace-exec-observation.ps1` 仅由可选 performance observer 消费
+- Correlation keys:
+  - `Get-TaskspaceBenchmarkMetrics`
+  - `Get-TaskspaceExecObservation`
+- Raw content:
+  ```text
+  default metrics path -> legacy taskspace_control_usage
+  optional performance path -> taskspace_exec-observation
+  ```
+- Interpretation: 漏报来自明确的最终消费者缺口
+- Time: 2026-08-20 11:20
 
 ## Hypothesis H-001: no-ID 状态快照被按请求完成事件消费
 - Status: confirmed

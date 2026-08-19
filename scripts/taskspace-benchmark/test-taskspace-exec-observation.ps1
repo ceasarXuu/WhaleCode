@@ -2,6 +2,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 . (Join-Path $root 'lib/performance-observation.ps1')
+. (Join-Path $root 'lib/metrics-extractor.ps1')
 
 function Assert-Equal {
     param($Actual, $Expected, [string]$Message)
@@ -205,6 +206,27 @@ try {
     Assert-Equal $classifiedFacts.rejected_state_call_count 1 'waiting-node rejection was not classified'
     Assert-Equal $classifiedFacts.rejected_preflight_call_count 1 'state rejection was not included in the preflight aggregate'
     Assert-Equal $classifiedFacts.rejected_unknown_call_count 0 'known rejections were classified as unknown'
+
+    @(
+        [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
+                type = 'function_call'; name = 'taskspace_exec'; call_id = 'transition-1'; arguments = '{}'
+            } },
+        [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
+                type = 'function_call_output'; call_id = 'transition-1'
+                output = 'taskspace_exec rejected: preflight: MapOperationRejected { violations: [Violation { code: TransitionInvalid, subjects: ["analyze"] }] }. No Map or Tool actions were executed.'
+            } }
+    ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 15 } |
+        Set-Content -LiteralPath (Join-Path $temp 'rollout.jsonl') -Encoding UTF8
+    $transitionFacts = Get-TaskspaceExecObservation $temp $null
+    Assert-Equal $transitionFacts.rejected_call_count 1 'TransitionInvalid rejection total drifted'
+    Assert-Equal $transitionFacts.rejected_state_call_count 1 'TransitionInvalid was not classified as state'
+    Assert-Equal $transitionFacts.rejected_preflight_other_call_count 0 'TransitionInvalid leaked into generic preflight'
+    Assert-Equal $transitionFacts.rejected_preflight_call_count 1 'TransitionInvalid was absent from preflight aggregate'
+    $transitionMetrics = [pscustomobject]@{}
+    Add-TaskspaceExecObservationMetrics $transitionMetrics 'taskspace' $temp | Out-Null
+    Assert-Equal $transitionMetrics.taskspace_exec_rejected_call_count 1 'default metrics omitted TaskSpace Exec rejection total'
+    Assert-Equal $transitionMetrics.taskspace_exec_rejected_state_call_count 1 'default metrics omitted TaskSpace Exec state rejection'
+    Assert-Equal $transitionMetrics.taskspace_exec_rejected_preflight_call_count 1 'default metrics omitted TaskSpace Exec preflight aggregate'
 
     $wire = Get-Content -Raw -Encoding UTF8 (Join-Path $temp 'provider-wire-trace.jsonl') | ConvertFrom-Json
     $wire.taskspace_capability_identity = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'

@@ -10,6 +10,37 @@ if (-not (Get-Command Get-TaskspaceCanonicalResponseItem -ErrorAction SilentlyCo
 if (-not (Get-Command Get-TaskspaceOrdinaryToolFailureCode -ErrorAction SilentlyContinue)) {
     . (Join-Path $PSScriptRoot "ordinary-tool-outcome.ps1")
 }
+if (-not (Get-Command Get-TaskspaceExecObservation -ErrorAction SilentlyContinue)) {
+    . (Join-Path $PSScriptRoot "taskspace-exec-observation.ps1")
+}
+
+function Add-TaskspaceExecObservationMetrics {
+    param(
+        [Parameter(Mandatory = $true)]$Metrics,
+        [Parameter(Mandatory = $true)][string]$LogicalMode,
+        [Parameter(Mandatory = $true)][string]$ArtifactDir
+    )
+    $observation = if ($LogicalMode -eq 'taskspace') {
+        Get-TaskspaceExecObservation $ArtifactDir $null
+    } else {
+        New-TaskspaceExecObservation 'not_applicable'
+    }
+    $fields = [ordered]@{
+        taskspace_exec_observation_availability = [string]$observation.availability
+        taskspace_exec_rejected_call_count = [int]$observation.rejected_call_count
+        taskspace_exec_rejected_syntax_call_count = [int]$observation.rejected_syntax_call_count
+        taskspace_exec_rejected_contract_call_count = [int]$observation.rejected_contract_call_count
+        taskspace_exec_rejected_state_call_count = [int]$observation.rejected_state_call_count
+        taskspace_exec_rejected_preflight_other_call_count = [int]$observation.rejected_preflight_other_call_count
+        taskspace_exec_rejected_preflight_call_count = [int]$observation.rejected_preflight_call_count
+        taskspace_exec_rejected_unknown_call_count = [int]$observation.rejected_unknown_call_count
+        taskspace_exec_observation_findings = @($observation.findings)
+    }
+    foreach ($entry in $fields.GetEnumerator()) {
+        $Metrics | Add-Member -NotePropertyName $entry.Key -NotePropertyValue $entry.Value -Force
+    }
+    $Metrics
+}
 
 function Get-TaskspaceDiffText {
     param(
@@ -825,6 +856,7 @@ function Get-TaskspaceBenchmarkMetrics {
         observability_json = if ($ObservabilityResult) { $ObservabilityResult.observability_json } else { "" }
         rollout_path = if ($ObservabilityResult) { $ObservabilityResult.rollout_path } else { "" }
     }
+    Add-TaskspaceExecObservationMetrics $metrics $Side.LogicalMode $Side.ArtifactDir | Out-Null
     Set-TaskspaceLifecycleClassification $metrics | Out-Null
     $metrics
 }

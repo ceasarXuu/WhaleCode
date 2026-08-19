@@ -43,6 +43,7 @@ function Get-TaskspaceExecRejectionClass {
     if ($Output -match '^taskspace_exec rejected:\s*invalid JSON syntax') { return 'syntax' }
     if ($Output -match '^taskspace_exec rejected:\s*invalid top-level contract') { return 'contract' }
     if ($Output -match '^taskspace_exec rejected:\s*Tool action \d+ targeted work node .* in state ') { return 'state' }
+    if ($Output -match '^taskspace_exec rejected:\s*preflight:.*\bTransitionInvalid\b') { return 'state' }
     if ($Output -match '^taskspace_exec rejected:\s*preflight:') { return 'preflight_other' }
     'unknown'
 }
