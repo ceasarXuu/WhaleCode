@@ -30,6 +30,16 @@ Provider 最终顶层只声明 `taskspace_exec` 和 Provider-hosted Tool，没�
 `exec_command` 发生过顶层逃逸；没有发现其他原生 client Tool 同类行为。因此后续不得把问题泛化为所有内部 Tool 的共同
 作用域缺陷，应先验证 `exec_command` 特有的直接调用先验、首轮高频位置和反馈重复显著性。
 
+进一步链路审计坐实了“如何发生”：Chat 适配器始终把 outer `taskspace_exec` output 绑定回原 `tool_call_id`，不会读取
+`client_results[].tool` 并生成新调用；逃逸调用还保留正确 `node_id`，所以不是 Map/context 丢失。实际缺口是内部作用域只存在于
+`taskspace_exec` 的嵌套参数和文字合同中，而 Provider 接受未在本轮顶层 schema 声明的 Function 名。模型可据此输出一个混合
+结构：TaskSpace 的正确 owner + 原生 Tool 参数 + 错误顶层 Function 名。
+
+历史转换统计显示，成功 `exec_command` 后再次执行 `exec_command` 时为 `18/199` 次提升；成功 `apply_patch` 后执行
+`exec_command` 为 `0/102`。其中初始化后的第一次连续探索为 `13/105`，普通 work 后为 `1/81`。该集中性支持
+`exec_command` 高频连续调用、canonical 示例和成功反馈裸 identity 是放大因素，但没有单变量 A/B 前不得把任一项单独写成
+唯一根因。反馈长度已被排除：逃逸组的结果中位长度反而低于正确组。
+
 ## 已回退的错误候选
 
 候选曾把 Agent 可见合同改为 TaskSpace 自建动作语言：

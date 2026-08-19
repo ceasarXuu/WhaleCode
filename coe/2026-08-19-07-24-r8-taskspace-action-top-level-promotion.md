@@ -1,7 +1,7 @@
 # Problem P-001: TaskSpace 内部 exec_command 被提升为顶层 Function Call
 - Status: open
 - Created: 2026-08-19 07:24
-- Updated: 2026-08-19 11:20
+- Updated: 2026-08-19 14:40
 - Objective: 解释原生 `tools[]` 协议下 `exec_command` 被提升为未声明顶层 Function Call 的发生机制，并在证据不足时阻止继续通过改名、提示词堆叠或 Runtime 自动包裹掩盖问题。
 - Symptoms:
   - 当前有效原生 `tools[]` 协议的历史四臂基线显示，三个 TaskSpace 臂中 `7/9` 轮发生顶层 `exec_command` 逃逸，共 11 次。
@@ -26,24 +26,32 @@
   - `taskspace_exec` 替代的是 Codex 顶层 `exec` 超级工具，不替代或重命名 Exec 内部原生 Tool；内部 `exec_command` 暴露本身符合产品定义。
   - 历史四臂基线 subject commit `4fe2f3557` 使用 TaskSpace base `3.0.5`；Standard 只作为正常顶层 `exec_command` 对照，不计逃逸。
   - 四臂基线的 9 次 TaskSpace 中 7 次发生逃逸；这 7 次的第一次逃逸都紧跟成功 `taskspace_exec` output，且 output 包含 `client_results[].tool="exec_command"`。
+  - 受影响调用仍保留正确 `node_id`，说明 Agent 没有遗忘 Map 或节点归属；错误只发生在 outer/inner 调用层级。
+  - Chat Completions 适配器始终用 outer `taskspace_exec` 的原 `call_id` 生成 `role=tool/tool_call_id`，不会把 `client_results[].tool` 改写成顶层 Function 名。
+  - 可解析当前 `tools[]` 协议的历史样本中，成功 `exec_command` 后再次执行 `exec_command` 时发生 18/199 次顶层提升；成功 `apply_patch` 后执行 `exec_command` 为 0/102。
+  - 同一统计中，`initialize_and_work` 后继续执行 `exec_command` 的提升率为 13/105，普通 `work` 后为 1/81；异常集中在初始化后的第一次连续探索。
   - Codex `exec` 也暴露原生内部 Tool，但通过 `tools.exec_command(...)` 命名空间表达；其 outer result 默认突出 `Script completed/failed`，不会机械回显独立的内部 Tool identity 字段。
   - 对现存 885 份 rollout 复扫并排除离线 fixture、错误 `shell` 候选和已删除 Hosted 双写协议后，当前有效设计下只有 `exec_command` 发生过顶层逃逸；没有发现 `apply_patch`、`write_stdin`、`view_image` 或其他原生 client Tool 逃逸。
 - Ruled out:
   - Runtime 将内部 `exec_command` 提升为顶层调用。
   - TaskSpace 顶层重新声明了普通 client Tool。
   - 文字协议明确允许顶层调用 `exec_command`。
+  - Chat Completions/Responses 适配层丢失 outer `taskspace_exec` 身份或把内部结果改写成新 Function Call。
+  - Agent 因 Map、节点归属或 shell 输出被裁剪而只能重新猜测；逃逸调用仍携带正确 `node_id` 和新命令。
+  - Tool output 过长是必要触发条件；逃逸样本的反馈长度中位数并不高于正确样本。
   - `web_search` 和 `shell` 能证明当前有效协议下存在其他 Tool 逃逸；两者分别属于已删除和已回退设计。
 - Fix criteria:
   - 候选必须消除或显著降低内部 `exec_command` 被理解为独立顶层 Function 的诱因，而不修改普通 Tool 原生合同、不让 Runtime 推断节点归属、不增加 Standard 分支。
   - 离线必须证明最终顶层 Tool 集合仍只有 `taskspace_exec` 与 Provider-hosted Tool，内部能力仍可完整机械路由。
   - 真实复验必须在同等复杂样本上覆盖首次初始化和后续工作，且不再出现任何顶层 client/action identity 逃逸；真实预算另行批准。
-- Current conclusion: 当前有效产品设计中只坐实了 `exec_command` 逃逸，不能泛化为所有内部 client Tool 的共同作用域缺陷。直接路径已确认：模型把内部 `exec_command` 名称、原生参数和 wrapper `node_id` 组合成未声明顶层 Function Call，Provider 的名称约束缺口使其到达 Runtime。`exec_command` 作为编码 Agent 最常用、通常首个执行、具有强直接调用先验的 Tool，又在成功反馈中以 `client_results[].tool="exec_command"` 再次出现；这组特殊性是当前根因候选。反馈字段与下一轮逃逸存在 `7/7` 顺序关联，但尚无单变量 A/B，不能宣称唯一因果。
+- Current conclusion: 已坐实的直接根因是 **outer/inner 作用域只存在于 `taskspace_exec` 参数结构和文字合同中，Provider 的 Function Call 返回通道不校验名称必须属于本轮顶层声明；模型因此可把一个内部 `exec_command` 对象错误序列化为顶层 Function Call**。这不是 Runtime 改写、上下文丢失或 Map 丢失：错误调用保留正确 `node_id`，适配器也保留 outer call identity。为什么几乎只选择 `exec_command`，当前证据支持三个放大因素：它是高频连续探索动作、两个 canonical work 示例都使用它、成功反馈再次裸露其 identity。统计关联很强，但三个因素的独立贡献尚无单变量 A/B，不能把其中任一项单独写成唯一根因。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
   - H-004
   - H-005
+  - H-006
 - Resolution basis:
   - direct mechanism satisfied；repair candidate not selected
 - Close reason:
@@ -140,40 +148,42 @@
 ## Hypothesis H-003: Provider 未硬限制 Function 名称
 - Status: confirmed
 - Parent: P-001
-- Claim: DeepSeek Responses 路径接受并返回了未在请求顶层 Tool 集合声明的 Function 名称，使模型的内外层混淆能够到达 Runtime。
+- Claim: DeepSeek Chat/Responses 兼容路径接受并返回了未在请求顶层 Tool 集合声明的 Function 名称，使模型的内外层混淆能够到达 Runtime。
 - Layer: interaction
 - Factor relation: all_of
 - Depends on:
   - none
 - Rationale:
-  - 若 Provider 严格限制名称，`function_call(name=shell)` 应在 Provider 边界被拒绝而不进入 rollout。
+  - 若 Provider 严格限制名称，当前有效协议下的 `function_call(name=exec_command)` 应在 Provider 边界被拒绝而不进入 rollout。
 - Falsifiable predictions:
-  - If true: wire 的顶层普通 client Tool 数为零，但 rollout 含完整的 `function_call(name=shell)`。
-  - If false: 请求实际声明了 `shell`，或该 item 由本地 Runtime 合成。
+  - If true: wire 的顶层普通 client Tool 数为零，但 rollout 含完整的 `function_call(name=exec_command)`。
+  - If false: 请求实际声明了 `exec_command`，或该 item 由本地 Runtime 合成。
 - Diagnostic evidence plan:
   - Prediction or clause under test: 对照 provider wire breakdown、rollout 原始 response item 和本地拒绝事件。
-  - Signal: `tools_count=2`、`native_client_tool=0`、`function_call(name=shell)`。
-  - Capture method: 读取 pairs 001/003 provider wire trace 与 rollout。
+  - Signal: `tools_count=2`、`native_client_tool=0`、`function_call(name=exec_command)`。
+  - Capture method: 读取历史四臂 provider wire、rollout 和 Chat streaming parser。
   - Event name or marker:
     - `provider.chat_wire_request_payload`
-    - `function_call(name=shell)`
+    - `function_call(name=exec_command)`
   - Correlation keys:
     - logical request ID
     - call ID
   - Differentiates from:
     - Runtime 重新暴露或改写 Tool
   - Supports if:
-    - 未声明名称原样出现在 Provider response。
+    - 未声明名称原样出现在 Provider response，并由 parser 不加本地改名地转成 `ResponseItem::FunctionCall`。
   - Refutes if:
-    - 最终请求顶层包含 `shell`。
+    - 最终请求顶层包含 `exec_command`，或本地代码合成该调用。
   - Instrumentation status: permanent-observability-candidate
   - Instrumentation lifecycle:
     - retain current wire and response traces
 - Evidence gate: satisfied
 - Related evidence:
-  - E-001
   - E-006
-- Conclusion: Provider 名称约束缺口是异常到达 Runtime 的必要条件，但不解释模型为何选择 `shell`；生成诱因仍在 H-001。
+  - E-014
+  - E-015
+  - E-019
+- Conclusion: Provider 名称约束缺口是异常到达 Runtime 的必要条件，但不解释模型为何只偏向 `exec_command`；选择倾向仍由 H-002/H-005 调查。
 - Repair design readiness: no local Provider-side repair assumed
 - Next step: Runtime 继续 fail-closed；不要以此为理由推断或自动修复节点绑定。
 - Blocker:
@@ -559,3 +569,187 @@
   ```
 - Interpretation: 当前证据不支持“所有内部 Tool identity 都会逃逸”的泛化；调查范围收窄到 `exec_command` 特有生成倾向。
 - Time: 2026-08-19 11:45
+
+## Hypothesis H-006: Provider 顶层 Function 通道没有结构性承载 TaskSpace 内外层作用域
+- Status: confirmed
+- Parent: P-001
+- Claim: TaskSpace 把 client Tool 作为 `taskspace_exec` Function 参数中的结构化对象暴露，但 Provider 的模型输出仍只有普通顶层 Function Call 通道，且不校验返回名称必须属于本轮顶层声明；因此内外层作用域只能依靠模型遵循嵌套 JSON 和文字合同，错误提升可以成为合法 Provider response。
+- Layer: root-cause
+- Factor relation: all_of
+- Depends on:
+  - H-003
+- Rationale:
+  - 请求顶层没有 `exec_command`，但 Provider 原样返回 `function_call(name=exec_command)`。
+  - 逃逸参数是内部 action 的混合扁平化：保留 `node_id`，同时把 `input.cmd` 提升为 Function arguments。
+  - outer output 的 `call_id` 在 Chat Completions 适配中保持不变，本地没有生成第二个调用。
+- Falsifiable predictions:
+  - If true: 同一顶层 schema 下可同时出现正确 outer 调用和未声明的内部名称提升；提升调用应保留内部对象信息，而不是由本地改写生成。
+  - If false: 最终 Provider 请求实际声明了 `exec_command`，或适配器/Runtime 在收到 `taskspace_exec` 后创建了顶层 `exec_command`。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 检查最终 Tool 声明、Provider response item、outer output 到 chat message 的适配和 Runtime 拒绝路径。
+  - Signal: `native_client_tool=0`、相同 capability hash、原 outer `tool_call_id`、Provider 返回的未知 Function name、零副作用拒绝。
+  - Capture method: 四臂 provider wire、rollout、`codex-api/src/endpoint/chat_completions.rs` 和 `core/src/tools/parallel.rs` 静态链路。
+  - Event name or marker:
+    - `provider.chat_wire_prefix_preserved`
+    - `function_call(name=exec_command)`
+  - Correlation keys:
+    - provider logical request ID
+    - outer and escaped call IDs
+  - Differentiates from:
+    - Runtime 提升
+    - 适配器丢失 outer identity
+    - Map/context 丢失
+  - Supports if:
+    - 顶层声明不含 `exec_command`，outer output 保持配对，Provider 后续仍返回新的顶层 `exec_command`。
+  - Refutes if:
+    - 任一中间层重新声明、改名或合成该调用。
+  - Instrumentation status: existing permanent traces sufficient
+  - Instrumentation lifecycle:
+    - retain
+- Evidence gate: satisfied
+- Related evidence:
+  - E-014
+  - E-015
+  - E-016
+- Conclusion: 这是顶层提升能够发生的已证实结构机制。它解释“如何逃逸”，但不单独解释模型为什么优先提升 `exec_command`；后者由 H-002/H-005 继续描述为待隔离放大因素。
+- Repair design readiness: ready for isolated candidate design, not yet authorized
+- Next step: 在不更改原生 Tool identity、Standard、DAG 和 Runtime 归属权的前提下，隔离最小模型可见作用域表达变量。
+- Blocker:
+  - 修复候选和真实 A/B 预算尚未由用户选择。
+- Close reason:
+  - not closed
+
+## Evidence E-014: Chat 适配保留 outer taskspace_exec 身份
+- Related hypotheses:
+  - H-002
+  - H-006
+- Direction: supports
+- Type: code-location
+- Source: `third_party/codex-cli/codex-rs/codex-api/src/endpoint/chat_completions.rs:44-67`
+- Prediction or plan link:
+  - H-006 排除适配器把内部结果提升为顶层调用。
+- Matched signal:
+  - `ResponseItem::FunctionCallOutput` 只生成 `role=tool`、原 `tool_call_id=call_id` 和文本 content；不读取 content 内的 `client_results[].tool`，也不创建 Function Call。
+- Correlation keys:
+  - outer taskspace_exec call ID
+- Raw content:
+  ```text
+  role = tool
+  tool_call_id = outer taskspace_exec call_id
+  content = serialized TaskSpace Exec result
+  ```
+- Interpretation: 内部 `tool="exec_command"` 只是 outer result content；后续顶层调用来自模型的新响应，不是本地改写。
+- Time: 2026-08-19 14:40
+
+## Evidence E-015: 相同顶层合同下同时存在逃逸与正确调用
+- Related hypotheses:
+  - H-005
+  - H-006
+- Direction: supports
+- Type: controlled-historical-comparison
+- Source: `WAR-20260818-055427-R8-FOUR-ARM-R3` a2/r1 and a1/r3 provider wire
+- Prediction or plan link:
+  - 区分确定性 request-shape 错误与模型选择波动。
+- Matched signal:
+  - 两轮使用相同 Base `3.0.5` hash、相同 TaskSpace capability identity、相同 tools hash、`tools_count=2` 和 `tool_choice=auto`。
+  - a2/r1 初始化后生成顶层 `exec_command`；a1/r3 在相同成功结果形状后继续正确调用 `taskspace_exec`。
+- Correlation keys:
+  - base sha256 `e2f81354...`
+  - capability `05b41a6b...`
+  - tools hash `c47aafee...`
+- Raw content:
+  ```text
+  affected:   taskspace_exec -> succeeded exec_command result -> top-level exec_command
+  unaffected: taskspace_exec -> succeeded exec_command result -> taskspace_exec(work/exec_command)
+  ```
+- Interpretation: 合同允许模型稳定走正确路径，但不能结构性阻止未声明名称；症状是概率性生成错误，不是某个 projection 模式必然改写。
+- Time: 2026-08-19 14:40
+
+## Evidence E-016: 逃逸调用保留正确 node_id
+- Related hypotheses:
+  - H-005
+  - H-006
+- Direction: supports
+- Type: diagnostic-log
+- Source: four-arm affected rollouts
+- Prediction or plan link:
+  - 排除 Map/节点归属上下文丢失。
+- Matched signal:
+  - 典型错误调用为 `function_call(name="exec_command", arguments={"cmd":"...","node_id":"explore"})`；`node_id` 与当前 in-flight owner 一致。
+- Correlation keys:
+  - `call_00_rqNYN6QkxN6ZwBtP5JjY0660`
+- Raw content:
+  ```text
+  {"cmd":"cat /workspace/README.md ...","node_id":"explore"}
+  ```
+- Interpretation: Agent掌握了动作内容和归属，只把调用包装层级选错；不能通过增强 Map 状态反馈解释或修复。
+- Time: 2026-08-19 14:40
+
+## Evidence E-017: exec-to-exec 和初始化后续显著集中逃逸
+- Related hypotheses:
+  - H-002
+  - H-005
+- Direction: supports
+- Type: historical-transition-analysis
+- Source: 可解析当前 `tools[]` 协议的本地 rollout
+- Prediction or plan link:
+  - H-005 若与 `exec_command` 特有连续调用和首轮位置相关，转换率应明显高于 Patch 后验证或普通 work。
+- Matched signal:
+  - 成功 `exec_command` 后下一意图仍为 `exec_command`：18/199 被提升，181/199 正确包裹。
+  - 成功 `apply_patch` 后下一意图为 `exec_command`：0/102 被提升。
+  - `initialize_and_work` 后继续 `exec_command`：13/105；普通 `work` 后继续 `exec_command`：1/81。
+  - 探索性单侧 Fisher 值分别约为 `0.00044` 和 `0.00297`；由于历史运行并非独立同分布实验，只用于确认集中性，不作为精确总体概率。
+- Correlation keys:
+  - previous outer call ID
+  - next Function Call
+- Raw content:
+  ```text
+  exec success -> exec intent: 18 escape / 181 wrapped
+  patch success -> exec intent: 0 escape / 102 wrapped
+  initialize continuation: 13/105 escape
+  ordinary work continuation: 1/81 escape
+  ```
+- Interpretation: 问题不是“任何下一步 shell 都会逃逸”，而是高度集中在成功 shell 的连续调用，尤其 Map 初始化后的第一次探索续步。
+- Time: 2026-08-19 14:40
+
+## Evidence E-018: 反馈长度不是必要触发条件
+- Related hypotheses:
+  - H-002
+  - H-005
+- Direction: neutral
+- Type: historical-distribution-analysis
+- Source: exec-to-exec transition dataset
+- Prediction or plan link:
+  - 排除 output 过长导致 outer 作用域提示被冲淡。
+- Matched signal:
+  - 逃逸样本 outer feedback 中位数约 1536 B，正确包裹样本约 1797 B；逃逸组并不更长。
+- Correlation keys:
+  - previous outer result
+- Raw content:
+  ```text
+  escaped median outer feedback: 1536 B
+  wrapped median outer feedback: 1797 B
+  ```
+- Interpretation: 裁剪结果长度不是当前根因方向；需要研究 identity/作用域表达，而非压缩更多语义。
+- Time: 2026-08-19 14:40
+
+## Evidence E-019: Provider response parser 原样接受未声明 Function 名称
+- Related hypotheses:
+  - H-003
+  - H-006
+- Direction: supports
+- Type: code-location
+- Source: `third_party/codex-cli/codex-rs/codex-api/src/sse/chat_completions.rs:186-245`
+- Prediction or plan link:
+  - H-003/H-006 区分 Provider 返回与 Runtime 本地合成。
+- Matched signal:
+  - streaming parser 从 `delta.tool_calls[].function.name` 直接保存名称，并在响应结束时生成同名 `ResponseItem::FunctionCall`；该路径不按请求 Tool catalog 校验或改名。
+- Correlation keys:
+  - Provider tool call index and call ID
+- Raw content:
+  ```text
+  state.name = function.name
+  ResponseItem::FunctionCall { name, arguments, call_id }
+  ```
+- Interpretation: rollout 中的顶层 `exec_command` 是 Provider 模型响应的原始调用选择；本地第一次语义处理是后续 TaskSpace 零副作用拒绝。
+- Time: 2026-08-19 14:40
