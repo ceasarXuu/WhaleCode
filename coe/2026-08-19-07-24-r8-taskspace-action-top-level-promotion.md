@@ -52,6 +52,7 @@
   - H-004
   - H-005
   - H-006
+  - H-007
 - Resolution basis:
   - direct mechanism satisfied；repair candidate not selected
 - Close reason:
@@ -753,3 +754,52 @@
   ```
 - Interpretation: rollout 中的顶层 `exec_command` 是 Provider 模型响应的原始调用选择；本地第一次语义处理是后续 TaskSpace 零副作用拒绝。
 - Time: 2026-08-19 14:40
+
+## Hypothesis H-007: 成功反馈中的裸 client Tool 字段是可隔离放大因素
+- Status: unverified
+- Parent: P-001
+- Claim: 在请求侧协议完全不变时，把成功结果中的 `tool="exec_command"` 改为明确的已执行 client Tool 作用域表达，会降低后续连续 shell 被提升为顶层 Function Call 的概率。
+- Layer: interaction
+- Factor relation: part_of
+- Depends on:
+  - H-002
+  - H-006
+- Rationale:
+  - 逃逸集中发生在成功 `exec_command` 后继续 `exec_command`；Patch 后执行 shell 未出现同类行为。
+  - outer call identity 没有丢失，因此只需要隔离 result content 的显著性，不应改请求、Runtime 或 Map。
+- Falsifiable predictions:
+  - If true: 同版本复杂样本中，F1 的顶层 `exec_command` 逃逸低于 B0，且业务、Map 和其他协议行为不下降。
+  - If false: F1 逃逸不降、转为其他顶层名称，或引入新的结果理解错误。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 只改变 Agent-visible result 字段名，保持值、顺序、原生结果和请求 wire 不变。
+  - Signal: 每 run 逃逸 call、完成结果、请求/token/cache、其他拒绝类型。
+  - Capture method: `subscription-billing-repair × map-request × B0/F1 × repeat=5` Docker trace；F2 仅在 F1 不通过时执行。
+  - Event name or marker:
+    - `function_call(name=exec_command)`
+    - `taskspace.exec.request_started`
+  - Correlation keys:
+    - run record ID
+    - provider request ID
+    - outer call ID
+  - Differentiates from:
+    - canonical 示例影响
+    - Base 指令影响
+    - Runtime/Map 状态影响
+  - Supports if:
+    - F1 逃逸明显下降，且没有新协议错误。
+  - Refutes if:
+    - F1 无改善或错误迁移。
+  - Instrumentation status: existing permanent traces sufficient
+  - Instrumentation lifecycle:
+    - retain
+- Evidence gate: planned
+- Related evidence:
+  - E-011
+  - E-017
+- Conclusion: pending experiment
+- Repair design readiness: experiment authorized; production promotion not yet decided
+- Next step: execute B0, implement F1, then execute F1 under the approved budget.
+- Blocker:
+  - none
+- Close reason:
+  - not closed

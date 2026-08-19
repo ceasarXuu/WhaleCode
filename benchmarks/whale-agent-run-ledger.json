@@ -1,6 +1,6 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-19T05:43:58+08:00",
+  "updated_at": "2026-08-19T08:45:38+08:00",
   "entries": [
     {
       "record_id": "WAR-20260819-054148-R8-I04-ORDERED-PATCH-R1",
@@ -10143,6 +10143,85 @@
         "taskspace_exec_schema_rejects": 2,
         "durable_evidence_path": "benchmarks/taskspace/r8/evidence/WAR-20260819-064028-R8-NATIVE-ACTION-R5.json",
         "outcome": "business_passed; target scope incomplete because physical right side yielded 3 TaskSpace and 2 Standard runs; TaskSpace exec_command escape fixed but shell promotion remained in 2/3; cache pair stopped before execution"
+      }
+    },
+    {
+      "record_id": "WAR-20260819-084538-R8-EXEC-FEEDBACK-SCOPE-AB",
+      "record_type": "run_batch",
+      "status": "planned",
+      "started_at": null,
+      "ended_at": null,
+      "elapsed_calendar_seconds": null,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "隔离验证 taskspace_exec 成功反馈中的裸 exec_command identity 是否放大下一轮顶层 client Tool 逃逸。",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "user-approved-r8-exec-feedback-scope-cny3",
+        "reference": "2026-08-19 user: 设计实验并实施，提前批准不超过3元的预算总包",
+        "budget_summary": {
+          "maximum_sample_runs": 15,
+          "maximum_api_requests": 190,
+          "input_tokens": 3000000,
+          "output_tokens": 100000,
+          "elapsed_seconds": 5400,
+          "estimated_cost": 2.5,
+          "currency": "CNY"
+        },
+        "note": "另为必要的专用缓存回归预留 CNY 0.50；两部分合计不得超过 CNY 3.00。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "batch_count": 3,
+        "sample_ids": [
+          "subscription-billing-repair"
+        ],
+        "arm_ids": [
+          "B0-current-feedback",
+          "F1-executed-client-tool",
+          "F2-call-index-conditional"
+        ],
+        "repeats_per_arm_per_sample": 5,
+        "planned_sample_runs": 15,
+        "actual_sample_runs": 0,
+        "api_requests": 0,
+        "api_requests_evidence_status": "pending"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "planned",
+        "currency": "CNY",
+        "amount": null,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": {
+          "model": "deepseek-v4-flash",
+          "captured_at": "2026-08-19",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": null,
+        "note": "运行后按 provider token 遥测估算。"
+      },
+      "evidence": {
+        "planned_run_root": "target/whale-agent-runs/WAR-20260819-084538-R8-EXEC-FEEDBACK-SCOPE-AB",
+        "subject_commit": "fc4a0a9e9a9caff39c079a7c2e09ea2e99f63f1e",
+        "scenario": "subscription-billing-repair",
+        "arm": "B0/F1/F2-conditional",
+        "repeat": 5,
+        "execution": "docker",
+        "experiment_plan": "docs/v0.0.5/build-R8/taskspace-exec/83-exec-command-feedback-scope-experiment.md",
+        "stop_conditions": "零自动重试；基础设施故障、usage 缺失、新协议异常、190 requests、3M input、100K output、CNY 2.50 或 90 分钟任一先到即停止。F1 有清晰收益时不执行 F2。",
+        "usage_evidence_status": "pending",
+        "outcome": "pending"
       }
     }
   ]
