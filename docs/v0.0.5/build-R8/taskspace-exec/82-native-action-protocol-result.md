@@ -26,6 +26,10 @@ Provider 最终顶层只声明 `taskspace_exec` 和 Provider-hosted Tool，没�
 包含 `client_results[].tool="exec_command"`。这对“成功反馈重复裸工具名会放大下一轮层级提升”构成强关联证据，但尚无只改变
 反馈字段的 A/B，因此不能写成唯一根因。
 
+全量历史分类进一步确认：排除已回退 `shell` 候选、已删除 Hosted 双写协议和离线 fixture 后，当前有效设计中只有
+`exec_command` 发生过顶层逃逸；没有发现其他原生 client Tool 同类行为。因此后续不得把问题泛化为所有内部 Tool 的共同
+作用域缺陷，应先验证 `exec_command` 特有的直接调用先验、首轮高频位置和反馈重复显著性。
+
 ## 已回退的错误候选
 
 候选曾把 Agent 可见合同改为 TaskSpace 自建动作语言：

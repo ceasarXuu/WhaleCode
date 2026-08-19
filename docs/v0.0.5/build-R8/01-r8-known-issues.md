@@ -311,7 +311,10 @@
 > 内部调用判别值和参数机械提升为顶层 Function，不能证明内部 Tool 本身不应暴露。历史四臂基线的三个 TaskSpace 臂中，
 > `7/9` 轮共出现 `11` 次顶层 `exec_command`；每个受影响运行的第一次逃逸都紧跟含
 > `client_results[].tool="exec_command"` 的成功反馈。该字段是高可信放大候选，但尚无反馈单变量 A/B，不能写成唯一根因。
-> Provider 接受未声明 Function 名称仍是异常到达 Runtime 的必要条件；Runtime 的零副作用拒绝边界正确。完整 COE 见
+> 复扫 885 份现存 rollout 后，排除已回退 `shell` 候选、已删除 Hosted 双写协议和离线 fixture，当前有效设计下只有
+> `exec_command` 发生过逃逸，未发现其他原生 client Tool 同类行为。因此不能泛化为通用内部 Tool 作用域缺陷，应优先验证
+> `exec_command` 的直接调用先验、首轮高频位置和成功反馈重复显著性。Provider 接受未声明 Function 名称仍是异常到达
+> Runtime 的必要条件；Runtime 的零副作用拒绝边界正确。完整 COE 见
 > [`../../../coe/2026-08-19-07-24-r8-taskspace-action-top-level-promotion.md`](../../../coe/2026-08-19-07-24-r8-taskspace-action-top-level-promotion.md)。
 
 > **I03 单闭合符号自愈边界补全（2026-08-17）**：历史 Run 发现一次 `apply_patch` action 尾部多出 `}`；删除任一相邻
