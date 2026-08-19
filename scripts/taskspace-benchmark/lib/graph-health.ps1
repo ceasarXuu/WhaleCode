@@ -114,7 +114,7 @@ function Get-TaskspaceRootedGraphMetrics {
     $map = @($Maps | Select-Object -First 1)
     $rootId = if ($map.Count -gt 0 -and $null -ne $map[0].PSObject.Properties["rootNodeId"]) { [string]$map[0].rootNodeId } else { "" }
     $finishId = if ($map.Count -gt 0 -and $null -ne $map[0].PSObject.Properties["finishNodeId"]) { [string]$map[0].finishNodeId } else { "" }
-    $ids = @($Nodes | ForEach-Object { [string]$_.id } | Where-Object { $_ })
+    $ids = @($Nodes | Where-Object { $_ -is [pscustomobject] -and $null -ne $_.PSObject.Properties["id"] } | ForEach-Object { [string]$_.id } | Where-Object { $_ })
     $outgoing = @{}
     $incoming = @{}
     foreach ($id in $ids) {
@@ -181,7 +181,9 @@ function New-TaskspaceGraphHealthReport {
         [string]$Mode = "",
         [string]$LogicalMode = ""
     )
-    $nodes = if ($Observability -and $Observability.PSObject.Properties.Name -contains "nodes") { @($Observability.nodes) } else { @() }
+    $nodes = if ($Observability -and $Observability.PSObject.Properties.Name -contains "nodes") {
+        @($Observability.nodes | Where-Object { $_ -is [pscustomobject] -and $null -ne $_.PSObject.Properties["id"] })
+    } else { @() }
     $edges = if ($Observability -and $Observability.PSObject.Properties.Name -contains "edges") { @($Observability.edges) } else { @() }
     $maps = if ($Observability -and $Observability.PSObject.Properties.Name -contains "maps") { @($Observability.maps) } else { @() }
     $toolCalls = if ($Observability -and $Observability.PSObject.Properties.Name -contains "toolCalls") { @($Observability.toolCalls) } else { @() }

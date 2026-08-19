@@ -269,6 +269,8 @@ $graphObs = [pscustomobject]@{
 $graphReport = New-TaskspaceGraphHealthReport $graphObs "right" "taskspace"
 Assert-True ([string]$graphReport.schema_version -eq "taskspace-graph-health-v1") "graph health report schema version missing"
 Assert-True ($graphReport.node_count -eq 2 -and $graphReport.edge_count -eq 1) "graph health report did not count nodes/edges"
+$standardGraphReport = New-TaskspaceGraphHealthReport ([pscustomobject]@{ nodes = @([pscustomobject]@{}); edges = @(); maps = @() }) "left" "standard"
+Assert-True ($standardGraphReport.node_count -eq 0) "graph health did not ignore a standard-mode placeholder without an id"
 Assert-True (@($graphReport.warnings) -contains "high_unreviewed_result_ratio") "graph health did not flag high unreviewed result ratio"
 Assert-True ([int]$graphReport.reviewable_result_count -eq 2) "graph health did not isolate reviewable semantic results"
 Assert-True ([int]$graphReport.reviewable_unreviewed_result_count -eq 1) "graph health counted non-reviewable tool traces as reviewable"
