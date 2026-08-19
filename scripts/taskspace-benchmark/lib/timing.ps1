@@ -104,7 +104,7 @@ function New-TaskspaceMissingWaitAttribution {
             $Object -and
             $Object.PSObject.Properties.Name -contains "wait_attribution_unavailable_fields" -and
             $Object.wait_attribution_unavailable_fields -and
-            $Object.wait_attribution_unavailable_fields.PSObject.Properties.Name -contains $field
+            @($Object.wait_attribution_unavailable_fields.PSObject.Properties | ForEach-Object { $_.Name }) -contains $field
         )
         if ($unavailable) { continue }
         if (-not $Object -or -not ($Object.PSObject.Properties.Name -contains $field) -or $null -eq $Object.$field) {
