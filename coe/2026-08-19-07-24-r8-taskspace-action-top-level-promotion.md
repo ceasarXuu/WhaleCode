@@ -1000,3 +1000,72 @@
   ```
 - Interpretation: 结果排除了“改动没有进入 Provider 请求”，并直接否定局部 description 足以约束首响应 Function 选择；请求/token 波动不构成候选收益。
 - Time: 2026-08-19 22:14
+
+## Hypothesis H-010: Base 中显式点名内外层 Tool 可抑制顶层提升
+- Status: confirmed
+- Parent: P-001
+- Claim: 将 TaskSpace Base 的宏观唯一入口规则替换为显式点名 `taskspace_exec` 与 `exec_command` 的层级合同，可降低模型在首响应把内部 client Tool 提升为顶层 Function Call 的概率。
+- Layer: interaction
+- Factor relation: part_of
+- Depends on:
+  - H-006
+- Rationale:
+  - Base `3.0.5` 已有未点名 Tool identity 的宏观唯一入口规则，但 B0 与 H-009 仍高频逃逸。
+  - H-009 证明嵌套 Tool description 强度不足；同类严格状态机规则放在 Base 时曾表现出更高遵循度。
+  - 替换原句而非叠加，保持单一合同来源并避免提示词膨胀。
+- Falsifiable predictions:
+  - If true: 同一复杂样本中，顶层 `exec_command` 逃逸相对 B0/H-009 明显下降，业务、Map 和总体非法动作不回归。
+  - If false: 逃逸频率不降，或错误迁移使总体非法动作、业务失败或 Map 不闭合上升。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: TaskSpace Base `3.0.6` 只替换 client Tool 层级规则，其他模型可见合同和 Runtime 不变。
+  - Signal: Base wire identity、逃逸 run/call、所有拒绝、业务/oracle、Map、请求/token/cache/time/cost。
+  - Capture method: `subscription-billing-repair × map-request × repeat=5`，Docker，DeepSeek V4 Flash。
+  - Event name or marker:
+    - `function_call(name=exec_command)`
+    - base instructions identity
+  - Correlation keys:
+    - run index
+    - provider first response
+    - Base version and SHA-256
+  - Supports if:
+    - 逃逸清晰下降且无正确性或总体非法动作回归。
+  - Refutes if:
+    - 逃逸无下降或错误迁移抵消收益。
+  - Instrumentation status: existing permanent traces sufficient
+  - Instrumentation lifecycle:
+    - retain
+- Evidence gate: satisfied
+- Related evidence:
+  - E-024
+- Conclusion: 当前样本 repeat=5 中逃逸从 B0 3/5 runs、6 calls 和 H-009 4/5、6 calls 降至 0/5、0 calls；5/5 业务/oracle/Map 通过，总非法动作降至 4 次。候选获得支持并保留。
+- Repair design readiness: implemented and retained; broader validation pending
+- Next step: 在后续自然复杂验收中观察跨样本复发，不继续叠加同类文字。
+- Blocker:
+  - none
+
+## Evidence E-024: Base 3.0.6 五轮未发生顶层 client Tool 逃逸
+- Related hypotheses:
+  - H-010
+- Direction: supports
+- Type: controlled-experiment
+- Source: `WAR-20260819-223533-R8-BASE-CLIENT-SCOPE-R5`
+- Prediction or plan link:
+  - H-010 要求明确 Base 层级合同降低逃逸且不产生正确性或总体非法动作回归。
+- Matched signal:
+  - 五轮 Provider wire 均为 TaskSpace Base `3.0.6`、预期 hash、`matches_current_contract=true`。
+  - 顶层 `exec_command` 为 0/5 runs、0 calls；全部 client work 位于 `taskspace_exec`。
+  - 5/5 业务、公开验证、hidden oracle 和 Map 闭合通过。
+  - 剩余两次 JSON syntax 与两次 Waiting preflight 均零副作用恢复；总体非法动作 4 次，低于 B0 的 14 次和 H-009 的 8 次。
+- Correlation keys:
+  - run index
+  - Base identity
+  - provider first response
+- Raw content:
+  ```text
+  Base 3.0.6: 0/5 escaped runs, 0 calls, 4 total invalid actions
+  H-009:      4/5 escaped runs, 6 calls, 8 total invalid actions
+  B0:         3/5 escaped runs, 6 calls, 14 total invalid actions
+  business/oracle/Map: 5/5 passed
+  ```
+- Interpretation: 显式 Base 层级合同在当前样本上产生清晰正向方向，且没有观察到错误迁移抵消；证据规模不足以关闭跨样本 I03。
+- Time: 2026-08-19 22:40

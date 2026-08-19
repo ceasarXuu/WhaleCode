@@ -10313,11 +10313,11 @@
     {
       "record_id": "WAR-20260819-223533-R8-BASE-CLIENT-SCOPE-R5",
       "record_type": "run_batch",
-      "status": "planned",
+      "status": "settled",
       "started_at": "2026-08-19T22:35:33+08:00",
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "ended_at": "2026-08-19T22:40:40+08:00",
+      "elapsed_calendar_seconds": 307,
+      "aggregate_agent_wall_time_ms": 243439,
       "reason": "验证在 TaskSpace Base 中显式点名 taskspace_exec 与 exec_command 的顶层作用域，是否降低首响应顶层 exec_command 逃逸。",
       "authorization": {
         "required": true,
@@ -10347,33 +10347,48 @@
         ],
         "repeats_per_arm_per_sample": 5,
         "planned_sample_runs": 5,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "pending"
+        "actual_sample_runs": 5,
+        "api_requests": 48,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
-        "input": 0,
-        "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "input": 883878,
+        "cached_input": 751744,
+        "uncached_input": 132134,
+        "output": 31036
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated",
         "currency": "CNY",
-        "amount": 0.0,
-        "actual_billed_amount": null
+        "amount": 0.20924088,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.01503488,
+          "uncached_input": 0.132134,
+          "output": 0.062072
+        },
+        "pricing_snapshot": {
+          "model": "deepseek-v4-flash",
+          "captured_at": "2026-08-19",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": "751744/1000000*0.02 + 132134/1000000*1.0 + 31036/1000000*2.0"
       },
       "evidence": {
         "planned_run_root": "target/whale-agent-runs/WAR-20260819-223533-R8-BASE-CLIENT-SCOPE-R5",
+        "subject_commit": "5d2516eb1",
         "scenario": "subscription-billing-repair",
         "arm": "H010-explicit-base-client-scope",
         "repeat": 5,
         "execution": "docker",
         "experiment_plan": "coe/2026-08-19-07-24-r8-taskspace-action-top-level-promotion.md",
         "stop_conditions": "零自动重试；基础设施故障、usage 缺失、新协议异常、190 requests、3M input、100K output、CNY 1.00 或 90 分钟任一先到即停止。",
-        "usage_evidence_status": "pending",
+        "usage_evidence_status": "complete",
         "durable_evidence_path": "benchmarks/taskspace/r8/evidence/WAR-20260819-223533-R8-BASE-CLIENT-SCOPE-R5.json",
-        "outcome": "pending"
+        "outcome": "5/5 business, oracle and Map closure passed; top-level exec_command escape was 0/5 runs and 0 calls; four recoverable zero-side-effect rejects remained (2 JSON syntax, 2 waiting preflight); Base 3.0.6 candidate retained for broader validation"
       }
     }
   ]

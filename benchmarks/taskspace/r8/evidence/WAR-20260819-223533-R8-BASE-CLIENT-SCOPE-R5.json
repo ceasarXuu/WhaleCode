@@ -1,0 +1,61 @@
+{
+  "schema_version": "r8-explicit-base-client-scope-v1",
+  "record_id": "WAR-20260819-223533-R8-BASE-CLIENT-SCOPE-R5",
+  "scenario": "subscription-billing-repair",
+  "model": "deepseek-v4-flash",
+  "projection_policy": "map-request",
+  "repeat": 5,
+  "subject_commit": "5d2516eb1",
+  "result": "candidate_supported_and_retained",
+  "candidate": {
+    "base_profile": "taskspace",
+    "base_version": "3.0.6",
+    "base_sha256": "8ce811065ca4dc760bb81e0e9df62e4944ca9d1ed20e2635274ec87595ea449d",
+    "base_message_bytes": 20180,
+    "escaped_runs": 0,
+    "escaped_calls": 0,
+    "escape_calls_per_run": [0, 0, 0, 0, 0],
+    "business_passes": 5,
+    "public_validation_passes": 5,
+    "hidden_oracle_passes": 5,
+    "map_closed_runs": 5,
+    "requests": 48,
+    "input_tokens": 883878,
+    "cached_input_tokens": 751744,
+    "uncached_input_tokens": 132134,
+    "output_tokens": 31036,
+    "request_2_plus_cached_input_tokens": 740352,
+    "request_2_plus_uncached_input_tokens": 79116,
+    "request_2_plus_cache_hit_rate": 0.9034544363,
+    "agent_wall_time_ms": 243439,
+    "estimated_cost_cny": 0.20924088,
+    "taskspace_exec_rejects": 4,
+    "json_syntax_rejects": 2,
+    "waiting_preflight_rejects": 2,
+    "artifact_root": "target/whale-agent-runs/WAR-20260819-223533-R8-BASE-CLIENT-SCOPE-R5/H010"
+  },
+  "historical_comparisons": [
+    {
+      "arm": "B0-current-feedback",
+      "record_id": "WAR-20260819-084538-R8-EXEC-FEEDBACK-SCOPE-AB",
+      "escaped_runs": 3,
+      "escaped_calls": 6,
+      "total_invalid_actions": 14
+    },
+    {
+      "arm": "H009-inner-exec-command-scope-description",
+      "record_id": "WAR-20260819-220821-R8-EXEC-SCOPE-DESCRIPTION-R5",
+      "escaped_runs": 4,
+      "escaped_calls": 6,
+      "total_invalid_actions": 8
+    }
+  ],
+  "findings": [
+    "TaskSpace Base 3.0.5 already had a generic sole-top-level-entry rule; the tested variable was replacing it with an explicit taskspace_exec and exec_command scope rule.",
+    "All five provider traces reported TaskSpace Base 3.0.6 with the expected hash and matches_current_contract=true.",
+    "No top-level exec_command call occurred in five runs; all client work remained inside taskspace_exec.",
+    "All five runs passed business, public validation, hidden oracle and Map closure.",
+    "Two JSON syntax rejects and two waiting-node preflight rejects recovered with zero side effects; total invalid actions were lower than both historical comparison batches.",
+    "The result supports retaining Base 3.0.6, but one sample at repeat=5 does not close I03 across task types or client Tools."
+  ]
+}

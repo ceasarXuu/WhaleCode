@@ -42,6 +42,13 @@
 > Provider wire 证明 client catalog 的 140 bytes 增量每轮均生效，因此不是测试未加载候选。H-009 已拒绝，代码回退，I03 继续
 > verifying。详见 [`taskspace-exec/84-exec-command-scope-description-repeat5-result.md`](taskspace-exec/84-exec-command-scope-description-repeat5-result.md)
 > 及调查账本 H-009/E-023。
+
+> **I03 TaskSpace Base 显式作用域候选（2026-08-19）**：静态检查确认 Base `3.0.5` 原本已有不点名 Tool 的宏观唯一入口规则，
+> 因而本轮没有重复同义句，而是替换为显式点名 `taskspace_exec` 与 `exec_command` 的层级合同并升级到 `3.0.6`。真实
+> `subscription-billing-repair × map-request × repeat=5` 中，五轮均加载预期 Base identity，顶层逃逸为 `0/5 runs, 0 calls`，
+> 5/5 业务/oracle/Map 闭合通过；剩余两次 JSON syntax 与两次 Waiting preflight 均零副作用恢复，总非法动作也低于 B0/H-009。
+> H-010 获得支持，候选保留；单一样本不足以关闭 I03，状态继续 verifying。详见
+> [`taskspace-exec/85-explicit-base-client-scope-repeat5-result.md`](taskspace-exec/85-explicit-base-client-scope-repeat5-result.md)。
 > **VA-02 第二轮生产证据（2026-08-10）**：模型已稳定选择顶层 `taskspace_exec`，合法第二响应可初始化
 > `root -> inspect -> fix -> verify -> finish` 并原生执行 client Tool；但两轮首响应都在无 Hosted output 时的必填
 > `hosted_bindings: []` 邻近位置生成不同的非法 JSON。I03 因首次参数稳定性继续 verifying，VA-03 保持阻断。I07 的

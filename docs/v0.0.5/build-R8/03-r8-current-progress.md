@@ -2,8 +2,8 @@
 
 - Report date: 2026-08-19
 - Source plans: `00-r8-charter.md`、`01-r8-known-issues.md`、`taskspace-exec/12-phase-b-zero-base-plan.md`
-- Scope: `whalecode-alpha` branch，当前生产代码 commit `fe2a639f3`
-- Latest runtime evidence: `WAR-20260819-220821-R8-EXEC-SCOPE-DESCRIPTION-R5`
+- Scope: `whalecode-alpha` branch，当前生产代码 commit `5d2516eb1`
+- Latest runtime evidence: `WAR-20260819-223533-R8-BASE-CLIENT-SCOPE-R5`
 - Scoring: 十个 R8 全局问题等权；每项按已验证验收条件计 `0/25/50/75/100`
 
 ## 1. 完成度总览
@@ -37,7 +37,7 @@ xychart-beta
 | 5 | I02 Tool 事实单次表达 | 100% | closed | 最新三次生产运行 `18 calls = 18 outputs`，无高优先级副本、重复或 orphan | 无 |
 | 6 | I10 capability 身份 | 100% | closed | 最新 21 个 TaskSpace wire 请求身份一致，跨 Catalog/dispatch/wire/report 无冲突 | 无；projection 对照归入 I01/I08 |
 | 7 | I07 观测可信性 | 75% | verifying | canonical usage 与 projection 可复算 | 最新 I04 rollout 有 1 次 `TransitionInvalid`，observer 却报告 0 次失败 |
-| 8 | I03 动作组织稳定性 | 75% | verifying | description 候选 5/5 业务/oracle/Map 通过，Runtime 继续零副作用拒绝 | 候选仍有 4/5 run、6 call 首响应逃逸，相对 B0 无改善，已回退 |
+| 8 | I03 动作组织稳定性 | 75% | verifying | Base `3.0.6` 候选 5/5 业务/oracle/Map 通过，顶层逃逸为 0/5 runs、0 calls | 单一样本不足以关闭跨样本问题；仍有两次 JSON syntax 与两次 Waiting preflight |
 | 9 | I04 frontier 使用 | 75% | verifying | 顺序 patch 事务离线通过；最新复杂运行无 `TransitionInvalid` 且 Map 闭合 | 同批父子完成未自然命中；Map 仍为线性链，fork/join 未观察到 |
 | 10 | I08 成本与晋升 | 75% | investigating | 复杂样本四臂请求/input/cache/time/cost 已量化 | 只有一个复杂样本，产品阈值未确定 |
 
@@ -97,7 +97,7 @@ I04 新自然 DAG 样本两臂均完成：Standard 9 requests，TaskSpace 11 req
 | 未完成项 | 原因 | 不完成的影响 | 下一验收 |
 |---|---|---|---|
 | I05 逃逸恢复在线分支 | 最新自然样本没有触发逃逸 | 不能证明目标模型收到失败后会稳定恢复且无请求放大 | 不人为诱导；复杂自然样本出现时随 trace 验收 |
-| I03 协议行为 | 反馈 identity、work 示例和内层 description 三类文字候选均已证伪并回退；最新 description 候选为 4/5 runs、6 calls | client Tool 仍可能在首个初始化响应被另写成未声明顶层调用 | 不继续叠加文字；研究结构性 Function 名约束或重评 outer/inner Function 表达模型 |
+| I03 协议行为 | 反馈 identity、work 示例和内层 description 均已证伪；显式 Base `3.0.6` 将同样本逃逸降至 0/5 runs、0 calls | 仍缺跨样本、其他 client Tool 和长期复发证据 | 保留候选，在后续自然复杂验收中观察；不立即继续增加提示文字 |
 | I04 复杂依赖 | 客观提供两个独立修复域的新样本仍形成线性链；顺序 patch 事务仅离线通过 | fork/join、多 Ready 节点和多父节点仍无生产证据 | 不诱导拆图；先验收新事务，再分析首次读取前初始化通用链的影响 |
 | I07 观测漏报 | rollout 有明确 `TransitionInvalid`，pair report 的失败计数为 0 | 报告会错误隐藏协议错误并污染 I03/I04 判断 | 修复 canonical reject 到 observer 的消费链并离线回放该 trace |
 | I08 产品阈值 | 单个复杂样本已量化三模式取舍 | 不能据此决定默认 projection policy | 增加代表性样本前先定义决策指标 |
