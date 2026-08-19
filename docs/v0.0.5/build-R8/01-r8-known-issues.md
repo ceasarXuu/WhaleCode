@@ -1,7 +1,7 @@
 # R8 已知问题唯一账本
 
 - Created: 2026-07-31
-- Updated: 2026-08-19
+- Updated: 2026-08-20
 - Authority: R8 当前问题状态的唯一事实源
 - Historical evidence: `docs/v0.0.5/build-R7/47-r7.1-global-issue-register-legacy.md`
 - Current progress report: [`03-r8-current-progress.md`](03-r8-current-progress.md)
@@ -53,7 +53,9 @@
 > **I03 多行 Patch JSON 自愈（2026-08-19）**：H-010 两次 syntax 的原始参数同时包含 Patch 正文裸换行与未转义双引号，
 > 并非既有“单个裸换行”分支可处理的情况。当前自愈器已支持全量 LF 转义，并对具有完整原生 Patch 边界的
 > `apply_patch.input` 执行确定性 JSON string 编码；候选必须通过完整 Exec decoder，混合第二类错误仍拒绝，修复结果在历史
-> 写入前替换原参数。13 项模块测试和 1 项历史替换测试通过，未运行真实 Agent；因此该工程缺口已离线修复，但 I03 状态不变。
+> 写入前替换原参数。13 项模块测试和 1 项历史替换测试通过。后续 `map-request × repeat=3` 三轮全部完成业务/oracle/Map；
+> Run 1 自然命中多行原始 LF 转义，修复 hash 与正式 rollout 参数 hash 一致，并在同一请求执行成功；三轮 syntax reject 为 0。
+> 复合裸引号的完整 Patch 编码后备分支仍只有确定性证据；I03 的其他 Agent 动作组织问题状态不变。
 > 详见 [`taskspace-exec/86-multiline-apply-patch-self-heal-result.md`](taskspace-exec/86-multiline-apply-patch-self-heal-result.md)。
 > **VA-02 第二轮生产证据（2026-08-10）**：模型已稳定选择顶层 `taskspace_exec`，合法第二响应可初始化
 > `root -> inspect -> fix -> verify -> finish` 并原生执行 client Tool；但两轮首响应都在无 Hosted output 时的必填

@@ -1,9 +1,9 @@
 # R8 TaskSpace Exec 多行 Patch 自愈结果
 
-- Date: 2026-08-19
+- Date: 2026-08-20
 - Scope: `taskspace_exec` Function 参数中的确定性 JSON 语法修复
-- API usage: 0；只使用既有 trace 和本地 Rust 测试
-- Status: offline implemented and verified；尚未执行真实 Agent 复验
+- API usage: `WAR-20260820-000226-R8-MULTILINE-SELF-HEAL-R3`，3 次真实 sample
+- Status: implemented；真实自然命中并验证正式历史替换
 
 ## 1. 直接证据
 
@@ -28,4 +28,28 @@ Function arguments 表明这不是单个裸换行：整个 Patch 正文以原始
 - `session::tests::taskspace_raw_newline_self_heal_replaces_the_item_before_history_is_recorded`：1/1 通过；确认正式上下文只保存修复后参数。
 - `cargo fmt --check`：通过；仅有仓库既有 stable toolchain 配置警告。
 
-该结果证明工程分支能够处理已观察到的参数形态，不证明目标模型后续仍会产生该形态，也不替代真实运行中的自然命中验收。
+## 4. 真实运行验收
+
+`subscription-billing-repair × map-request × repeat=3` 三轮均完成业务修复、公开验证、隐藏 oracle 和 Map 闭合：
+
+| Run | Requests | Input | Cached | Uncached | Output | Agent wall | Map | 自愈 / syntax reject | 其他拒绝 |
+|---|---:|---:|---:|---:|---:|---:|---|---|---:|
+| 1 | 9 | 166,565 | 151,552 | 15,013 | 5,686 | 49.058s | 5 nodes / 4 edges / closed | 1 / 0 | 0 |
+| 2 | 10 | 185,776 | 166,272 | 19,504 | 6,275 | 55.543s | 5 nodes / 4 edges / closed | 0 / 0 | 1 Waiting |
+| 3 | 14 | 262,441 | 242,304 | 20,137 | 7,434 | 60.834s | 6 nodes / 5 edges / closed | 0 / 0 | 1 Waiting + 1 TransitionInvalid |
+| **总计** | **33** | **614,782** | **560,128** | **54,654** | **19,395** | **165.435s** | **3/3 closed** | **1 / 0** | **3** |
+
+Run 1 自然生成含原始 LF 的多行 `apply_patch` 非法参数。Runtime 记录原始 hash
+`e8f91d...10b1`，修复后 hash `cba9bc...cf9c`；正式 rollout 中同一 `call_id` 参数的逐字 hash 也是
+`cba9bc...cf9c`，可解码为 `update_and_work -> apply_patch@fix`，并在同一请求成功执行。错误参数没有进入后续上下文，
+也没有产生 syntax reject 或恢复请求。因此“真实输入可修复、同请求执行、修复版进入正式历史”三项验收均通过。
+
+本次自然命中的是通用“全部原始 LF 转义”分支。历史坏例中同时存在正文裸引号时使用的“完整 Patch 正文 JSON string 编码”
+后备分支仍只有确定性测试与历史 fixture 证据，本批不能把它写成在线自然命中。
+
+三次状态拒绝与 JSON 自愈无关，均零副作用并在后续请求恢复，继续归 I04。费用按完整 usage 估算为 CNY 0.10464656。
+最终请求使累计 input 达到 614,782，超过计划 600,000 上限 2.46%；这是当前请求边界 gate 无法预测本次最终 usage 的
+测量边界，未触发额外请求。完整可复算证据见
+`benchmarks/taskspace/r8/evidence/WAR-20260820-000226-R8-MULTILINE-SELF-HEAL-R3.json`。
+
+该结果完成多行原始 LF 参数形态的在线工程验收；复合裸引号后备分支仍为离线验收，也不关闭 I03 的其他 Agent 动作组织问题。

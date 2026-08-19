@@ -1,6 +1,6 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-20T00:02:26+08:00",
+  "updated_at": "2026-08-20T00:11:02+08:00",
   "entries": [
     {
       "record_id": "WAR-20260819-054148-R8-I04-ORDERED-PATCH-R1",
@@ -10394,11 +10394,11 @@
     {
       "record_id": "WAR-20260820-000226-R8-MULTILINE-SELF-HEAL-R3",
       "record_type": "run_batch",
-      "status": "planned",
-      "started_at": null,
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "status": "settled",
+      "started_at": "2026-08-20T00:04:40+08:00",
+      "ended_at": "2026-08-20T00:09:33+08:00",
+      "elapsed_calendar_seconds": 293,
+      "aggregate_agent_wall_time_ms": 165435,
       "reason": "验证 TaskSpace Exec 对 apply_patch 参数中未转义换行及补丁正文裸引号的机械自愈，确认可修复输入不再产生 JSON syntax reject，且修复后的参数进入正式会话历史。",
       "authorization": {
         "required": true,
@@ -10428,22 +10428,26 @@
         ],
         "repeats_per_arm_per_sample": 3,
         "planned_sample_runs": 3,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "pending"
+        "actual_sample_runs": 3,
+        "api_requests": 33,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
-        "input": 0,
-        "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "input": 614782,
+        "cached_input": 560128,
+        "uncached_input": 54654,
+        "output": 19395
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated",
         "currency": "CNY",
-        "amount": 0.15,
+        "amount": 0.10464656,
         "actual_billed_amount": null,
-        "components": null,
+        "components": {
+          "cached_input": 0.01120256,
+          "uncached_input": 0.054654,
+          "output": 0.03879
+        },
         "pricing_snapshot": {
           "model": "deepseek-v4-flash",
           "captured_at": "2026-08-20",
@@ -10452,8 +10456,8 @@
           "uncached_input_per_million": 1.0,
           "output_per_million": 2.0
         },
-        "formula": "hard cap only; settle from complete Provider usage records",
-        "note": "计划上限，不代表实际消耗。"
+        "formula": "560128/1000000*0.02 + 54654/1000000*1.0 + 19395/1000000*2.0",
+        "note": "33 个 Provider 请求 usage 完整；费用未超过 0.15 元。最终请求使累计 input 超过计划上限 14,782（2.46%），现有 gate 只能在发出下一请求前阻断，无法预知当前响应的最终 usage。"
       },
       "evidence": {
         "planned_run_root": "target/whale-agent-runs/WAR-20260820-000226-R8-MULTILINE-SELF-HEAL-R3",
@@ -10464,7 +10468,15 @@
         "execution": "docker",
         "experiment_plan": "docs/v0.0.5/build-R8/taskspace-exec/86-multiline-apply-patch-self-heal-result.md",
         "stop_conditions": "零自动重试；基础设施故障、usage 缺失、35 requests、600K input、25K output、CNY 0.15 或 10 分钟任一先到即停止。",
-        "acceptance": "若自然出现可修复的多行 apply_patch 参数，必须零 JSON syntax reject、执行成功且正式 rollout 保存修复后的合法参数；若未自然命中，只能证明无回归。"
+        "acceptance": "若自然出现可修复的多行 apply_patch 参数，必须零 JSON syntax reject、执行成功且正式 rollout 保存修复后的合法参数；若未自然命中，只能证明无回归。",
+        "actual_run_roots": [
+          "target/whale-agent-runs/WAR-20260820-000226-R8-MULTILINE-SELF-HEAL-R3/H011/run-1/subscription-billing-repair/20260820-000440-646",
+          "target/whale-agent-runs/WAR-20260820-000226-R8-MULTILINE-SELF-HEAL-R3/H011/run-2/subscription-billing-repair/20260820-000624-238",
+          "target/whale-agent-runs/WAR-20260820-000226-R8-MULTILINE-SELF-HEAL-R3/H011/run-3/subscription-billing-repair/20260820-000810-096"
+        ],
+        "usage_evidence_status": "complete",
+        "durable_evidence_path": "benchmarks/taskspace/r8/evidence/WAR-20260820-000226-R8-MULTILINE-SELF-HEAL-R3.json",
+        "outcome": "3/3 business, public validation, hidden oracle and Map closure passed; one natural multiline apply_patch argument hit the raw-LF escape branch and executed in the same request; repaired hash matched persisted rollout; zero JSON syntax rejects; the full Patch-body JSON-encoding fallback remains deterministically tested only; three unrelated state rejects recovered in later requests."
       }
     }
   ]
