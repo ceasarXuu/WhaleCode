@@ -1,6 +1,6 @@
 # exec_command 首轮作用域单变量实验
 
-- Status: in-progress
+- Status: completed-no-promotion
 - Product Authority: `../02-r8-global-constraints.md`
 - Applicable Decisions: 2.4、2.8、2.9、4.1、4.2、5.4、5.5、5.7、5.8、5.9、5.13
 - COE: `../../../../coe/2026-08-19-07-24-r8-taskspace-action-top-level-promotion.md`
@@ -60,6 +60,10 @@ E1 与 F1 不叠加；运行前生产代码已回退到 B0。
 - F1：5/5 业务与隐藏验证通过；3/5 run、4 call 出现顶层 `exec_command`；48 requests；估算 CNY 0.16675288。
 - B0 与 F1 的全部逃逸都与首个 `initialize_and_work` 同响应产生，发生在任何 `client_results` 反馈之前。
 - 结论：F1 的 call 数波动不构成因果收益；成功反馈不是首轮逃逸的必要条件。F1 已通过 commit `efcb738f5` 完整回退。
+- E1：5/5 业务与隐藏验证通过；2/5 run、6 call 出现顶层 `exec_command`；47 requests；估算 CNY 0.18867856。
+- E1 的逃逸总 call 数与 B0 相同，仅集中到 2 个 run；该规模下不构成清晰方向，候选已通过 commit `2504d32e0` 回退。
+- 总计：15 个有效 sample、151 requests、2,737,651 input、2,455,808 cached input、97,603 output、估算 CNY 0.52616516。
+- 最终结论：成功反馈字段和两段 work 示例都不是充分根因；当前生产代码保持 B0。下一轮应研究首响应中 Provider 对未声明 Function 名的选择机制与可用的结构性约束，不继续叠加提示文字。
 
 ## Pre-Phase Plan Rebase Gate
 

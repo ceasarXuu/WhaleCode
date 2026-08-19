@@ -2,8 +2,8 @@
 
 - Report date: 2026-08-19
 - Source plans: `00-r8-charter.md`、`01-r8-known-issues.md`、`taskspace-exec/12-phase-b-zero-base-plan.md`
-- Scope: `whalecode-alpha` branch，验收 subject commit `413f940d7`
-- Latest runtime evidence: `WAR-20260819-054148-R8-I04-ORDERED-PATCH-R1`
+- Scope: `whalecode-alpha` branch，当前生产代码 commit `2504d32e0`
+- Latest runtime evidence: `WAR-20260819-084538-R8-EXEC-FEEDBACK-SCOPE-AB`
 - Scoring: 十个 R8 全局问题等权；每项按已验证验收条件计 `0/25/50/75/100`
 
 ## 1. 完成度总览
@@ -37,7 +37,7 @@ xychart-beta
 | 5 | I02 Tool 事实单次表达 | 100% | closed | 最新三次生产运行 `18 calls = 18 outputs`，无高优先级副本、重复或 orphan | 无 |
 | 6 | I10 capability 身份 | 100% | closed | 最新 21 个 TaskSpace wire 请求身份一致，跨 Catalog/dispatch/wire/report 无冲突 | 无；projection 对照归入 I01/I08 |
 | 7 | I07 观测可信性 | 75% | verifying | canonical usage 与 projection 可复算 | 最新 I04 rollout 有 1 次 `TransitionInvalid`，observer 却报告 0 次失败 |
-| 8 | I03 动作组织稳定性 | 75% | verifying | 复杂样本继续完成，Runtime 对顶层 Tool 逃逸保持零副作用 | 最新行为验收仍出现 1 次顶层 `exec_command` 逃逸 |
+| 8 | I03 动作组织稳定性 | 75% | verifying | 三臂 15/15 业务和 Map 闭合，Runtime 对逃逸保持零副作用 | B0 仍有 3/5 run、6 call 首响应顶层 `exec_command` 逃逸；反馈字段和 work 示例均非充分根因 |
 | 9 | I04 frontier 使用 | 75% | verifying | 顺序 patch 事务离线通过；最新复杂运行无 `TransitionInvalid` 且 Map 闭合 | 同批父子完成未自然命中；Map 仍为线性链，fork/join 未观察到 |
 | 10 | I08 成本与晋升 | 75% | investigating | 复杂样本四臂请求/input/cache/time/cost 已量化 | 只有一个复杂样本，产品阈值未确定 |
 
@@ -97,7 +97,7 @@ I04 新自然 DAG 样本两臂均完成：Standard 9 requests，TaskSpace 11 req
 | 未完成项 | 原因 | 不完成的影响 | 下一验收 |
 |---|---|---|---|
 | I05 逃逸恢复在线分支 | 最新自然样本没有触发逃逸 | 不能证明目标模型收到失败后会稳定恢复且无请求放大 | 不人为诱导；复杂自然样本出现时随 trace 验收 |
-| I03 协议行为 | 历史异常仍存在，但最新同批父子完成不再归为 Agent 错误 | 顺序 patch 修复若未生产命中，不能证明请求放大已经消失 | 缓存门禁通过后，以最小真实样本确认同请求完成父子节点 |
+| I03 协议行为 | 三臂实验确认逃逸集中在首个 `initialize_and_work` 同响应；反馈 identity 与 work 示例候选均已证伪并回退 | client Tool 仍可能被模型另写成未声明顶层调用，制造一次零副作用拒绝和恢复请求 | 研究 Provider 对未声明 Function 名的首响应选择机制及可用结构约束，不继续叠加反馈语义或状态机限制 |
 | I04 复杂依赖 | 客观提供两个独立修复域的新样本仍形成线性链；顺序 patch 事务仅离线通过 | fork/join、多 Ready 节点和多父节点仍无生产证据 | 不诱导拆图；先验收新事务，再分析首次读取前初始化通用链的影响 |
 | I07 观测漏报 | rollout 有明确 `TransitionInvalid`，pair report 的失败计数为 0 | 报告会错误隐藏协议错误并污染 I03/I04 判断 | 修复 canonical reject 到 observer 的消费链并离线回放该 trace |
 | I08 产品阈值 | 单个复杂样本已量化三模式取舍 | 不能据此决定默认 projection policy | 增加代表性样本前先定义决策指标 |

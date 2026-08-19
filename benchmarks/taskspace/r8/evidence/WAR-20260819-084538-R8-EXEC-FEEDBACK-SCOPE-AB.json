@@ -1,0 +1,83 @@
+{
+  "schema_version": "r8-exec-command-scope-experiment-v1",
+  "record_id": "WAR-20260819-084538-R8-EXEC-FEEDBACK-SCOPE-AB",
+  "scenario": "subscription-billing-repair",
+  "model": "deepseek-v4-flash",
+  "projection_policy": "map-request",
+  "repeat_per_arm": 5,
+  "result": "no_candidate_promoted",
+  "arms": [
+    {
+      "arm": "B0-current-feedback",
+      "commit": "fc4a0a9e9a9caff39c079a7c2e09ea2e99f63f1e",
+      "escaped_runs": 3,
+      "escaped_calls": 6,
+      "escape_calls_per_run": [1, 0, 2, 0, 3],
+      "business_passes": 5,
+      "map_closed_runs": 5,
+      "requests": 56,
+      "input_tokens": 1026629,
+      "cached_input_tokens": 942336,
+      "uncached_input_tokens": 84293,
+      "output_tokens": 33797,
+      "agent_wall_time_ms": 267908,
+      "estimated_cost_cny": 0.17073372,
+      "artifact_root": "target/whale-agent-runs/WAR-20260819-084538-R8-EXEC-FEEDBACK-SCOPE-AB/B0-valid"
+    },
+    {
+      "arm": "F1-executed-client-tool",
+      "commit": "b036f613a",
+      "revert_commit": "efcb738f5",
+      "escaped_runs": 3,
+      "escaped_calls": 4,
+      "escape_calls_per_run": [2, 1, 0, 0, 1],
+      "business_passes": 5,
+      "map_closed_runs": 5,
+      "requests": 48,
+      "input_tokens": 892140,
+      "cached_input_tokens": 809344,
+      "uncached_input_tokens": 82796,
+      "output_tokens": 33885,
+      "agent_wall_time_ms": 251865,
+      "estimated_cost_cny": 0.16675288,
+      "artifact_root": "target/whale-agent-runs/WAR-20260819-084538-R8-EXEC-FEEDBACK-SCOPE-AB/F1",
+      "conclusion": "refuted_by_timing_and_unchanged_run_prevalence"
+    },
+    {
+      "arm": "E1-no-client-work-examples",
+      "commit": "f8fe6070f",
+      "revert_commit": "2504d32e0",
+      "escaped_runs": 2,
+      "escaped_calls": 6,
+      "escape_calls_per_run": [0, 0, 0, 3, 3],
+      "business_passes": 5,
+      "map_closed_runs": 5,
+      "requests": 47,
+      "input_tokens": 818882,
+      "cached_input_tokens": 704128,
+      "uncached_input_tokens": 114754,
+      "output_tokens": 29921,
+      "agent_wall_time_ms": 246535,
+      "estimated_cost_cny": 0.18867856,
+      "artifact_root": "target/whale-agent-runs/WAR-20260819-084538-R8-EXEC-FEEDBACK-SCOPE-AB/E1",
+      "conclusion": "not_promoted_same_escape_call_count_and_no_clear_direction"
+    }
+  ],
+  "totals": {
+    "valid_sample_runs": 15,
+    "no_cost_invalid_harness_preflights": 5,
+    "requests": 151,
+    "input_tokens": 2737651,
+    "cached_input_tokens": 2455808,
+    "uncached_input_tokens": 281843,
+    "output_tokens": 97603,
+    "agent_wall_time_ms": 766308,
+    "estimated_cost_cny": 0.52616516
+  },
+  "causal_findings": [
+    "All observed escapes were emitted in the same first response as initialize_and_work.",
+    "No successful client result existed before the observed escape, so result-field identity is not a necessary trigger.",
+    "Removing client work examples changed escaped-run distribution but not escaped-call count and did not establish a clear causal improvement.",
+    "All 15 valid runs passed business, public, hidden-oracle, completion, and Map-closure checks."
+  ]
+}

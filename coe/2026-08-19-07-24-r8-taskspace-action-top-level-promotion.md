@@ -829,7 +829,7 @@
 - Time: 2026-08-19 09:00
 
 ## Hypothesis H-008: client Tool work 示例放大内部 action 的顶层提升
-- Status: unverified
+- Status: rejected
 - Parent: P-001
 - Claim: `taskspace_exec` description 中两段显式 `exec_command` work 示例，使模型在首响应正确生成 outer sequence 的同时，更容易把后续同类内部 action 另写为顶层 sibling Function Call。
 - Layer: interaction
@@ -864,13 +864,36 @@
   - Instrumentation status: existing permanent traces sufficient
   - Instrumentation lifecycle:
     - retain
-- Evidence gate: planned
+- Evidence gate: satisfied
 - Related evidence:
   - E-020
-- Conclusion: pending experiment
-- Repair design readiness: diagnostic experiment authorized; production promotion not yet decided
-- Next step: implement E1 as a single-variable candidate and run repeat=5.
+  - E-021
+- Conclusion: 未获得支持。E1 从 3/5 变为 2/5 escaped runs，但 escaped calls 仍为 6，且 5 次中后两次各集中出现 3 call；该变化不足以建立示例为因果放大因素。
+- Repair design readiness: rejected; E1 reverted
+- Next step: 保持生产 description 不变，转向首响应 Function 选择机制与结构约束。
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - candidate did not produce a clear directional improvement
+
+## Evidence E-021: 移除 client work 示例没有降低逃逸总量
+- Related hypotheses:
+  - H-008
+- Direction: refutes
+- Type: controlled-experiment
+- Source: `WAR-20260819-084538-R8-EXEC-FEEDBACK-SCOPE-AB` B0/E1
+- Prediction or plan link:
+  - H-008 要求只移除两段 work 示例后，首响应逃逸明显下降且无错误迁移。
+- Matched signal:
+  - B0 为 3/5 run、6 call；E1 为 2/5 run、6 call。
+  - E1 前三次为 0 call，后两次各 3 call；15 次实验的业务、公开、隐藏验证和 Map 闭合全部通过。
+- Correlation keys:
+  - experiment arm and run index
+  - first provider response
+- Raw content:
+  ```text
+  B0 escape calls/run: [1,0,2,0,3]
+  E1 escape calls/run: [0,0,0,3,3]
+  ```
+- Interpretation: 示例不是逃逸发生的必要条件；run 数的轻微变化不能覆盖相同的总 escape call 数和明显的批内波动。
+- Time: 2026-08-19 09:08
