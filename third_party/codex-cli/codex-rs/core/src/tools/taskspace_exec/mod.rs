@@ -13,6 +13,7 @@ mod response_scope;
 mod result;
 mod schema_validation;
 mod self_heal;
+mod self_heal_apply_patch;
 mod sequence_schema;
 
 pub(crate) use catalog::TASKSPACE_EXEC_TOOL_NAME;
@@ -81,3 +82,7 @@ mod handler_tests;
 #[cfg(test)]
 #[path = "../taskspace_exec_persisted_lifecycle_tests.rs"]
 mod persisted_lifecycle_tests;
+
+#[cfg(test)]
+#[path = "../taskspace_exec_self_heal_tests.rs"]
+mod self_heal_tests;

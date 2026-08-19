@@ -8,6 +8,7 @@ use sha2::Sha256;
 
 use super::TASKSPACE_EXEC_TOOL_NAME;
 use super::TaskSpaceExecCatalog;
+use super::self_heal_apply_patch::normalized_apply_patch_candidates;
 
 const ERROR_WINDOW_BYTES: usize = 24;
 
@@ -91,7 +92,7 @@ fn repair_syntax_error(
     let positions = candidate_positions(arguments, error.line(), error.column());
     let mut repairs = BTreeMap::new();
 
-    for byte_index in positions {
+    for &byte_index in &positions {
         for (delimiter, repair_token) in [('}', "}"), (']', "]")] {
             let mut candidate = String::with_capacity(arguments.len() + 1);
             candidate.push_str(&arguments[..byte_index]);
@@ -119,6 +120,14 @@ fn repair_syntax_error(
             repairs
                 .entry(candidate)
                 .or_insert(("delete", repair_token, byte_index));
+        }
+    }
+
+    for (candidate, byte_index) in normalized_apply_patch_candidates(arguments, &positions) {
+        if catalog.decode_plan(&candidate).is_ok() {
+            repairs
+                .entry(candidate)
+                .or_insert(("normalize", "apply_patch_wrapper", byte_index));
         }
     }
 
