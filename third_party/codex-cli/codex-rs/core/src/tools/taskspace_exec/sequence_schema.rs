@@ -178,19 +178,8 @@ fn client_action_schema(client: &TaskSpaceClientCapability) -> JsonSchema {
         Some(required),
         Some(AdditionalProperties::Boolean(false)),
     );
-    schema.description = Some(client_action_description(capability));
+    schema.description = Some(capability.description.clone());
     schema
-}
-
-fn client_action_description(capability: &ToolSpecCapability) -> String {
-    if capability.tool_name.namespace.is_none() && capability.tool_name.name == "exec_command" {
-        format!(
-            "{} In TaskSpace, use `exec_command` only inside the `taskspace_exec.tools` array; never emit `exec_command` as a top-level Function Tool call.",
-            capability.description
-        )
-    } else {
-        capability.description.clone()
-    }
 }
 
 fn exact_name(name: &str) -> JsonSchema {

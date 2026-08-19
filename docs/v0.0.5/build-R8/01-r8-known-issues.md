@@ -35,11 +35,13 @@
 > [`taskspace-exec/83-exec-command-feedback-scope-experiment.md`](taskspace-exec/83-exec-command-feedback-scope-experiment.md) 与账本
 > `WAR-20260819-084538-R8-EXEC-FEEDBACK-SCOPE-AB`。
 
-> **I03 内层作用域合同候选（2026-08-19）**：commit `bf0b7cc8b` 只在 TaskSpace Exec 内部 catalog 的
+> **I03 内层作用域合同候选及回退（2026-08-19）**：commit `bf0b7cc8b` 只在 TaskSpace Exec 内部 catalog 的
 > `exec_command` description 中明确：该 action 只能位于 `taskspace_exec.tools`，不得作为顶层 Function Tool call。
-> Standard/native ToolSpec、其他内部 Tool、Runtime 拒绝语义和 Map 状态机均未修改；TaskSpace Exec 78 项测试通过，缓存敏感面
-> 免费 final-wire 门禁通过。该候选尚未获得新的真实 Agent 运行预算，因此只能证明实现作用域和离线正确性，不能证明逃逸率下降；
-> I03 继续 verifying。调查账本见 `coe/2026-08-19-07-24-r8-taskspace-action-top-level-promotion.md` 的 H-009/E-022。
+> Standard/native ToolSpec、其他内部 Tool、Runtime 拒绝语义和 Map 状态机均未修改。真实 repeat=5 中 5/5 业务/oracle/Map
+> 通过，但逃逸为 `4/5 runs, 6 calls`，相对 B0 的 `3/5, 6 calls` 没有改善；六次仍全部发生在首个初始化响应。
+> Provider wire 证明 client catalog 的 140 bytes 增量每轮均生效，因此不是测试未加载候选。H-009 已拒绝，代码回退，I03 继续
+> verifying。详见 [`taskspace-exec/84-exec-command-scope-description-repeat5-result.md`](taskspace-exec/84-exec-command-scope-description-repeat5-result.md)
+> 及调查账本 H-009/E-023。
 > **VA-02 第二轮生产证据（2026-08-10）**：模型已稳定选择顶层 `taskspace_exec`，合法第二响应可初始化
 > `root -> inspect -> fix -> verify -> finish` 并原生执行 client Tool；但两轮首响应都在无 Hosted output 时的必填
 > `hosted_bindings: []` 邻近位置生成不同的非法 JSON。I03 因首次参数稳定性继续 verifying，VA-03 保持阻断。I07 的

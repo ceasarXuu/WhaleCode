@@ -10232,11 +10232,11 @@
     {
       "record_id": "WAR-20260819-220821-R8-EXEC-SCOPE-DESCRIPTION-R5",
       "record_type": "run_batch",
-      "status": "planned",
+      "status": "settled",
       "started_at": "2026-08-19T22:08:21+08:00",
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "ended_at": "2026-08-19T22:14:06+08:00",
+      "elapsed_calendar_seconds": 345,
+      "aggregate_agent_wall_time_ms": 230645,
       "reason": "验证仅在 TaskSpace 内层 exec_command description 中明确作用域，是否降低首响应顶层 exec_command 逃逸。",
       "authorization": {
         "required": true,
@@ -10266,21 +10266,35 @@
         ],
         "repeats_per_arm_per_sample": 5,
         "planned_sample_runs": 5,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "pending"
+        "actual_sample_runs": 5,
+        "api_requests": 50,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
-        "input": 0,
-        "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "input": 870780,
+        "cached_input": 759808,
+        "uncached_input": 110972,
+        "output": 28113
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated",
         "currency": "CNY",
-        "amount": 0.0,
-        "actual_billed_amount": null
+        "amount": 0.18239416,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.01519616,
+          "uncached_input": 0.110972,
+          "output": 0.056226
+        },
+        "pricing_snapshot": {
+          "model": "deepseek-v4-flash",
+          "captured_at": "2026-08-19",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": "759808/1000000*0.02 + 110972/1000000*1.0 + 28113/1000000*2.0"
       },
       "evidence": {
         "planned_run_root": "target/whale-agent-runs/WAR-20260819-220821-R8-EXEC-SCOPE-DESCRIPTION-R5",
@@ -10291,9 +10305,9 @@
         "execution": "docker",
         "experiment_plan": "coe/2026-08-19-07-24-r8-taskspace-action-top-level-promotion.md#hypothesis-h-009-内层-exec_command-的局部作用域合同可降低顶层提升",
         "stop_conditions": "零自动重试；基础设施故障、usage 缺失、新协议异常、190 requests、3M input、100K output、CNY 1.00 或 90 分钟任一先到即停止。",
-        "usage_evidence_status": "pending",
+        "usage_evidence_status": "complete",
         "durable_evidence_path": "benchmarks/taskspace/r8/evidence/WAR-20260819-220821-R8-EXEC-SCOPE-DESCRIPTION-R5.json",
-        "outcome": "pending"
+        "outcome": "5/5 business, oracle and Map closure passed; top-level exec_command escaped in 4/5 runs and 6 calls, all in the first initialize_and_work response; B0 was 3/5 runs and 6 calls, so H-009 was rejected and the description-only candidate was reverted"
       }
     }
   ]

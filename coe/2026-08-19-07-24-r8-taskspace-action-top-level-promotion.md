@@ -899,7 +899,7 @@
 - Time: 2026-08-19 09:08
 
 ## Hypothesis H-009: 内层 exec_command 的局部作用域合同可降低顶层提升
-- Status: verifying
+- Status: rejected
 - Parent: P-001
 - Claim: 只在 TaskSpace Exec 内部 catalog 的 `exec_command` description 中明确其作用域，可降低模型把该内部 action 另写为顶层 Function Call 的概率，同时不改变 Standard Tool 合同和其他内部 Tool。
 - Layer: interaction
@@ -935,14 +935,17 @@
   - Instrumentation status: existing permanent traces sufficient
   - Instrumentation lifecycle:
     - retain
-- Evidence gate: pending live evidence
+- Evidence gate: satisfied
 - Related evidence:
   - E-022
-- Conclusion: commit `bf0b7cc8b` 已完成局部合同实现和离线验证；尚无真实 Agent 行为结果，不能判断收益。
-- Repair design readiness: implemented offline; live verification pending
-- Next step: 获得新预算后与 B0 同口径复验；在此之前不继续叠加提示词或 Runtime 规则。
+- E-023
+- Conclusion: 被证伪。本轮为 4/5 escaped runs、6 calls，历史 B0 为 3/5、6 calls；局部 description 没有降低逃逸总量或发生率。
+- Repair design readiness: rejected; candidate reverted
+- Next step: 不在该 description 候选上继续堆叠文字；转向可结构性限制首响应 Function 名的机制，或重评 outer/inner Function 表达模型。
 - Blocker:
-  - live Whale Agent budget not approved
+  - none
+- Close reason:
+  - live repeat=5 did not improve escaped runs or calls
 
 ## Evidence E-022: TaskSpace 内层作用域合同已离线落地
 - Related hypotheses:
@@ -970,3 +973,30 @@
   ```
 - Interpretation: 候选的工程作用域和离线正确性已验证；该证据不包含目标模型逃逸频率，不能关闭 H-009 或 I03。
 - Time: 2026-08-19
+
+## Evidence E-023: 内层作用域描述没有降低首响应逃逸
+- Related hypotheses:
+  - H-009
+- Direction: refutes
+- Type: controlled-experiment
+- Source: `WAR-20260819-220821-R8-EXEC-SCOPE-DESCRIPTION-R5`
+- Prediction or plan link:
+  - H-009 要求 escaped runs/calls 相对 B0 明显下降，同时业务、Map 和合法内层调用不回归。
+- Matched signal:
+  - 候选 5/5 业务、公开验证、hidden oracle 和 Map 闭合通过。
+  - 候选逃逸为 4/5 runs、6 calls、逐轮 `[3,0,1,1,1]`；B0 为 3/5、6 calls、逐轮 `[1,0,2,0,3]`。
+  - 六次逃逸全部位于首个 `initialize_and_work` 同响应，早于任何 Tool feedback。
+  - 五轮 Provider wire 的 client catalog 均比 B0 增加 140 bytes 且 hash 一致，证明候选实际进入请求。
+- Correlation keys:
+  - run index
+  - provider first response
+  - tools hash
+- Raw content:
+  ```text
+  H-009: 4/5 escaped runs, 6 calls, [3,0,1,1,1]
+  B0:    3/5 escaped runs, 6 calls, [1,0,2,0,3]
+  candidate client catalog: 16164 bytes
+  B0 client catalog:        16024 bytes
+  ```
+- Interpretation: 结果排除了“改动没有进入 Provider 请求”，并直接否定局部 description 足以约束首响应 Function 选择；请求/token 波动不构成候选收益。
+- Time: 2026-08-19 22:14
