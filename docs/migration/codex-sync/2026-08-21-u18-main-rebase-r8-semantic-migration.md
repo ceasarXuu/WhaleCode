@@ -5,7 +5,8 @@
 - 工作空间：`/home/zhangxu/whalecode-codex`
 - rebase 目标：`main@df5da4d3944448a9ae877d601f8c8045c415d983`
 - Codex vendor substrate：`rust-v0.147.0` / `be6e8eac029b183056b7e4402879f15d2c85f61b`
-- 真实模型/API 请求：0
+- 真实模型/API 请求：13（Standard 6 + map-request 7）
+- 真实运行费用：`0.01973628 CNY`
 
 ## 1. 目标与边界
 
@@ -60,11 +61,16 @@
 | image/web app-server schema 注册定向用例 | 各 1 passed |
 | OpenAI provider runtime-gate 测试夹具 | 1 passed |
 | 隔离矩阵 | 4,881 tests 完成；非全绿 |
-| cache index gate | blocked：敏感面与旧 accepted baseline 不一致，等待专用真实回归 |
-| 真实模型/API 请求 | 0 |
+| cache qualification | `WAR-20260821-060352-CACHE-REGRESSION-2C622B25`：Standard 与 map-request 双臂业务成功、trace 完整、usage 完整 |
+| cache baseline | 仅晋升 `standard_two_request_final_wire` 与 `taskspace_production_tool_wire` 两个 U23 稳定场景 |
+| cache index gate | PASS，surface `2e419a893a56e491b3325bf4bc94054b3147d866e39d5c927f9d2f16bbcaff79` |
+| cache Python tests | 232 passed |
+| promoted final-wire tests | Standard 1 passed；TaskSpace 1 passed |
+| overlay/replay metadata | 290 paths；validator PASS |
+| 真实模型/API 请求 | 13；实际 `0.01973628 CNY` |
 
 隔离矩阵中的新增批量 image/web `invalid number` 回归已修复。高并发矩阵中一条 image-edit 用例未命中 mock，隔离精确复跑 1/1 通过。其余失败继续落在既有清单的 OpenAI hosted/remote catalog/plugin sharing、Bedrock、Guardian、DeepSeek-only 模型目录和 sandbox 临时目录假设；本单元不为追求全绿恢复已明确关闭的产品面。历史逐项分类仍见 [`failure-manifest.md`](../../v0.0.5/codex-upstream-sync/evidence/u17-closure-4f4f5d4c5/failure-manifest.md)。
 
 ## 4. 收口结论
 
-最新 main 的 rebase 与冲突处理已经完成到行为层：DeepSeek 默认链未被 OpenAI 测试假设反向侵入；TaskSpace 使用唯一 relational store，旧 v2 数据可恢复查看但不被误激活；fork/restart 后的生产 final-wire 有端到端证据。同步元数据已经通过校验，但缓存 index gate 因当前敏感面与旧 accepted baseline 不一致而正确阻断。必须取得专用真实回归预算、使用专用 runner 形成与当前指纹一致的证据并完成 baseline 晋升后，才能提交和精确 lease 推送。
+最新 main 的 rebase 与冲突处理已经完成到行为层：DeepSeek 默认链未被 OpenAI 测试假设反向侵入；TaskSpace 使用唯一 relational store，旧 v2 数据可恢复查看但不被误激活；fork/restart 后的生产 final-wire 有端到端证据。专用 runner 已在用户批准的总包预算内完成 Standard + map-request 双臂资格运行，用量、费用、trace 与业务结果均完整；仅 U23 明确识别的两个稳定 final-wire 场景获接受并晋升，晋升后的 index gate、232 个缓存测试与两条 Rust final-wire 测试均通过。同步元数据已刷新为 290 条 overlay/replay 路径并通过校验。当前只剩原子提交与精确 lease 推送。

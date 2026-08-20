@@ -2,9 +2,9 @@
 
 > 计划治理说明（2026-08-10）：本专题只保留一份工程计划：[plan.md](plan.md)。已完成工作统一记录在该计划的状态表中，详细证据由 execution report 和 ledger 承载；不存在并行或嵌套的历史计划。唯一产品决策权威源为 [decisions.md](decisions.md)。
 
-> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据均已完成；0.147 Phase A–E 已完成，平台/产品延期项保持独立登记。
+> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据均已完成；0.147 Phase A–E 与最新 `main` rebase follow-up（U18）已完成，平台/产品延期项保持独立登记。
 
-- 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成；Phase A–E verified
+- 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成；Phase A–E 与 U18 verified
 - 分析日期：2026-08-01
 - 适用版本：WhaleCode v0.0.5
 - Checkpoint B 起始提交：`5331173f158fe6352ba69d78bcaf5038971fc7f1`
@@ -65,7 +65,8 @@
 - U15 已收口：`thread/mapRuntimeMode/set` 与 `thread/taskspace/read` 继续只面向已加载线程并要求 experimental API opt-in；`thread/taskspace/updated` 仅在更高 canonical revision 成功落库后发射轻量失效通知，并经 listener FIFO 保持与 turn/resume 通知的顺序。JSON/TS 及 stable/experimental precomputed exports 已重生成；下一步进入 U16。
 - U16 第一段已恢复 `/taskspace` 与 `/task-show` 的 TUI typed RPC 路由：前者按顺序显式启用再读取，后者只读；该原子段以 canonical Map 文本摘要验证了完整路由。
 - U16 已收口：第二段恢复只绑定 loopback 随机端口的 canonical browser viewer；第三段在同一 mock 线程锁定 Standard→TaskSpace 最终 Responses body、公共工具稳定性、conversation prefix、`instructions` 与 `prompt_cache_key`，并把两组 DeepSeek final-wire 纳入完整免费缓存矩阵。Phase D 的 U11–U16 全部 verified，0 真实请求。
-- U17 已收口并完成对抗性修复：当前 overlay/replay 相对 0.147 为 185 条路径；旧版空 TaskSpace map 可迁移并原地激活，普通 `thread/fork` 会持久化 `Fork` lineage。process-level 回归在同一真实 app-server/SQLite 链中覆盖 Standard 请求、typed mode/read RPC、fork、shutdown/restart/resume 与 TaskSpace Responses final-wire。原始 94 项失败见[逐项清单](evidence/u17-closure-4f4f5d4c5/failure-manifest.md)；后续已修复 16 项 GPT 子 Agent 夹具并增加[当前 vendor 宿主隔离入口](evidence/u17-closure-4f4f5d4c5/host-isolated-core-tests.md)，原环境噪声定向 6/6 通过。剩余 21 个 core lib 与 23 个 core integration 失败均为既有延期边界。TUI/Windows 未声明通过，0 真实请求，live baseline 未晋升。
+- U17 已收口并完成对抗性修复：U17 时点 overlay/replay 相对 0.147 为 185 条路径；旧版空 TaskSpace map 可迁移并原地激活，普通 `thread/fork` 会持久化 `Fork` lineage。process-level 回归在同一真实 app-server/SQLite 链中覆盖 Standard 请求、typed mode/read RPC、fork、shutdown/restart/resume 与 TaskSpace Responses final-wire。原始 94 项失败见[逐项清单](evidence/u17-closure-4f4f5d4c5/failure-manifest.md)；后续已修复 16 项 GPT 子 Agent 夹具并增加[当前 vendor 宿主隔离入口](evidence/u17-closure-4f4f5d4c5/host-isolated-core-tests.md)，原环境噪声定向 6/6 通过。剩余 21 个 core lib 与 23 个 core integration 失败均为既有延期边界。TUI/Windows 未声明通过，0 真实请求，live baseline 未晋升。
+- U18 已完成：119 个本地提交已重放到 `main@df5da4d3944448a9ae877d601f8c8045c415d983`；R8 relational store、旧 v2 archive、生产 app-server fork/restart/final-wire 链与 0.147 schema 兼容均已验证。当前 overlay/replay 相对 0.147 刷新为 290 条路径并通过 metadata validator。专用真实缓存资格运行 `WAR-20260821-060352-CACHE-REGRESSION-2C622B25` 的 Standard 与 map-request 双臂均成功，用量证据完整，实际费用 `0.01973628 CNY`；两个稳定 final-wire 场景已晋升，index gate、232 个缓存测试及两条 Rust final-wire 测试均通过。既有 hosted/provider/platform 延期项不因本轮收口而改判。
 - replay ledger 和五批 DAG 已降级为非权威证据；后续不得直接按自动 disposition 或路径桶实施，应按 `plan.md` 的 U1–U17 语义闭环推进。
 
 ## 历史分析快照（2026-08-01）

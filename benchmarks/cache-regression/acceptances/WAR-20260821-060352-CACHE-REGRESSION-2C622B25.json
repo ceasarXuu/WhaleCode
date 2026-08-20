@@ -1,0 +1,43 @@
+{
+  "schema_version": "whalecode-cache-baseline-acceptance-v1",
+  "status": "accepted",
+  "accepted_by": "user",
+  "accepted_at": "2026-08-21T06:05:10+08:00",
+  "acceptance_reference": "用户已批准继续完成 Codex 0.147 rebase 与合入收口，并已确认本轮主线引入的 Standard instructions 和 TaskSpace production tool description 属于应合入的上游/适配变化；随后批准 3.00 CNY 总包真实验收预算并要求在预算内持续推进。本接受仅晋升 U23 gate 明确列出的两个稳定 final-wire 场景，并以本次 Standard + map-request 双臂成功结果为 smoke 证据。",
+  "result_path": "benchmarks/cache-regression/results/WAR-20260821-060352-CACHE-REGRESSION-2C622B25.json",
+  "result_sha256": "0a81e63b063aaa7d500447e765fa0fe3c7dead70ebc90e7c536b0c0a3b1ae5ab",
+  "proposal_path": "benchmarks/cache-regression/proposals/2026-08-21-u23-final-baseline-qualification.json",
+  "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260821-U23-FINAL-BASELINE-QUALIFICATION.json",
+  "accepted_scope": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "standard",
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "Final Codex 0.147 baseline qualification after deterministic fixture repair: validate the intentional Standard instructions and TaskSpace tool-wire changes with one Standard and one map-request run; total package conservative remaining budget is 2.54717796 CNY before this proposal."
+  },
+  "acknowledged_unverified_scope": [],
+  "accepted_scenarios": [
+    {
+      "scenario_id": "standard_two_request_final_wire",
+      "after_payload_sha256": "80c333ec465ab91e4b31c67b9544e7b847e8c340e4c39e536ff6ab8840148aad"
+    },
+    {
+      "scenario_id": "taskspace_production_tool_wire",
+      "after_payload_sha256": "a3c582663902e238ddfd2e58c646debab66ae0f0edbfa0ef893ddd153333f680"
+    }
+  ]
+}

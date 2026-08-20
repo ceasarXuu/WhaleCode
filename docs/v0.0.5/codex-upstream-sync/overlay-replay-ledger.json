@@ -2,7 +2,7 @@
   "schema_version": 1,
   "baseline_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
   "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
-  "overlay_tree": "d1bd377c0e7534d8a241410d242da520c9ab7cd1",
+  "overlay_tree": "e21033aa61284a8cc1bf98ce4e7e5782f7731bc8",
   "cutover_batches": [
     {
       "id": "batch-1-brand-home",
@@ -121,7 +121,7 @@
         "build_release",
         "upstream_backport"
       ],
-      "current_sha256": "48fa11b97e2fac6ae33cc0d592ea76c3b8922cabd840f41ce6777287375b322d",
+      "current_sha256": "2386c2385cf4ae58a4e6a8a968e552e91655e6bd51344c9791f8577d97082a87",
       "cutover_batch": "batch-5-generated-release",
       "decision_basis": [
         "cargo-lock requires cutover-source integration before regeneration"
@@ -1311,7 +1311,7 @@
         "build_release",
         "cli_surface"
       ],
-      "current_sha256": "610d9163ca9d3d5d59c4536e3fb6d5b1e57e1387353f314c59d48444d74d2a5e",
+      "current_sha256": "24da274c1bd5c250d63a7479eb2b479e6ffe40187961e8d318cf6983fe88bb77",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1413,23 +1413,28 @@
     },
     {
       "categories": [
-        "cli_surface"
+        "cli_surface",
+        "provider_model",
+        "taskspace_host_hooks"
       ],
-      "current_sha256": "c48da578c8cfc4d889f56ca7ecc62568dccc1d33e9b63c187aa58fcdc0facd9b",
-      "cutover_batch": "batch-1-brand-home",
+      "current_sha256": "22adb2862624e5a712c8948b6af8255cad42b713ae6feed035935ff8cb79f3ff",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
-        "upstream and Whale both change the path"
+        "path belongs to a protected Whale semantic domain"
       ],
-      "depends_on": [],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
       "disposition": "adapt-semantically",
       "generated_kind": null,
       "generated_lineage": null,
-      "owner_domain": "brand-home",
+      "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/cli/src/main.rs",
       "target_sha256": "1ca67a651488dd9af26b1328531dfaf68cc4cd3290afeec9dd9ca6f04bcd8091",
       "upstream_status": "modified",
       "verification": [
-        "cargo test -p codex-cli",
+        "TaskSpace and Multi-Agent targeted nextest suites",
         "sync metadata validator"
       ],
       "whale_status": "modified"
@@ -1511,6 +1516,35 @@
         "sync metadata validator"
       ],
       "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "brand_home",
+        "cli_surface",
+        "taskspace_domain",
+        "test_fixture"
+      ],
+      "current_sha256": "973bb397df38fa461446b5bbe246b2abfb4b7e969a8c6bc4ad58c71422ef3388",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/cli/tests/debug_taskspace_map.rs",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
     },
     {
       "categories": [
@@ -2521,25 +2555,55 @@
       "categories": [
         "cache_observability",
         "provider_transport",
+        "taskspace_host_hooks",
         "wire_sse"
       ],
-      "current_sha256": "bd9cf21ef7f3649d158dc03d53b77cbcde90789ba71ba65d238440fb28c4e31c",
-      "cutover_batch": "batch-3-deepseek-wire",
+      "current_sha256": "2c1d72b8da86647c5e81ab4c99d4df6d0d80319723dec2d22e577c132a51ea91",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
       ],
       "depends_on": [
-        "batch-2-substrate"
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
       ],
       "disposition": "adapt-semantically",
       "generated_kind": null,
       "generated_lineage": null,
-      "owner_domain": "deepseek-wire",
+      "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/client.rs",
       "target_sha256": "ac595b26fb7cf1c222cd273b8c9048a5f4e366dc33b50088302c916a4d9563a5",
       "upstream_status": "modified",
       "verification": [
-        "provider wire fixtures and cache regression gate",
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "provider_transport",
+        "taskspace_host_hooks",
+        "wire_sse"
+      ],
+      "current_sha256": "b6455d4ffb66bc39500c5f5bf5b06ad034966a545503cefd7f4cec7c73e35ef7",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/client_common.rs",
+      "target_sha256": "8df99bc983a1bd62db0e445c41789ad2fd92e15de438c265b6032ffac6dafc14",
+      "upstream_status": "modified",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
         "sync metadata validator"
       ],
       "whale_status": "modified"
@@ -2619,6 +2683,60 @@
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "session_context",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "fe31137b258a6058e9251f2d6a7ab441994f46e0143021b05becfa4253502f39",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/compact_remote_request.rs",
+      "target_sha256": "606cc2155a50671f051c71d7a65ddad9df276ed833145eaf46543e9184cc6a39",
+      "upstream_status": "added",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "session_context",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "399c0f7b9feb9ec956c3cf3a6773347c0deebc5ab330698533bf2db4d734b442",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/compact_remote_v2_attempt.rs",
+      "target_sha256": "5e73e53db38960b521044dfeef7c83c8c22e488af91529466537cf110dd47543",
+      "upstream_status": "added",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
         "sync metadata validator"
       ],
       "whale_status": "modified"
@@ -2705,7 +2823,7 @@
       "categories": [
         "taskspace_host_hooks"
       ],
-      "current_sha256": "f85a3528f8c0c3fd341fcd3c3744117f3a65c9972745bed5d37a7fb37d48b3ea",
+      "current_sha256": "905324300ec481f926917b36476a1186c19818917d3ba95c8571d03022f379c0",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -2726,6 +2844,167 @@
         "sync metadata validator"
       ],
       "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "cache_observability"
+      ],
+      "current_sha256": "039e4565543986ccb26a3bfc757693aca4f0898988b21b1de13efea2ef0dd5a6",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/core/src/provider_wire_hash.rs",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "cache_observability",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "77e955a4dab9d31aad9d2d527ca57944c43f5bf0436433eceefc9c476316b14a",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/provider_wire_history.rs",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "cache_observability",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "1f8730744be26ce9e570008abb99c68cc37b1e6bb8e03823d128b61dff4781ba",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/provider_wire_sections.rs",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "cache_observability",
+        "provider_model",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "94a4906c9a49d9fd1b3215143366cf83244f5f826228cf0c6f278b7a815dbc06",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/provider_wire_sections_tests.rs",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "cache_observability",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "7e68585fc97d347ca3d2736ddddbb4a901ee01e13c36f3e4338362e49bf2d9be",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/provider_wire_tools.rs",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "cache_observability",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "74699bc643b72f78866a0eba3e84606169ce91d0b79368ee0045a347657e604b",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/provider_wire_trace.rs",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
     },
     {
       "categories": [
@@ -3080,7 +3359,7 @@
         "taskspace_host_hooks",
         "upstream_backport"
       ],
-      "current_sha256": "a0170b61944eb5ac140d462e62a82025a4c2091c7839a35897788df505517dd3",
+      "current_sha256": "a79d31c2b7c307c1a36bbb58c50ed03bfb19915d384dee198dca3e07be63d22d",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -3588,7 +3867,7 @@
         "taskspace_host_hooks",
         "tool_runtime"
       ],
-      "current_sha256": "a4df42a0a1078b58cf4fcd18bca22eead871b5d9afc8ab0a7269cd0814272d30",
+      "current_sha256": "b7c66a42572da859b3707f5e52d61e4e8b345219b6a83eb8ebfcf25b63bf377d",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -3777,7 +4056,7 @@
         "taskspace_host_hooks",
         "tool_runtime"
       ],
-      "current_sha256": "eeec61fd2209bfe5549eb32a16c19fd2183c0b28691d8f6fea0c6ac8d78b4f95",
+      "current_sha256": "7a819c3cc37d939aa589c8662e8faed57d6548ec2efc0399606116a739015f16",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -4096,6 +4375,81 @@
     },
     {
       "categories": [
+        "build_release",
+        "test_fixture"
+      ],
+      "current_sha256": "d5b1d80652198bde689994e4085456392efa410ebc77f62bbb86369f791526aa",
+      "cutover_batch": "batch-1-brand-home",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "brand-home",
+      "path": "codex-rs/core/tests/common/Cargo.toml",
+      "target_sha256": "a7c5db6ec2bd83d5cf20d49a26114365d46672e4d26d59db0984da2cd31a82fa",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "test_fixture"
+      ],
+      "current_sha256": "c1689a424e1c0603bba8129916aeddf6d78af812b3e3187400fc61f28afda7a6",
+      "cutover_batch": "batch-2-substrate",
+      "decision_basis": [
+        "target leaves the baseline path unchanged"
+      ],
+      "depends_on": [
+        "batch-1-brand-home"
+      ],
+      "disposition": "reapply-exact",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/tests/common/cache_payload.rs",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "replayed blob SHA-256 matches current Whale blob",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "test_fixture"
+      ],
+      "current_sha256": "4d54c734402792cc766f8f9ac0aec552b961f37bb73e5315ac362851d06bb844",
+      "cutover_batch": "batch-2-substrate",
+      "decision_basis": [
+        "upstream and Whale both change the path"
+      ],
+      "depends_on": [
+        "batch-1-brand-home"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/tests/common/lib.rs",
+      "target_sha256": "5418ece8bb498ed07b87e99e1faa9a8c86944a40cfe20d519e4d60ecbec54f24",
+      "upstream_status": "modified",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
         "test_fixture"
       ],
       "current_sha256": "464727975c00667aae6f190bffb6d7f988f5ef9c6f6aa0fbd35cfc3fd68fb3ba",
@@ -4153,7 +4507,7 @@
         "taskspace_host_hooks",
         "test_fixture"
       ],
-      "current_sha256": "90e4b68ad17e36f1bad336ee9f7d208504e6b77eeb965b4511d2a28927522c06",
+      "current_sha256": "91fe06fb7beb7f2154f466aa8a333e7ce229bdba7367dc2fd70fce3a7a44f8a2",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -4182,7 +4536,7 @@
         "taskspace_host_hooks",
         "test_fixture"
       ],
-      "current_sha256": "ec36104734c636034127df383176f5cf038bf3c4958123feb74e47aa92a2c70a",
+      "current_sha256": "1f2224aa37d6cb33d59d75068dccd6fc2a1d8679fe69395e4199aa233ef13cc5",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -4200,33 +4554,6 @@
       "upstream_status": "unchanged",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
-        "sync metadata validator"
-      ],
-      "whale_status": "added"
-    },
-    {
-      "categories": [
-        "cache_observability",
-        "provider_model",
-        "test_fixture"
-      ],
-      "current_sha256": "40e2ffd04dd2ab4c04de3c9ed51711b65b47525e36fde6aaa62966d24ddce1d0",
-      "cutover_batch": "batch-3-deepseek-wire",
-      "decision_basis": [
-        "path belongs to a protected Whale semantic domain"
-      ],
-      "depends_on": [
-        "batch-2-substrate"
-      ],
-      "disposition": "adapt-semantically",
-      "generated_kind": null,
-      "generated_lineage": null,
-      "owner_domain": "deepseek-wire",
-      "path": "codex-rs/core/tests/suite/cache_provider_boundary_route.rs",
-      "target_sha256": null,
-      "upstream_status": "unchanged",
-      "verification": [
-        "provider wire fixtures and cache regression gate",
         "sync metadata validator"
       ],
       "whale_status": "added"
@@ -4309,7 +4636,7 @@
       "categories": [
         "test_fixture"
       ],
-      "current_sha256": "3defb44c23592ebf32aeaaf9a9674e0125b0a588a112768ebfd3d049e798b155",
+      "current_sha256": "78390ece5ec01ee5666676557e1ddf3e02d72a5fb168d143021970f9680d304a",
       "cutover_batch": "batch-2-substrate",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -4387,7 +4714,7 @@
         "taskspace_domain",
         "test_fixture"
       ],
-      "current_sha256": "b4650faf2f7f727aba1fb3ef3002400007fe049807c4c80987d4fe4a4ef509dc",
+      "current_sha256": "7e26d3dc02ad978dc8c1758aa95c670f35ea66e8f1e3edcbf89f48d98d5b382f",
       "cutover_batch": "batch-5-generated-release",
       "decision_basis": [
         "insta-snapshot requires cutover-source integration before regeneration"
@@ -4403,6 +4730,38 @@
       "generated_lineage": null,
       "owner_domain": "generated-release",
       "path": "codex-rs/core/tests/suite/snapshots/all__suite__cache_final_wire__taskspace_production_tool_wire.snap",
+      "target_sha256": null,
+      "upstream_status": "unchanged",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "sync metadata validator"
+      ],
+      "whale_status": "added"
+    },
+    {
+      "categories": [
+        "cache_observability",
+        "generated_artifact",
+        "multi_agent",
+        "provider_model",
+        "test_fixture"
+      ],
+      "current_sha256": "d8a54639729659b0809100afb0e88528353713c0c7a2a2c74a2d33b6a8cf2614",
+      "cutover_batch": "batch-5-generated-release",
+      "decision_basis": [
+        "insta-snapshot requires cutover-source integration before regeneration"
+      ],
+      "depends_on": [
+        "batch-1-brand-home",
+        "batch-2-substrate",
+        "batch-3-deepseek-wire",
+        "batch-4-taskspace-multi-agent"
+      ],
+      "disposition": "defer",
+      "generated_kind": "insta-snapshot",
+      "generated_lineage": null,
+      "owner_domain": "generated-release",
+      "path": "codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_contract__standard_two_request_final_wire.snap",
       "target_sha256": null,
       "upstream_status": "unchanged",
       "verification": [
@@ -4533,6 +4892,87 @@
       "upstream_status": "added",
       "verification": [
         "cargo test -p codex-cli",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "cli_surface",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "0108c5f335df66e6b2172728ed111beb567fcc5537d7597b85a6645f54d18477",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/exec/src/cli.rs",
+      "target_sha256": "c928cbe54c3ad12b09852b53048b5c7cdf66ca089963e029a503893cd880f1b4",
+      "upstream_status": "modified",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "cli_surface",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "c223deed3d95f0d28924e8af657698aee0084f9733269a27e665a7cb9acee179",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/exec/src/cli_tests.rs",
+      "target_sha256": "4a2f65eb06823ceedbd499ab16bd02b206c433200b5f36386cd6af018fd6bc73",
+      "upstream_status": "modified",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "cli_surface",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "6adc044d0c8f425d8c227fc7ee668a4e55fb6113f1522807344fa2cea2fccdf6",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/exec/src/lib.rs",
+      "target_sha256": "52d801c747c18524b42552e9da9080aa43e8eeb04b368570bb0bbfc601f613ae",
+      "upstream_status": "modified",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
         "sync metadata validator"
       ],
       "whale_status": "modified"
@@ -7342,19 +7782,19 @@
     }
   ],
   "summary": {
-    "path_count": 274,
+    "path_count": 290,
     "by_disposition": {
-      "adapt-semantically": 239,
-      "defer": 5,
-      "reapply-exact": 14,
+      "adapt-semantically": 253,
+      "defer": 6,
+      "reapply-exact": 15,
       "regenerate": 16
     },
     "by_cutover_batch": {
       "batch-1-brand-home": 53,
-      "batch-2-substrate": 34,
-      "batch-3-deepseek-wire": 26,
-      "batch-4-taskspace-multi-agent": 140,
-      "batch-5-generated-release": 21
+      "batch-2-substrate": 36,
+      "batch-3-deepseek-wire": 25,
+      "batch-4-taskspace-multi-agent": 154,
+      "batch-5-generated-release": 22
     }
   }
 }

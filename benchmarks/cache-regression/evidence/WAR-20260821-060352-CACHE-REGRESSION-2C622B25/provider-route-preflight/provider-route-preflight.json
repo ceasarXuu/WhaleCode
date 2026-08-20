@@ -1,0 +1,67 @@
+{
+  "schema_version": "whalecode-provider-route-preflight-v1",
+  "status": "passed",
+  "model": "deepseek-v4-flash",
+  "preflight_started_at": "2026-08-20T22:03:54.0948051Z",
+  "operation": "config_resolution_only",
+  "network_mode": "none",
+  "provider_routing": {
+    "route_kind": "custom_provider_transport_alias",
+    "logical_provider_id": "deepseek",
+    "transport_provider_id": "deepseek-boundary",
+    "provider_name": "DeepSeek",
+    "base_url": "http://provider-proxy:8080",
+    "env_key": "DEEPSEEK_API_KEY",
+    "wire_api": "responses",
+    "intentional_differences": [
+      "provider_id",
+      "base_url"
+    ]
+  },
+  "whale_binary_sha256": "f0df44bdf9245947db529904854b35a91c12ad22538cb173eb05647579484190",
+  "container_image_digest": "sha256:55a8ac465c574efb57d8bd53f286812a77f41fd428de1c3b0b18b7c5165ee0ca",
+  "provider_descriptor_sha256": "32830f993eda0911cd2cc7762539098973f322ebfb8c4d8a3709eaa3dec22b86",
+  "profiles": [
+    {
+      "profile": "standard",
+      "projection_policy": null,
+      "multi_agent_v2_enabled": false,
+      "config_overrides_sha256": "445b3393223e5839532563dc54f9cecb1ce15435315e892efc7e544544bb7968",
+      "argv_sha256": "eb0e6903eb29fcf07f06703b3a8817fcd9664642bed488199c0815d708a4a60f",
+      "resolved_provider_artifact": "resolved-provider-standard.json",
+      "resolved_provider_artifact_sha256": "a0dac87679cd33b1f6aa72a6c3043b8a6191f67efe8122d60dd6c723fa628c1d",
+      "provider_descriptor_sha256": "32830f993eda0911cd2cc7762539098973f322ebfb8c4d8a3709eaa3dec22b86",
+      "builtin_provider_artifact": "builtin-provider-standard.json",
+      "builtin_provider_artifact_sha256": "6e0b623e9378b1b98fef1e80c6c584e1a6a756f8acfc15a9e87ff3505802fc99",
+      "builtin_provider_descriptor_sha256": "309551154c64dc88831cefb617477bfc55927b3acf7feea88b0041e890d42d7f",
+      "builtin_config_overrides_sha256": "b1a2fef3d83df86b881a5e82de54691e6dee491435e026c454fd13c75e6a1a43",
+      "builtin_argv_sha256": "b440791661a094a1ed56e0e339d581f565d2568a33588e6097b506201d189be9",
+      "container_inspect_artifact": "container-inspect-standard-alias.json",
+      "container_inspect_artifact_sha256": "4a962188709fdb3990d2348f2b217c73bc8aff45f7d8c46877ad22ed90fd5bac",
+      "builtin_container_inspect_artifact": "container-inspect-standard-builtin.json",
+      "builtin_container_inspect_artifact_sha256": "81808cd58a0aad0c3a2c029cfb2909ee37d7deb44f0f952e1fa5514166d6bb4e",
+      "equivalent_to_builtin_deepseek": true
+    },
+    {
+      "profile": "taskspace",
+      "projection_policy": "map-request",
+      "multi_agent_v2_enabled": true,
+      "config_overrides_sha256": "b6e16b6d0485b8ad3d36af2a343d6475de883d6d5a928ae7614dac52d767a8be",
+      "argv_sha256": "bd847e0788766429372173ccfe2cf495fa0e574ebfc4471238cc4c486fe4c051",
+      "resolved_provider_artifact": "resolved-provider-taskspace.json",
+      "resolved_provider_artifact_sha256": "a0dac87679cd33b1f6aa72a6c3043b8a6191f67efe8122d60dd6c723fa628c1d",
+      "provider_descriptor_sha256": "32830f993eda0911cd2cc7762539098973f322ebfb8c4d8a3709eaa3dec22b86",
+      "builtin_provider_artifact": "builtin-provider-taskspace.json",
+      "builtin_provider_artifact_sha256": "6e0b623e9378b1b98fef1e80c6c584e1a6a756f8acfc15a9e87ff3505802fc99",
+      "builtin_provider_descriptor_sha256": "309551154c64dc88831cefb617477bfc55927b3acf7feea88b0041e890d42d7f",
+      "builtin_config_overrides_sha256": "7fd973c5d30ef4705784add949e797a4cc55610fe270a6f5bb1f5e59ea3b1dda",
+      "builtin_argv_sha256": "e7309fd4bc7c0efe9c241418c5c60ce0add09751f5fb8533f0da82504c94421e",
+      "container_inspect_artifact": "container-inspect-taskspace-alias.json",
+      "container_inspect_artifact_sha256": "6fc29811120a2539c689b6e1bd7e457b800346b3fc0a03717ef0c6262d42bb99",
+      "builtin_container_inspect_artifact": "container-inspect-taskspace-builtin.json",
+      "builtin_container_inspect_artifact_sha256": "4452c29317613f5e1203927cf0e02d65a0d93ad03b38c696f9f93d631c282339",
+      "equivalent_to_builtin_deepseek": true
+    }
+  ],
+  "preflight_completed_at": "2026-08-20T22:03:56.8952102Z"
+}

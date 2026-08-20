@@ -1,7 +1,124 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-21T05:52:39+08:00",
+  "updated_at": "2026-08-21T06:04:57+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260821-060352-CACHE-REGRESSION-2C622B25",
+      "record_type": "run_batch",
+      "status": "settled",
+      "started_at": "2026-08-21T06:04:00+08:00",
+      "ended_at": "2026-08-21T06:04:57+08:00",
+      "elapsed_calendar_seconds": 56.326,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "Final Codex 0.147 baseline qualification after deterministic fixture repair: validate the intentional Standard instructions and TaskSpace tool-wire changes with one Standard and one map-request run; total package conservative remaining budget is 2.54717796 CNY before this proposal.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260821-U23-FINAL-BASELINE-QUALIFICATION",
+        "reference": "用户于 2026-08-21 明确批准整个 rebase 与 Codex 合入工作 3.00 CNY 总包预算，并允许在预算内按需执行。本授权仅覆盖 deepseek-v4-flash、single-file-fast-fix 的 standard 与 map-request 各 1 次，零重试，本提案费用硬上限 0.40 CNY；计入此前保守占用与已结算运行后，本次运行前总包保守剩余 2.54717796 CNY。",
+        "budget_summary": {
+          "provider_requests": 36,
+          "input_tokens": 360000,
+          "output_tokens": 20000,
+          "elapsed_seconds": 1440,
+          "estimated_cost": 0.4,
+          "currency": "CNY"
+        },
+        "note": "严格绑定预算提案 CBP-427F169F5B7476B3。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "32830f993eda0911cd2cc7762539098973f322ebfb8c4d8a3709eaa3dec22b86",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "standard",
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 2,
+        "actual_sample_runs": 2,
+        "api_requests": 13,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 161537,
+        "cached_input": 152064,
+        "uncached_input": 9473,
+        "output": 3611
+      },
+      "monetary_cost": {
+        "status": "estimated",
+        "currency": "CNY",
+        "amount": 0.01973628,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.0030412800000000004,
+          "uncached_input": 0.009473,
+          "output": 0.007222
+        },
+        "pricing_snapshot": {
+          "currency": "CNY",
+          "captured_at": "2026-08-18",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "按完整 provider token 遥测和冻结价格估算。"
+      },
+      "evidence": {
+        "planned_run_root": "target/cache-hit-regression/WAR-20260821-060352-CACHE-REGRESSION-2C622B25",
+        "subject_commit": "dddd85413c3352a06bbc1cc89ff28cd0d5190b9e",
+        "surface_sha256": "2e419a893a56e491b3325bf4bc94054b3147d866e39d5c927f9d2f16bbcaff79",
+        "proposal_id": "CBP-427F169F5B7476B3",
+        "proposal_contract_sha256": "7cb5a23867691bf5cc0886d79cf84b4b46fea07079dfb4a36202981092adac23",
+        "proposal_path": "benchmarks/cache-regression/proposals/2026-08-21-u23-final-baseline-qualification.json",
+        "proposal_sha256": "1f3e4723288029d2b1f1aeea4682e2cf7c78a8a8bd106bee777c5321b4ef7cd3",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260821-U23-FINAL-BASELINE-QUALIFICATION.json",
+        "authorization_sha256": "5345fedcdd367227279838535bbe4c2eeb6279cff95efb6a55823130f7be1aff",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "single-file-fast-fix"
+          ],
+          "arms": [
+            "standard",
+            "map-request"
+          ],
+          "repeat": 1,
+          "planned_sample_runs": 2,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 2,
+          "stop_conditions": [
+            "after_any_run_failure",
+            "after_any_business_failure",
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "Final Codex 0.147 baseline qualification after deterministic fixture repair: validate the intentional Standard instructions and TaskSpace tool-wire changes with one Standard and one map-request run; total package conservative remaining budget is 2.54717796 CNY before this proposal."
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_run_failure",
+          "after_any_business_failure",
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "complete",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260821-060352-CACHE-REGRESSION-2C622B25/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "59ceb2cd04e833a55988315b4e97a15a07c8d22f1efc181846126d67d40daa40",
+        "actual_run_root": "target/cache-hit-regression/WAR-20260821-060352-CACHE-REGRESSION-2C622B25",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260821-060352-CACHE-REGRESSION-2C622B25.json",
+        "runner_exit_code": 0,
+        "outcome": "completed"
+      }
+    },
     {
       "record_id": "WAR-20260821-055156-CACHE-REGRESSION-19065D56",
       "record_type": "run_batch",

@@ -63,17 +63,19 @@
       "status": "deleted"
     },
     {
-      "additions": 182,
+      "additions": 185,
       "baseline_sha256": "eeab4e9d3466da54037032251e2f13ad1ed11eae18bb8ee7dd2c89dbb86f645d",
       "binary": false,
       "categories": [
         "build_release",
         "upstream_backport"
       ],
-      "current_sha256": "48fa11b97e2fac6ae33cc0d592ea76c3b8922cabd840f41ce6777287375b322d",
+      "current_sha256": "2386c2385cf4ae58a4e6a8a968e552e91655e6bd51344c9791f8577d97082a87",
       "deletions": 137,
-      "evidence_commit_count": 25,
+      "evidence_commit_count": 27,
       "evidence_commits": [
+        "99ab63d98095c6a2b8d64f455aa825475069d1e5",
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "cc7e45e1e25c56d1a3c59cf64f24d8254230cc64",
         "f9e730f2c322a9e2b06929c4182a025a8bf7db44",
         "58f5cbc0ca7bbd8175f32c585a55bdc51e456d3b",
@@ -91,9 +93,7 @@
         "0ce7752783b0189175b7bbc6f4dbd554cc2cdcb0",
         "b3d45ec94655b3f31277d349c29b623a9f190864",
         "699709f497afcdb062cb7af7ef30c715e7dcb346",
-        "dad73da167564fadc6477ad4a0c775769d891d61",
-        "5a9422f325665006d6f1348fa390bbe738a3e749",
-        "d356c65c67aa8dfd64fe70f2a284e03010555ddc"
+        "dad73da167564fadc6477ad4a0c775769d891d61"
       ],
       "evidence_truncated": true,
       "matched_rule_ids": [
@@ -144,8 +144,9 @@
       ],
       "current_sha256": "9902d33eeb52b84a528c51d89bdbf547a4ba9caeff5c47c50119b8e2786a437c",
       "deletions": 0,
-      "evidence_commit_count": 4,
+      "evidence_commit_count": 5,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "ae53409c05769e4e28c15087ad4575d2a125e562",
         "07bd86e66a9232dbbb6937f52031274c754ff25d",
@@ -171,8 +172,9 @@
       ],
       "current_sha256": "d6ca61a46152ec8cdb3d44763322eee1a362379892cc8412f7810549b9a16b24",
       "deletions": 0,
-      "evidence_commit_count": 4,
+      "evidence_commit_count": 5,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "211743207a8351a659a97075473713a99b4e77f4",
         "4622b0281b21d7942f96dd3e6b220578e37d9415",
@@ -198,8 +200,9 @@
       ],
       "current_sha256": "b25be662fb8462bfff15b8405d6d7ec674d25ae00f61697b0f249ebd6c67fb42",
       "deletions": 0,
-      "evidence_commit_count": 22,
+      "evidence_commit_count": 23,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "f8dc23612716d1b77ed02adaca59efcdb4dfdad5",
         "4625f0f793134bfb14e8d5eb8d2868931c7a2888",
         "d87d1af3575419b2b1c71e2f4de5c96d4e0da638",
@@ -218,8 +221,7 @@
         "4622b0281b21d7942f96dd3e6b220578e37d9415",
         "6229fd5d5056abbefc1a555c84c81f11216731eb",
         "07bd86e66a9232dbbb6937f52031274c754ff25d",
-        "bdfb1b29aae5e0db9859bc0b0ddf9bde27e27e79",
-        "8dd872f674b8bd04b7999b519498158a0dd6801a"
+        "bdfb1b29aae5e0db9859bc0b0ddf9bde27e27e79"
       ],
       "evidence_truncated": true,
       "matched_rule_ids": [
@@ -241,8 +243,9 @@
       ],
       "current_sha256": "b308e0b1e7d28bfabf4b85e850110d98c928df82a7b912b06fd5a1b834eb4290",
       "deletions": 0,
-      "evidence_commit_count": 22,
+      "evidence_commit_count": 23,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "f8dc23612716d1b77ed02adaca59efcdb4dfdad5",
         "4625f0f793134bfb14e8d5eb8d2868931c7a2888",
         "d87d1af3575419b2b1c71e2f4de5c96d4e0da638",
@@ -261,8 +264,7 @@
         "4622b0281b21d7942f96dd3e6b220578e37d9415",
         "6229fd5d5056abbefc1a555c84c81f11216731eb",
         "07bd86e66a9232dbbb6937f52031274c754ff25d",
-        "bdfb1b29aae5e0db9859bc0b0ddf9bde27e27e79",
-        "8dd872f674b8bd04b7999b519498158a0dd6801a"
+        "bdfb1b29aae5e0db9859bc0b0ddf9bde27e27e79"
       ],
       "evidence_truncated": true,
       "matched_rule_ids": [
@@ -284,8 +286,10 @@
       ],
       "current_sha256": "01a9460fd102a3354086ccd1efd8ebe3aced741686b8889bb8666562c5795ccb",
       "deletions": 0,
-      "evidence_commit_count": 0,
-      "evidence_commits": [],
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58"
+      ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "generated.path",
@@ -305,8 +309,9 @@
       ],
       "current_sha256": "4cd683dc23999e0b8c89697a8faabf829b988fa4ebb32c3f56d5a7a080a828d6",
       "deletions": null,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -327,8 +332,9 @@
       ],
       "current_sha256": "2ba02c0df6c5a6c3f91366de2ede335473a18a22f167eeac3bb23b4fa6301b33",
       "deletions": null,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -467,8 +473,9 @@
       ],
       "current_sha256": "31f85900a7a1c3ece5147ed276024c2aec66bc6b018363b845a133177d4f85f4",
       "deletions": 0,
-      "evidence_commit_count": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "07bd86e66a9232dbbb6937f52031274c754ff25d"
       ],
@@ -492,8 +499,9 @@
       ],
       "current_sha256": "75fe5eff7211f5a6e3515f3f09b8e773d063b8812c13f7a89a703f5ecca53e80",
       "deletions": 1,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -516,8 +524,9 @@
       ],
       "current_sha256": "67c1fd6084c579ecf899f7420ed80e8a33e6c182b7b1c9a3e9765eb4851e4af7",
       "deletions": 1,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -540,8 +549,10 @@
       ],
       "current_sha256": "bf1c054d879c307b1b1b95fef8bcd7c96750b8cd9f285bdb18659c809dd70d36",
       "deletions": 0,
-      "evidence_commit_count": 0,
-      "evidence_commits": [],
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58"
+      ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "generated.path",
@@ -562,8 +573,9 @@
       ],
       "current_sha256": "912f7ea46e8160a2a8cf9362c9543d7c9cbf60ce55d691d59d07aaeac7a6815c",
       "deletions": 0,
-      "evidence_commit_count": 14,
+      "evidence_commit_count": 15,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "f8dc23612716d1b77ed02adaca59efcdb4dfdad5",
         "4625f0f793134bfb14e8d5eb8d2868931c7a2888",
         "302ea5db386bf7a69b7d77c9cadf0bdaab41164b",
@@ -599,8 +611,10 @@
       ],
       "current_sha256": "c78b8a8f28a622d7da8c630259609f033015118ce4cd8c12a4a3468bd83824c3",
       "deletions": 0,
-      "evidence_commit_count": 0,
-      "evidence_commits": [],
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58"
+      ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "generated.path",
@@ -621,8 +635,9 @@
       ],
       "current_sha256": "6477c6477110f19321cfa6aa6029e8a4fb207b7fbae347631de8bb5826d1236a",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -644,8 +659,9 @@
       ],
       "current_sha256": "f8375e5852790dd2cbfa4929b0efc2a29a183f634990ad98733808915a7563cf",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -666,8 +682,9 @@
       ],
       "current_sha256": "0144731e779baf96057dcba1a98b32077bbce217cf81e854f75a98cb9b10401b",
       "deletions": 0,
-      "evidence_commit_count": 6,
+      "evidence_commit_count": 7,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "d87d1af3575419b2b1c71e2f4de5c96d4e0da638",
         "907d7ae5132bedb53cc21510aeddbd64e4db26c2",
@@ -692,8 +709,9 @@
       ],
       "current_sha256": "78d42926d477c7fc78abcd5d100e96b14fe0330c24047896a6b71587d62a02a2",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -713,8 +731,10 @@
       ],
       "current_sha256": "d5205364437a59edeea3f29b56b5c8641b7588c8c04e6fcd9574ef5461ce005b",
       "deletions": 0,
-      "evidence_commit_count": 0,
-      "evidence_commits": [],
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58"
+      ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "subsystem.app_server",
@@ -734,8 +754,9 @@
       ],
       "current_sha256": "4434c81d951d5f3d5941d560f8bacdf036e7f24989b8b9f986229534b61b39e0",
       "deletions": 0,
-      "evidence_commit_count": 8,
+      "evidence_commit_count": 9,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "5ce2cfaf880a3bd2628057b7bbb94e9e3df4f538",
         "d87d1af3575419b2b1c71e2f4de5c96d4e0da638",
         "9226c6f91f2bd7fa6804bb68784d624a26e47ba5",
@@ -764,8 +785,9 @@
       ],
       "current_sha256": "27734eb746dbd5f20d442aced8af6cac62fd03e18875b6746b8650dfd6dc9157",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -786,8 +808,9 @@
       ],
       "current_sha256": "b614f7fa8ce0804a2feb711f6f4569a8f646f29792f27caba83a9041aacf733c",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -808,8 +831,9 @@
       ],
       "current_sha256": "a1a4baa0c00c8548f164a919ee56e220d1990d67dc229690c610188ae6eb4833",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -1079,8 +1103,9 @@
       ],
       "current_sha256": "c9ec4f3930ff35db9fd56c012886576b462728f354ef3b2ce53877e7bbd880ea",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -1118,17 +1143,19 @@
       "status": "modified"
     },
     {
-      "additions": 2,
+      "additions": 4,
       "baseline_sha256": "37a433be6835d07b4ac0241ec99b79ff73905bbd6b1b043db1d459f5f7152de2",
       "binary": false,
       "categories": [
         "build_release",
         "cli_surface"
       ],
-      "current_sha256": "610d9163ca9d3d5d59c4536e3fb6d5b1e57e1387353f314c59d48444d74d2a5e",
+      "current_sha256": "24da274c1bd5c250d63a7479eb2b479e6ffe40187961e8d318cf6983fe88bb77",
       "deletions": 2,
-      "evidence_commit_count": 5,
+      "evidence_commit_count": 7,
       "evidence_commits": [
+        "99ab63d98095c6a2b8d64f455aa825475069d1e5",
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "b907af9085849406182fdde790ef556f267c7a2a",
         "2bae4f063b191679b0328d81e137d39e25419449",
         "d97aa819f90680619a3c8f76c746febaf7e39654",
@@ -1210,16 +1237,21 @@
       "status": "added"
     },
     {
-      "additions": 13,
+      "additions": 245,
       "baseline_sha256": "1ca67a651488dd9af26b1328531dfaf68cc4cd3290afeec9dd9ca6f04bcd8091",
       "binary": false,
       "categories": [
-        "cli_surface"
+        "cli_surface",
+        "provider_model",
+        "taskspace_host_hooks"
       ],
-      "current_sha256": "c48da578c8cfc4d889f56ca7ecc62568dccc1d33e9b63c187aa58fcdc0facd9b",
+      "current_sha256": "22adb2862624e5a712c8948b6af8255cad42b713ae6feed035935ff8cb79f3ff",
       "deletions": 12,
-      "evidence_commit_count": 14,
+      "evidence_commit_count": 17,
       "evidence_commits": [
+        "2efc9f99aa3166eaa2f1308899b3f7e83957256e",
+        "99ab63d98095c6a2b8d64f455aa825475069d1e5",
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "70ef03e536ff55c517fe7257d45b6f0a4a170737",
         "f8dc23612716d1b77ed02adaca59efcdb4dfdad5",
         "d97aa819f90680619a3c8f76c746febaf7e39654",
@@ -1237,7 +1269,9 @@
       ],
       "evidence_truncated": false,
       "matched_rule_ids": [
-        "subsystem.cli"
+        "provider.strong_path_or_symbol",
+        "subsystem.cli",
+        "taskspace.changed_symbol"
       ],
       "path": "codex-rs/cli/src/main.rs",
       "status": "modified"
@@ -1322,6 +1356,38 @@
       ],
       "path": "codex-rs/cli/tests/debug_models.rs",
       "status": "modified"
+    },
+    {
+      "additions": 159,
+      "baseline_sha256": null,
+      "binary": false,
+      "categories": [
+        "brand_home",
+        "cli_surface",
+        "taskspace_domain",
+        "test_fixture"
+      ],
+      "current_sha256": "973bb397df38fa461446b5bbe246b2abfb4b7e969a8c6bc4ad58c71422ef3388",
+      "deletions": 0,
+      "evidence_commit_count": 7,
+      "evidence_commits": [
+        "2efc9f99aa3166eaa2f1308899b3f7e83957256e",
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
+        "f8dc23612716d1b77ed02adaca59efcdb4dfdad5",
+        "4625f0f793134bfb14e8d5eb8d2868931c7a2888",
+        "302ea5db386bf7a69b7d77c9cadf0bdaab41164b",
+        "9226c6f91f2bd7fa6804bb68784d624a26e47ba5",
+        "f8e3f67fb04db96d4db8eb4506ced3a258fc2e8a"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "brand.strong_path_or_symbol",
+        "subsystem.cli",
+        "taskspace.domain_path",
+        "test.path"
+      ],
+      "path": "codex-rs/cli/tests/debug_taskspace_map.rs",
+      "status": "added"
     },
     {
       "additions": 2,
@@ -1724,8 +1790,9 @@
       ],
       "current_sha256": "63d3fb8449d1c408b540170886b2cbb2e756e3a048426f0de3138d22df650b9d",
       "deletions": 0,
-      "evidence_commit_count": 7,
+      "evidence_commit_count": 8,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "428a2ac8b5590feea8516790add1d47b4fb87cf0",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "0e5762db8692989baaab33e1dd82d93ffc95bb9f",
@@ -1781,8 +1848,9 @@
       ],
       "current_sha256": "1bd9d60b52dc739bc7be6ad53a7affafac83a08ef2a2004b8690b491744a04df",
       "deletions": 0,
-      "evidence_commit_count": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "01e4cc915468077ed0f084428b79cfb84c10e017"
       ],
@@ -1833,8 +1901,9 @@
       ],
       "current_sha256": "d69a5dffd1b486e8ae9fa74aabe32548b57bf908388c18f272b05c15c70b83fa",
       "deletions": 0,
-      "evidence_commit_count": 9,
+      "evidence_commit_count": 10,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "b907af9085849406182fdde790ef556f267c7a2a",
         "2bae4f063b191679b0328d81e137d39e25419449",
@@ -1979,8 +2048,9 @@
       ],
       "current_sha256": "c007d8eb537dd74dc1fc0e88c1dbc08a4aeb4edc419fc3c295ca14319cd59397",
       "deletions": 0,
-      "evidence_commit_count": 5,
+      "evidence_commit_count": 6,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "f8dc23612716d1b77ed02adaca59efcdb4dfdad5",
         "148f1d816fa17d1917832271e6698fa7c3e64b96",
         "4366b95ecc0ef364f7be49f545aa987e767f3a40",
@@ -2413,18 +2483,21 @@
       "status": "added"
     },
     {
-      "additions": 223,
+      "additions": 283,
       "baseline_sha256": "ac595b26fb7cf1c222cd273b8c9048a5f4e366dc33b50088302c916a4d9563a5",
       "binary": false,
       "categories": [
         "cache_observability",
         "provider_transport",
+        "taskspace_host_hooks",
         "wire_sse"
       ],
-      "current_sha256": "bd9cf21ef7f3649d158dc03d53b77cbcde90789ba71ba65d238440fb28c4e31c",
+      "current_sha256": "2c1d72b8da86647c5e81ab4c99d4df6d0d80319723dec2d22e577c132a51ea91",
       "deletions": 1,
-      "evidence_commit_count": 64,
+      "evidence_commit_count": 66,
       "evidence_commits": [
+        "93ef626dda6254ca94cb39ad266baeef5415f5d4",
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "0e5762db8692989baaab33e1dd82d93ffc95bb9f",
         "8481d24bcd64d85edb8c97d3eabc0aed48fc1898",
         "1347606e041b11db674d6700f8ca6b3a831c9c8d",
@@ -2442,17 +2515,45 @@
         "7d233aaa654b2fb90f9cffc6ac5b868b2a302c41",
         "787070d8870c78fb146f0ee2ed05e90195a4a2db",
         "e9d705a23558d3f777179ad8696351866e79081a",
-        "302ea5db386bf7a69b7d77c9cadf0bdaab41164b",
-        "148f1d816fa17d1917832271e6698fa7c3e64b96",
-        "e95b5e262295d78ca61be151a6ebaf3d72611ef7"
+        "302ea5db386bf7a69b7d77c9cadf0bdaab41164b"
       ],
       "evidence_truncated": true,
       "matched_rule_ids": [
         "cache.exact_surface",
         "subsystem.provider_transport",
+        "taskspace.changed_symbol",
         "wire.exact_surface"
       ],
       "path": "codex-rs/core/src/client.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 5,
+      "baseline_sha256": "8df99bc983a1bd62db0e445c41789ad2fd92e15de438c265b6032ffac6dafc14",
+      "binary": false,
+      "categories": [
+        "provider_transport",
+        "taskspace_host_hooks",
+        "wire_sse"
+      ],
+      "current_sha256": "b6455d4ffb66bc39500c5f5bf5b06ad034966a545503cefd7f4cec7c73e35ef7",
+      "deletions": 0,
+      "evidence_commit_count": 6,
+      "evidence_commits": [
+        "93ef626dda6254ca94cb39ad266baeef5415f5d4",
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
+        "8481d24bcd64d85edb8c97d3eabc0aed48fc1898",
+        "9c34f46deda96937dd5ce3ddf356908145ffc048",
+        "199c45693d71a94867ff7a99c60a6df1f4c1adcd",
+        "24d7e32301ba4f30bb1c95029cac62f3067b7f1d"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "subsystem.provider_transport",
+        "taskspace.changed_symbol",
+        "wire.exact_surface"
+      ],
+      "path": "codex-rs/core/src/client_common.rs",
       "status": "modified"
     },
     {
@@ -2466,8 +2567,9 @@
       ],
       "current_sha256": "b6b8f6985fbb0dd078f2fbbd84adffe26e0d7b0bcd13c88865effb9034e85ba2",
       "deletions": 0,
-      "evidence_commit_count": 49,
+      "evidence_commit_count": 50,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "0e5762db8692989baaab33e1dd82d93ffc95bb9f",
         "8481d24bcd64d85edb8c97d3eabc0aed48fc1898",
         "f8dc23612716d1b77ed02adaca59efcdb4dfdad5",
@@ -2486,8 +2588,7 @@
         "4366b95ecc0ef364f7be49f545aa987e767f3a40",
         "5f25aad60d2b52cbf528c3d2042d3b8bd260b970",
         "e9fa52d1264b6ecf87bf41b928ed345c1946806f",
-        "36a02b1ebc3dcd5615e3ca31d6663225b88828e1",
-        "781799f704661dd99202d4e34fc65d1693bbf15b"
+        "36a02b1ebc3dcd5615e3ca31d6663225b88828e1"
       ],
       "evidence_truncated": true,
       "matched_rule_ids": [
@@ -2507,8 +2608,9 @@
       ],
       "current_sha256": "216abc0744bd57e0d29b9880f2bf0cef692d1aace52d6574c34f88c2d339339a",
       "deletions": 0,
-      "evidence_commit_count": 3,
+      "evidence_commit_count": 4,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "9226c6f91f2bd7fa6804bb68784d624a26e47ba5",
         "6229fd5d5056abbefc1a555c84c81f11216731eb"
@@ -2530,8 +2632,9 @@
       ],
       "current_sha256": "890c6ba6a8e5e9ae4bc4382e3348c23c68af5b3db822978d7eabf26c15269e9f",
       "deletions": 8,
-      "evidence_commit_count": 8,
+      "evidence_commit_count": 9,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "9cc0be342352bc898591070d2eb707c2025e4fbf",
         "1347606e041b11db674d6700f8ca6b3a831c9c8d",
         "3e0a36abadfe8e835beaede340db60c559837974",
@@ -2547,6 +2650,52 @@
         "subsystem.session_context"
       ],
       "path": "codex-rs/core/src/compact.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "baseline_sha256": "606cc2155a50671f051c71d7a65ddad9df276ed833145eaf46543e9184cc6a39",
+      "binary": false,
+      "categories": [
+        "session_context",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "fe31137b258a6058e9251f2d6a7ab441994f46e0143021b05becfa4253502f39",
+      "deletions": 0,
+      "evidence_commit_count": 2,
+      "evidence_commits": [
+        "93ef626dda6254ca94cb39ad266baeef5415f5d4",
+        "720abe5290e248cedd81d35f87e3d584856fa4e9"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "subsystem.session_context",
+        "taskspace.changed_symbol"
+      ],
+      "path": "codex-rs/core/src/compact_remote_request.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "baseline_sha256": "5e73e53db38960b521044dfeef7c83c8c22e488af91529466537cf110dd47543",
+      "binary": false,
+      "categories": [
+        "session_context",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "399c0f7b9feb9ec956c3cf3a6773347c0deebc5ab330698533bf2db4d734b442",
+      "deletions": 0,
+      "evidence_commit_count": 2,
+      "evidence_commits": [
+        "93ef626dda6254ca94cb39ad266baeef5415f5d4",
+        "720abe5290e248cedd81d35f87e3d584856fa4e9"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "subsystem.session_context",
+        "taskspace.changed_symbol"
+      ],
+      "path": "codex-rs/core/src/compact_remote_v2_attempt.rs",
       "status": "modified"
     },
     {
@@ -2619,8 +2768,9 @@
       ],
       "current_sha256": "e13905276b2ac0ca92730c2a5cead7269bf7d0231d567cfb5a649aad9c855f57",
       "deletions": 2,
-      "evidence_commit_count": 13,
+      "evidence_commit_count": 14,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "5ce2cfaf880a3bd2628057b7bbb94e9e3df4f538",
         "3e0a36abadfe8e835beaede340db60c559837974",
         "148f1d816fa17d1917832271e6698fa7c3e64b96",
@@ -2644,16 +2794,18 @@
       "status": "modified"
     },
     {
-      "additions": 2,
+      "additions": 3,
       "baseline_sha256": "89fe8da4950fa23af91df28f1a5b48ae935bc7e3dcdfb104987d30789a0b2197",
       "binary": false,
       "categories": [
         "taskspace_host_hooks"
       ],
-      "current_sha256": "f85a3528f8c0c3fd341fcd3c3744117f3a65c9972745bed5d37a7fb37d48b3ea",
+      "current_sha256": "905324300ec481f926917b36476a1186c19818917d3ba95c8571d03022f379c0",
       "deletions": 0,
-      "evidence_commit_count": 8,
+      "evidence_commit_count": 10,
       "evidence_commits": [
+        "93ef626dda6254ca94cb39ad266baeef5415f5d4",
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "4625f0f793134bfb14e8d5eb8d2868931c7a2888",
         "0c696b71b63edb7ba30ee50b62bc11a56a2a77ff",
@@ -2671,6 +2823,198 @@
       "status": "modified"
     },
     {
+      "additions": 38,
+      "baseline_sha256": null,
+      "binary": false,
+      "categories": [
+        "cache_observability"
+      ],
+      "current_sha256": "039e4565543986ccb26a3bfc757693aca4f0898988b21b1de13efea2ef0dd5a6",
+      "deletions": 0,
+      "evidence_commit_count": 3,
+      "evidence_commits": [
+        "93ef626dda6254ca94cb39ad266baeef5415f5d4",
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
+        "0e334bc262414e591cff62832d74801a52e5b602"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "cache.exact_surface"
+      ],
+      "path": "codex-rs/core/src/provider_wire_hash.rs",
+      "status": "added"
+    },
+    {
+      "additions": 146,
+      "baseline_sha256": null,
+      "binary": false,
+      "categories": [
+        "cache_observability",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "77e955a4dab9d31aad9d2d527ca57944c43f5bf0436433eceefc9c476316b14a",
+      "deletions": 0,
+      "evidence_commit_count": 3,
+      "evidence_commits": [
+        "93ef626dda6254ca94cb39ad266baeef5415f5d4",
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
+        "f81e76b883a6cd84f5144fed428cc3b095246a3c"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "cache.exact_surface",
+        "taskspace.changed_symbol"
+      ],
+      "path": "codex-rs/core/src/provider_wire_history.rs",
+      "status": "added"
+    },
+    {
+      "additions": 477,
+      "baseline_sha256": null,
+      "binary": false,
+      "categories": [
+        "cache_observability",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "1f8730744be26ce9e570008abb99c68cc37b1e6bb8e03823d128b61dff4781ba",
+      "deletions": 0,
+      "evidence_commit_count": 18,
+      "evidence_commits": [
+        "93ef626dda6254ca94cb39ad266baeef5415f5d4",
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
+        "0e334bc262414e591cff62832d74801a52e5b602",
+        "f81e76b883a6cd84f5144fed428cc3b095246a3c",
+        "2286dcaa504eb54dce4d79dfe067d5c771905e27",
+        "3dcca42ce1295ccf7c1ae91fb16424d38769fd7c",
+        "f8dc23612716d1b77ed02adaca59efcdb4dfdad5",
+        "4625f0f793134bfb14e8d5eb8d2868931c7a2888",
+        "d2be700307dc9722310b72f49878f020e3d701f7",
+        "ad117ce24566ed6f30256d97b61a7de42133c762",
+        "787070d8870c78fb146f0ee2ed05e90195a4a2db",
+        "e9d705a23558d3f777179ad8696351866e79081a",
+        "c0ab843182d00399e9aef5d32fd1032c34d55341",
+        "c7399adb687f5e8469c5a25fe1a9ee830053b96b",
+        "4366b95ecc0ef364f7be49f545aa987e767f3a40",
+        "5f25aad60d2b52cbf528c3d2042d3b8bd260b970",
+        "e9fa52d1264b6ecf87bf41b928ed345c1946806f",
+        "12b47917194f3cad8cefb18123bc4826fac33ce4"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "cache.exact_surface",
+        "taskspace.changed_symbol"
+      ],
+      "path": "codex-rs/core/src/provider_wire_sections.rs",
+      "status": "added"
+    },
+    {
+      "additions": 400,
+      "baseline_sha256": null,
+      "binary": false,
+      "categories": [
+        "cache_observability",
+        "provider_model",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "94a4906c9a49d9fd1b3215143366cf83244f5f826228cf0c6f278b7a815dbc06",
+      "deletions": 0,
+      "evidence_commit_count": 19,
+      "evidence_commits": [
+        "93ef626dda6254ca94cb39ad266baeef5415f5d4",
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
+        "0e334bc262414e591cff62832d74801a52e5b602",
+        "f81e76b883a6cd84f5144fed428cc3b095246a3c",
+        "2286dcaa504eb54dce4d79dfe067d5c771905e27",
+        "3dcca42ce1295ccf7c1ae91fb16424d38769fd7c",
+        "f8dc23612716d1b77ed02adaca59efcdb4dfdad5",
+        "4625f0f793134bfb14e8d5eb8d2868931c7a2888",
+        "d2be700307dc9722310b72f49878f020e3d701f7",
+        "ad117ce24566ed6f30256d97b61a7de42133c762",
+        "787070d8870c78fb146f0ee2ed05e90195a4a2db",
+        "e9d705a23558d3f777179ad8696351866e79081a",
+        "c0ab843182d00399e9aef5d32fd1032c34d55341",
+        "c7399adb687f5e8469c5a25fe1a9ee830053b96b",
+        "4366b95ecc0ef364f7be49f545aa987e767f3a40",
+        "5f25aad60d2b52cbf528c3d2042d3b8bd260b970",
+        "e9fa52d1264b6ecf87bf41b928ed345c1946806f",
+        "36a02b1ebc3dcd5615e3ca31d6663225b88828e1",
+        "12b47917194f3cad8cefb18123bc4826fac33ce4"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "cache.exact_surface",
+        "provider.strong_path_or_symbol",
+        "taskspace.changed_symbol"
+      ],
+      "path": "codex-rs/core/src/provider_wire_sections_tests.rs",
+      "status": "added"
+    },
+    {
+      "additions": 255,
+      "baseline_sha256": null,
+      "binary": false,
+      "categories": [
+        "cache_observability",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "7e68585fc97d347ca3d2736ddddbb4a901ee01e13c36f3e4338362e49bf2d9be",
+      "deletions": 0,
+      "evidence_commit_count": 3,
+      "evidence_commits": [
+        "93ef626dda6254ca94cb39ad266baeef5415f5d4",
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
+        "0e334bc262414e591cff62832d74801a52e5b602"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "cache.exact_surface",
+        "taskspace.changed_symbol"
+      ],
+      "path": "codex-rs/core/src/provider_wire_tools.rs",
+      "status": "added"
+    },
+    {
+      "additions": 848,
+      "baseline_sha256": null,
+      "binary": false,
+      "categories": [
+        "cache_observability",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "74699bc643b72f78866a0eba3e84606169ce91d0b79368ee0045a347657e604b",
+      "deletions": 0,
+      "evidence_commit_count": 22,
+      "evidence_commits": [
+        "93ef626dda6254ca94cb39ad266baeef5415f5d4",
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
+        "b907af9085849406182fdde790ef556f267c7a2a",
+        "85f14967c5ad2a1ea47f65bdd84d5b6ee6e375a5",
+        "8481d24bcd64d85edb8c97d3eabc0aed48fc1898",
+        "4625f0f793134bfb14e8d5eb8d2868931c7a2888",
+        "ad117ce24566ed6f30256d97b61a7de42133c762",
+        "787070d8870c78fb146f0ee2ed05e90195a4a2db",
+        "e9d705a23558d3f777179ad8696351866e79081a",
+        "59fd55f0afb4160e9b8a9fa1aa248e7ee239cefb",
+        "c0ab843182d00399e9aef5d32fd1032c34d55341",
+        "f2baea6d13caef02f15e1a3c6938a3fa05a3d315",
+        "9a0c37cd8f14c69a48cd84a567d340cd5128e674",
+        "2ea8b4d24c027e19507a22095fe065896d89453d",
+        "aa8b433e5324538ca17575ba478b728370b7a0cc",
+        "5ecfefbcd67c7b92e7a118555ce3b253b970d0d0",
+        "daf6b47874c08f296a382ef3e3202f64666277d6",
+        "12b47917194f3cad8cefb18123bc4826fac33ce4",
+        "211743207a8351a659a97075473713a99b4e77f4",
+        "a7e47de5cc3da543abaffc212cc458eb629b0327"
+      ],
+      "evidence_truncated": true,
+      "matched_rule_ids": [
+        "cache.exact_surface",
+        "taskspace.changed_symbol"
+      ],
+      "path": "codex-rs/core/src/provider_wire_trace.rs",
+      "status": "added"
+    },
+    {
       "additions": 1,
       "baseline_sha256": "313c3611c2543f2accd3d776ab7c67d91c23900bc587554614636b820f00b63d",
       "binary": false,
@@ -2679,8 +3023,9 @@
       ],
       "current_sha256": "a253a9ab30a95f70cb001b506f5b0a795d11ffffdca8251975e39e1d81220e95",
       "deletions": 0,
-      "evidence_commit_count": 5,
+      "evidence_commit_count": 6,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "84b94ceef75f4ebc08c77cdd7f9991a555aa2975",
         "26c5a87fdb3c0d8b84082bbab0ccd3da2db5e387",
@@ -2728,8 +3073,9 @@
       ],
       "current_sha256": "2c6a987ea67bfa144ac1233bb4d8b256c1bb1b4f4961cd2a533a91c789380b3b",
       "deletions": 0,
-      "evidence_commit_count": 26,
+      "evidence_commit_count": 27,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "5ce2cfaf880a3bd2628057b7bbb94e9e3df4f538",
         "24c54333be6c132a390585803512df2873649684",
         "aba41ff042607b78e30054cdd65ad94612280044",
@@ -2748,8 +3094,7 @@
         "a51149469f4d929617576e1b2d900536066186d8",
         "3db12356f96519d0c666eb67e5c4c46c961b4739",
         "06d949f695de24a4190101ef6e53e03329117215",
-        "907d7ae5132bedb53cc21510aeddbd64e4db26c2",
-        "6229fd5d5056abbefc1a555c84c81f11216731eb"
+        "907d7ae5132bedb53cc21510aeddbd64e4db26c2"
       ],
       "evidence_truncated": true,
       "matched_rule_ids": [
@@ -2770,8 +3115,9 @@
       ],
       "current_sha256": "f6449f636263aa13d850003ce4baba1fb2b2c763d20776e65aa2bb91408cd24f",
       "deletions": 0,
-      "evidence_commit_count": 144,
+      "evidence_commit_count": 145,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "5ce2cfaf880a3bd2628057b7bbb94e9e3df4f538",
         "68216484447515e8c7564195ced55b5fd390aa92",
         "8237568de3dbc9c9de28c334657bd923aa95a7cc",
@@ -2790,8 +3136,7 @@
         "9fabe58326900797187e75a7d786b546b5992d8a",
         "173abf3c11aaf9ed79158dafc302b763a6b19778",
         "9226c6f91f2bd7fa6804bb68784d624a26e47ba5",
-        "36395074e1a33e3b04bd79a04e501cbbc482f99f",
-        "0c696b71b63edb7ba30ee50b62bc11a56a2a77ff"
+        "36395074e1a33e3b04bd79a04e501cbbc482f99f"
       ],
       "evidence_truncated": true,
       "matched_rule_ids": [
@@ -2811,8 +3156,9 @@
       ],
       "current_sha256": "4d1da019782b9248c216662ed4dd80100d906211a73547a42939202340e01eb7",
       "deletions": 1,
-      "evidence_commit_count": 16,
+      "evidence_commit_count": 17,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "5ce2cfaf880a3bd2628057b7bbb94e9e3df4f538",
         "24c54333be6c132a390585803512df2873649684",
         "702f885a0470085a90624d42425128d53446587f",
@@ -2847,8 +3193,9 @@
       ],
       "current_sha256": "2b784c5d0d961ee76bee6d15233065fa64b658bf28c7928de4e0d0d4693ef4ca",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -2890,8 +3237,9 @@
       ],
       "current_sha256": "164f23018f5e05e2aa324e00f138580ad9f5d75aa1f40965d170579fd1a2d2a6",
       "deletions": 0,
-      "evidence_commit_count": 17,
+      "evidence_commit_count": 18,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "5ce2cfaf880a3bd2628057b7bbb94e9e3df4f538",
         "68216484447515e8c7564195ced55b5fd390aa92",
         "a3305e6ab9455ff4d61c50f28f90578926aad0e1",
@@ -2928,8 +3276,9 @@
       ],
       "current_sha256": "bd7570a69a32280ce3398d6064ae8c1d2caf60e2fafc4d131a0b4fde049fe6ca",
       "deletions": 0,
-      "evidence_commit_count": 4,
+      "evidence_commit_count": 5,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "aba41ff042607b78e30054cdd65ad94612280044",
         "2aa968348ce8b80622df0644412d265652f54a4a",
         "4be93ba318a15a3479abd0b88cbc4886a1a92ecc",
@@ -2998,8 +3347,9 @@
       ],
       "current_sha256": "a60c1936af361d09c2a9c286460bc9a8ab51d67240bf712d434549717457542b",
       "deletions": 0,
-      "evidence_commit_count": 5,
+      "evidence_commit_count": 6,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "2aa968348ce8b80622df0644412d265652f54a4a",
         "f8dc23612716d1b77ed02adaca59efcdb4dfdad5",
         "a88f74f7f173c2e3b14b373f9bf4ead24fabeb76",
@@ -3024,8 +3374,9 @@
       ],
       "current_sha256": "cef0a5a96809cea894c0104b0c38927463cd4c62023519d734e8188a0cc93e30",
       "deletions": 0,
-      "evidence_commit_count": 93,
+      "evidence_commit_count": 94,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "a38c91fde52add264d9913a8df5a336552a1e0a4",
         "ab23d8f5bc164fce47db99e9c52573140677d16d",
         "3750a39327350279b199f6f1079d3986e094f6fa",
@@ -3044,8 +3395,7 @@
         "1189437a5a03b33fc69f9c37333c243174cd6fe6",
         "e9d705a23558d3f777179ad8696351866e79081a",
         "302ea5db386bf7a69b7d77c9cadf0bdaab41164b",
-        "d64b598b8046b756c9b1037024e50bd86afcd173",
-        "173abf3c11aaf9ed79158dafc302b763a6b19778"
+        "d64b598b8046b756c9b1037024e50bd86afcd173"
       ],
       "evidence_truncated": true,
       "matched_rule_ids": [
@@ -3056,7 +3406,7 @@
       "status": "modified"
     },
     {
-      "additions": 149,
+      "additions": 164,
       "baseline_sha256": "9363d0a9fb9dfd330405eec51ad733d324782833fd941761a2a7edc643c41fd0",
       "binary": false,
       "categories": [
@@ -3064,10 +3414,12 @@
         "taskspace_host_hooks",
         "upstream_backport"
       ],
-      "current_sha256": "a0170b61944eb5ac140d462e62a82025a4c2091c7839a35897788df505517dd3",
-      "deletions": 1,
-      "evidence_commit_count": 263,
+      "current_sha256": "a79d31c2b7c307c1a36bbb58c50ed03bfb19915d384dee198dca3e07be63d22d",
+      "deletions": 2,
+      "evidence_commit_count": 265,
       "evidence_commits": [
+        "93ef626dda6254ca94cb39ad266baeef5415f5d4",
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "8ae4f275986a935aa2749eab05695af111b4a40c",
         "e596d2f27031fd85c50197e7e18536999433384b",
         "0f83a2ec3ba3ca0e21bb75b88f66a2a077b9a243",
@@ -3085,9 +3437,7 @@
         "4625f0f793134bfb14e8d5eb8d2868931c7a2888",
         "5228efd802f817f491cf5ffd46ac597b15d8256c",
         "1189437a5a03b33fc69f9c37333c243174cd6fe6",
-        "cd327d938bd8ee1ae4ee4910586ef5048142ccdb",
-        "3e0a36abadfe8e835beaede340db60c559837974",
-        "e9d705a23558d3f777179ad8696351866e79081a"
+        "cd327d938bd8ee1ae4ee4910586ef5048142ccdb"
       ],
       "evidence_truncated": true,
       "matched_rule_ids": [
@@ -3107,8 +3457,9 @@
       ],
       "current_sha256": "cb5568c326b2ca931a9bed9b3a7972c381d8d31450f163f2d09f3bf3fc0688fe",
       "deletions": 0,
-      "evidence_commit_count": 16,
+      "evidence_commit_count": 17,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "67fb2b6fa2196bf8cd9279e97cc2cf21cca1c3c8",
         "302ea5db386bf7a69b7d77c9cadf0bdaab41164b",
         "9fabe58326900797187e75a7d786b546b5992d8a",
@@ -3142,8 +3493,9 @@
       ],
       "current_sha256": "d2460f1ec3b246446e5efb418c930af0ad275fc4aee5c86f98f39cfb25d93a8c",
       "deletions": 0,
-      "evidence_commit_count": 8,
+      "evidence_commit_count": 9,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "e596d2f27031fd85c50197e7e18536999433384b",
         "1189437a5a03b33fc69f9c37333c243174cd6fe6",
         "445499582726614a610ca9e0c923b5e05da02700",
@@ -3171,8 +3523,9 @@
       ],
       "current_sha256": "619bc4a07f8a07a2599cfcbb1e052c1633745121b4aee930ba334855d3f02515",
       "deletions": 0,
-      "evidence_commit_count": 20,
+      "evidence_commit_count": 21,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "d13c75d2ac0fb7fa18add8317f3663a04adf6956",
         "fb3424e2605513e9868d07f3a46e8d86b05c6bc7",
         "5228efd802f817f491cf5ffd46ac597b15d8256c",
@@ -3191,10 +3544,9 @@
         "96c52a869d5946cbcc331dbbcd5a79de55468897",
         "f08023636aff4fbf21a8c34aab0af02967039d77",
         "c11741608c4c8859b23bfd6df9e13da41f87f7a9",
-        "d356c65c67aa8dfd64fe70f2a284e03010555ddc",
-        "713c5f84fc03205a1f94f5017b1f1921ab52e405"
+        "d356c65c67aa8dfd64fe70f2a284e03010555ddc"
       ],
-      "evidence_truncated": false,
+      "evidence_truncated": true,
       "matched_rule_ids": [
         "ledger.exact_path",
         "subsystem.tool_runtime",
@@ -3213,8 +3565,9 @@
       ],
       "current_sha256": "8316fa3612c89958d0230e52f4c6ef371af71cbf5c9b6915bd3214d7e6d91382",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -3278,8 +3631,9 @@
       ],
       "current_sha256": "de22b6af288d1ed456322902edc8ebb535dd6e080fbacfd111a5abdf5f5a70fa",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -3300,8 +3654,9 @@
       ],
       "current_sha256": "8feb8c9dba8b663d66d8a6f0e9ca7bf9f571bec233c8f38690f38db8af535058",
       "deletions": 0,
-      "evidence_commit_count": 29,
+      "evidence_commit_count": 30,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "0bd813e7a48779bbfbe818bbb33325f17714db09",
         "5228efd802f817f491cf5ffd46ac597b15d8256c",
         "2960ea03a7c6420eaca697d25e59c03ea2c0a5f3",
@@ -3320,8 +3675,7 @@
         "f0197e8199d0562c5fcbcb884da8cd0156f1ef96",
         "61d8fbba32c0c95efa2061a763393302ad1e054b",
         "8c8680c50675b53273ced888aad6f6ec7efb8db1",
-        "00179c43af1d0cd7b4c26901ef1b98cd8c6d123c",
-        "87cf6b984df9aebd8006cb07af73bd18e5b4c39f"
+        "00179c43af1d0cd7b4c26901ef1b98cd8c6d123c"
       ],
       "evidence_truncated": true,
       "matched_rule_ids": [
@@ -3395,8 +3749,9 @@
       ],
       "current_sha256": "d549a77cdcbdd622dfadc94e9ff125ee9c4f442c3723040e2b5605dcfd895ee7",
       "deletions": 7,
-      "evidence_commit_count": 56,
+      "evidence_commit_count": 57,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "ab23d8f5bc164fce47db99e9c52573140677d16d",
         "3750a39327350279b199f6f1079d3986e094f6fa",
         "e596d2f27031fd85c50197e7e18536999433384b",
@@ -3415,8 +3770,7 @@
         "e9d705a23558d3f777179ad8696351866e79081a",
         "59fd55f0afb4160e9b8a9fa1aa248e7ee239cefb",
         "445499582726614a610ca9e0c923b5e05da02700",
-        "f5dfe9905638a1813cc82215fab7d48e36e2d9df",
-        "ebffaaa63fb72f6cd0162f800a728fa1af933d5e"
+        "f5dfe9905638a1813cc82215fab7d48e36e2d9df"
       ],
       "evidence_truncated": true,
       "matched_rule_ids": [
@@ -3436,8 +3790,9 @@
       ],
       "current_sha256": "f1f844e3c3c37382d0496e11002eb6d22eba56df42cb528b5bd79a52f860315c",
       "deletions": 0,
-      "evidence_commit_count": 7,
+      "evidence_commit_count": 8,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "889f8586a2ece5af6136cf0794145d09b8f2a434",
         "fb3424e2605513e9868d07f3a46e8d86b05c6bc7",
         "df7969cf95c431094b44b7975b5f7643959b2b44",
@@ -3464,8 +3819,9 @@
       ],
       "current_sha256": "bc5dc31ac26e6591f1f2dd3fd778b0996210b32c6cd78e1c32c6cd690913c712",
       "deletions": 2,
-      "evidence_commit_count": 22,
+      "evidence_commit_count": 23,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "2b92f23459a24ef0347f72f3f6c029bdbd363360",
         "2f875f7774043d0a7ab14ea07126a5117bedfd24",
         "889f8586a2ece5af6136cf0794145d09b8f2a434",
@@ -3484,8 +3840,7 @@
         "f0197e8199d0562c5fcbcb884da8cd0156f1ef96",
         "3d29e39168a2362d01ea4c5ac45a33078f4ccd53",
         "61d8fbba32c0c95efa2061a763393302ad1e054b",
-        "839832c5fad5c57c46b52d696804ab958e162cfa",
-        "12f37ee438211b45a2b91230fa9cafef9341e9a0"
+        "839832c5fad5c57c46b52d696804ab958e162cfa"
       ],
       "evidence_truncated": true,
       "matched_rule_ids": [
@@ -3504,8 +3859,9 @@
       ],
       "current_sha256": "e0af03963e367e53e59f3f97cfeb0174d1a5157133a9c5417a85452f2534d8ef",
       "deletions": 4,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -3525,8 +3881,9 @@
       ],
       "current_sha256": "09dbdc43714c3068f6b58b48cabafedee0cd4001bf704c7a4b6e2b77bce545e8",
       "deletions": 0,
-      "evidence_commit_count": 35,
+      "evidence_commit_count": 36,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "ab23d8f5bc164fce47db99e9c52573140677d16d",
         "3750a39327350279b199f6f1079d3986e094f6fa",
         "68216484447515e8c7564195ced55b5fd390aa92",
@@ -3545,8 +3902,7 @@
         "7cbaa46a2627214c2fb891edc3844b3cc0c30c37",
         "879777729a7ec5aad0317a5c21e72da5d648323d",
         "f0a599fd3fadde906a3540570b7025f0f9120ed6",
-        "5c81642e1d90b82a040c235feced99efc5367f52",
-        "937a3000f2e4b062367b00e46e8ae2fdbd4965f7"
+        "5c81642e1d90b82a040c235feced99efc5367f52"
       ],
       "evidence_truncated": true,
       "matched_rule_ids": [
@@ -3566,8 +3922,9 @@
       ],
       "current_sha256": "2e457e8e01f288282c084a0314f15fc552ef1ec2d186f8773a2aee4241a8cc73",
       "deletions": 0,
-      "evidence_commit_count": 4,
+      "evidence_commit_count": 5,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "ab23d8f5bc164fce47db99e9c52573140677d16d",
         "3750a39327350279b199f6f1079d3986e094f6fa",
         "eccec163d9d2c16e887c5fa2c6b17128a3a5e6f0",
@@ -3591,8 +3948,9 @@
       ],
       "current_sha256": "4ff100bd8cf5ba68af05bda1b6b99e5a2100523b31f6bd82af063b8b5ef50866",
       "deletions": 0,
-      "evidence_commit_count": 10,
+      "evidence_commit_count": 11,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "ab23d8f5bc164fce47db99e9c52573140677d16d",
         "3750a39327350279b199f6f1079d3986e094f6fa",
         "d13c75d2ac0fb7fa18add8317f3663a04adf6956",
@@ -3666,17 +4024,19 @@
       "status": "added"
     },
     {
-      "additions": 458,
+      "additions": 463,
       "baseline_sha256": null,
       "binary": false,
       "categories": [
         "taskspace_host_hooks",
         "tool_runtime"
       ],
-      "current_sha256": "a4df42a0a1078b58cf4fcd18bca22eead871b5d9afc8ab0a7269cd0814272d30",
+      "current_sha256": "b7c66a42572da859b3707f5e52d61e4e8b345219b6a83eb8ebfcf25b63bf377d",
       "deletions": 0,
-      "evidence_commit_count": 31,
+      "evidence_commit_count": 33,
       "evidence_commits": [
+        "8cc1fef67b472ff2a28327750dc2884675f91dec",
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "8ae4f275986a935aa2749eab05695af111b4a40c",
         "ab23d8f5bc164fce47db99e9c52573140677d16d",
         "3750a39327350279b199f6f1079d3986e094f6fa",
@@ -3694,9 +4054,7 @@
         "a73d73dc8ab6db49255e517307fbcf6cbe81efb6",
         "1d2423b23bb6c4fba7754664313d25a07f0b2fbb",
         "8d868d6befba8b3e2b014c4b3e0a860deb520e56",
-        "534f98e344259e80b4bf11997d4727485f5986d8",
-        "bb85e108cf94c3649cd8df41311b8623063d249b",
-        "6673c6d4cf76fc247e79cb33a6a078d2e1aec129"
+        "534f98e344259e80b4bf11997d4727485f5986d8"
       ],
       "evidence_truncated": true,
       "matched_rule_ids": [
@@ -3716,8 +4074,9 @@
       ],
       "current_sha256": "54cea96ad356652d26f7422d1299d775b1f13383a25737fe98594d04aea29393",
       "deletions": 0,
-      "evidence_commit_count": 3,
+      "evidence_commit_count": 4,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "2b92f23459a24ef0347f72f3f6c029bdbd363360",
         "a73d73dc8ab6db49255e517307fbcf6cbe81efb6",
         "f0a599fd3fadde906a3540570b7025f0f9120ed6"
@@ -3770,8 +4129,9 @@
       ],
       "current_sha256": "e1945a5e29451f0e3fded83b253b1d9e6575d004fb69a7934877d8f2534e804d",
       "deletions": 0,
-      "evidence_commit_count": 33,
+      "evidence_commit_count": 34,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "8ae4f275986a935aa2749eab05695af111b4a40c",
         "3eeaeac3c01eeb278aa834152bd3f4e38c2a6282",
         "a36a42939e1ecb799c75c5af80a171c7a71011ca",
@@ -3790,8 +4150,7 @@
         "889f8586a2ece5af6136cf0794145d09b8f2a434",
         "dc876b30e1bc82df5f35b8e7f32e041e28b6cc7a",
         "402dc99a1fa263568db058bb549b6114642e1743",
-        "4d7387a86079b7f512be81667cfe971c92520dbd",
-        "702f885a0470085a90624d42425128d53446587f"
+        "4d7387a86079b7f512be81667cfe971c92520dbd"
       ],
       "evidence_truncated": true,
       "matched_rule_ids": [
@@ -3925,17 +4284,19 @@
       "status": "added"
     },
     {
-      "additions": 713,
+      "additions": 746,
       "baseline_sha256": null,
       "binary": false,
       "categories": [
         "taskspace_host_hooks",
         "tool_runtime"
       ],
-      "current_sha256": "eeec61fd2209bfe5549eb32a16c19fd2183c0b28691d8f6fea0c6ac8d78b4f95",
+      "current_sha256": "7a819c3cc37d939aa589c8662e8faed57d6548ec2efc0399606116a739015f16",
       "deletions": 0,
-      "evidence_commit_count": 14,
+      "evidence_commit_count": 16,
       "evidence_commits": [
+        "8cc1fef67b472ff2a28327750dc2884675f91dec",
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "8ae4f275986a935aa2749eab05695af111b4a40c",
         "e596d2f27031fd85c50197e7e18536999433384b",
         "ee930aea7a2b9bc62bff7430dfce46c5525b8e42",
@@ -3969,8 +4330,9 @@
       ],
       "current_sha256": "86521def35ee13ec4d20e3f127cee28911a93376ac1b612a8457bf8bec3c3a02",
       "deletions": 0,
-      "evidence_commit_count": 15,
+      "evidence_commit_count": 16,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "efcb738f5534556cd9b9dd71a2ee19e8ddf834d7",
         "b036f613ae5a7aa23c379bcc630aad537f10ea8a",
         "ab23d8f5bc164fce47db99e9c52573140677d16d",
@@ -4004,8 +4366,9 @@
       ],
       "current_sha256": "afee8a0a465fa6d0421a6fb71b4521ec545573b220f422f3d2395edcff72aa06",
       "deletions": 0,
-      "evidence_commit_count": 4,
+      "evidence_commit_count": 5,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "847da1c37e4283056e1223030a719432914ddc99",
         "326e1430c74857bf70c2144f3a62e2034b56defd",
         "8d868d6befba8b3e2b014c4b3e0a860deb520e56",
@@ -4028,8 +4391,9 @@
       ],
       "current_sha256": "c060e11c2a020df9622ad04624556d42876d67ba37eb1f3f580ca973baf7e1bd",
       "deletions": 0,
-      "evidence_commit_count": 10,
+      "evidence_commit_count": 11,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "4706b39aa6ffbb0b4c03e2d6e9f2aeea6d54b470",
         "3eeaeac3c01eeb278aa834152bd3f4e38c2a6282",
         "a38c91fde52add264d9913a8df5a336552a1e0a4",
@@ -4120,8 +4484,9 @@
       ],
       "current_sha256": "52199f4345198613a05cfaaae6c53e5baf19bf5bb5e9dca58d49e80bcd57a118",
       "deletions": 0,
-      "evidence_commit_count": 45,
+      "evidence_commit_count": 46,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "1c4e6d9ba2092b7484483f20213a4e485233d6b0",
         "fe2a639f3b92e331a90aa6776fd3e3fe1814323e",
         "bf0b7cc8bad9a35ecff4d58a0421b77c1f133d84",
@@ -4140,8 +4505,7 @@
         "e4e7fc8748c2226d097ab556ad4988dd4f5c2d2b",
         "a3305e6ab9455ff4d61c50f28f90578926aad0e1",
         "b77663e438bf54d60e729f6f9eb8495537426fcf",
-        "7f7a1e7b9de5c4930aa78571ef54c3d968a54d46",
-        "2b92f23459a24ef0347f72f3f6c029bdbd363360"
+        "7f7a1e7b9de5c4930aa78571ef54c3d968a54d46"
       ],
       "evidence_truncated": true,
       "matched_rule_ids": [
@@ -4190,8 +4554,9 @@
       ],
       "current_sha256": "4035da934e66dc2227097be7550deec952a118e8a4d5f38eb92f482d72e0f11e",
       "deletions": 0,
-      "evidence_commit_count": 17,
+      "evidence_commit_count": 18,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "ab23d8f5bc164fce47db99e9c52573140677d16d",
         "3750a39327350279b199f6f1079d3986e094f6fa",
         "5c8f428533e306581f62d5bb7b5179fc0f396fe6",
@@ -4228,8 +4593,9 @@
       ],
       "current_sha256": "5a0e424a520d6bf7630ad8b79b00d8f6086a790b8db5711fb222dffdd827ea9f",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "3eeaeac3c01eeb278aa834152bd3f4e38c2a6282"
       ],
       "evidence_truncated": false,
@@ -4273,8 +4639,9 @@
       ],
       "current_sha256": "c05cf6a7808364188f7421002dc4ab27314b8859ac6019823fc1660b594b0e6c",
       "deletions": 0,
-      "evidence_commit_count": 3,
+      "evidence_commit_count": 4,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "d13c75d2ac0fb7fa18add8317f3663a04adf6956",
         "5228efd802f817f491cf5ffd46ac597b15d8256c",
         "148406cde5862c92f181ec5f31b17716fb2c0837"
@@ -4285,6 +4652,75 @@
         "taskspace.changed_symbol"
       ],
       "path": "codex-rs/core/src/tools/tool_dispatch_trace.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 1,
+      "baseline_sha256": "a7c5db6ec2bd83d5cf20d49a26114365d46672e4d26d59db0984da2cd31a82fa",
+      "binary": false,
+      "categories": [
+        "build_release",
+        "test_fixture"
+      ],
+      "current_sha256": "d5b1d80652198bde689994e4085456392efa410ebc77f62bbb86369f791526aa",
+      "deletions": 0,
+      "evidence_commit_count": 3,
+      "evidence_commits": [
+        "99ab63d98095c6a2b8d64f455aa825475069d1e5",
+        "720abe5290e248cedd81d35f87e3d584856fa4e9",
+        "11d5b2bdd0da45b4b5da535a7d81f2b73868bb1e"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "build.strong_path",
+        "test.path"
+      ],
+      "path": "codex-rs/core/tests/common/Cargo.toml",
+      "status": "modified"
+    },
+    {
+      "additions": 51,
+      "baseline_sha256": null,
+      "binary": false,
+      "categories": [
+        "test_fixture"
+      ],
+      "current_sha256": "c1689a424e1c0603bba8129916aeddf6d78af812b3e3187400fc61f28afda7a6",
+      "deletions": 0,
+      "evidence_commit_count": 4,
+      "evidence_commits": [
+        "99ab63d98095c6a2b8d64f455aa825475069d1e5",
+        "720abe5290e248cedd81d35f87e3d584856fa4e9",
+        "e35cf681b838afc450a2b0800ddb39486de6b61b",
+        "11d5b2bdd0da45b4b5da535a7d81f2b73868bb1e"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "test.path"
+      ],
+      "path": "codex-rs/core/tests/common/cache_payload.rs",
+      "status": "added"
+    },
+    {
+      "additions": 1,
+      "baseline_sha256": "5418ece8bb498ed07b87e99e1faa9a8c86944a40cfe20d519e4d60ecbec54f24",
+      "binary": false,
+      "categories": [
+        "test_fixture"
+      ],
+      "current_sha256": "4d54c734402792cc766f8f9ac0aec552b961f37bb73e5315ac362851d06bb844",
+      "deletions": 0,
+      "evidence_commit_count": 3,
+      "evidence_commits": [
+        "99ab63d98095c6a2b8d64f455aa825475069d1e5",
+        "720abe5290e248cedd81d35f87e3d584856fa4e9",
+        "11d5b2bdd0da45b4b5da535a7d81f2b73868bb1e"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "test.path"
+      ],
+      "path": "codex-rs/core/tests/common/lib.rs",
       "status": "modified"
     },
     {
@@ -4335,7 +4771,7 @@
       "status": "modified"
     },
     {
-      "additions": 179,
+      "additions": 252,
       "baseline_sha256": null,
       "binary": false,
       "categories": [
@@ -4344,10 +4780,12 @@
         "taskspace_host_hooks",
         "test_fixture"
       ],
-      "current_sha256": "90e4b68ad17e36f1bad336ee9f7d208504e6b77eeb965b4511d2a28927522c06",
+      "current_sha256": "91fe06fb7beb7f2154f466aa8a333e7ce229bdba7367dc2fd70fce3a7a44f8a2",
       "deletions": 0,
-      "evidence_commit_count": 8,
+      "evidence_commit_count": 10,
       "evidence_commits": [
+        "8cc1fef67b472ff2a28327750dc2884675f91dec",
+        "99ab63d98095c6a2b8d64f455aa825475069d1e5",
         "b156c34b1b650031a82a5ff2782b3799f94dc073",
         "4472c2afa2cd5fd50c15562bb3d07080126bb80e",
         "e35cf681b838afc450a2b0800ddb39486de6b61b",
@@ -4368,7 +4806,7 @@
       "status": "added"
     },
     {
-      "additions": 283,
+      "additions": 411,
       "baseline_sha256": null,
       "binary": false,
       "categories": [
@@ -4377,10 +4815,12 @@
         "taskspace_host_hooks",
         "test_fixture"
       ],
-      "current_sha256": "ec36104734c636034127df383176f5cf038bf3c4958123feb74e47aa92a2c70a",
+      "current_sha256": "1f2224aa37d6cb33d59d75068dccd6fc2a1d8679fe69395e4199aa233ef13cc5",
       "deletions": 0,
-      "evidence_commit_count": 9,
+      "evidence_commit_count": 11,
       "evidence_commits": [
+        "dddd85413c3352a06bbc1cc89ff28cd0d5190b9e",
+        "99ab63d98095c6a2b8d64f455aa825475069d1e5",
         "67a7e7a1be2e0bb7bcc9001f50bf3fa3314b7903",
         "4472c2afa2cd5fd50c15562bb3d07080126bb80e",
         "e35cf681b838afc450a2b0800ddb39486de6b61b",
@@ -4399,31 +4839,6 @@
         "test.path"
       ],
       "path": "codex-rs/core/tests/suite/cache_payload_contract.rs",
-      "status": "added"
-    },
-    {
-      "additions": 173,
-      "baseline_sha256": null,
-      "binary": false,
-      "categories": [
-        "cache_observability",
-        "provider_model",
-        "test_fixture"
-      ],
-      "current_sha256": "40e2ffd04dd2ab4c04de3c9ed51711b65b47525e36fde6aaa62966d24ddce1d0",
-      "deletions": 0,
-      "evidence_commit_count": 2,
-      "evidence_commits": [
-        "d97aa819f90680619a3c8f76c746febaf7e39654",
-        "30d60a96fc56b5a4d0a85864aca00ad0bdd71f25"
-      ],
-      "evidence_truncated": false,
-      "matched_rule_ids": [
-        "cache.exact_surface",
-        "provider.strong_path_or_symbol",
-        "test.path"
-      ],
-      "path": "codex-rs/core/tests/suite/cache_provider_boundary_route.rs",
       "status": "added"
     },
     {
@@ -4500,16 +4915,18 @@
       "status": "modified"
     },
     {
-      "additions": 1,
+      "additions": 3,
       "baseline_sha256": "d126e1aa09282386676fda3bc00d0b26c57c4b60f14d2592ae44a51267e27275",
       "binary": false,
       "categories": [
         "test_fixture"
       ],
-      "current_sha256": "3defb44c23592ebf32aeaaf9a9674e0125b0a588a112768ebfd3d049e798b155",
+      "current_sha256": "78390ece5ec01ee5666676557e1ddf3e02d72a5fb168d143021970f9680d304a",
       "deletions": 0,
-      "evidence_commit_count": 12,
+      "evidence_commit_count": 14,
       "evidence_commits": [
+        "99ab63d98095c6a2b8d64f455aa825475069d1e5",
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "7eee749c6c26c3f619cb0be3672257037f2babc9",
         "30d60a96fc56b5a4d0a85864aca00ad0bdd71f25",
         "55900ac18e36a5a147b62c97bc228d2307f13f83",
@@ -4579,7 +4996,7 @@
       "status": "modified"
     },
     {
-      "additions": 1016,
+      "additions": 1077,
       "baseline_sha256": null,
       "binary": false,
       "categories": [
@@ -4590,7 +5007,7 @@
         "taskspace_domain",
         "test_fixture"
       ],
-      "current_sha256": "b4650faf2f7f727aba1fb3ef3002400007fe049807c4c80987d4fe4a4ef509dc",
+      "current_sha256": "7e26d3dc02ad978dc8c1758aa95c670f35ea66e8f1e3edcbf89f48d98d5b382f",
       "deletions": 0,
       "evidence_commit_count": 7,
       "evidence_commits": [
@@ -4612,6 +5029,37 @@
         "test.path"
       ],
       "path": "codex-rs/core/tests/suite/snapshots/all__suite__cache_final_wire__taskspace_production_tool_wire.snap",
+      "status": "added"
+    },
+    {
+      "additions": 1010,
+      "baseline_sha256": null,
+      "binary": false,
+      "categories": [
+        "cache_observability",
+        "generated_artifact",
+        "multi_agent",
+        "provider_model",
+        "test_fixture"
+      ],
+      "current_sha256": "d8a54639729659b0809100afb0e88528353713c0c7a2a2c74a2d33b6a8cf2614",
+      "deletions": 0,
+      "evidence_commit_count": 4,
+      "evidence_commits": [
+        "99ab63d98095c6a2b8d64f455aa825475069d1e5",
+        "720abe5290e248cedd81d35f87e3d584856fa4e9",
+        "128b47d889bad0ca7e56b2508ca5de182a63d62c",
+        "31f92729ef3d09483b080aba80cfade618a9b1b9"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "cache.exact_surface",
+        "generated.path",
+        "multi_agent.path_or_symbol",
+        "provider.strong_path_or_symbol",
+        "test.path"
+      ],
+      "path": "codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_contract__standard_two_request_final_wire.snap",
       "status": "added"
     },
     {
@@ -4648,8 +5096,10 @@
       ],
       "current_sha256": "7e767aa559866715f761e17c4b7baf54cc0715cc7198cef336c779bbbe9ae252",
       "deletions": 0,
-      "evidence_commit_count": 0,
-      "evidence_commits": [],
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58"
+      ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "test.path"
@@ -4731,6 +5181,90 @@
       "status": "modified"
     },
     {
+      "additions": 4,
+      "baseline_sha256": "c928cbe54c3ad12b09852b53048b5c7cdf66ca089963e029a503893cd880f1b4",
+      "binary": false,
+      "categories": [
+        "cli_surface",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "0108c5f335df66e6b2172728ed111beb567fcc5537d7597b85a6645f54d18477",
+      "deletions": 0,
+      "evidence_commit_count": 7,
+      "evidence_commits": [
+        "99ab63d98095c6a2b8d64f455aa825475069d1e5",
+        "720abe5290e248cedd81d35f87e3d584856fa4e9",
+        "d87d1af3575419b2b1c71e2f4de5c96d4e0da638",
+        "c2385ba7b96a21244da724bddd025faf4385fc30",
+        "07bd86e66a9232dbbb6937f52031274c754ff25d",
+        "cb32983f540bc9132ee612e4541e232c89806c6b",
+        "343e4a32886170b382315558fa8d7dc80b4aa87f"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "subsystem.cli",
+        "taskspace.changed_symbol"
+      ],
+      "path": "codex-rs/exec/src/cli.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 8,
+      "baseline_sha256": "4a2f65eb06823ceedbd499ab16bd02b206c433200b5f36386cd6af018fd6bc73",
+      "binary": false,
+      "categories": [
+        "cli_surface",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "c223deed3d95f0d28924e8af657698aee0084f9733269a27e665a7cb9acee179",
+      "deletions": 0,
+      "evidence_commit_count": 4,
+      "evidence_commits": [
+        "99ab63d98095c6a2b8d64f455aa825475069d1e5",
+        "720abe5290e248cedd81d35f87e3d584856fa4e9",
+        "d87d1af3575419b2b1c71e2f4de5c96d4e0da638",
+        "c2385ba7b96a21244da724bddd025faf4385fc30"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "subsystem.cli",
+        "taskspace.changed_symbol"
+      ],
+      "path": "codex-rs/exec/src/cli_tests.rs",
+      "status": "modified"
+    },
+    {
+      "additions": 29,
+      "baseline_sha256": "52d801c747c18524b42552e9da9080aa43e8eeb04b368570bb0bbfc601f613ae",
+      "binary": false,
+      "categories": [
+        "cli_surface",
+        "taskspace_host_hooks"
+      ],
+      "current_sha256": "6adc044d0c8f425d8c227fc7ee668a4e55fb6113f1522807344fa2cea2fccdf6",
+      "deletions": 0,
+      "evidence_commit_count": 10,
+      "evidence_commits": [
+        "99ab63d98095c6a2b8d64f455aa825475069d1e5",
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
+        "5ce2cfaf880a3bd2628057b7bbb94e9e3df4f538",
+        "d87d1af3575419b2b1c71e2f4de5c96d4e0da638",
+        "af62c2c8053e2c610fd16b388ddbed7612209bc7",
+        "c2385ba7b96a21244da724bddd025faf4385fc30",
+        "6229fd5d5056abbefc1a555c84c81f11216731eb",
+        "07bd86e66a9232dbbb6937f52031274c754ff25d",
+        "cb32983f540bc9132ee612e4541e232c89806c6b",
+        "343e4a32886170b382315558fa8d7dc80b4aa87f"
+      ],
+      "evidence_truncated": false,
+      "matched_rule_ids": [
+        "subsystem.cli",
+        "taskspace.changed_symbol"
+      ],
+      "path": "codex-rs/exec/src/lib.rs",
+      "status": "modified"
+    },
+    {
       "additions": 2,
       "baseline_sha256": "9029561aa052df273746cc7bf6dc7a3b4b307a211e4bb970a7f3cc1bee0b3f3c",
       "binary": false,
@@ -4762,8 +5296,9 @@
       ],
       "current_sha256": "2e42ed7ce9f06ce0f8ccd6c52d2091c3346c734d3626f5c529b9a083756f3ea7",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -4782,8 +5317,9 @@
       ],
       "current_sha256": "8693734375b1eab8b55267ed51765911059dffd51e4497fc9dd0e272467f4d7c",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -4802,8 +5338,10 @@
       ],
       "current_sha256": "fdb1e3ca6190de6244d876c434d7f6b97c41053ca9cea7d95d247d4c1e4b5e1f",
       "deletions": 0,
-      "evidence_commit_count": 0,
-      "evidence_commits": [],
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58"
+      ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "subsystem.tool_runtime"
@@ -4821,8 +5359,9 @@
       ],
       "current_sha256": "4f7da4636d14810f783a0f42a6fb47a212e1a38621f2dcd98689b3988c7eb1f9",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -4842,8 +5381,9 @@
       ],
       "current_sha256": "1a02c297741092af38480b223271c9e1ff1da9d863d9504b8ace85473dcf7166",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -4862,8 +5402,9 @@
       ],
       "current_sha256": "2169a1c513c31038781f1b80b3c0e36a1f5261b0baf7e1953cb3bd73d2293887",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -4883,8 +5424,9 @@
       ],
       "current_sha256": "ec90d1e1775b7c63680e60cff791c948bcc51c01082adbaaa35c3398050f523d",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -4905,8 +5447,9 @@
       ],
       "current_sha256": "57ab74074b3596c441e6ef32951fa70afdb6551b5f31fbd87d0df39d8a24723f",
       "deletions": 0,
-      "evidence_commit_count": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "f9e730f2c322a9e2b06929c4182a025a8bf7db44",
         "58f5cbc0ca7bbd8175f32c585a55bdc51e456d3b"
       ],
@@ -4927,8 +5470,10 @@
       ],
       "current_sha256": "9eb4063891ab01ee126e253255d35b7f87cf8a4e14d28162201091bea26a94ff",
       "deletions": 0,
-      "evidence_commit_count": 0,
-      "evidence_commits": [],
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58"
+      ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "taskspace.domain_path"
@@ -4985,8 +5530,10 @@
       ],
       "current_sha256": "695de1067326ff18dcb5cfaada27e23776edb82848536df685439daeb9953993",
       "deletions": 0,
-      "evidence_commit_count": 0,
-      "evidence_commits": [],
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58"
+      ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "taskspace.domain_path"
@@ -5003,8 +5550,10 @@
       ],
       "current_sha256": "2e073fe270d6bd3b387b5eef6aa9222df3c66fc739f30b717a57c1c9782fa693",
       "deletions": 0,
-      "evidence_commit_count": 0,
-      "evidence_commits": [],
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58"
+      ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "taskspace.domain_path"
@@ -5041,8 +5590,10 @@
       ],
       "current_sha256": "34487a380b706c0f54bffa28c23dcf132aa6d5c9a9a8228c82b1b777afe33295",
       "deletions": 0,
-      "evidence_commit_count": 0,
-      "evidence_commits": [],
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58"
+      ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "taskspace.domain_path"
@@ -5079,8 +5630,9 @@
       ],
       "current_sha256": "f2bcab7bf77a44ec0dbb51adf00a5a6376bdd13c86b9eb7b110164a704e57638",
       "deletions": 0,
-      "evidence_commit_count": 3,
+      "evidence_commit_count": 4,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "f9e730f2c322a9e2b06929c4182a025a8bf7db44",
         "42295f99bfcc14a4151a62f85d6a2874bb9e53da",
         "58f5cbc0ca7bbd8175f32c585a55bdc51e456d3b"
@@ -5101,8 +5653,10 @@
       ],
       "current_sha256": "6660289bc74e4785b9044933b50cd2bae705a5dfedc13932bebfd147fbbf14d7",
       "deletions": 0,
-      "evidence_commit_count": 0,
-      "evidence_commits": [],
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58"
+      ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "taskspace.domain_path"
@@ -5159,8 +5713,10 @@
       ],
       "current_sha256": "9166974bc0075a7402d507446e493da6f5fa4501bdb571ce306566adc1e8c00d",
       "deletions": 0,
-      "evidence_commit_count": 0,
-      "evidence_commits": [],
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58"
+      ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "taskspace.domain_path"
@@ -5217,8 +5773,10 @@
       ],
       "current_sha256": "56661a7a2ef8bb2413e4615b59b2ef60d69ade54fb5ac61b2810bb9d44b2c259",
       "deletions": 0,
-      "evidence_commit_count": 0,
-      "evidence_commits": [],
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58"
+      ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "taskspace.domain_path"
@@ -5235,8 +5793,10 @@
       ],
       "current_sha256": "78de0eac25548629db83997a4136bfcce43f1d26391ddd0232baec8806cb067f",
       "deletions": 0,
-      "evidence_commit_count": 0,
-      "evidence_commits": [],
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58"
+      ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "taskspace.domain_path"
@@ -5253,8 +5813,10 @@
       ],
       "current_sha256": "b31941de1e5834070bec2ced49b4bceb60237416b8d5b4a1d2dad0dd9f7cf1b5",
       "deletions": 0,
-      "evidence_commit_count": 0,
-      "evidence_commits": [],
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58"
+      ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "taskspace.domain_path"
@@ -5271,8 +5833,10 @@
       ],
       "current_sha256": "5cd46f9136754fbb0158a6e8ec5bb75f8dfb01287d5fc56cfa6b0f9f35256635",
       "deletions": 0,
-      "evidence_commit_count": 0,
-      "evidence_commits": [],
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58"
+      ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "taskspace.domain_path"
@@ -5329,8 +5893,10 @@
       ],
       "current_sha256": "b336f9e43b965515a504b4c26ea89f548c613f84177e0cc6ef8f4f2fa0c893c6",
       "deletions": 0,
-      "evidence_commit_count": 0,
-      "evidence_commits": [],
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58"
+      ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "taskspace.domain_path"
@@ -5347,8 +5913,9 @@
       ],
       "current_sha256": "bd09df08479b470e026d7fc29ccebe917512182c76aa97783e03fd1970b39891",
       "deletions": 2,
-      "evidence_commit_count": 4,
+      "evidence_commit_count": 5,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "e8c4ce1a0d9cd4151f84ce04fb47d33b4969adfd",
         "d2cc4b7c1cb810def81d370b41c4a1d00b290c3c",
         "50e786a5b663d436be67777ce0ad6320e5bc888d",
@@ -5370,8 +5937,9 @@
       ],
       "current_sha256": "85ec11b396a06d3c10284586d7170c66068d287e5d238a27b67d86d6bb0ac7f2",
       "deletions": 0,
-      "evidence_commit_count": 4,
+      "evidence_commit_count": 5,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "e8c4ce1a0d9cd4151f84ce04fb47d33b4969adfd",
         "d2cc4b7c1cb810def81d370b41c4a1d00b290c3c",
         "50e786a5b663d436be67777ce0ad6320e5bc888d",
@@ -5436,8 +6004,9 @@
       ],
       "current_sha256": "665888abd831914e99796af73cb757a939d2c013b183345dda3be930fd90e29f",
       "deletions": 0,
-      "evidence_commit_count": 3,
+      "evidence_commit_count": 4,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "d2c6a504f9d4ae9fa593cebc120f31ef11bfec92",
         "a2d1ae816d0ec7075c415f9a06d8aed6f025080b"
@@ -5641,8 +6210,9 @@
       ],
       "current_sha256": "cd46ed9944f6cb231dd41346d788a618ece93baea97461839818e23ba4dcd8ca",
       "deletions": 0,
-      "evidence_commit_count": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "a4d767b63f02b588c605819a96bcc0112b6d77b7"
       ],
@@ -5664,8 +6234,9 @@
       ],
       "current_sha256": "c1abe4e6cbd4186191ca55deefa9c52b213bd1e34a01adc0407e4f758886cd95",
       "deletions": 0,
-      "evidence_commit_count": 4,
+      "evidence_commit_count": 5,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "85f14967c5ad2a1ea47f65bdd84d5b6ee6e375a5",
         "4625f0f793134bfb14e8d5eb8d2868931c7a2888",
@@ -5733,8 +6304,9 @@
       ],
       "current_sha256": "dff446a822bedfa75a061cbc5091f5d7bde2d811dc8dcfdabeab7ee3fb63e97d",
       "deletions": 0,
-      "evidence_commit_count": 56,
+      "evidence_commit_count": 57,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "5ce2cfaf880a3bd2628057b7bbb94e9e3df4f538",
         "f8dc23612716d1b77ed02adaca59efcdb4dfdad5",
         "67fb2b6fa2196bf8cd9279e97cc2cf21cca1c3c8",
@@ -5753,8 +6325,7 @@
         "ae53409c05769e4e28c15087ad4575d2a125e562",
         "45f9349cccdb0988af892b3597293c36ec4a5db8",
         "211743207a8351a659a97075473713a99b4e77f4",
-        "080ed60804d9e73e70cf5f7e1f16a494aec8bda3",
-        "64f54b4b05fe8c11da0cccc06b17b70a3a7bf73b"
+        "080ed60804d9e73e70cf5f7e1f16a494aec8bda3"
       ],
       "evidence_truncated": true,
       "matched_rule_ids": [
@@ -5924,8 +6495,9 @@
       ],
       "current_sha256": "381bccbaca0ac0cff09b66ed04169ee629a8047d546518efedfd8bcdb069f21b",
       "deletions": 0,
-      "evidence_commit_count": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "d13c75d2ac0fb7fa18add8317f3663a04adf6956"
       ],
@@ -5947,8 +6519,9 @@
       ],
       "current_sha256": "4c2f7865dd4a3c2cb685fa58bdbc0a5be5cf6ced35ac8ba6c8cd2ace7fdaca74",
       "deletions": 0,
-      "evidence_commit_count": 3,
+      "evidence_commit_count": 4,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "2338f5aa90b9b74e0dd3fba7b7b1aa2d4721375b",
         "a2d1ae816d0ec7075c415f9a06d8aed6f025080b"
@@ -6039,8 +6612,9 @@
       ],
       "current_sha256": "c2390f5c902d10442c3b8486102b756b80565398e0883355ecc52790eefbb366",
       "deletions": 0,
-      "evidence_commit_count": 3,
+      "evidence_commit_count": 4,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "2338f5aa90b9b74e0dd3fba7b7b1aa2d4721375b",
         "a2d1ae816d0ec7075c415f9a06d8aed6f025080b"
@@ -6084,8 +6658,9 @@
       ],
       "current_sha256": "289ef20d5a274f1da05a8886c5aa57fa4afb98e6ea4f681fd7ca2404fd806544",
       "deletions": 0,
-      "evidence_commit_count": 3,
+      "evidence_commit_count": 4,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "cc7e45e1e25c56d1a3c59cf64f24d8254230cc64",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "fa3791c84690d2b3edbb658c270811cdcd2368d6"
@@ -6127,8 +6702,10 @@
       ],
       "current_sha256": "79044f83314a2bc70db531ce309570cbc95e6dc1c5b0bbf1f9f5d79fc65a45a6",
       "deletions": 0,
-      "evidence_commit_count": 0,
-      "evidence_commits": [],
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58"
+      ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "taskspace.changed_symbol"
@@ -6189,8 +6766,9 @@
       ],
       "current_sha256": "b8eec457fe3e5b905d1f681073afe721427dfbaf967ad392aba0338c4438c7b5",
       "deletions": 0,
-      "evidence_commit_count": 7,
+      "evidence_commit_count": 8,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "68216484447515e8c7564195ced55b5fd390aa92",
         "59fd7dabe62427d2e6328317d98bdb2641e8d308",
         "e5925b45d38496955c942b0964d61e0d74ede1a3",
@@ -6237,8 +6815,9 @@
       ],
       "current_sha256": "13f3130afd3ad20b7511497465f1c77a3fa17432bfd3035632e1a3b83d8ff034",
       "deletions": 0,
-      "evidence_commit_count": 3,
+      "evidence_commit_count": 4,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "cc7e45e1e25c56d1a3c59cf64f24d8254230cc64",
         "d986210b2c74388979c6fd1d28fd6ff3a8337c24",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
@@ -6260,8 +6839,9 @@
       ],
       "current_sha256": "1146e667876fa6026f42846e32a92f8b9d716fbe902cdd38923cfcf8f8e22589",
       "deletions": 0,
-      "evidence_commit_count": 5,
+      "evidence_commit_count": 6,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "68216484447515e8c7564195ced55b5fd390aa92",
         "59fd7dabe62427d2e6328317d98bdb2641e8d308",
         "e5925b45d38496955c942b0964d61e0d74ede1a3",
@@ -6313,8 +6893,9 @@
       ],
       "current_sha256": "638df063de87aa55cf3f5c059f8e61f167a1fe913ac39d7aa71ff027230e9505",
       "deletions": 0,
-      "evidence_commit_count": 6,
+      "evidence_commit_count": 7,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "68216484447515e8c7564195ced55b5fd390aa92",
         "59fd7dabe62427d2e6328317d98bdb2641e8d308",
         "e5925b45d38496955c942b0964d61e0d74ede1a3",
@@ -6359,8 +6940,9 @@
       ],
       "current_sha256": "2af66740d613468ea4835d82063a2198aadc7a5a0e422becaf63c518be3ffed7",
       "deletions": 0,
-      "evidence_commit_count": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "4be93ba318a15a3479abd0b88cbc4886a1a92ecc",
         "e5925b45d38496955c942b0964d61e0d74ede1a3"
       ],
@@ -6408,8 +6990,9 @@
       ],
       "current_sha256": "cfef9ce327704afaeb531f425a06a17393a5723d473ee98f96e1d5333320bc76",
       "deletions": 0,
-      "evidence_commit_count": 5,
+      "evidence_commit_count": 6,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "68216484447515e8c7564195ced55b5fd390aa92",
         "a3305e6ab9455ff4d61c50f28f90578926aad0e1",
         "60fd7e0a8d0756e79c7b0b9bb9015178efd31724",
@@ -6482,8 +7065,9 @@
       ],
       "current_sha256": "495c4681fdf370b7843e4f40cf3d9ab3a18ba53b87ca42950635b510170540c8",
       "deletions": 0,
-      "evidence_commit_count": 11,
+      "evidence_commit_count": 12,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "68216484447515e8c7564195ced55b5fd390aa92",
         "a3305e6ab9455ff4d61c50f28f90578926aad0e1",
         "e5925b45d38496955c942b0964d61e0d74ede1a3",
@@ -6553,8 +7137,9 @@
       ],
       "current_sha256": "e314f90b08b7425f6d48b4dc0f11362ddaad8316c7e8c03b54a65c230c647365",
       "deletions": 0,
-      "evidence_commit_count": 5,
+      "evidence_commit_count": 6,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "f6d7346fd29ed9dec42e000cf21349884e4b232e",
         "a7e47de5cc3da543abaffc212cc458eb629b0327",
@@ -6577,8 +7162,9 @@
       ],
       "current_sha256": "74535de3dfc0c9d93a3fa70b5fe7de2ed86a97df4151768dea81ad6eb53f5667",
       "deletions": 1,
-      "evidence_commit_count": 5,
+      "evidence_commit_count": 6,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "306e15a3db2efb128b6df1afa84753aa8263b89c",
         "a7e47de5cc3da543abaffc212cc458eb629b0327",
@@ -6601,8 +7187,9 @@
       ],
       "current_sha256": "6478737b85bb760445ee756330078e37f263f20a83dd16f0bd40f93560d8165c",
       "deletions": 0,
-      "evidence_commit_count": 17,
+      "evidence_commit_count": 18,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "cd327d938bd8ee1ae4ee4910586ef5048142ccdb",
         "54fc781fc3d83e48137a6ae5867eb19e8e776199",
         "d64b598b8046b756c9b1037024e50bd86afcd173",
@@ -6658,8 +7245,9 @@
       ],
       "current_sha256": "2bc8493f668ebc0cab278260bcf5465d35af72fa9c634f42db664002c6df3134",
       "deletions": 0,
-      "evidence_commit_count": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "671a213c8cea80d576483a1b6a5ec50b591383dc",
         "54fc781fc3d83e48137a6ae5867eb19e8e776199"
       ],
@@ -6679,8 +7267,9 @@
       ],
       "current_sha256": "27a51fb7d6045d4303cc25a1b28adc81ca1feab892b3df37d77a7b69e2356256",
       "deletions": 0,
-      "evidence_commit_count": 3,
+      "evidence_commit_count": 4,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "f3c463f02c9633b343f7a0099aac517a58ac7aa8",
         "671a213c8cea80d576483a1b6a5ec50b591383dc",
         "54fc781fc3d83e48137a6ae5867eb19e8e776199"
@@ -6702,8 +7291,9 @@
       ],
       "current_sha256": "e6ba9e481870541b59b3044a11219c24e575beab1c8db5cedc778d826af6ccf7",
       "deletions": 0,
-      "evidence_commit_count": 4,
+      "evidence_commit_count": 5,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "f03ee683d92dabd2c882f3d840f9f8968880e0de",
         "7623802696a0de2d7a515668f43aaf5e1b29607f",
@@ -6727,8 +7317,9 @@
       ],
       "current_sha256": "ec791a3fcca74c392a512b6f8e5e40504c74b65160ff6e0465b10b84fb7ac6ba",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -6749,8 +7340,10 @@
       ],
       "current_sha256": "28c54df31d2b42b9fc83b1a91ea897c64323efdf85dad9ed62856e771ee1c13b",
       "deletions": 0,
-      "evidence_commit_count": 0,
-      "evidence_commits": [],
+      "evidence_commit_count": 1,
+      "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58"
+      ],
       "evidence_truncated": false,
       "matched_rule_ids": [
         "subsystem.tui",
@@ -6769,8 +7362,9 @@
       ],
       "current_sha256": "4aa0f829b7090ab02e3414b988fbee1e339f0bd64685b317b0bd324a32ab373e",
       "deletions": 0,
-      "evidence_commit_count": 2,
+      "evidence_commit_count": 3,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "7623802696a0de2d7a515668f43aaf5e1b29607f"
       ],
@@ -6792,8 +7386,9 @@
       ],
       "current_sha256": "e3b1851261a38fd89bb556b5dc118e0f4bcb3ce247f3d032501b98ecc68e5b5e",
       "deletions": 0,
-      "evidence_commit_count": 10,
+      "evidence_commit_count": 11,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "5ce2cfaf880a3bd2628057b7bbb94e9e3df4f538",
         "3601dcf0b06f22a5c72c0dab03cde51e20ea309e",
         "d87d1af3575419b2b1c71e2f4de5c96d4e0da638",
@@ -6823,8 +7418,9 @@
       ],
       "current_sha256": "0af1bc3380815bbb0f8110e77726db810c2859c5f2c3516d4cec704d00c790c0",
       "deletions": 0,
-      "evidence_commit_count": 4,
+      "evidence_commit_count": 5,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "5ce2cfaf880a3bd2628057b7bbb94e9e3df4f538",
         "d87d1af3575419b2b1c71e2f4de5c96d4e0da638",
         "7623802696a0de2d7a515668f43aaf5e1b29607f",
@@ -6848,8 +7444,9 @@
       ],
       "current_sha256": "eaa5926e2163fb6b7c08167f365c44a2695b81ee1587af216bc2f71384cc22dd",
       "deletions": 0,
-      "evidence_commit_count": 5,
+      "evidence_commit_count": 6,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "5ce2cfaf880a3bd2628057b7bbb94e9e3df4f538",
         "d87d1af3575419b2b1c71e2f4de5c96d4e0da638",
         "6229fd5d5056abbefc1a555c84c81f11216731eb",
@@ -6874,8 +7471,9 @@
       ],
       "current_sha256": "c4321ff54a3bc0a8ffd37be74b600b21d064be1f150e667f07cf8cef8cf8793c",
       "deletions": 0,
-      "evidence_commit_count": 5,
+      "evidence_commit_count": 6,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "5ce2cfaf880a3bd2628057b7bbb94e9e3df4f538",
         "d87d1af3575419b2b1c71e2f4de5c96d4e0da638",
         "06d949f695de24a4190101ef6e53e03329117215",
@@ -6900,8 +7498,9 @@
       ],
       "current_sha256": "f23aca58f619464a55c320d8e0e337d319e4cf1e64c8d71d6ecf64c6aa31bb84",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -6921,8 +7520,9 @@
       ],
       "current_sha256": "634bc8249b51b38d256b66c0aeec3f3bef24fb252919f1f78c1bae4026fc534b",
       "deletions": 0,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -6942,8 +7542,9 @@
       ],
       "current_sha256": "f342190535d6e615994455089666572845be7c6763d51132e3ecd668ac4be447",
       "deletions": 0,
-      "evidence_commit_count": 6,
+      "evidence_commit_count": 7,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "e744c9c4d11bed1ebc480a91b56f7e49388051cf",
         "bdfb1b29aae5e0db9859bc0b0ddf9bde27e27e79",
@@ -6969,8 +7570,9 @@
       ],
       "current_sha256": "320ec833ac89871a889acdc085873dbda56dd4a0e4dfcaacd44587dae1e4a064",
       "deletions": 0,
-      "evidence_commit_count": 4,
+      "evidence_commit_count": 5,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "8dd872f674b8bd04b7999b519498158a0dd6801a",
         "78101e19c86286e000901a6447540130b9e3ce2f",
@@ -6994,8 +7596,9 @@
       ],
       "current_sha256": "4f5b242ddf163211e0eaa7e161d656a28118fd9ec5d6072fe079942ef3b9eede",
       "deletions": 0,
-      "evidence_commit_count": 5,
+      "evidence_commit_count": 6,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "bdfb1b29aae5e0db9859bc0b0ddf9bde27e27e79",
         "8dd872f674b8bd04b7999b519498158a0dd6801a",
@@ -7020,8 +7623,9 @@
       ],
       "current_sha256": "f7680024b3b71e492437502e100697bcc05f85dfdf96c57012bd8a6a40950a52",
       "deletions": 0,
-      "evidence_commit_count": 8,
+      "evidence_commit_count": 9,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "5ce2cfaf880a3bd2628057b7bbb94e9e3df4f538",
         "d87d1af3575419b2b1c71e2f4de5c96d4e0da638",
         "c2385ba7b96a21244da724bddd025faf4385fc30",
@@ -7102,8 +7706,9 @@
       ],
       "current_sha256": "189d87fe6dd78772d361a62e3237a7e17f295975d5f5d924d7e554c90be22cf2",
       "deletions": 0,
-      "evidence_commit_count": 7,
+      "evidence_commit_count": 8,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "5ce2cfaf880a3bd2628057b7bbb94e9e3df4f538",
         "d87d1af3575419b2b1c71e2f4de5c96d4e0da638",
         "c2385ba7b96a21244da724bddd025faf4385fc30",
@@ -7131,8 +7736,9 @@
       ],
       "current_sha256": "296feeec9cb8d833575f66b9c08530c32febcf19f73b8c3238322c38642faaed",
       "deletions": 0,
-      "evidence_commit_count": 12,
+      "evidence_commit_count": 13,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "5ce2cfaf880a3bd2628057b7bbb94e9e3df4f538",
         "d87d1af3575419b2b1c71e2f4de5c96d4e0da638",
         "f03ee683d92dabd2c882f3d840f9f8968880e0de",
@@ -7237,8 +7843,9 @@
       ],
       "current_sha256": "8f98c0e98df7f75cfa1f602db4d79a2ea2fafd4571b44e824967da6f0996e7e0",
       "deletions": 1,
-      "evidence_commit_count": 1,
+      "evidence_commit_count": 2,
       "evidence_commits": [
+        "f881e71b2f79bdcafbe800b1bfd9500edc940e58",
         "720abe5290e248cedd81d35f87e3d584856fa4e9"
       ],
       "evidence_truncated": false,
@@ -7257,36 +7864,36 @@
   "summary": {
     "by_category": {
       "app_server_protocol": 38,
-      "brand_home": 48,
-      "build_release": 10,
-      "cache_observability": 8,
-      "cli_surface": 24,
+      "brand_home": 49,
+      "build_release": 11,
+      "cache_observability": 14,
+      "cli_surface": 28,
       "configuration": 5,
       "developer_tooling": 3,
       "documentation": 1,
-      "generated_artifact": 22,
+      "generated_artifact": 23,
       "mcp": 7,
-      "multi_agent": 3,
+      "multi_agent": 4,
       "protocol_contract": 5,
-      "provider_model": 28,
-      "provider_transport": 6,
+      "provider_model": 30,
+      "provider_transport": 7,
       "sandbox_exec": 3,
-      "session_context": 21,
-      "taskspace_domain": 62,
-      "taskspace_host_hooks": 94,
-      "test_fixture": 61,
+      "session_context": 23,
+      "taskspace_domain": 63,
+      "taskspace_host_hooks": 107,
+      "test_fixture": 65,
       "tool_runtime": 49,
       "tui_experience": 20,
       "upstream_backport": 5,
       "web_tools": 3,
-      "wire_sse": 4
+      "wire_sse": 5
     },
     "by_status": {
-      "added": 112,
+      "added": 120,
       "deleted": 4,
-      "modified": 158
+      "modified": 166
     },
-    "path_count": 274
+    "path_count": 290
   },
   "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
   "vendor_path": "third_party/codex-cli"

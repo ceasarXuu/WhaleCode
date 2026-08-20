@@ -261,9 +261,9 @@ Phase D 的 PLD-006 采用当前 0.147 源码和以下一手资料校验扩展�
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | U17 | 完成发布闭环 | release | workspace metadata、`UPSTREAM.md`、最终 migration report | 来源、生成物、Linux 支持矩阵 | 已更新 provenance 文档，刷新并验证机械工件，完成 Linux Cargo/CLI/缓存矩阵；对抗性修复补齐旧空 map、普通 fork lineage、生产组合测试与逐失败审计 | 已形成可追溯的 0.147 substrate、185 路径 Whale overlay 与真实通过/延期清单 | 防止局部通过误报为整体完成 | Complexity：收口修复仅扩展既有 state/lifecycle seam，无新框架；Reach/Cost：全量 app-server/core 矩阵与逐项日志，0 模型请求 | 原有 fmt/all-target/CLI/schema/cache/exec/MCP 证据保持；精确提交 app-server 1089/1122、core lib 2154/2178、core integration 1086/1123；94 个失败逐项映射，代理环境项隔离复跑 1/1；production app-server/SQLite/mode-read/fork/restart/final-wire 定向测试 1/1 | TUI/Windows、OpenAI hosted/Bedrock/Guardian、V8 非 sandbox 制品继续延期；live baseline 未晋升 | verified |
-| U18 | 将已完成的 0.147 融合重放到最新 `main` | integration/rebase | 当前分支、0.147 vendor overlay、state migration、TaskSpace production composition、同步元数据 | rebase 冲突与 rebase 后行为等价性 | 已把 119 个本地提交重放到 `main@df5da4d3944448a9ae877d601f8c8045c415d983`；按 0.147 当前模块边界重新接入 R8 TaskSpace，保留 `0047` 历史 checksum，并用 `0048` 无损归档旧 v2 JSON 表后创建 relational store；补齐 Standard→mode/read RPC→TaskSpace exec→fork→shutdown/reopen/resume→final Responses wire 的生产组合测试；修复 0.147 扩展 schema 的小数 `minimum` 兼容和 OpenAI 专用测试夹具 | 当前分支以最新 main 为 Git 基座，DeepSeek 默认与 TaskSpace 语义保持；旧 v2 数据保留但不会被猜测性激活；生产组合链可跨 fork/restart 恢复 | 消除文本冲突之外的 schema、迁移号和运行时组合冲突，不引入第二状态权威或新业务框架 | Complexity：主要为 rebase 语义迁移、既有 R8 代码适配和测试；Reach/Cost：state/core/tools/app-server，0 真实模型请求 | state 190、tools 106、TaskSpace core 72、image ext 10、web ext 8、production composition 1 均通过；4,881 项隔离矩阵完成，新增 schema 回归已定向修复，剩余失败按既有 hosted/provider/platform 清单延期；cache index gate 因敏感面与旧 accepted baseline 不一致而按规则阻断 | 精确 migration checksum 可回滚；旧 v2 表保留为 archive；OpenAI hosted/Bedrock/Guardian、Windows/TUI 与 live cache 不在本单元扩张 | blocked-on-cache-evidence |
+| U18 | 将已完成的 0.147 融合重放到最新 `main` | integration/rebase | 当前分支、0.147 vendor overlay、state migration、TaskSpace production composition、同步元数据 | rebase 冲突与 rebase 后行为等价性 | 已把 119 个本地提交重放到 `main@df5da4d3944448a9ae877d601f8c8045c415d983`；按 0.147 当前模块边界重新接入 R8 TaskSpace，保留 `0047` 历史 checksum，并用 `0048` 无损归档旧 v2 JSON 表后创建 relational store；补齐 Standard→mode/read RPC→TaskSpace exec→fork→shutdown/reopen/resume→final Responses wire 的生产组合测试；修复 0.147 扩展 schema 的小数 `minimum` 兼容和 OpenAI 专用测试夹具；稳定测试夹具中的临时身份后完成受控 cache baseline 晋升 | 当前分支以最新 main 为 Git 基座，DeepSeek 默认与 TaskSpace 语义保持；旧 v2 数据保留但不会被猜测性激活；生产组合链可跨 fork/restart 恢复；当前敏感面已有与同一 HEAD 对齐的 accepted baseline | 消除文本冲突之外的 schema、迁移号和运行时组合冲突，不引入第二状态权威或新业务框架 | Complexity：主要为 rebase 语义迁移、既有 R8 代码适配和测试；Reach/Cost：state/core/tools/app-server；真实资格运行仅覆盖 Standard + map-request 两个 sample run，实际 `0.01973628 CNY` | state 190、tools 106、TaskSpace core 72、image ext 10、web ext 8、production composition 1 均通过；4,881 项隔离矩阵完成；最新 index cache gate PASS；缓存 Python 232/232、Standard/TaskSpace final-wire 各 1/1；overlay/replay 290 路径且 metadata validation PASS；剩余失败按既有 hosted/provider/platform 清单延期 | 精确 migration checksum 可回滚；旧 v2 表保留为 archive；OpenAI hosted/Bedrock/Guardian、Windows/TUI 不在本单元扩张 | verified |
 
-退出条件：U17、U18 verified；所有修改已提交并 push；工作树 clean；延期项未被表述为通过。当前 U18 等待专用真实缓存回归预算批准与 baseline 晋升证据。
+退出条件：U17、U18 verified；所有修改已提交并 push；工作树 clean；延期项未被表述为通过。U18 的代码、真实缓存资格、baseline 晋升和本地门禁已完成，当前只剩提交与精确 lease 推送。
 
 ## 6. Product Decision Delta
 
@@ -280,7 +280,7 @@ Phase D 的 PLD-006 采用当前 0.147 源码和以下一手资料校验扩展�
 | Phase C | 已完成 | PLD-004/005 已批准；U5–U10 已恢复 provider、原生 Responses、开发期 guard、1M/755K 与 Flash→Pro 压缩、Standard final-wire/cache；U6 使 Flash/Pro 可见、公共列表仅保留 DeepSeek，并保持 Flash 默认；未触及 TaskSpace | D1、D2 | covered + engineering-only | Phase D rebase 与 PLD-006 审批已完成 |
 | Phase D | 已完成 | U11–U16 verified；旧库 bridge、canonical kernel/store、extension runtime、RPC/event/schema、TUI/viewer 与免费 final-wire/cache 均已闭环；Standard 默认路径不变 | D2 | covered + engineering-only | 进入 Phase E rebase gate |
 | Phase E | 已完成 | U17 已刷新 provenance/overlay/replay，完成 Linux 构建、离线 CLI、schema、免费 cache 与分层测试；非全绿项均保留真实签名和延期边界 | D1、D2 | covered + engineering-only | 主线 0.147 融合计划收口；后续延期项进入各自产品/平台单元 |
-| Phase E / main rebase follow-up | 进行中 | U18 已将全部 0.147 融合提交重放到 `main@df5da4d`，以无损 archive 处理旧 TaskSpace v2 数据，以 relational R8 store 和生产 app-server final-wire 链重新锁定行为；cache index gate 正确阻断未验证的新敏感面 | D1、D2 | covered + engineering-only | 获得专用真实缓存预算后执行、晋升并重新过门禁，再提交推送；延期产品面维持原边界 |
+| Phase E / main rebase follow-up | 已完成 | U18 已将全部 0.147 融合提交重放到 `main@df5da4d`，以无损 archive 处理旧 TaskSpace v2 数据，以 relational R8 store 和生产 app-server final-wire 链重新锁定行为；专用 Standard + map-request 双臂资格运行成功，稳定 baseline 已晋升且 index gate 通过 | D1、D2 | covered + engineering-only | 提交并按精确 lease 推送；延期产品面维持原边界 |
 
 ## 7. Pending Product Decisions
 
@@ -293,7 +293,7 @@ Phase D 的 PLD-006 采用当前 0.147 源码和以下一手资料校验扩展�
 
 ## 8. 执行与提交边界
 
-执行顺序已到达 `... -> U16 TUI/viewer/final-wire/cache（已验证） -> U17 发布收口（已验证） -> U18 最新 main rebase 与语义迁移（已验证）`。本轮 0.147 主线融合计划以这一份文档为唯一计划；不得恢复旧 core/session/provider 专用分支或 `provider_wire_trace`。全程未消耗真实回归预算，也未晋升 live baseline。详细证据见 [U17 发布收口报告](../../migration/codex-sync/2026-08-14-u17-release-closeout.md) 与 [U18 main rebase 报告](../../migration/codex-sync/2026-08-21-u18-main-rebase-r8-semantic-migration.md)。
+执行顺序已到达 `... -> U16 TUI/viewer/final-wire/cache（已验证） -> U17 发布收口（已验证） -> U18 最新 main rebase、语义迁移与 cache baseline qualification（已验证）`。本轮 0.147 主线融合计划以这一份文档为唯一计划；不得恢复旧 core/session/provider 专用分支或 `provider_wire_trace`。U18 最终资格运行实际消耗 `0.01973628 CNY`，baseline 已晋升到当前稳定敏感面。详细证据见 [U17 发布收口报告](../../migration/codex-sync/2026-08-14-u17-release-closeout.md) 与 [U18 main rebase 报告](../../migration/codex-sync/2026-08-21-u18-main-rebase-r8-semantic-migration.md)。
 
 - 每个 U 单元至少一个独立、可理解、已基本验证的 commit，并立即 push。
 - 单元内出现两个可独立回滚的行为主题时继续拆 commit；不得把 vendor 机械替换与产品 overlay 混为一个提交。

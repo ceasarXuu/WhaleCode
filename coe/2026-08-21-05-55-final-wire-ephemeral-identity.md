@@ -1,7 +1,7 @@
 # Problem P-001: Standard final-wire 基线包含每次运行变化的临时身份
 - Status: fixed
 - Created: 2026-08-21 05:55
-- Updated: 2026-08-21 06:02
+- Updated: 2026-08-21 06:10
 - Objective: 让缓存 final-wire 免费门禁只比较 Provider 语义，不因 session/turn/message 临时身份产生永久漂移。
 - Symptoms:
   - 相同 HEAD 连续两次 gate 的 Standard candidate hash 不同，首个语义差异仍稳定指向 0.147 instructions。
@@ -67,6 +67,7 @@
   - E-001
   - E-002
   - E-003
+  - E-004
 - Conclusion: 需要补齐 fixture-only identity stabilizer。
 - Repair design readiness: ready
 - Next step: none
@@ -133,3 +134,19 @@
   ```
 - Interpretation: 临时身份抖动已消除，下一步可以安全资格运行并晋升稳定基线。
 - Time: 2026-08-21 06:02
+
+## Evidence E-004: 当前 HEAD 资格运行、基线晋升与晋升后门禁通过
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: fix-validation
+- Source: `WAR-20260821-060352-CACHE-REGRESSION-2C622B25`、U24 promoted-baseline gate
+- Prediction or plan link:
+  - P-001 稳定 accepted baseline 标准。
+- Matched signal:
+  - Standard 与 map-request 双臂均业务成功、usage 完整、trace 完整；仅两个已识别稳定场景晋升；晋升后 index gate PASS，232 个缓存测试和两条 final-wire Rust 测试通过。
+- Correlation keys:
+  - surface SHA256 `2e419a893a56e491b3325bf4bc94054b3147d866e39d5c927f9d2f16bbcaff79`
+  - actual cost `0.01973628 CNY`
+- Interpretation: fixture 稳定化不仅可重复，而且已支撑与当前 HEAD 对齐的受控 baseline 晋升和后续门禁闭环。
+- Time: 2026-08-21 06:10
