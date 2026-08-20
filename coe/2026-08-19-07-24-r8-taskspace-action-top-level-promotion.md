@@ -1305,3 +1305,38 @@
   - Base 3.0.7/3.0.8 的显式 type 合同降低过该问题，但没有消除偶发字段遗漏；H-012 仍是概率性缓解而非关闭证据。
   - 对该观测输入，离线枚举显示只有 `work` 能通过完整 catalog 解码，但自动补写仍会改变“序列由 Agent 显式选择”的既定产品边界，因此本轮不实施，只登记为待决候选。
 - Time: 2026-08-20
+
+## Hypothesis H-016: 多 outer 合同拒绝被错误升级为 session fatal
+
+- Status: confirmed
+- Claim: response scope 已能在零副作用边界识别同一响应包含多个 outer Exec，但 turn 协调器只把顶层 client Tool
+  escape 归为 recoverable；多 outer 直接转成 `CodexErr::Fatal`，pending outer calls 因而没有失败 output，Agent 也没有
+  下一请求纠正机会。
+- Predictions:
+  - 原始 response trace 存在两个完整 `taskspace_exec` call，且没有对应 output。
+  - `taskspace.exec.response_finalized` 报告 `exec_call_count=2`、`accepted=false`，不存在 preflight 或 client dispatch。
+  - CLI 直接发出 `turn.failed`，而不是携带合同拒绝进入下一 Provider request。
+- Fix boundary:
+  - 整批保持零副作用拒绝；不得执行、选择、合并或重排任一 sibling outer call。
+  - 每个原始 outer `call_id` 获得同一个 response-level 合同错误，成为后续正式上下文。
+  - 不修改 Map、client Tool schema、Tool result 或 Agent 声明的节点归属。
+
+## Evidence E-034: Base 3.0.8 真实复发由 fatal 恢复链截断
+
+- Related hypotheses:
+  - H-013
+  - H-016
+- Direction: supports
+- Type: production-failure-trace-and-static-code-path
+- Source: `WAR-20260820-214337-R8-MAP-REQUEST-R3/release-dispatch-repair/live-r3c/pair-001`
+- Matched signal:
+  - Request 1 的唯一 `initialize_and_work` 建立 5 节点 Map，并在 `inspect` 成功执行目录发现。
+  - Request 2 并列生成两个 `taskspace_exec(type=work)`；二者都绑定 `inspect`，分别读取实现和测试，参数完整。
+  - response scope 日志记录 `exec_call_count=2`、`response_contract_rejected`；没有任何 client Tool output 或文件副作用。
+  - `turn.rs` 在 `scope.finalize` 返回错误后调用 `taskspace_response_reconciliation_error`，直接构造
+    `CodexErr::Fatal`；`drain_in_flight` 位于该返回点之后，没有执行。
+  - CLI 输出 `TaskSpace response contains more than one Exec call` 后立即 `turn.failed`。Observer 对两个 call 报
+    `exec_result_missing`，与恢复输出缺失一致。
+- Interpretation: H-013 在 Base 3.0.8 上低频复发；H-016 坐实为独立 Runtime 恢复缺口。文字合同此前的 59 响应正向
+  证据仍有效，但不能替代结构化可恢复拒绝。
+- Time: 2026-08-20

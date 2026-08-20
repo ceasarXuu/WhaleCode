@@ -287,9 +287,12 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     同响应两个 outer Exec 触发硬失败后停止的原始轨迹、协议缺口、成本和 observer 修复。
 92. [`90-base308-outer-cardinality-result.md`](90-base308-outer-cardinality-result.md)：Base `3.0.8` 明确一响应一个
     outer Exec 后的真实结果；7 次 TaskSpace / 59 个响应未复发 sibling Exec，同时记录 runner 物理侧选择导致的预算偏差。
-93. [`91-compound-patch-json-self-heal-result.md`](91-compound-patch-json-self-heal-result.md)：Base 3.0.8 两次同形
-    JSON syntax reject 的根因、窄组合自愈边界和离线正反验证。
-
+93. [`91-compound-patch-json-self-heal-result.md`](91-compound-patch-json-self-heal-result.md)：对 Base 3.0.8 两次同形复合
+    Patch JSON 错误实施唯一解码窄自愈的离线结果。
+94. [`92-projection-policy-controls-result.md`](92-projection-policy-controls-result.md)：默认 map-request、三个 TaskSpace-only
+    slash command、当前会话切换与用户级全局记忆的实现和验证。
+95. [`93-i03-multi-outer-fatal-deep-dive.md`](93-i03-multi-outer-fatal-deep-dive.md)：Base 3.0.8 上多 outer 低频复发的
+    两层根因：Agent outer 基数错误与 Runtime fatal 恢复链缺口。
 ## 4. 推进规则
 
 - TaskSpace Exec 已完成生产接入和 I01～I10 重映射；后续状态与顺序只以

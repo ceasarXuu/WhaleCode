@@ -1,6 +1,6 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-20T22:01:11+08:00",
+  "updated_at": "2026-08-20T22:04:33+08:00",
   "entries": [
     {
       "record_id": "WAR-20260819-054148-R8-I04-ORDERED-PATCH-R1",
@@ -10848,11 +10848,11 @@
     {
       "record_id": "WAR-20260820-214337-R8-MAP-REQUEST-R3",
       "record_type": "run_batch",
-      "status": "running",
+      "status": "settled",
       "started_at": "2026-08-20T22:01:11+08:00",
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "ended_at": "2026-08-20T22:04:33+08:00",
+      "elapsed_calendar_seconds": 202,
+      "aggregate_agent_wall_time_ms": 7282,
       "reason": "验证默认 map-request 产品选择、I07 逻辑模式单臂选择及当前 TaskSpace/I03 行为在复杂样本中的端到端稳定性。",
       "authorization": {
         "required": false,
@@ -10882,22 +10882,26 @@
         ],
         "repeats_per_arm_per_sample": 3,
         "planned_sample_runs": 3,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "pending"
+        "actual_sample_runs": 1,
+        "api_requests": 2,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
-        "input": 0,
-        "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "input": 26722,
+        "cached_input": 19584,
+        "uncached_input": 7138,
+        "output": 655
       },
       "monetary_cost": {
-        "status": "planned_limit",
+        "status": "estimated_from_provider_usage",
         "currency": "CNY",
-        "amount": 0.0,
+        "amount": 0.00883968,
         "actual_billed_amount": null,
-        "components": null,
+        "components": {
+          "cached_input": 0.00039168,
+          "uncached_input": 0.007138,
+          "output": 0.00131
+        },
         "pricing_snapshot": {
           "model": "deepseek-v4-flash",
           "captured_at": "2026-08-20",
@@ -10906,19 +10910,19 @@
           "uncached_input_per_million": 1.0,
           "output_per_million": 2.0
         },
-        "formula": null,
-        "note": "硬费用上限 CNY 1.00。"
+        "formula": "19584/1000000*0.02 + 7138/1000000*1.0 + 655/1000000*2.0",
+        "note": "实际费用低于 CNY 1.00 上限；两个 invalid_harness preflight 均发生在 Provider 请求前，费用为 0。"
       },
       "evidence": {
         "planned_run_root": "target/whale-agent-runs/WAR-20260820-214337-R8-MAP-REQUEST-R3",
-        "subject_commit": "b7d5fe729fb55ba14047b7367a223e1966be7f71",
+        "subject_commit": "5ce2cfaf880a3bd2628057b7bbb94e9e3df4f538",
         "candidate_cache_surface": "bff130c627f82a7035da65311111916b7f0237106a89aedcca54c65266d71b5f",
         "scenario": "release-dispatch-repair",
         "arm": "map-request",
         "repeat": 3,
         "execution": "docker",
         "runner_selection": "RunLogicalMode=taskspace + RunSide=both; PlanOnly selected_execution_count must equal 3 and Standard selection must equal 0.",
-        "actual_run_root": "target/whale-agent-runs/WAR-20260820-214337-R8-MAP-REQUEST-R3/release-dispatch-repair/live-r3b",
+        "actual_run_root": "target/whale-agent-runs/WAR-20260820-214337-R8-MAP-REQUEST-R3/release-dispatch-repair/live-r3c",
         "whale_binary_sha256": "d18ca48beb9ce3fa592244b913d6a3987933fc5b241b7f7e8e53a36b6105bc90",
         "preflight_attempts": [
           {
@@ -10927,13 +10931,20 @@
             "reason": "whale_binary_attestation_invalid",
             "provider_requests": 0,
             "cost_cny": 0.0
+          },
+          {
+            "run_root": "target/whale-agent-runs/WAR-20260820-214337-R8-MAP-REQUEST-R3/release-dispatch-repair/live-r3b",
+            "status": "invalid_harness",
+            "reason": "provider_credential_missing",
+            "provider_requests": 0,
+            "cost_cny": 0.0
           }
         ],
-        "usage_evidence_status": "pending",
-        "durable_evidence_path": null,
+        "usage_evidence_status": "complete",
+        "durable_evidence_path": "benchmarks/taskspace/r8/evidence/WAR-20260820-214337-R8-MAP-REQUEST-R3.json",
         "stop_conditions": "零自动重试；业务或 Map 硬失败、usage/证据缺失、36 requests、600K input、30K output、CNY 1.00 或 15 分钟任一先到即停止。",
-        "stop_reason": null,
-        "outcome": null
+        "stop_reason": "any_side_failure_after_pair_001_multi_outer_exec_fatal",
+        "outcome": "PlanOnly selected exactly three TaskSpace executions and zero Standard executions. Two preflight attempts stopped before Provider use. The first real TaskSpace run made two Provider requests; response 2 contained two sibling taskspace_exec calls. Runtime rejected the response before client Tool side effects but escalated reconciliation to Fatal, so the Agent received no per-call rejection output. The runner stopped immediately and did not start the remaining two repeats."
       }
     }
   ]

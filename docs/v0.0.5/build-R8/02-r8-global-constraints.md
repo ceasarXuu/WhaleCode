@@ -115,12 +115,14 @@
 1. 语义必须忠实透传，不得丢失、残缺、扭曲、重复包装、注入建议或重新解释。
 2. Agent 出现低级错误时，第一优先级检查 provider context、Tool result 和 projection，而不是增加 Runtime 约束。
 3. 同一机械事实只有一个 Agent-visible 权威表达。
-4. map-request 的自然历史原则上与 Standard 一样持续追加，Map 只在 Agent 请求时读取。
-5. map-always、map-append、map-request 只允许在 projection 如何进入 context 上不同，不能拥有不同 Runtime、
+4. TaskSpace 默认使用 map-request；只有 TaskSpace 已开启时才暴露 `/map-request`、`/map-append`、`/map-always`。
+   切换同时作用于当前会话并持久化为用户级全局选择，后续 TaskSpace session 沿用最后一次选择。
+5. map-request 的自然历史原则上与 Standard 一样持续追加，Map 只在 Agent 请求时读取。
+6. map-always、map-append、map-request 只允许在 projection 如何进入 context 上不同，不能拥有不同 Runtime、
    Map、Tool、状态机或反馈实现。
-6. projection 必须保留全局路径；局部细节可以按距离和证据效用调整，但不能把旧节点直接变成不可见。
-7. 不得为了缓存或 token 指标删除 Agent 完成正确工作所需的事实。
-8. Standard 如何保留、裁剪、压缩和持久化 Tool 过程，TaskSpace 就如何处理；Map 只额外保存 Agent 明确写入的节点
+7. projection 必须保留全局路径；局部细节可以按距离和证据效用调整，但不能把旧节点直接变成不可见。
+8. 不得为了缓存或 token 指标删除 Agent 完成正确工作所需的事实。
+9. Standard 如何保留、裁剪、压缩和持久化 Tool 过程，TaskSpace 就如何处理；Map 只额外保存 Agent 明确写入的节点
    `content`、client action 归属和最小 Provider 聚合 Action，不增加 TaskSpace 专属 ref 或渐进暴露协议。
 
 ## 5. 工程与评测
