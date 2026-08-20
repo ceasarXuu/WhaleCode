@@ -1,7 +1,7 @@
 # Problem P-001: Codex 0.147 工具调度抢跑 TaskSpace 响应终结
-- Status: open
+- Status: fixed
 - Created: 2026-08-21 05:29
-- Updated: 2026-08-21 05:35
+- Updated: 2026-08-21 05:47
 - Objective: 保证 `taskspace_exec` 仅在当前 Provider response 完成并通过 response scope 校验后开始执行。
 - Symptoms:
   - 真实 map-request 首个响应返回一个合法 `taskspace_exec`，运行时先以 `provider response did not complete before TaskSpace Exec` 拒绝，约 2ms 后才记录 response finalized accepted。
@@ -33,9 +33,9 @@
   - H-002
   - H-003
 - Resolution basis:
-  - not satisfied
+  - H-001 confirmed by E-001/E-002, repaired by `8cc1fef67b472ff2a28327750dc2884675f91dec`, validated offline by E-003 and on the real DeepSeek Responses route by E-004.
 - Close reason:
-  - not closed
+  - The real map-request run completed seven response cycles and six successful TaskSpace Exec calls with zero rejected calls; its separate observability export failure is tracked in `2026-08-21-05-47-taskspace-map-debug-export-missing.md`.
 
 ## Hypothesis H-001: 0.147 eager tool spawn 绕过 response finalize 顺序
 - Status: confirmed
@@ -74,13 +74,14 @@
   - E-001
   - E-002
   - E-003
+  - E-004
 - Conclusion: eager spawn 与缺失 TaskSpace readiness barrier 共同造成确定性竞态。
 - Repair design readiness: ready
 - Next step: 为 TaskSpace runtime 提供只等待当前 response terminal 的 readiness future。
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - Fixed by `8cc1fef67b472ff2a28327750dc2884675f91dec` and validated by E-003/E-004.
 
 ## Hypothesis H-002: Provider response identity 绑定晚于 Exec 且最终仍缺失
 - Status: refuted
@@ -229,3 +230,23 @@
   ```
 - Interpretation: 局部 barrier 在 deterministic 测试中消除了 eager spawn 竞态，且未破坏其余 TaskSpace Exec 合同；仍需预算内真实 map-request 复验后关闭问题。
 - Time: 2026-08-21 05:43
+
+## Evidence E-004: 真实 map-request 不再发生响应抢跑
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: fix-validation
+- Source: `benchmarks/cache-regression/results/WAR-20260821-054054-CACHE-REGRESSION-BD2A9444.json` 及对应 stderr/metrics
+- Prediction or plan link:
+  - P-001 真实修复标准：TaskSpace response 先 finalized，Exec 随后成功执行，且无 reconciliation failure。
+- Matched signal:
+  - 7 个 Provider response 全部完成；6 个 TaskSpace Exec 均按 finalized → preflight → completed 顺序执行，`taskspace_exec_rejected_call_count=0`，Agent 完成且公开/隐藏测试均通过。
+- Correlation keys:
+  - `WAR-20260821-054054-CACHE-REGRESSION-BD2A9444-CACHE-001`
+- Raw content:
+  ```text
+  provider_requests=7; taskspace_exec completed=6; rejected=0
+  agent_completion_status=complete; external_validation_status=passed
+  ```
+- Interpretation: response-finalization 竞态已在真实 DeepSeek Responses 路径消失；runner 的 overall partial 来自独立的 `whale debug taskspace-map` 缺失。
+- Time: 2026-08-21 05:47
