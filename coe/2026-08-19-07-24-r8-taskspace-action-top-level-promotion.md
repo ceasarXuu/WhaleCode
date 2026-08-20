@@ -1340,3 +1340,21 @@
 - Interpretation: H-013 在 Base 3.0.8 上低频复发；H-016 坐实为独立 Runtime 恢复缺口。文字合同此前的 59 响应正向
   证据仍有效，但不能替代结构化可恢复拒绝。
 - Time: 2026-08-20
+
+## Evidence E-035: 多 outer 恢复链与 observer 已离线闭环
+
+- Related hypotheses:
+  - H-016
+- Direction: supports repair
+- Type: deterministic-runtime-and-observer-tests
+- Source: commit `8ae4f2759`; `taskspace-exec/94-i03-multi-outer-recovery-result.md`
+- Matched signal:
+  - 多 outer 仍由 response scope 判定非法，两个 `claim_response` 均失败。
+  - turn 将该 response-level 错误分类为 recoverable 后才 drain 原始 futures，不再提前返回 fatal。
+  - 两个 handler 按各自原始 `call_id` 返回同一 `invalid top-level contract`，client Tool 调用为 0，Map 不存在。
+  - observer 双 outer fixture 统计 2 calls、2 contract rejects、2 correlated outer IDs、1 request，且
+    `exec_result_missing=0`、availability=`measured`。
+  - TaskSpace Exec 85 项、Core check 和 observer fixture 通过。
+- Interpretation: H-016 的 Runtime 恢复缺口已完成确定性修复；Agent 多 outer 的自然复发和收到反馈后的在线纠正仍属 H-013
+  行为验证，不得据此关闭整个 I03。
+- Time: 2026-08-20

@@ -2,7 +2,7 @@
 
 - Report date: 2026-08-20
 - Source plans: `00-r8-charter.md`、`01-r8-known-issues.md`、`taskspace-exec/12-phase-b-zero-base-plan.md`
-- Scope: `whalecode-alpha` branch，被测生产代码 commit `5ce2cfaf8`
+- Scope: `whalecode-alpha` branch，当前离线修复 commit `8ae4f2759`
 - Latest runtime evidence: `WAR-20260820-214337-R8-MAP-REQUEST-R3`
 - Scoring: 十个 R8 全局问题等权；每项按已验证验收条件计 `0/25/50/75/100`
 
@@ -10,7 +10,7 @@
 
 | 口径 | 分子 / 分母 | 完成度 | 含义 |
 |---|---:|---:|---|
-| R8 验证完成度 | 890 / 1000 | **89.0%** | 十个问题按实现、接入、测试和生产证据评分；I03 多 outer 低频复发且暴露 fatal 恢复缺口 |
+| R8 验证完成度 | 890 / 1000 | **89.0%** | 十个问题按实现、接入、测试和生产证据评分；I03 多 outer fatal 恢复已离线修复，在线行为待验证 |
 | 正式问题关闭率 | 5 / 10 | **50.0%** | I09、I01、I06、I02、I10 达到 `closed`；I07 回到 `verifying` |
 | TaskSpace Exec 阶段实现度 | 650 / 700 | **92.9%** | B0～B4 为 100%，B5～B6 各按 75% 计 |
 
@@ -24,7 +24,7 @@ xychart-beta
 
 89.0% 不等于发布完成度。当前代码和三种 projection 的复杂 client-tool 链路已经可运行，Provider-hosted 机械归纳
 已有生产证据；I01-W10 已接受并晋升 baseline，用户已确认默认 `map-request` 和三个 TaskSpace-only 切换命令。I07 的逻辑
-单模式选择已真实生效，但最新 I03 多 outer 拒绝仍以 fatal 截断反馈和 observer 结果；fork/join DAG 继续按用户决定暂缓。
+单模式选择已真实生效，多 outer 的逐 call 反馈与 observer 结果也已离线修复；自然在线恢复待验证。fork/join DAG 继续按用户决定暂缓。
 
 ## 2. 全局问题状态
 
@@ -36,8 +36,8 @@ xychart-beta
 | 4 | I05 拒绝反馈忠实性 | 75% | verifying | 同 `call_id`、零执行、可继续反馈已实现；最新 3 次正常路径无回归 | 逃逸恢复分支未自然在线命中 |
 | 5 | I02 Tool 事实单次表达 | 100% | closed | 最新三次生产运行 `18 calls = 18 outputs`，无高优先级副本、重复或 orphan | 无 |
 | 6 | I10 capability 身份 | 100% | closed | 最新 21 个 TaskSpace wire 请求身份一致，跨 Catalog/dispatch/wire/report 无冲突 | 无；projection 对照归入 I01/I08 |
-| 7 | I07 观测可信性 | 90% | verifying | `RunLogicalMode=taskspace` 的 preflight 与真实运行均只启动 TaskSpace，Standard 为 0 | 多 outer fatal 没有逐 call output，通用 observer 将该行标为不可比 |
-| 8 | I03 动作组织稳定性 | 75% | verifying | Base `3.0.8`、明确 sequence type 和窄 JSON 自愈均已落地；失败响应仍保持零 Tool 副作用 | 多 outer 在最新第 2 响应复发；Runtime 将合同拒绝升级为 fatal，Agent 无法纠正 |
+| 7 | I07 观测可信性 | 90% | verifying | 单模式选择已在线生效；多 outer fixture 已对账两个 call、两个拒绝和一个 request | 自然在线多 outer 恢复分支尚未命中 |
+| 8 | I03 动作组织稳定性 | 75% | verifying | Base `3.0.8`、sequence type、窄 JSON 自愈及多 outer 可恢复拒绝均已落地 | Agent 仍会低频生成多 outer；下一请求自然纠正尚未在线验证 |
 | 9 | I04 frontier 使用 | 75% | verifying | 顺序 patch 事务离线通过；最新复杂运行无 `TransitionInvalid` 且 Map 闭合 | 同批父子完成未自然命中；Map 仍为线性链，fork/join 未观察到 |
 | 10 | I08 成本与晋升 | 75% | investigating | 复杂样本四臂成本已量化，默认模式已由用户确认为 map-request | 只有一个复杂样本；三模式长期成本边界仍需使用中观察 |
 
@@ -127,8 +127,8 @@ output，Agent 无法纠正。实际为 1 run / 2 requests / 26,722 input / 655 
 | 未完成项 | 原因 | 不完成的影响 | 下一验收 |
 |---|---|---|---|
 | I05 逃逸恢复在线分支 | 最新自然样本没有触发逃逸 | 不能证明目标模型收到失败后会稳定恢复且无请求放大 | 不人为诱导；复杂自然样本出现时随 trace 验收 |
-| I03 多 outer 恢复 | Agent 仍可能低频生成两个 outer；当前 Runtime 将整批拒绝升级为 fatal | Agent 看不到错误，turn 直接失败，observer 也缺逐 call 结果 | 保持零副作用，不合并动作；逐原 call-id 返回同一合同错误并允许下一请求纠正 |
-| I07 fatal 观测 | 单模式选择已修复；多 outer fatal 没有 Tool output | 通用性能行被标为不可比，但原始 request/usage 可复算 | 随 I03 恢复链补齐逐 call 结果后复验 observer |
+| I03 多 outer 在线恢复 | Runtime 已离线逐 call 返回合同错误；自然分支尚未复验 | 不能证明目标模型会在下一请求稳定纠正 | 后续获批自然样本若命中，则验收继续请求、零副作用和纠正结果 |
+| I07 多 outer 在线观测 | fixture 已可比；自然 artifact 尚未产生 | 不能确认生产 trace 与离线 fixture 完全一致 | 随 I03 自然命中同步对账，不单独制造错误样本 |
 | I04 复杂依赖 | 客观提供两个独立修复域的新样本仍形成线性链；顺序 patch 事务仅离线通过 | fork/join、多 Ready 节点和多父节点仍无生产证据 | 不诱导拆图；先验收新事务，再分析首次读取前初始化通用链的影响 |
 | I08 长期成本 | 单个复杂样本已量化三模式取舍，默认 map-request 已确认 | 不能外推长期 Map 和真实日常任务成本 | 暂不改协议，在代表性使用中继续积累事实 |
 
@@ -136,10 +136,10 @@ output，Agent 无法纠正。实际为 1 run / 2 requests / 26,722 input / 655 
 
 | 优先级 | 动作 | 依赖 | 验收方式 |
 |---:|---|---|---|
-| P0 | 修复 I03 多 outer 的 fatal 恢复缺口 | 最新真实 trace 与 H-016 | 整批零执行；两个原 call-id 都收到合同错误；下一请求可纠正；不合并或重排 |
-| P1 | 补齐 I07 对多 outer 拒绝的可比观测 | P0 产生稳定逐 call 结果 | request、reject、output 和 usage 身份一致，通用报告不再误报 missing result |
-| P2 | 继续观察 I03 Agent 生成稳定性 | P0 | 不人为诱导；自然样本记录复发频率，提示与 schema 只按单变量证据调整 |
-| P3 | 观察默认 map-request 的长期成本 | 当前产品默认已确认 | 保持三模式共用基建，不为单个成本指标改变语义 |
+| Done | I03 多 outer 可恢复拒绝 | 最新真实 trace 与 H-016 | 离线证明整批零执行、两个原 call-id 同合同错误且 turn 可继续 |
+| Done | I07 多 outer 可比观测 | I03 逐 call 结果 | fixture 对账 2 call / 2 reject / 1 request，missing result 为 0 |
+| P0 | 继续观察 I03 Agent 生成稳定性与在线恢复 | 当前修复 | 不人为诱导；自然命中时验证下一请求纠正和生产 observer |
+| P1 | 观察默认 map-request 的长期成本 | 当前产品默认已确认 | 保持三模式共用基建，不为单个成本指标改变语义 |
 
-下一步最明确的是修复 I03 多 outer 的 fatal 恢复链；该动作不改变合法序列，也不替 Agent 合并或选择动作。I04 按用户决定
-暂不处理，I08 不做新的压缩改动。
+多 outer fatal 恢复链与离线 observer 已完成；下一步是在自然获批样本中验证 Agent 收到逐 call 错误后继续纠正，不人为
+诱导该错误。I04 按用户决定暂不处理，I08 不做新的压缩改动。

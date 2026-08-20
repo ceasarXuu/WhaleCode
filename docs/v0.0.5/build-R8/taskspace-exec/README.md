@@ -293,6 +293,8 @@ R8 从本专题起以 `taskspace_exec` 作为 TaskSpace 顶层动作协议的唯
     slash command、当前会话切换与用户级全局记忆的实现和验证。
 95. [`93-i03-multi-outer-fatal-deep-dive.md`](93-i03-multi-outer-fatal-deep-dive.md)：Base 3.0.8 上多 outer 低频复发的
     两层根因：Agent outer 基数错误与 Runtime fatal 恢复链缺口。
+96. [`94-i03-multi-outer-recovery-result.md`](94-i03-multi-outer-recovery-result.md)：多 outer 整批零副作用拒绝、逐原始
+    `call_id` 可恢复反馈与 observer 可比统计的离线修复结果。
 ## 4. 推进规则
 
 - TaskSpace Exec 已完成生产接入和 I01～I10 重映射；后续状态与顺序只以

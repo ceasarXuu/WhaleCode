@@ -63,6 +63,11 @@
 > `tools[]`。Response scope 在执行前正确识别并整批拒绝，但 turn 协调器把该合同错误升级为 fatal，两个原始 call 均没有
 > 失败 output，Agent 无法在下一请求纠正。该事实不支持自动合并；明确修复边界是逐 `call_id` 返回同一零副作用合同错误并
 > 继续。详见 [`taskspace-exec/93-i03-multi-outer-fatal-deep-dive.md`](taskspace-exec/93-i03-multi-outer-fatal-deep-dive.md)。
+> **I03/I07 多 outer 离线恢复修复（2026-08-20）**：多 outer 仍整批非法且零副作用，但已从 session fatal 收敛为
+> response-level 可恢复拒绝。两个原始 `call_id` 分别沿原生 Tool output 路径收到同一合同错误，turn 可进入下一请求；
+> observer fixture 同时对账 2 个 call、2 个合同拒绝、1 个 request，且不再产生 `exec_result_missing`。TaskSpace Exec
+> 85 项、Core check 和 observer 测试通过；实现 commit `8ae4f2759`。未运行真实 Agent，因此自然纠正路径和复发率仍待验证。详见
+> [`taskspace-exec/94-i03-multi-outer-recovery-result.md`](taskspace-exec/94-i03-multi-outer-recovery-result.md)。
 > **VA-02 第二轮生产证据（2026-08-10）**：模型已稳定选择顶层 `taskspace_exec`，合法第二响应可初始化
 > `root -> inspect -> fix -> verify -> finish` 并原生执行 client Tool；但两轮首响应都在无 Hosted output 时的必填
 > `hosted_bindings: []` 邻近位置生成不同的非法 JSON。I03 因首次参数稳定性继续 verifying，VA-03 保持阻断。I07 的
@@ -481,14 +486,14 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 4 | R8-I05 | F3 | P1 | 拒绝原因可能重复或混淆错误发生的协议层级 | 忠实返回一次失败，并准确区分语法、合同、预检与执行错误；未提交候选不得表现为已保存状态 | `e596d2f27` 完成同 `call_id`、零执行、可继续反馈；repeat=3 正常路径无回归，但未自然触发逃逸恢复分支 | verifying | GI-005 |
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 成功、拒绝和内部失败只返回一个 outer output；最新三次生产运行 `18 calls = 18 outputs`，无副本或 orphan | [closed](taskspace-exec/80-i02-single-feedback-closure.md) | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 身份沿 dispatch/request/wire/trace/report 传播；最新 21 个 TaskSpace wire 请求身份一致且无冲突 | [closed](I10/01-i10-capability-identity-closure.md) | GI-010 |
-| 7 | R8-I07 | F4 | P1 | 观察或运行选择工具可能漏计、重复计数，或把物理侧误当成逻辑模式 | 请求和失败逐身份计一次；单模式预算只启动声明的逻辑模式和次数 | 逻辑选择真实只启动 TaskSpace、Standard 为 0；多 outer fatal 仍使 observer 丢失逐 call 结果 | [verifying](I07/04-logical-mode-selection-result.md) | GI-007 |
-| 8 | R8-I03 | F5 | P2 | Agent 可能生成非法 Exec envelope，或把内部 client Tool 提升为未声明顶层调用 | client 动作只在每响应唯一的 `taskspace_exec` 合法序列内声明；Runtime 对非法 envelope 保持零副作用且可纠正的硬边界 | Base `3.0.8` 再次复发两个 sibling outer；Runtime 零执行但错误升级为 fatal，恢复反馈缺失 | [verifying](taskspace-exec/93-i03-multi-outer-fatal-deep-dive.md) | GI-003 |
+| 7 | R8-I07 | F4 | P1 | 观察或运行选择工具可能漏计、重复计数，或把物理侧误当成逻辑模式 | 请求和失败逐身份计一次；单模式预算只启动声明的逻辑模式和次数 | 逻辑选择真实只启动 TaskSpace；多 outer fixture 已逐 call 对账且不再误报结果缺失，待自然在线分支确认 | [verifying](taskspace-exec/94-i03-multi-outer-recovery-result.md) | GI-007 |
+| 8 | R8-I03 | F5 | P2 | Agent 可能生成非法 Exec envelope，或把内部 client Tool 提升为未声明顶层调用 | client 动作只在每响应唯一的 `taskspace_exec` 合法序列内声明；Runtime 对非法 envelope 保持零副作用且可纠正的硬边界 | 多 outer fatal 恢复缺口已离线修复；Agent 生成稳定性和自然在线纠正仍待验证 | [verifying](taskspace-exec/94-i03-multi-outer-recovery-result.md) | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点，或没有利用可并行 frontier | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 顺序 patch 事务离线通过，最新生产运行无 `TransitionInvalid`；但目标同批父子完成未自然命中，Map 仍为线性链 | [verifying](I04/03-ordered-map-patch-live-validation-result.md) | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 复杂样本四臂 repeat=3：always/append/request 总 input 为 Standard `1.25x/1.60x/1.32x`，费用为 `2.83x/2.09x/2.43x` | [investigating](I01/03-i01-four-arm-repeat3-result.md) | GI-008 |
 
 问题总数：**10**；Open：**5**；Closed：**5**。Provider-hosted Runtime 机械归纳已通过生产验收，当前没有该专题停点。
-I07 的逻辑模式选择已在真实运行中证明只启动 TaskSpace，但多 outer fatal 尚未形成逐 call 结果，observer 因而保持 verifying；
-I05 的顶层 client escape 恢复链已离线修复且正常路径无回归，但 I03 多 outer 使用另一条 fatal 路径；I08 默认模式已由用户
+I07 的逻辑模式选择已在真实运行中证明只启动 TaskSpace，多 outer 的逐 call 结果和 observer 对账也已离线修复；自然在线
+分支尚未命中，因此保持 verifying。I05 的顶层 client escape 恢复链已离线修复且正常路径无回归；I08 默认模式已由用户
 确认为 map-request，小型等价压缩按用户决定暂缓，
 不回删 Map、合法序列或状态机硬合同。
 

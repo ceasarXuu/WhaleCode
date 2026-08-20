@@ -54,3 +54,7 @@ escape 标成 recoverable。多 outer 错误直接映射为 `CodexErr::Fatal`，
 后续修复应只把“多个 outer Exec”从 session-fatal 调整为 response-level、逐 call-id、零副作用、可继续的合同拒绝，并补齐
 observer 对该失败的可比计数。是否进一步改变 Agent 生成合同需单变量证据；不得自动合并 outer calls，也不得修改 client Tool
 原生 schema、Map 状态或 Tool 执行结果。
+
+该修复已完成离线验证，结果见
+[`94-i03-multi-outer-recovery-result.md`](94-i03-multi-outer-recovery-result.md)。本文件保留原始根因与修复前证据；自然在线恢复
+仍待后续获批样本验证。
