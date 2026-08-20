@@ -328,11 +328,19 @@ function Get-TaskspaceWhaleBinaryAttestation {
     $buildCommandMatches = -not [string]::IsNullOrWhiteSpace([string]$marker.build_command)
     $probe = try { Get-TaskspaceWhaleVersionProbe $WhaleBin } catch { $null }
     $markerProbe = $marker.executable_probe
+    $markerProbeSha256 = if ($null -ne $markerProbe -and
+        $markerProbe.PSObject.Properties.Name -contains "output_sha256") {
+        [string]$markerProbe.output_sha256
+    } elseif ($null -ne $markerProbe) {
+        Get-TaskspaceSha256Text ([string]$markerProbe.output)
+    } else {
+        ""
+    }
     $probeMatches = $null -ne $probe -and $null -ne $markerProbe -and
         [int]$probe.exit_code -eq 0 -and
         [int]$markerProbe.exit_code -eq 0 -and
         -not [string]::IsNullOrWhiteSpace([string]$probe.output) -and
-        [string]$markerProbe.output_sha256 -eq [string]$probe.output_sha256
+        $markerProbeSha256 -eq [string]$probe.output_sha256
     if ($schemaMatches -and $statusMatches -and $binaryShaMatches -and $sourceMatches -and
         $repoMatches -and $gitMatches -and $buildCommandMatches -and $probeMatches) {
         return [pscustomobject]@{ status = "pass"; path = $path; reason = ""; marker = $marker }

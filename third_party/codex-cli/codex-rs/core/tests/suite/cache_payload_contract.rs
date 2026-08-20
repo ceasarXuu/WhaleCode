@@ -35,13 +35,14 @@ pub(super) async fn submit_turn(
 ) -> anyhow::Result<()> {
     test.codex
         .submit(Op::UserInput {
-            environments: None,
+            additional_context: Default::default(),
             items: vec![UserInput::Text {
                 text: text.to_string(),
                 text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
             responsesapi_client_metadata: None,
+            thread_settings: Default::default(),
         })
         .await?;
     wait_for_event(&test.codex, |event| {
@@ -157,10 +158,8 @@ pub(super) fn configure_deepseek_responses(config: &mut Config) {
 
 pub(super) fn provider_identity(config: &Config) -> Value {
     assert!(config.model_provider.is_deepseek());
-    let endpoint_path = match config.model_provider.wire_api {
-        WireApi::Responses => "/v1/responses",
-        WireApi::ChatCompletions => "/v1/chat/completions",
-    };
+    assert_eq!(config.model_provider.wire_api, WireApi::Responses);
+    let endpoint_path = "/v1/responses";
     serde_json::json!({
         "provider_id": config.model_provider_id,
         "wire_api": config.model_provider.wire_api.to_string(),

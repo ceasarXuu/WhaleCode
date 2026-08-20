@@ -35,8 +35,16 @@ use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_cli::CliConfigOverrides;
 use codex_utils_cli::ProfileV2Name;
 use codex_utils_cli::SharedCliOptions;
+use hmac::Hmac;
+use hmac::Mac;
 use owo_colors::OwoColorize;
+use serde::Serialize;
+use sha2::Digest;
+use sha2::Sha256;
+use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::collections::HashSet;
+use std::fs;
 use std::io::IsTerminal;
 use std::io::Write;
 use std::path::PathBuf;
@@ -239,6 +247,10 @@ enum DebugSubcommand {
 
     /// Render the model-visible prompt input list as JSON.
     PromptInput(DebugPromptInputCommand),
+
+    /// Render the resolved model provider identity without secret values.
+    #[clap(hide = true)]
+    Provider,
 
     /// Replay a rollout trace bundle and write reduced state JSON.
     #[clap(hide = true)]
@@ -1566,6 +1578,15 @@ async fn cli_main(
                 )
                 .await?;
             }
+            DebugSubcommand::Provider => {
+                reject_remote_mode_for_subcommand(
+                    root_remote.as_deref(),
+                    root_remote_auth_token_env.as_deref(),
+                    "debug provider",
+                )?;
+                run_debug_provider_command(root_config_overrides, interactive, arg0_paths.clone())
+                    .await?;
+            }
             DebugSubcommand::TraceReduce(cmd) => {
                 reject_remote_mode_for_subcommand(
                     root_remote.as_deref(),
@@ -2104,6 +2125,117 @@ async fn run_debug_prompt_input_command(
     .await?;
     println!("{}", serde_json::to_string_pretty(&prompt_input)?);
 
+    Ok(())
+}
+
+fn sha256_text(value: &str) -> String {
+    format!("{:x}", Sha256::digest(value.as_bytes()))
+}
+
+fn sha256_json<T: Serialize>(value: &T) -> anyhow::Result<String> {
+    Ok(sha256_text(&serde_json::to_string(value)?))
+}
+
+fn provider_descriptor_hmac_key() -> anyhow::Result<Vec<u8>> {
+    let path = std::env::var("WHALE_PROVIDER_DESCRIPTOR_HMAC_KEY_FILE")
+        .map_err(|_| anyhow::anyhow!("provider descriptor HMAC key file is required"))?;
+    let key = fs::read(path)?;
+    if key.is_empty() {
+        anyhow::bail!("provider descriptor HMAC key must not be empty");
+    }
+    Ok(key)
+}
+
+fn hmac_sha256(key: &[u8], value: &str) -> anyhow::Result<String> {
+    let mut mac = Hmac::<Sha256>::new_from_slice(key)?;
+    mac.update(value.as_bytes());
+    Ok(format!("{:x}", mac.finalize().into_bytes()))
+}
+
+fn optional_json_hmac_sha256<T: Serialize>(
+    key: &[u8],
+    value: Option<&T>,
+) -> anyhow::Result<Option<String>> {
+    value
+        .map(|value| hmac_sha256(key, &serde_json::to_string(value)?))
+        .transpose()
+}
+
+fn optional_string_map_hmac_sha256(
+    key: &[u8],
+    value: Option<&HashMap<String, String>>,
+) -> anyhow::Result<Option<String>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let ordered = value
+        .iter()
+        .map(|(key, value)| (key.as_str(), value.as_str()))
+        .collect::<BTreeMap<_, _>>();
+    optional_json_hmac_sha256(key, Some(&ordered))
+}
+
+async fn run_debug_provider_command(
+    root_config_overrides: CliConfigOverrides,
+    interactive: TuiCli,
+    arg0_paths: Arg0DispatchPaths,
+) -> anyhow::Result<()> {
+    let loader_overrides = loader_overrides_for_profile(interactive.config_profile_v2.as_ref())?;
+    let shared = interactive.shared.into_inner();
+    let cli_kv_overrides = root_config_overrides
+        .parse_overrides()
+        .map_err(anyhow::Error::msg)?;
+    let overrides = ConfigOverrides {
+        model: shared.model,
+        cwd: shared.cwd,
+        codex_self_exe: arg0_paths.codex_self_exe,
+        codex_linux_sandbox_exe: arg0_paths.codex_linux_sandbox_exe,
+        main_execve_wrapper_exe: arg0_paths.main_execve_wrapper_exe,
+        show_raw_agent_reasoning: shared.oss.then_some(true),
+        ephemeral: Some(true),
+        bypass_hook_trust: shared.bypass_hook_trust.then_some(true),
+        additional_writable_roots: shared.add_dir,
+        ..Default::default()
+    };
+    let config = ConfigBuilder::default()
+        .cli_overrides(cli_kv_overrides)
+        .harness_overrides(overrides)
+        .loader_overrides(loader_overrides)
+        .build()
+        .await?;
+    let provider = &config.model_provider;
+    let hmac_key = provider_descriptor_hmac_key()?;
+    let provider_fields = serde_json::json!({
+        "name": provider.name,
+        "base_url_hmac_sha256": provider.base_url.as_deref().map(|value| hmac_sha256(&hmac_key, value)).transpose()?,
+        "env_key": provider.env_key,
+        "env_key_instructions_hmac_sha256": provider.env_key_instructions.as_deref().map(|value| hmac_sha256(&hmac_key, value)).transpose()?,
+        "experimental_bearer_token_hmac_sha256": provider.experimental_bearer_token.as_deref().map(|value| hmac_sha256(&hmac_key, value)).transpose()?,
+        "auth_hmac_sha256": optional_json_hmac_sha256(&hmac_key, provider.auth.as_ref())?,
+        "aws_hmac_sha256": optional_json_hmac_sha256(&hmac_key, provider.aws.as_ref())?,
+        "wire_api": provider.wire_api.to_string(),
+        "query_params_hmac_sha256": optional_string_map_hmac_sha256(&hmac_key, provider.query_params.as_ref())?,
+        "http_headers_hmac_sha256": optional_string_map_hmac_sha256(&hmac_key, provider.http_headers.as_ref())?,
+        "env_http_headers_hmac_sha256": optional_string_map_hmac_sha256(&hmac_key, provider.env_http_headers.as_ref())?,
+        "request_max_retries": provider.request_max_retries,
+        "stream_max_retries": provider.stream_max_retries,
+        "stream_idle_timeout_ms": provider.stream_idle_timeout_ms,
+        "websocket_connect_timeout_ms": provider.websocket_connect_timeout_ms,
+        "requires_openai_auth": provider.requires_openai_auth,
+        "supports_websockets": provider.supports_websockets,
+        "is_deepseek": provider.is_deepseek(),
+    });
+    let provider_descriptor_sha256 = sha256_json(&provider_fields)?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "schema_version": "whalecode-resolved-provider-v1",
+            "model_provider_id": config.model_provider_id,
+            "model": config.model,
+            "provider": provider_fields,
+            "provider_descriptor_sha256": provider_descriptor_sha256,
+        }))?
+    );
     Ok(())
 }
 

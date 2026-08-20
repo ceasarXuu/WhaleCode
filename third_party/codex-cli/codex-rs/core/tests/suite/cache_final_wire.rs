@@ -42,13 +42,14 @@ async fn capture_responses_body() -> anyhow::Result<Value> {
         .await?;
     test.codex
         .submit(Op::UserInput {
-            environments: None,
+            additional_context: Default::default(),
             items: vec![UserInput::Text {
                 text: "inspect final wire".to_string(),
                 text_elements: Vec::new(),
             }],
             final_output_json_schema: None,
             responsesapi_client_metadata: None,
+            thread_settings: Default::default(),
         })
         .await?;
     let requests = tokio::time::timeout(std::time::Duration::from_secs(10), async {
@@ -120,7 +121,6 @@ async fn taskspace_production_tool_wire() -> anyhow::Result<()> {
     let test = test_codex()
         .with_config(|config| {
             configure_deepseek_responses(config);
-            config.taskspace_projection_policy = Some(TaskSpaceProjectionPolicy::MapRequest);
             config.cwd =
                 AbsolutePathBuf::try_from(PathBuf::from("/tmp")).expect("fixed TaskSpace cwd");
         })
@@ -135,6 +135,11 @@ async fn taskspace_production_tool_wire() -> anyhow::Result<()> {
         matches!(event, EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(_)))
     })
     .await;
+    test.codex
+        .submit(Op::SetTaskSpaceProjectionPolicy {
+            policy: TaskSpaceProjectionPolicy::MapRequest,
+        })
+        .await?;
     test.submit_turn("inspect taskspace final wire").await?;
 
     let requests = server

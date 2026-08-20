@@ -387,12 +387,12 @@ def main() -> int:
     try:
         run_whale_binary_health_preflight(
             repo,
-            args.whale_bin,
+            whale_bin,
             route_preflight_path.parent / "whale-binary-health.json",
         )
         provider_route = run_provider_route_preflight(
             repo,
-            args.whale_bin,
+            whale_bin,
             route_preflight_path,
             proposal["selection"]["model"],
         )

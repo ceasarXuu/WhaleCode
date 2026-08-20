@@ -72,6 +72,10 @@ pub struct Cli {
     )]
     pub last_message_file: Option<PathBuf>,
 
+    /// Enable TaskSpace mode for this exec session.
+    #[arg(long = "taskspace", global = true, default_value_t = false)]
+    pub taskspace: bool,
+
     /// Initial instructions for the agent. If not provided as an argument (or
     /// if `-` is used), instructions are read from stdin. If stdin is piped and
     /// a prompt is also provided, stdin is appended as a `<stdin>` block.

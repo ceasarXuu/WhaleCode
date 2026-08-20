@@ -98,6 +98,13 @@ class CacheRunExecutionFixture(unittest.TestCase):
         }
         write_json(self.proposal_path, self.proposal)
         write_json(self.authorization_path, self.authorization)
+        self.workspace_binary = self.repo / "target/debug/whale"
+        self.workspace_binary_patcher = patch(
+            "run_cache_hit_regression.resolve_workspace_binary",
+            return_value=self.workspace_binary,
+        )
+        self.workspace_binary_mock = self.workspace_binary_patcher.start()
+        self.addCleanup(self.workspace_binary_patcher.stop)
         self.provider_route = route_summary()
         self.binary_health_patcher = patch(
             "run_cache_hit_regression.run_whale_binary_health_preflight",

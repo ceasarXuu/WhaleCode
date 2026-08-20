@@ -58,6 +58,16 @@ class FreeCacheContractsTest(unittest.TestCase):
 
         self.assertTrue(result["passed"])
 
+    def test_commands_receive_the_repository_rust_stack_floor(self) -> None:
+        script = "import os; assert os.environ['RUST_MIN_STACK'] == '8388608'"
+
+        result = run_free_validation(
+            self.repo,
+            command_config(["python3", "-c", script]),
+        )
+
+        self.assertTrue(result["passed"])
+
     def test_failure_does_not_hide_later_independent_results(self) -> None:
         config = command_config(["python3", "-c", "raise SystemExit(9)"])
         config["commands"].append(

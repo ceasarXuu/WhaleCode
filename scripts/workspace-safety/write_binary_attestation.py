@@ -58,7 +58,11 @@ def build_attestation(binary: Path, repo: Path, build_command: str) -> dict[str,
             stat.st_mtime, timezone.utc
         ).isoformat(),
         "build_command": build_command,
-        "executable_probe": {"exit_code": probe.returncode, "output": probe_output},
+        "executable_probe": {
+            "exit_code": probe.returncode,
+            "output": probe_output,
+            "output_sha256": hashlib.sha256(probe_output.encode()).hexdigest(),
+        },
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 
