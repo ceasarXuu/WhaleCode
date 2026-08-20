@@ -15,7 +15,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
                 evidence = $classified.evidence
         })
         Set-TaskspaceSampleStatus $runDir $manifest.Id "execute" $repeat $repeat "" "" "" $existingPairReport $commandLine | Out-Null
-        if ($RunSide -eq "both" -and ($ScoringMode -or $RequireScoreValidity) -and $classified.evidence.PSObject.Properties.Name -contains "engineering_unclean" -and [bool]$classified.evidence.engineering_unclean) {
+        if ($RunSide -eq "both" -and $RunLogicalMode -eq "both" -and ($ScoringMode -or $RequireScoreValidity) -and $classified.evidence.PSObject.Properties.Name -contains "engineering_unclean" -and [bool]$classified.evidence.engineering_unclean) {
             $abort = Stop-TaskspaceScoringInvalidRun $runDir $manifest.Id $existingPairDir $existingPairReport $classified.evidence $commandLine $repeat $Repeats -TaskListHash $TaskListHash -SourceVersion $SourceVersion -ProfileHash $ProfileHash
             Write-Host "RunDir: $runDir"
             Write-Host "PairAbort: $($abort.abort_path)"
@@ -71,11 +71,12 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         }
     }
     $allSides = @($pair.Left, $pair.Right)
-    $selectedSides = @($allSides | Where-Object { Test-TaskspaceRunSideSelected ([string]$_.Name) $RunSide })
-    $skippedSides = @($allSides | Where-Object { -not (Test-TaskspaceRunSideSelected ([string]$_.Name) $RunSide) })
+    $selectedSides = @($allSides | Where-Object { Test-TaskspaceRunSelection $_ $RunSide $RunLogicalMode })
+    $skippedSides = @($allSides | Where-Object { -not (Test-TaskspaceRunSelection $_ $RunSide $RunLogicalMode) })
     Write-TaskspaceRunEvent $runDir "pair_side_selection_completed" @{
         repeat = $repeat
         run_side = $RunSide
+        run_logical_mode = $RunLogicalMode
         selected_sides = @($selectedSides | ForEach-Object { [string]$_.Name })
         skipped_sides = @($skippedSides | ForEach-Object { [string]$_.Name })
     }
@@ -172,6 +173,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         oracle_isolation_policy = $OracleIsolationPolicy
         logical_mode_map = @{ left = $pair.Left.LogicalMode; right = $pair.Right.LogicalMode }
         run_side = $RunSide
+        run_logical_mode = $RunLogicalMode
         selected_sides = @($selectedSides | ForEach-Object { [string]$_.Name })
         skipped_sides = @($skippedSides | ForEach-Object { [string]$_.Name })
         sample_origin = $manifest.SampleOrigin
@@ -241,7 +243,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     } finally {
         $sourceGuard = Unprotect-TaskspaceExternalSensitiveSource $sourceGuard
     }
-    $probe = if ($RunSide -eq "both") {
+    $probe = if ($selectedSides.Count -eq 2) {
         Get-TaskspaceDockerOracleIsolationProbe $pair.Left $pair.CanaryPath $pair.CanaryText
     } else {
         Write-TaskspaceRunEvent $runDir "oracle_isolation_probe_skipped" @{ repeat = $repeat; run_side = $RunSide; reason = "side_selection" }
@@ -251,7 +253,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     $metricsBySide = @{}
     $validationTimingBySide = @{}
     foreach ($side in @($pair.Left, $pair.Right)) {
-        if (-not (Test-TaskspaceRunSideSelected ([string]$side.Name) $RunSide)) {
+        if (-not (Test-TaskspaceRunSelection $side $RunSide $RunLogicalMode)) {
             $skipTimestamp = Get-Date
             $metrics = New-TaskspaceSideSelectionSkipMetrics $side $RunSide $skipTimestamp
             $validationTimingBySide[$side.Name] = [pscustomobject]@{
@@ -462,7 +464,7 @@ for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
     Write-TaskspaceRunEvent $runDir "pair_completed" @{ repeat = $repeat; pair_report = $pairReportPath; reported_evidence_level = [string]$evidence.reported_evidence_level }
     Set-TaskspaceSampleStatus $runDir $manifest.Id "execute" $repeat $repeat "" "" "" $pairReportPath $commandLine | Out-Null
     Assert-TaskspaceArtifactStorage ("pair_{0:000}_completed" -f $repeat)
-    if ($RunSide -eq "both" -and ($ScoringMode -or $RequireScoreValidity) -and [bool]$auditManifest.engineering_unclean) {
+    if ($RunSide -eq "both" -and $RunLogicalMode -eq "both" -and ($ScoringMode -or $RequireScoreValidity) -and [bool]$auditManifest.engineering_unclean) {
         $abort = Stop-TaskspaceScoringInvalidRun $runDir $manifest.Id $pair.PairDir $pairReportPath $evidence $commandLine $repeat $Repeats -TaskListHash $TaskListHash -SourceVersion $SourceVersion -ProfileHash $ProfileHash
         Write-Host "RunDir: $runDir"
         Write-Host "PairAbort: $($abort.abort_path)"

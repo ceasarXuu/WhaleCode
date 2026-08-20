@@ -5,6 +5,16 @@ function Test-TaskspaceRunSideSelected {
     $RunSide -eq "both" -or $SideName -eq $RunSide
 }
 
+function Test-TaskspaceRunSelection {
+    param(
+        [Parameter(Mandatory = $true)]$Side,
+        [Parameter(Mandatory = $true)][string]$RunSide,
+        [Parameter(Mandatory = $true)][string]$RunLogicalMode
+    )
+    (Test-TaskspaceRunSideSelected ([string]$Side.Name) $RunSide) -and
+        ($RunLogicalMode -eq "both" -or [string]$Side.LogicalMode -eq $RunLogicalMode)
+}
+
 function New-TaskspaceSideSelectionSkipMetrics {
     param(
         [Parameter(Mandatory = $true)]$Side,

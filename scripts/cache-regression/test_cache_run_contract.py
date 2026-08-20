@@ -264,7 +264,10 @@ class CacheRunContractTest(unittest.TestCase):
             self.proposal,
             {"sample": "simple", "arm": "map-append", "repeat": 1},
         )
-        self.assertEqual(command[command.index("-RunSide") + 1], "right")
+        self.assertEqual(command[command.index("-RunSide") + 1], "both")
+        self.assertEqual(
+            command[command.index("-RunLogicalMode") + 1], "taskspace"
+        )
         self.assertIn("-AllowNonE2Result", command)
         self.assertEqual(
             command[command.index("-TaskSpaceProjectionPolicy") + 1], "map-append"

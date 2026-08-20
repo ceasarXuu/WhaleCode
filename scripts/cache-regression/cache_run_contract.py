@@ -169,7 +169,7 @@ def benchmark_command(
 ) -> list[str]:
     arm = execution["arm"]
     policy = arm if arm != "standard" else "map-request"
-    side = "left" if arm == "standard" else "right"
+    logical_mode = "standard" if arm == "standard" else "taskspace"
     return [
         "pwsh",
         "-NoProfile",
@@ -190,7 +190,9 @@ def benchmark_command(
         "-TaskSpaceProjectionPolicy",
         policy,
         "-RunSide",
-        side,
+        "both",
+        "-RunLogicalMode",
+        logical_mode,
         "-AllowNonE2Result",
         "-TimeoutSeconds",
         str(proposal["per_sample_run_limits"]["elapsed_seconds"]),

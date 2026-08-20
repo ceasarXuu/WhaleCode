@@ -422,6 +422,11 @@
 > 正反测试通过，未执行新 Whale Agent run，故只收敛该工程子缺口，I03 整体继续 `verifying`。详见
 > [`taskspace-exec/91-compound-patch-json-self-heal-result.md`](taskspace-exec/91-compound-patch-json-self-heal-result.md)。
 
+> **I07 逻辑模式选择离线修复（2026-08-20）**：runner 新增与物理 side 正交的
+> `RunLogicalMode=both|standard|taskspace`，并提供启动前 execution plan。repeat=3 的离线展开只选择 3 个 TaskSpace，
+> Standard 为 0；cache contract 10/10 与奇偶侧交换测试通过。该子问题待一次真实 TaskSpace-only 运行确认后关闭。详见
+> [`I07/04-logical-mode-selection-result.md`](I07/04-logical-mode-selection-result.md)。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。
@@ -470,7 +475,7 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 4 | R8-I05 | F3 | P1 | 拒绝原因可能重复或混淆错误发生的协议层级 | 忠实返回一次失败，并准确区分语法、合同、预检与执行错误；未提交候选不得表现为已保存状态 | `e596d2f27` 完成同 `call_id`、零执行、可继续反馈；repeat=3 正常路径无回归，但未自然触发逃逸恢复分支 | verifying | GI-005 |
 | 5 | R8-I02 | F3 | P1 | Tool 事实可能被另造高优先级消息重复包装 | 原 Tool/outer Tool 反馈只进入上下文一次，不建立 system/developer 副本 | 成功、拒绝和内部失败只返回一个 outer output；最新三次生产运行 `18 calls = 18 outputs`，无副本或 orphan | [closed](taskspace-exec/80-i02-single-feedback-closure.md) | GI-002 |
 | 6 | R8-I10 | F4 | P1 | 工具能力变化没有跨执行、缓存和报告共用的身份 | 实际工具集合变化才切换身份，各消费面引用同一值 | 同一 Catalog 身份沿 dispatch/request/wire/trace/report 传播；最新 21 个 TaskSpace wire 请求身份一致且无冲突 | [closed](I10/01-i10-capability-identity-closure.md) | GI-010 |
-| 7 | R8-I07 | F4 | P1 | 观察或运行选择工具可能漏计、重复计数，或把物理侧误当成逻辑模式 | 请求和失败逐身份计一次；单模式预算只启动声明的逻辑模式和次数 | 原始 usage 可完整汇总；最新运行证明 `RunSide` 不能作为逻辑模式过滤，错误启动了 6 次 Standard | [verifying](taskspace-exec/90-base308-outer-cardinality-result.md) | GI-007 |
+| 7 | R8-I07 | F4 | P1 | 观察或运行选择工具可能漏计、重复计数，或把物理侧误当成逻辑模式 | 请求和失败逐身份计一次；单模式预算只启动声明的逻辑模式和次数 | 逻辑模式选择与启动前展开已离线通过；待真实运行确认只启动获批的 3 次 TaskSpace | [verifying](I07/04-logical-mode-selection-result.md) | GI-007 |
 | 8 | R8-I03 | F5 | P2 | Agent 可能生成非法 Exec envelope，或把内部 client Tool 提升为未声明顶层调用 | client 动作只在每响应唯一的 `taskspace_exec` 合法序列内声明；Runtime 对非法 envelope 保持零副作用硬边界 | Base `3.0.8` 的 7 次 TaskSpace / 59 响应未再生成 sibling Exec；仍有 syntax、顶层 client 逃逸和缺失 `type` | [verifying](taskspace-exec/90-base308-outer-cardinality-result.md) | GI-003 |
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点，或没有利用可并行 frontier | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 顺序 patch 事务离线通过，最新生产运行无 `TransitionInvalid`；但目标同批父子完成未自然命中，Map 仍为线性链 | [verifying](I04/03-ordered-map-patch-live-validation-result.md) | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 复杂样本四臂 repeat=3：always/append/request 总 input 为 Standard `1.25x/1.60x/1.32x`，费用为 `2.83x/2.09x/2.43x` | [investigating](I01/03-i01-four-arm-repeat3-result.md) | GI-008 |

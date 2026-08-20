@@ -45,6 +45,8 @@ param(
     [string]$V005UserApprovalMarkerPath = "",
     [ValidateSet("both", "left", "right")]
     [string]$RunSide = "both",
+    [ValidateSet("both", "standard", "taskspace")]
+    [string]$RunLogicalMode = "both",
     [switch]$ForceRerun,
     [switch]$StopOnAnySideFailure,
     [switch]$AllowStaleWhaleBin,
@@ -176,6 +178,7 @@ Update-TaskspaceBenchmarkRunStatusFields $runDir @{
     approval_marker_sha256 = $ApprovalMarkerSha256
     code_complete_marker_sha256 = $CodeCompleteMarkerSha256
     run_side = $RunSide
+    run_logical_mode = $RunLogicalMode
     taskspace_projection_policy = $TaskSpaceProjectionPolicy
     stop_on_any_side_failure = [bool]$StopOnAnySideFailure
 } | Out-Null
@@ -213,7 +216,33 @@ if ([string]::IsNullOrWhiteSpace($providerParamStatus.explicit.model_reasoning_e
     $providerParamStatus.missing = @("model_reasoning_effort")
 }
 if ($PlanOnly) {
+    $selectionPlan = @(
+        for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
+            $mapping = Get-TaskspaceModeMapping $repeat
+            foreach ($sideName in @("left", "right")) {
+                $side = [pscustomobject]@{
+                    Name = $sideName
+                    LogicalMode = [string]$mapping[$sideName]
+                }
+                [pscustomobject]@{
+                    repeat = $repeat
+                    side = $sideName
+                    logical_mode = [string]$side.LogicalMode
+                    selected = [bool](Test-TaskspaceRunSelection $side $RunSide $RunLogicalMode)
+                }
+            }
+        }
+    )
+    $selectionPlanPath = Join-Path $runDir "execution-selection-plan.json"
+    Write-TaskspaceJson ([pscustomobject]@{
+            schema_version = 1
+            run_side = $RunSide
+            run_logical_mode = $RunLogicalMode
+            selected_execution_count = @($selectionPlan | Where-Object { $_.selected }).Count
+            executions = $selectionPlan
+        }) $selectionPlanPath
     Write-Host "RunDir: $runDir"
+    Write-Host "SelectionPlan: $selectionPlanPath"
     Write-Host "PromptInvalid: $($promptGuard.invalid_prompt)"
     Write-Host "PromptManualReview: $($promptGuard.manual_review_required)"
     exit 0
