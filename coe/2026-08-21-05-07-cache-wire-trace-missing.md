@@ -1,7 +1,7 @@
 # Problem P-001: 0.147 rebase 后缓存验收缺失 Provider wire trace
-- Status: open
+- Status: fixed
 - Created: 2026-08-21 05:07
-- Updated: 2026-08-21 05:21
+- Updated: 2026-08-21 05:35
 - Objective: 恢复真实缓存验收对 Standard 与 TaskSpace Provider wire trace 的完整采集和结算。
 - Symptoms:
   - Standard 真实运行 CLI exit 0、Provider 边界计数 7，但 runner 因找不到 `pair-001/left/artifacts/provider-wire-trace.jsonl` 判定失败。
@@ -31,9 +31,9 @@
   - H-002
   - H-003
 - Resolution basis:
-  - not satisfied
+  - H-002 confirmed by E-002/E-003 and repaired by commit `93ef626dda6254ca94cb39ad266baeef5415f5d4`; E-004/E-005 validate the restored producer offline and against the real DeepSeek Responses route.
 - Close reason:
-  - not closed
+  - Standard and TaskSpace arms both emitted complete provider wire traces with `trace_coverage=1.0` and complete usage. The TaskSpace arm's separate execution failure is tracked independently and does not invalidate the trace repair.
 
 ## Hypothesis H-001: 0.147 改变了 trace 产物路径而 collector 仍读取旧路径
 - Status: refuted
@@ -122,7 +122,7 @@
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - Fixed by `93ef626dda6254ca94cb39ad266baeef5415f5d4` and validated by E-004/E-005.
 
 ## Hypothesis H-003: trace writer 已启用但写入或收尾失败且错误未传播到 CLI
 - Status: refuted
@@ -243,14 +243,34 @@
 - Prediction or plan link:
   - H-002 修复方向：producer 恢复并接入 0.147 Responses HTTP/WebSocket dispatch 与 terminal 边界后应可编译、写出 v11 request/terminal 事件且不破坏 collector 合同。
 - Matched signal:
-  - `cargo test -p codex-core provider_wire_trace --lib` 通过 22 项；`cargo check -p codex-cli` 通过；`python3 -m unittest discover -s scripts/cache-regression -p 'test_*.py' -v` 通过 232 项。
+  - `cargo test -p codex-core provider_wire_trace --lib` 通过 23 项；`cargo check -p codex-cli` 通过；`python3 -m unittest discover -s scripts/cache-regression -p 'test_*.py' -v` 通过 232 项。
 - Correlation keys:
   - repair worktree after commit `9f4949924`
 - Raw content:
   ```text
-  provider_wire_trace: 22 passed, 0 failed
+  provider_wire_trace: 23 passed, 0 failed
   codex-cli: cargo check passed
   cache-regression: 232 tests passed
   ```
-- Interpretation: producer、0.147 类型适配与 collector 控制面在无 Provider 条件下闭合；原始真实运行症状仍需新授权 run 复验后才能将 P-001 标记 fixed。
+- Interpretation: producer、0.147 类型适配与 collector 控制面在无 Provider 条件下闭合。
 - Time: 2026-08-21 05:21
+
+## Evidence E-005: 真实 Standard 与 TaskSpace 均恢复完整 wire trace
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: fix-validation
+- Source: `benchmarks/cache-regression/results/WAR-20260821-052740-CACHE-REGRESSION-8AF3D2BC.json`
+- Prediction or plan link:
+  - P-001 修复标准：两个 arm 都必须产出可关联 trace 与完整 usage。
+- Matched signal:
+  - Standard 8 个请求、TaskSpace 1 个请求，两侧 `trace_coverage=1.0`、`cache_usage_missing_count=0`；总 usage 为 input 75481、cached 64256、uncached 11225、output 1992。
+- Correlation keys:
+  - `WAR-20260821-052740-CACHE-REGRESSION-8AF3D2BC`
+- Raw content:
+  ```text
+  standard: provider_requests=8 trace_coverage=1.0 cache_usage_missing_count=0 business_success=true
+  map-request: provider_requests=1 trace_coverage=1.0 cache_usage_missing_count=0 business_success=false
+  ```
+- Interpretation: wire trace 故障已修复；map-request 的业务失败来自独立的 TaskSpace response finalize/dispatch 时序问题。
+- Time: 2026-08-21 05:35
