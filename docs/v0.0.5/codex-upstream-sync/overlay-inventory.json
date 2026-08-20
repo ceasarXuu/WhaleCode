@@ -5009,8 +5009,9 @@
       ],
       "current_sha256": "7e26d3dc02ad978dc8c1758aa95c670f35ea66e8f1e3edcbf89f48d98d5b382f",
       "deletions": 0,
-      "evidence_commit_count": 7,
+      "evidence_commit_count": 8,
       "evidence_commits": [
+        "87adc13dbc26b76e836295c5268304aa23e41720",
         "8e0f16d8e3ecd7da2d9444577f2ed161e1843c47",
         "b4fb9e6682d61363aea513ba669b289463d801fa",
         "72196ecb7d20fe6e1481b32cb4cbb59a5c58ab35",
@@ -5044,8 +5045,9 @@
       ],
       "current_sha256": "d8a54639729659b0809100afb0e88528353713c0c7a2a2c74a2d33b6a8cf2614",
       "deletions": 0,
-      "evidence_commit_count": 4,
+      "evidence_commit_count": 5,
       "evidence_commits": [
+        "87adc13dbc26b76e836295c5268304aa23e41720",
         "99ab63d98095c6a2b8d64f455aa825475069d1e5",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
         "128b47d889bad0ca7e56b2508ca5de182a63d62c",
