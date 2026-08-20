@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use codex_protocol::models::ResponseItem;
 #[cfg(test)]
 use codex_tools::ToolSpec;
+use tokio::sync::watch;
 
 use super::TASKSPACE_EXEC_TOOL_NAME;
 use super::hosted::HostedToolFact;
@@ -34,6 +35,7 @@ pub(crate) struct TaskSpaceExecResponseScope {
     capability_identity: Arc<str>,
     hosted_tool_identities: Vec<HostedToolIdentity>,
     state: Mutex<ResponseScopeState>,
+    terminal_tx: watch::Sender<bool>,
 }
 
 #[derive(Debug, Default)]
@@ -84,10 +86,12 @@ impl TaskSpaceExecResponseScope {
         capability_identity: Arc<str>,
         hosted_tool_identities: Vec<HostedToolIdentity>,
     ) -> Self {
+        let (terminal_tx, _terminal_rx) = watch::channel(false);
         Self {
             capability_identity,
             hosted_tool_identities,
             state: Mutex::new(ResponseScopeState::default()),
+            terminal_tx,
         }
     }
 
@@ -115,7 +119,18 @@ impl TaskSpaceExecResponseScope {
             }),
             ..ResponseScopeState::default()
         };
+        self.terminal_tx.send_replace(false);
         Ok(())
+    }
+
+    pub(crate) async fn wait_until_finalized(&self) {
+        let mut terminal_rx = self.terminal_tx.subscribe();
+        while !*terminal_rx.borrow_and_update() {
+            terminal_rx
+                .changed()
+                .await
+                .expect("TaskSpace response finalization sender should remain available");
+        }
     }
 
     pub(crate) fn record_completed_item(&self, item: &ResponseItem) {
@@ -233,8 +248,10 @@ impl TaskSpaceExecResponseScope {
             provider_tool_count = state.hosted_tools.len(),
             accepted = result.is_ok(),
         );
-        result?;
-        provider_actions(&state)
+        let result = result.and_then(|()| provider_actions(&state));
+        drop(state);
+        self.terminal_tx.send_replace(true);
+        result
     }
 
     pub(crate) fn claim_response(
@@ -504,6 +521,22 @@ mod tests {
                 .unwrap_err()
                 .contains("did not complete")
         );
+    }
+
+    #[tokio::test]
+    async fn readiness_waits_until_response_is_finalized() {
+        let scope = Arc::new(TaskSpaceExecResponseScope::default());
+        scope.begin_request("map-1", Some(7)).unwrap();
+        let readiness = tokio::spawn({
+            let scope = Arc::clone(&scope);
+            async move { scope.wait_until_finalized().await }
+        });
+
+        tokio::task::yield_now().await;
+        assert!(!readiness.is_finished());
+
+        scope.finalize(true, Some(response_identity())).unwrap();
+        readiness.await.unwrap();
     }
 
     #[test]

@@ -9,6 +9,12 @@ use codex_protocol::user_input::UserInput;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use core_test_support::cache_payload::FinalWireEvidence;
 use core_test_support::cache_payload::render_cache_snapshot;
+use core_test_support::responses;
+use core_test_support::responses::ev_assistant_message;
+use core_test_support::responses::ev_completed;
+use core_test_support::responses::ev_function_call;
+use core_test_support::responses::ev_response_created;
+use core_test_support::responses::sse;
 use core_test_support::responses::sse_completed;
 use core_test_support::responses::start_mock_server;
 use core_test_support::skip_if_no_network;
@@ -180,5 +186,67 @@ async fn taskspace_production_tool_wire() -> anyhow::Result<()> {
         "taskspace_production_tool_wire",
         render_cache_snapshot("taskspace_production_tool_wire", &snapshot)?
     );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn taskspace_exec_waits_for_response_finalization() -> anyhow::Result<()> {
+    skip_if_no_network!(Ok(()));
+    let server = start_mock_server().await;
+    let call_id = "taskspace-read-map";
+    let response_mock = responses::mount_sse_sequence(
+        &server,
+        vec![
+            sse(vec![
+                ev_response_created("resp-taskspace-exec"),
+                ev_function_call(
+                    call_id,
+                    "taskspace_exec",
+                    r#"{"type":"read_map","read_map":{}}"#,
+                ),
+                ev_completed("resp-taskspace-exec"),
+            ]),
+            sse(vec![
+                ev_response_created("resp-taskspace-finished"),
+                ev_assistant_message("msg-taskspace-finished", "done"),
+                ev_completed("resp-taskspace-finished"),
+            ]),
+        ],
+    )
+    .await;
+
+    let test = test_codex()
+        .with_config(|config| {
+            configure_deepseek_responses(config);
+            config.cwd =
+                AbsolutePathBuf::try_from(PathBuf::from("/tmp")).expect("fixed TaskSpace cwd");
+        })
+        .build(&server)
+        .await?;
+    test.codex
+        .submit(Op::SetMapRuntimeMode {
+            mode: MapRuntimeMode::Experiment,
+        })
+        .await?;
+    wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::MapRuntime(MapRuntimeEvent::ModeChanged(_)))
+    })
+    .await;
+    test.codex
+        .submit(Op::SetTaskSpaceProjectionPolicy {
+            policy: TaskSpaceProjectionPolicy::MapRequest,
+        })
+        .await?;
+
+    test.submit_turn("read the taskspace map").await?;
+
+    let requests = response_mock.requests();
+    assert_eq!(requests.len(), 2);
+    let (output, _success) = requests[1]
+        .function_call_output_content_and_success(call_id)
+        .expect("second request should contain the TaskSpace Exec output");
+    assert!(output.is_some_and(|text| {
+        text.contains("map") && !text.contains("provider response did not complete")
+    }));
     Ok(())
 }

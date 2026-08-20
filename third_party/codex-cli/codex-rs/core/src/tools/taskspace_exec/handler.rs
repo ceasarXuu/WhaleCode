@@ -18,6 +18,7 @@ use crate::tools::router::ToolRouter;
 use codex_tools::ToolName;
 use codex_tools::ToolSpec;
 use futures::StreamExt;
+use futures::future::BoxFuture;
 
 use super::TASKSPACE_EXEC_TOOL_NAME;
 use super::TaskSpaceExecCatalog;
@@ -74,7 +75,11 @@ impl ToolExecutor<ToolInvocation> for TaskSpaceExecHandler {
     }
 }
 
-impl CoreToolRuntime for TaskSpaceExecHandler {}
+impl CoreToolRuntime for TaskSpaceExecHandler {
+    fn wait_until_ready<'a>(&'a self, _session: &'a Arc<Session>) -> Option<BoxFuture<'a, ()>> {
+        Some(Box::pin(self.response_scope.wait_until_finalized()))
+    }
+}
 
 impl TaskSpaceExecHandler {
     async fn handle_call(
