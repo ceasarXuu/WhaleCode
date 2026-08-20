@@ -1,7 +1,7 @@
 # Problem P-001: 0.147 rebase 丢失 TaskSpace Map 调试导出命令
 - Status: open
 - Created: 2026-08-21 05:47
-- Updated: 2026-08-21 05:47
+- Updated: 2026-08-21 06:08
 - Objective: 恢复 benchmark 可观测性依赖的内部 `whale debug taskspace-map` Store 导出能力。
 - Symptoms:
   - 真实 TaskSpace Agent 完成修复且公开/隐藏测试均通过，但 runner 因 Map Store export 失败将业务结果判为 false。
@@ -26,12 +26,12 @@
   - CLI 测试覆盖成功导出、无 binding 和非法 thread id。
   - 使用失败 run 的真实 SQLite home 离线导出成功。
   - 新授权真实 map-request 复验业务、usage、trace 与 Map Store observability 全部通过。
-- Current conclusion: H-001 confirmed；应移植历史已验证的最小 CLI exporter。
+- Current conclusion: H-001 confirmed；历史 exporter 已按 0.147 API 最小恢复，离线验证通过，等待新授权真实 map-request 关闭最后一项标准。
 - Related hypotheses:
   - H-001
   - H-002
 - Resolution basis:
-  - not satisfied
+  - H-001 confirmed by E-001/E-002；repair 已通过 E-003/E-004 的 CLI 与失败运行 SQLite 离线验证。
 - Close reason:
   - not closed
 
@@ -69,9 +69,11 @@
 - Related evidence:
   - E-001
   - E-002
+  - E-003
+  - E-004
 - Conclusion: producer/consumer 迁移不完整。
 - Repair design readiness: ready
-- Next step: 将 `f8e3f67fb` 的 R8 exporter 按当前 SqliteConfig API 移植。
+- Next step: 使用新授权运行一次 map-request，确认 runner 端到端得到 measured Map Store observability。
 - Blocker:
   - none
 - Close reason:
@@ -161,3 +163,44 @@
   ```
 - Interpretation: 根因是 rebase 遗漏既有私有开发命令，不需要改动 TaskSpace 产品行为。
 - Time: 2026-08-21 05:47
+
+## Evidence E-003: 0.147 CLI exporter 定向测试通过
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: fix-validation
+- Source: `codex-cli::debug_taskspace_map` nextest run `16b817de-288a-4960-9c06-7d8cd27bcc2f`
+- Prediction or plan link:
+  - P-001 CLI 合同覆盖成功导出、无 binding 与非法 thread id。
+- Matched signal:
+  - 三项测试全部通过；`cargo fmt --all -- --check` 通过。
+- Correlation keys:
+  - nextest run `16b817de-288a-4960-9c06-7d8cd27bcc2f`
+- Raw content:
+  ```text
+  3 tests run: 3 passed, 0 skipped
+  ```
+- Interpretation: 恢复后的隐藏命令已正确适配 0.147 ConfigBuilder 与 SqliteConfig。
+- Time: 2026-08-21 06:07
+
+## Evidence E-004: 失败运行的真实 SQLite Store 可离线导出并被观测脚本消费
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: fix-validation
+- Source: `WAR-20260821-054054-CACHE-REGRESSION-BD2A9444` 右臂 SQLite home 与当前 debug binary
+- Prediction or plan link:
+  - P-001 离线真实 Store 标准。
+- Matched signal:
+  - 导出 `TaskSpaceMapExportR8V1`，map store revision 12、canonical revision 18、owner binding；完整 PowerShell consumer 返回 `MapStoreAvailability: measured`、5 个 nodes。
+- Correlation keys:
+  - thread `01a0211e-df51-75f1-b976-667ec8b441e1`
+  - map `map-01a0211e-df51-75f1-b976-667ec8b441e1`
+- Raw content:
+  ```text
+  schema_version=TaskSpaceMapExportR8V1
+  store_revision=12; canonical_revision=18; binding_relation=owner
+  MapStoreAvailability: measured; nodes=5
+  ```
+- Interpretation: 原失败运行无需重新执行 Agent 即可证明导出修复正确；仍保留一次新真实运行作为 runner 端到端关闭证据。
+- Time: 2026-08-21 06:08
