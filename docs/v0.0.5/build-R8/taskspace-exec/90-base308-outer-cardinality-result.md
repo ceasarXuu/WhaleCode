@@ -39,6 +39,10 @@ final 所需的新请求触及单轮 10-request 上限，CLI 以 1 退出，因�
 本轮仍有 2 次可恢复 JSON syntax reject、1 次顶层 `exec_command` 逃逸拒绝、1 次缺失 `type` 合同拒绝，以及 1 次
 普通 `apply_patch` 格式失败后纠正。这些异常都不是多个 outer Exec，但证明 I03 的参数和入口稳定性仍需继续收敛。
 
+后续逐条重放确认，两次 syntax reject 是相同的确定性复合坏形状：完整 Patch 内一个裸 LF，加 action 尾部一个多余
+`}`。该子问题已纳入窄自愈器并完成离线正反回归，详见
+[`91-compound-patch-json-self-heal-result.md`](91-compound-patch-json-self-heal-result.md)；本批原始结果和 I03 其余异常判断不变。
+
 ## 执行偏差
 
 计划误将 `-RunSide right` 理解为“只运行 TaskSpace”。它实际选择物理右侧，而 benchmark 每个 pair 交替左右逻辑模式，

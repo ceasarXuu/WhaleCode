@@ -416,6 +416,12 @@
 > 应自动合并的语义。I07 同批 strict-mode timing 空对象缺口已由 `d74d14e9b` 修复并离线重建报告。详见
 > [`taskspace-exec/89-base307-repeat10-stopped-result.md`](taskspace-exec/89-base307-repeat10-stopped-result.md)。
 
+> **I03 复合 Patch JSON 自愈（2026-08-20）**：Base `3.0.8` 批次的两次 syntax reject 已坐实为同一形状：
+> `apply_patch.input` 内一个裸 LF，加 Tool action 尾部一个多余 `}`。自愈器现在只在完整 Patch、唯一单括号删除候选和
+> 当前 Catalog 完整解码同时成立时组合修复，并在历史写入前替换正式参数；两个多余括号及其他复合错误仍拒绝。离线
+> 正反测试通过，未执行新 Whale Agent run，故只收敛该工程子缺口，I03 整体继续 `verifying`。详见
+> [`taskspace-exec/91-compound-patch-json-self-heal-result.md`](taskspace-exec/91-compound-patch-json-self-heal-result.md)。
+
 TaskSpace Exec Phase B4 已完成正式生产链、可靠 Action 结算、跨层观测、缓存/性能消费和固定离线验收。该结果证明工程
 不变量成立，但尚未证明目标 Provider 下的 Agent 行为、三种 projection 的效果和不可约成本；最终关闭仍按
 VA-04B 使用 Phase B5 当前 trace 重评。

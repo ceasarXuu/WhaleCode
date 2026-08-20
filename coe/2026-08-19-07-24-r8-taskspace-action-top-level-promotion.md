@@ -1217,3 +1217,36 @@
     input 上限，费用仍低于 CNY 0.45。发现后未补跑剩余三次 TaskSpace。
 - Interpretation: H-013 的协议修复在当前七次 TaskSpace 观察中成立；该证据不能写成 repeat=10 完成，也不能关闭整个 I03。
 - Time: 2026-08-20
+
+## Hypothesis H-014: 两次 Base 3.0.8 syntax 是可唯一组合修复的同形 Patch 错误
+
+- Status: confirmed offline
+- Parent: P-001
+- Claim: Base 3.0.8 批次中的两次 JSON syntax reject 都由完整 `apply_patch.input` 内一个裸 LF 和 action 尾部一个
+  多余 `}` 共同造成；若按固定顺序转义 LF、删除唯一多余括号，并要求完整 Catalog 解码后只有一个结果，则可机械自愈，
+  无需扩大 Runtime 语义职责。
+- Falsifiable predictions:
+  - 两条原始参数在只转义 LF 后仍失败；再删除一个多余 `}` 后都通过完整 Exec decoder。
+  - 两个多余括号、非完整 Patch 或多个有效结果必须保持拒绝。
+  - 修复沿现有 ResponseItem 自愈入口发生，正式历史不会记录错误参数。
+- Fix boundary:
+  - 不建设通用多错误 JSON 修复器。
+  - 不推断 Tool、节点、序列或状态语义。
+  - 不因离线修复关闭 I03 的 Agent 行为问题。
+
+## Evidence E-031: 两条原始坏形状可由唯一窄候选恢复
+
+- Related hypotheses:
+  - H-014
+- Direction: supports
+- Type: exact-trace-replay-and-deterministic-regression
+- Source: `WAR-20260820-062550-R8-BASE308-OUTER-R10` pair 003 / pair 005
+- Matched signal:
+  - `call_00_9UASnGQQN5pDkfZjyubT5948` 与 `call_00_x5nWuQlNxbrVPUxGyxnd0011` 均只有一个 Patch 内裸 LF 和一个
+    action 尾部多余 `}`。
+  - 两条参数在转义 LF 并删除一个 `}` 后均通过当前 Catalog 完整解码。
+  - 新正向、两个多余括号负向和既有其他复合错误拒绝测试均通过；正式历史替换链已有独立回归。
+- Limitation:
+  - 未执行新的真实 Agent run，不能证明在线发生频率下降或其他非法参数被覆盖。
+- Interpretation: H-014 的工程根因和窄修复坐实；I03 继续 `verifying`。
+- Time: 2026-08-20

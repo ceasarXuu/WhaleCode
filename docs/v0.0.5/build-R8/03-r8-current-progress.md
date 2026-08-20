@@ -37,7 +37,7 @@ xychart-beta
 | 5 | I02 Tool 事实单次表达 | 100% | closed | 最新三次生产运行 `18 calls = 18 outputs`，无高优先级副本、重复或 orphan | 无 |
 | 6 | I10 capability 身份 | 100% | closed | 最新 21 个 TaskSpace wire 请求身份一致，跨 Catalog/dispatch/wire/report 无冲突 | 无；projection 对照归入 I01/I08 |
 | 7 | I07 观测可信性 | 90% | verifying | 最新 13 次运行的原始请求/usage/Map 可完整复算 | `RunSide` 选择物理侧而非逻辑模式，错误启动 6 次 Standard，单模式预算入口待修 |
-| 8 | I03 动作组织稳定性 | 75% | verifying | Base `3.0.8` 的 7 次 TaskSpace / 59 响应未再生成 sibling outer Exec | 仍有两次 syntax、一次顶层 client 逃逸和一次缺失 `type` |
+| 8 | I03 动作组织稳定性 | 75% | verifying | Base `3.0.8` 的 7 次 TaskSpace / 59 响应未再生成 sibling outer Exec；两次同形复合 Patch syntax 已离线纳入窄自愈 | 仍有一次顶层 client 逃逸和一次缺失 `type`；复合自愈未真实复验 |
 | 9 | I04 frontier 使用 | 75% | verifying | 顺序 patch 事务离线通过；最新复杂运行无 `TransitionInvalid` 且 Map 闭合 | 同批父子完成未自然命中；Map 仍为线性链，fork/join 未观察到 |
 | 10 | I08 成本与晋升 | 75% | investigating | 复杂样本四臂请求/input/cache/time/cost 已量化 | 只有一个复杂样本，产品阈值未确定 |
 
@@ -127,7 +127,7 @@ client 逃逸和缺失 `type` 保持 verifying。该批次还暴露 I07 执行�
 | 优先级 | 动作 | 依赖 | 验收方式 |
 |---:|---|---|---|
 | P0 | 修复 I07 逻辑模式运行选择与启动前展开校验 | 最新预算偏差证据 | TaskSpace-only 计划 dry-run 只展开目标逻辑模式和批准次数，物理 side 不再冒充 mode |
-| P1 | 分析 I03 剩余 syntax、顶层 client 逃逸和缺失 `type` | outer 基数子问题已获支持 | 保持单变量和零副作用硬边界，不增加 Runtime 语义决策 |
+| P1 | 复验 I03 复合 Patch 自愈，并继续分析顶层 client 逃逸和缺失 `type` | outer 基数与复合 syntax 工程子问题已离线收敛 | 保持单变量和零副作用硬边界，不增加 Runtime 语义决策 |
 | P2 | 深入分析 I04 为何在自然 DAG 样本仍生成线性链 | I07 运行选择修复 | 先查上下文与初始化时序，不用提示词诱导或 Runtime 自动拆图 |
 | P3 | 定义 I08 默认模式的产品决策指标 | 当前四臂结果 | 同时评价质量、input、缓存费用和 Map 使用，不只看单项 |
 

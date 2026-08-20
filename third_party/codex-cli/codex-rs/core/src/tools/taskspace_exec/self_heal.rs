@@ -67,15 +67,25 @@ fn repair_syntax_error(
 ) -> Option<RepairedArguments> {
     let error = serde_json::from_str::<Value>(arguments).err()?;
 
-    if let Some((candidate, byte_index)) = escape_raw_newlines_in_json_strings(arguments)
-        && catalog.decode_plan(&candidate).is_ok()
-    {
-        return Some(RepairedArguments {
-            arguments: candidate,
-            operation: "escape",
-            repair_token: "\\n",
-            byte_index,
-        });
+    if let Some((candidate, byte_index)) = escape_raw_newlines_in_json_strings(arguments) {
+        if catalog.decode_plan(&candidate).is_ok() {
+            return Some(RepairedArguments {
+                arguments: candidate,
+                operation: "escape",
+                repair_token: "\\n",
+                byte_index,
+            });
+        }
+        if raw_newline_is_inside_complete_apply_patch(arguments, byte_index)
+            && let Some(candidate) = delete_one_extra_brace_from_complete_patch(&candidate, catalog)
+        {
+            return Some(RepairedArguments {
+                arguments: candidate,
+                operation: "normalize",
+                repair_token: "raw_patch_newline_plus_extra_brace",
+                byte_index,
+            });
+        }
     }
 
     if let Some((candidate, byte_index)) = encode_raw_apply_patch_input(arguments)
@@ -145,6 +155,40 @@ fn repair_syntax_error(
                 byte_index,
             },
         )
+}
+
+fn raw_newline_is_inside_complete_apply_patch(arguments: &str, byte_index: usize) -> bool {
+    const BEGIN: &str = "*** Begin Patch";
+    const END: &str = "*** End Patch";
+
+    let Some(patch_start) = arguments.find(BEGIN) else {
+        return false;
+    };
+    if arguments[patch_start + BEGIN.len()..].contains(BEGIN) {
+        return false;
+    }
+    let Some(end_offset) = arguments[patch_start..].find(END) else {
+        return false;
+    };
+    let patch_end = patch_start + end_offset + END.len();
+    if arguments[patch_end..].contains(END)
+        || !(patch_start..patch_end).contains(&byte_index)
+        || arguments.as_bytes().get(byte_index) != Some(&b'\n')
+    {
+        return false;
+    }
+
+    let Some(opening_quote) = patch_start.checked_sub(1) else {
+        return false;
+    };
+    if arguments.as_bytes().get(opening_quote) != Some(&b'"') {
+        return false;
+    }
+    let input_prefix = arguments[..opening_quote].trim_end();
+    let Some(input_prefix) = input_prefix.strip_suffix(':').map(str::trim_end) else {
+        return false;
+    };
+    input_prefix.ends_with("\"input\"")
 }
 
 fn encode_raw_apply_patch_input(arguments: &str) -> Option<(String, usize)> {
@@ -223,6 +267,54 @@ fn escape_raw_newlines_in_json_strings(arguments: &str) -> Option<(String, usize
     }
 
     first_newline.map(|byte_index| (repaired, byte_index))
+}
+
+fn delete_one_extra_brace_from_complete_patch(
+    escaped_arguments: &str,
+    catalog: &TaskSpaceExecCatalog,
+) -> Option<String> {
+    let error = serde_json::from_str::<Value>(escaped_arguments).err()?;
+    let positions = candidate_positions(escaped_arguments, error.line(), error.column());
+    let mut repairs = BTreeSet::new();
+
+    for byte_index in positions {
+        if escaped_arguments.as_bytes().get(byte_index) != Some(&b'}') {
+            continue;
+        }
+        let mut candidate = String::with_capacity(escaped_arguments.len() - 1);
+        candidate.push_str(&escaped_arguments[..byte_index]);
+        candidate.push_str(&escaped_arguments[byte_index + 1..]);
+        if catalog.decode_plan(&candidate).is_ok() && has_one_complete_apply_patch(&candidate) {
+            repairs.insert(candidate);
+        }
+    }
+
+    if repairs.len() != 1 {
+        return None;
+    }
+    repairs.into_iter().next()
+}
+
+fn has_one_complete_apply_patch(arguments: &str) -> bool {
+    const BEGIN: &str = "*** Begin Patch";
+    const END: &str = "*** End Patch";
+
+    let Ok(plan) = serde_json::from_str::<Value>(arguments) else {
+        return false;
+    };
+    let Some(actions) = plan.get("tools").and_then(Value::as_array) else {
+        return false;
+    };
+    let patches = actions
+        .iter()
+        .filter(|action| action.get("tool").and_then(Value::as_str) == Some("apply_patch"))
+        .filter_map(|action| action.get("input").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    patches.len() == 1
+        && patches[0].trim().starts_with(BEGIN)
+        && patches[0].trim().ends_with(END)
+        && patches[0].matches(BEGIN).count() == 1
+        && patches[0].matches(END).count() == 1
 }
 
 fn candidate_positions(arguments: &str, line: usize, column: usize) -> BTreeSet<usize> {
@@ -463,6 +555,68 @@ mod tests {
             panic!("function call")
         };
         assert_eq!(arguments, valid);
+    }
+
+    #[test]
+    fn repairs_raw_patch_newline_combined_with_one_extra_action_brace() {
+        let patch = concat!(
+            "*** Begin Patch\n",
+            "*** Update File: /workspace/inventory.py\n",
+            "@@\n",
+            "-old_inventory\n",
+            "+new_inventory\n",
+            "*** Update File: /workspace/shipping.py\n",
+            "@@\n",
+            "-old_shipping\n",
+            "+new_shipping\n",
+            "*** End Patch\n",
+        );
+        let valid = serde_json::json!({
+            "type": "update_and_work",
+            "update_map": {
+                "add_work_nodes": [],
+                "node_patches": [{
+                    "node_id": "inspect",
+                    "state": "completed",
+                    "content": "inspection complete"
+                }]
+            },
+            "tools": [{
+                "tool": "apply_patch",
+                "node_id": "fix",
+                "input": patch
+            }]
+        })
+        .to_string();
+        let mut malformed = valid.replacen(
+            "shipping.py\\n@@\\n-old_shipping",
+            "shipping.py\\n@@\n-old_shipping",
+            1,
+        );
+        let action_end = malformed.rfind("]}").expect("tools suffix");
+        malformed.insert(action_end, '}');
+        let mut item = call(malformed);
+
+        let repair = self_heal_taskspace_exec_response_item(&mut item, &catalog()).expect("repair");
+
+        assert_eq!(repair.operation, "normalize");
+        assert_eq!(repair.repair_token, "raw_patch_newline_plus_extra_brace");
+        let ResponseItem::FunctionCall { arguments, .. } = item else {
+            panic!("function call")
+        };
+        assert_eq!(arguments, valid);
+    }
+
+    #[test]
+    fn refuses_raw_patch_newline_combined_with_two_extra_action_braces() {
+        let valid = r#"{"type":"work","tools":[{"tool":"apply_patch","node_id":"fix","input":"*** Begin Patch\n*** End Patch"}]}"#;
+        let mut malformed = valid.replacen("\\n", "\n", 1);
+        let action_end = malformed.rfind("]}").expect("tools suffix");
+        malformed.insert_str(action_end, "}}");
+        let mut item = call(malformed.clone());
+
+        assert!(self_heal_taskspace_exec_response_item(&mut item, &catalog()).is_none());
+        assert_eq!(item, call(malformed));
     }
 
     #[test]
