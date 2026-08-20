@@ -19,6 +19,7 @@ use codex_protocol::protocol::Op;
 use codex_protocol::protocol::ReviewDecision;
 use codex_protocol::protocol::ReviewRequest;
 use codex_protocol::protocol::SandboxPolicy;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::request_permissions::RequestPermissionsResponse;
 use codex_protocol::request_user_input::RequestUserInputResponse;
 use codex_protocol::user_input::UserInput;
@@ -103,6 +104,9 @@ pub(crate) enum AppCommandView<'a> {
     },
     SetMapRuntimeMode {
         mode: &'a MapRuntimeMode,
+    },
+    SetTaskSpaceProjectionPolicy {
+        policy: &'a TaskSpaceProjectionPolicy,
     },
     ShowActionMap,
     Shutdown,
@@ -267,6 +271,14 @@ impl AppCommand {
         Self(Op::SetMapRuntimeMode { mode })
     }
 
+    pub(crate) fn set_taskspace_projection_policy(
+        projection_policy: TaskSpaceProjectionPolicy,
+    ) -> Self {
+        Self(Op::SetTaskSpaceProjectionPolicy {
+            policy: projection_policy,
+        })
+    }
+
     pub(crate) fn show_action_map() -> Self {
         Self(Op::ShowActionMap)
     }
@@ -395,6 +407,9 @@ impl AppCommand {
             Op::Compact => AppCommandView::Compact,
             Op::SetThreadName { name } => AppCommandView::SetThreadName { name },
             Op::SetMapRuntimeMode { mode } => AppCommandView::SetMapRuntimeMode { mode },
+            Op::SetTaskSpaceProjectionPolicy { policy } => {
+                AppCommandView::SetTaskSpaceProjectionPolicy { policy }
+            }
             Op::ShowActionMap => AppCommandView::ShowActionMap,
             Op::Shutdown => AppCommandView::Shutdown,
             Op::ThreadRollback { num_turns } => AppCommandView::ThreadRollback {

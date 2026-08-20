@@ -1159,6 +1159,26 @@ impl App {
                     }
                 }
             }
+            AppEvent::PersistTaskSpaceProjectionPolicy(policy) => {
+                self.config.taskspace_projection_policy = Some(policy);
+                self.chat_widget.set_taskspace_projection_policy(policy);
+                match ConfigEditsBuilder::new(&self.config.codex_home)
+                    .set_taskspace_projection_policy(policy)
+                    .apply()
+                    .await
+                {
+                    Ok(()) => self.chat_widget.add_info_message(
+                        format!("TaskSpace projection set to {policy}"),
+                        /*hint*/ None,
+                    ),
+                    Err(err) => {
+                        tracing::error!(error = %err, "failed to persist TaskSpace projection policy");
+                        self.chat_widget.add_error_message(format!(
+                            "Failed to save TaskSpace projection policy: {err}"
+                        ));
+                    }
+                }
+            }
             AppEvent::PersistRealtimeAudioDeviceSelection { kind, name } => {
                 let builder = match kind {
                     RealtimeAudioDeviceKind::Microphone => {

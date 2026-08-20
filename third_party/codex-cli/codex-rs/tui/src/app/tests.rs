@@ -3765,6 +3765,7 @@ fn test_thread_session(thread_id: ThreadId, cwd: PathBuf) -> ThreadSessionState 
         history_entry_count: 0,
         network_proxy: None,
         rollout_path: Some(PathBuf::new()),
+        taskspace_active: false,
     }
 }
 

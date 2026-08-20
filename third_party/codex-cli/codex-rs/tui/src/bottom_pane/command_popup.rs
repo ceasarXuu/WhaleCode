@@ -47,6 +47,7 @@ pub(crate) struct CommandPopupFlags {
     pub(crate) audio_device_selection_enabled: bool,
     pub(crate) windows_degraded_sandbox_active: bool,
     pub(crate) side_conversation_active: bool,
+    pub(crate) taskspace_active: bool,
 }
 
 impl From<CommandPopupFlags> for slash_commands::BuiltinCommandFlags {
@@ -62,6 +63,7 @@ impl From<CommandPopupFlags> for slash_commands::BuiltinCommandFlags {
             audio_device_selection_enabled: value.audio_device_selection_enabled,
             allow_elevate_sandbox: value.windows_degraded_sandbox_active,
             side_conversation_active: value.side_conversation_active,
+            taskspace_active: value.taskspace_active,
         }
     }
 }
@@ -378,6 +380,7 @@ mod tests {
             audio_device_selection_enabled: false,
             windows_degraded_sandbox_active: false,
             side_conversation_active: false,
+            taskspace_active: false,
         });
         popup.on_composer_text_change("/collab".to_string());
 
@@ -400,6 +403,7 @@ mod tests {
             audio_device_selection_enabled: false,
             windows_degraded_sandbox_active: false,
             side_conversation_active: false,
+            taskspace_active: false,
         });
         popup.on_composer_text_change("/plan".to_string());
 
@@ -422,6 +426,7 @@ mod tests {
             audio_device_selection_enabled: false,
             windows_degraded_sandbox_active: false,
             side_conversation_active: false,
+            taskspace_active: false,
         });
         popup.on_composer_text_change("/pers".to_string());
 
@@ -451,6 +456,7 @@ mod tests {
             audio_device_selection_enabled: false,
             windows_degraded_sandbox_active: false,
             side_conversation_active: false,
+            taskspace_active: false,
         });
         popup.on_composer_text_change("/personality".to_string());
 
@@ -473,6 +479,7 @@ mod tests {
             audio_device_selection_enabled: false,
             windows_degraded_sandbox_active: false,
             side_conversation_active: false,
+            taskspace_active: false,
         });
         popup.on_composer_text_change("/aud".to_string());
 

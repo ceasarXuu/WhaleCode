@@ -68,6 +68,7 @@ impl App {
                 history_entry_count: 0,
                 network_proxy: None,
                 rollout_path: thread.path.clone(),
+                taskspace_active: false,
             });
         session.thread_id = thread_id;
         session.thread_name = thread.name.clone();
@@ -130,6 +131,7 @@ mod tests {
             history_entry_count: 0,
             network_proxy: None,
             rollout_path: Some(PathBuf::new()),
+            taskspace_active: false,
         }
     }
 

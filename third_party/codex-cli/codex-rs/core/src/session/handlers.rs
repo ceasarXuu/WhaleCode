@@ -56,6 +56,7 @@ use codex_protocol::protocol::ReviewRequest;
 use codex_protocol::protocol::RolloutItem;
 use codex_protocol::protocol::SkillErrorInfo;
 use codex_protocol::protocol::SkillsListEntry;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::protocol::ThreadMemoryMode;
 use codex_protocol::protocol::ThreadNameUpdatedEvent;
 use codex_protocol::protocol::ThreadRolledBackEvent;
@@ -958,25 +959,14 @@ pub async fn set_thread_memory_mode(sess: &Arc<Session>, sub_id: String, mode: T
 pub async fn set_map_runtime_mode(sess: &Arc<Session>, sub_id: String, mode: MapRuntimeMode) {
     let turn_context = sess.new_default_turn_with_sub_id(sub_id).await;
     if mode == MapRuntimeMode::Experiment {
-        let policy = {
-            let state = sess.state.lock().await;
-            state.session_configuration.taskspace_projection_policy
-        };
-        if policy.is_none() {
-            tracing::warn!(
-                target: "codex_core::taskspace",
-                event_name = "taskspace.projection_policy_missing",
-                "rejected TaskSpace activation without an explicit projection policy"
-            );
-            sess.send_event(
-                &turn_context,
-                EventMsg::Error(ErrorEvent {
-                    message: "TaskSpace activation requires taskspace_projection_policy; R7 Phase C enables map-always and map-append.".to_string(),
-                    codex_error_info: Some(CodexErrorInfo::Other),
-                }),
-            )
-            .await;
-            return;
+        let mut state = sess.state.lock().await;
+        let effective_policy = state
+            .session_configuration
+            .taskspace_projection_policy
+            .unwrap_or(TaskSpaceProjectionPolicy::MapRequest);
+        if state.session_configuration.taskspace_projection_policy != Some(effective_policy) {
+            state.session_configuration.taskspace_projection_policy = Some(effective_policy);
+            state.taskspace_projection_cursor = Default::default();
         }
     }
     let (outcome, bootstrap_events) = match sess.set_persisted_action_map_mode(mode).await {
@@ -1183,6 +1173,21 @@ pub async fn review(
     }
 }
 
+pub async fn set_taskspace_projection_policy(
+    sess: &Arc<Session>,
+    sub_id: String,
+    policy: TaskSpaceProjectionPolicy,
+) {
+    {
+        let mut state = sess.state.lock().await;
+        if state.session_configuration.taskspace_projection_policy != Some(policy) {
+            state.session_configuration.taskspace_projection_policy = Some(policy);
+            state.taskspace_projection_cursor = Default::default();
+        }
+    }
+    set_map_runtime_mode(sess, sub_id, MapRuntimeMode::Experiment).await;
+}
+
 pub(super) async fn submission_loop(
     sess: Arc<Session>,
     config: Arc<Config>,
@@ -1365,6 +1370,10 @@ pub(super) async fn submission_loop(
                 }
                 Op::SetMapRuntimeMode { mode } => {
                     set_map_runtime_mode(&sess, sub.id.clone(), mode).await;
+                    false
+                }
+                Op::SetTaskSpaceProjectionPolicy { policy } => {
+                    set_taskspace_projection_policy(&sess, sub.id.clone(), policy).await;
                     false
                 }
                 Op::ShowActionMap => {

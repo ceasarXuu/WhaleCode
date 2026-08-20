@@ -1763,9 +1763,9 @@ impl Config {
                 .clone(),
             None => ConfigProfile::default(),
         };
-        let taskspace_projection_policy = config_profile
+        let taskspace_projection_policy = cfg
             .taskspace_projection_policy
-            .or(cfg.taskspace_projection_policy);
+            .or(config_profile.taskspace_projection_policy);
         let tool_suggest = resolve_tool_suggest_config(&cfg);
         let feature_overrides = FeatureOverrides {
             include_apply_patch_tool: include_apply_patch_tool_override,

@@ -45,6 +45,7 @@ use codex_protocol::config_types::WebSearchProvider;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::SandboxPolicy;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_realtime_webrtc::RealtimeWebrtcEvent;
 use codex_realtime_webrtc::RealtimeWebrtcSessionHandle;
 
@@ -453,6 +454,9 @@ pub(crate) enum AppEvent {
     PersistServiceTierSelection {
         service_tier: Option<ServiceTier>,
     },
+
+    /// Persist the projection policy used by current and future TaskSpace sessions.
+    PersistTaskSpaceProjectionPolicy(TaskSpaceProjectionPolicy),
 
     /// Open the device picker for a realtime microphone or speaker.
     OpenRealtimeAudioDeviceSelection {

@@ -646,9 +646,15 @@ impl Session {
                 conversation_id,
                 &initial_history,
                 &session_configuration.session_source,
-                session_configuration.taskspace_projection_policy.is_some(),
+                initial_history.taskspace_projection_policy().is_some(),
             )
             .await?;
+            if hydrated_action_map.is_some()
+                && session_configuration.taskspace_projection_policy.is_none()
+            {
+                session_configuration.taskspace_projection_policy =
+                    Some(TaskSpaceProjectionPolicy::MapRequest);
+            }
             let mut state = SessionState::new(session_configuration.clone());
             if let Some(hydrated) = hydrated_action_map {
                 state.action_map_runtime = hydrated.runtime;

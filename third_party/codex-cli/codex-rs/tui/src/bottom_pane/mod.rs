@@ -370,6 +370,11 @@ impl BottomPane {
         self.request_redraw();
     }
 
+    pub(crate) fn set_taskspace_active(&mut self, active: bool) {
+        self.composer.set_taskspace_active(active);
+        self.request_redraw();
+    }
+
     pub(crate) fn set_placeholder_text(&mut self, placeholder: String) {
         self.composer.set_placeholder_text(placeholder);
         self.request_redraw();

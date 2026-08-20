@@ -39,9 +39,7 @@ pub(super) async fn hydrate_action_map_store(
     session_source: &SessionSource,
     taskspace_policy_present: bool,
 ) -> anyhow::Result<Option<HydratedActionMapStore>> {
-    let parent_binding = taskspace_policy_present
-        .then(|| parent_map_binding(initial_history, session_source))
-        .flatten();
+    let parent_binding = parent_map_binding(initial_history, session_source);
     let requires_existing_map = taskspace_policy_present
         && (matches!(
             initial_history,

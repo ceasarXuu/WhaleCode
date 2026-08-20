@@ -1250,3 +1250,58 @@
   - 未执行新的真实 Agent run，不能证明在线发生频率下降或其他非法参数被覆盖。
 - Interpretation: H-014 的工程根因和窄修复坐实；I03 继续 `verifying`。
 - Time: 2026-08-20
+
+## Hypothesis H-015: 同响应多 client action 存在单项顶层提升
+
+- Status: supported
+- Parent: P-001
+- Claim: 当 Agent 在同一响应中组织多个独立 client action 时，模型可能正确生成一个 outer
+  `taskspace_exec`，却把其中一个 action 错误序列化为 sibling 顶层 Function Call；这不是 Map、节点归属或 Tool
+  结果丢失。
+- Falsifiable predictions:
+  - 失败响应同时包含一个合法 outer Exec 和一个未声明的 sibling client Tool。
+  - sibling 仍携带正确 `node_id` 和新的原生 Tool input，说明 Agent 已经形成动作与归属，只是放错结构层级。
+  - Runtime 拒绝后，Agent 能明确指出层级错误，并把同样的两个动作放回一个 `tools[]` 后成功执行。
+  - 相同协议下应存在把两个动作正确放入同一个 `tools[]` 的对照响应，排除 schema 本身无法表达。
+- Diagnostic evidence plan:
+  - 对 Base 3.0.8 的 pair 007 原始 rollout 做响应级结构检查。
+  - 用 pair 009、pair 011 的同类双读取响应作为自然对照。
+- Evidence gate: satisfied for mechanism; trigger probability remains open
+- Related evidence:
+  - E-032
+- Conclusion: 失败机制已由原始响应坐实，但“为什么偶发提升”尚无足够证据归因到某段提示或 schema。不得再用增加同义提示词作为已证修复，也不得把 sibling 自动搬入 Exec，后者会改写 Agent 的事务表达。
+- Repair design readiness: blocked on product decision for structural self-heal; existing fail-closed boundary remains correct
+
+## Evidence E-032: Pair 007 保留了动作语义和节点归属，只错在响应层级
+
+- Related hypotheses:
+  - H-015
+- Direction: supports
+- Type: exact-production-trace-and-natural-control
+- Source: `WAR-20260820-062550-R8-BASE308-OUTER-R10`, pair 007 / 009 / 011
+- Matched signal:
+  - Pair 007 Request 2 同时返回一个 `taskspace_exec(type=work)` 和一个 sibling 顶层 `exec_command`。
+  - sibling 携带 `node_id=explore`，input 是读取测试文件的新命令；不存在 Map 内容、owner 或 Tool input 缺失。
+  - Runtime 在两者执行前按响应级边界零副作用拒绝。
+  - 下一请求的 reasoning 明确承认第二个命令放错顶层，并把源码读取与测试读取两个命令都放进一个 outer Exec 的
+    `tools[]`，随后成功。
+  - Pair 009、pair 011 在相同 Base/Tool schema 下均直接生成含两个 `exec_command` 的单一 `tools[]` 并成功。
+- Interpretation: I03 的这次逃逸是模型的结构布局错误，不是上下文反馈丢失、Map 绑定失败、Runtime 提升或 schema 表达能力缺口。现有 fail-closed 拒绝语义正确。
+- Time: 2026-08-20
+
+## Evidence E-033: Pair 013 缺失 type 是单字段遗漏，现有反馈可立即纠正
+
+- Related hypotheses:
+  - H-012
+- Direction: mixed
+- Type: exact-production-trace
+- Source: `WAR-20260820-062550-R8-BASE308-OUTER-R10`, pair 013
+- Matched signal:
+  - Agent 返回有效 JSON，包含一个非空 `tools[]`、原生 `exec_command`、`node_id=explore` 和完整 input，但遗漏顶层
+    `type`。
+  - Runtime 返回精确的 `required property type is missing`，没有执行 Map 或 Tool action。
+  - 下一请求明确说明遗漏字段，并以 `type=work` 重试。
+- Interpretation:
+  - Base 3.0.7/3.0.8 的显式 type 合同降低过该问题，但没有消除偶发字段遗漏；H-012 仍是概率性缓解而非关闭证据。
+  - 对该观测输入，离线枚举显示只有 `work` 能通过完整 catalog 解码，但自动补写仍会改变“序列由 Agent 显式选择”的既定产品边界，因此本轮不实施，只登记为待决候选。
+- Time: 2026-08-20

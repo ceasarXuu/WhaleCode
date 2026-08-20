@@ -1,6 +1,6 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-20T06:37:33+08:00",
+  "updated_at": "2026-08-20T22:01:11+08:00",
   "entries": [
     {
       "record_id": "WAR-20260819-054148-R8-I04-ORDERED-PATCH-R1",
@@ -10843,6 +10843,97 @@
         "stop_reason": "pair_013_closed_map_but_final_natural_response_exceeded_per_sample_request_limit",
         "execution_deviation": "实际运行 7 次 TaskSpace 和 6 次 Standard，共 13 samples / 104 requests / 1,651,739 input。原因是将物理 side 选择误当作逻辑 mode 选择；没有自动补跑剩余 3 次 TaskSpace。",
         "outcome": "TaskSpace 6/7 satisfied the runner business lifecycle; the seventh produced a correct patch, passed external validators, and closed the Map on request 10, but the following natural final response was blocked by the per-sample request limit, so the runner marked it interrupted. Across all 59 TaskSpace provider responses, exec_call_count > 1 was zero, supporting the Base 3.0.8 outer-cardinality fix. Independent I03 anomalies remained: two recoverable JSON syntax rejects, one top-level exec_command escape, and one missing type contract reject. Standard ran unintentionally 6/6 solved."
+      }
+    },
+    {
+      "record_id": "WAR-20260820-214337-R8-MAP-REQUEST-R3",
+      "record_type": "run_batch",
+      "status": "running",
+      "started_at": "2026-08-20T22:01:11+08:00",
+      "ended_at": null,
+      "elapsed_calendar_seconds": null,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "验证默认 map-request 产品选择、I07 逻辑模式单臂选择及当前 TaskSpace/I03 行为在复杂样本中的端到端稳定性。",
+      "authorization": {
+        "required": false,
+        "status": "granted",
+        "id": "user-approved-r8-map-request-under-cny1",
+        "reference": "2026-08-20 user: 批准不超过1元的预算",
+        "budget_summary": {
+          "maximum_sample_runs": 3,
+          "maximum_api_requests": 36,
+          "input_tokens": 600000,
+          "output_tokens": 30000,
+          "elapsed_seconds": 900,
+          "estimated_cost": 1.0,
+          "currency": "CNY"
+        },
+        "note": "仅限 release-dispatch-repair × map-request × repeat=3；只运行 TaskSpace 逻辑模式，零自动重试，不扩展样本、模式或候选。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "release-dispatch-repair"
+        ],
+        "arm_ids": [
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 3,
+        "planned_sample_runs": 3,
+        "actual_sample_runs": 0,
+        "api_requests": 0,
+        "api_requests_evidence_status": "pending"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "planned_limit",
+        "currency": "CNY",
+        "amount": 0.0,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": {
+          "model": "deepseek-v4-flash",
+          "captured_at": "2026-08-20",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": null,
+        "note": "硬费用上限 CNY 1.00。"
+      },
+      "evidence": {
+        "planned_run_root": "target/whale-agent-runs/WAR-20260820-214337-R8-MAP-REQUEST-R3",
+        "subject_commit": "b7d5fe729fb55ba14047b7367a223e1966be7f71",
+        "candidate_cache_surface": "bff130c627f82a7035da65311111916b7f0237106a89aedcca54c65266d71b5f",
+        "scenario": "release-dispatch-repair",
+        "arm": "map-request",
+        "repeat": 3,
+        "execution": "docker",
+        "runner_selection": "RunLogicalMode=taskspace + RunSide=both; PlanOnly selected_execution_count must equal 3 and Standard selection must equal 0.",
+        "actual_run_root": "target/whale-agent-runs/WAR-20260820-214337-R8-MAP-REQUEST-R3/release-dispatch-repair/live-r3b",
+        "whale_binary_sha256": "d18ca48beb9ce3fa592244b913d6a3987933fc5b241b7f7e8e53a36b6105bc90",
+        "preflight_attempts": [
+          {
+            "run_root": "target/whale-agent-runs/WAR-20260820-214337-R8-MAP-REQUEST-R3/release-dispatch-repair/live-r3",
+            "status": "invalid_harness",
+            "reason": "whale_binary_attestation_invalid",
+            "provider_requests": 0,
+            "cost_cny": 0.0
+          }
+        ],
+        "usage_evidence_status": "pending",
+        "durable_evidence_path": null,
+        "stop_conditions": "零自动重试；业务或 Map 硬失败、usage/证据缺失、36 requests、600K input、30K output、CNY 1.00 或 15 分钟任一先到即停止。",
+        "stop_reason": null,
+        "outcome": null
       }
     }
   ]

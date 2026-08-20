@@ -3380,7 +3380,11 @@ impl CodexMessageProcessor {
         request_id: ConnectionRequestId,
         params: ThreadMapRuntimeModeSetParams,
     ) {
-        let ThreadMapRuntimeModeSetParams { thread_id, mode } = params;
+        let ThreadMapRuntimeModeSetParams {
+            thread_id,
+            mode,
+            projection_policy,
+        } = params;
         let (_thread_uuid, thread) = match self.load_thread(&thread_id).await {
             Ok(v) => v,
             Err(error) => {
@@ -3389,10 +3393,11 @@ impl CodexMessageProcessor {
             }
         };
 
-        if let Err(err) = self
-            .submit_core_op(&request_id, thread.as_ref(), Op::SetMapRuntimeMode { mode })
-            .await
-        {
+        let op = match projection_policy {
+            Some(policy) => Op::SetTaskSpaceProjectionPolicy { policy },
+            None => Op::SetMapRuntimeMode { mode },
+        };
+        if let Err(err) = self.submit_core_op(&request_id, thread.as_ref(), op).await {
             self.send_internal_error(
                 request_id,
                 format!("failed to set thread map runtime mode: {err}"),

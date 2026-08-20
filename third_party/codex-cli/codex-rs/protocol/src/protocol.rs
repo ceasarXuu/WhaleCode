@@ -783,6 +783,9 @@ pub enum Op {
     /// It does not select between legacy and current TaskSpace implementations.
     SetMapRuntimeMode { mode: MapRuntimeMode },
 
+    /// Select how the current and future TaskSpace sessions project their Map.
+    SetTaskSpaceProjectionPolicy { policy: TaskSpaceProjectionPolicy },
+
     /// Show a human-readable snapshot of the current TaskSpace path.
     ///
     /// This is a local-only operation handled by codex-core; it does not
@@ -922,6 +925,7 @@ impl Op {
             Self::SetThreadName { .. } => "set_thread_name",
             Self::SetThreadMemoryMode { .. } => "set_thread_memory_mode",
             Self::SetMapRuntimeMode { .. } => "set_map_runtime_mode",
+            Self::SetTaskSpaceProjectionPolicy { .. } => "set_taskspace_projection_policy",
             Self::ShowActionMap => "show_action_map",
             Self::Undo => "undo",
             Self::ThreadRollback { .. } => "thread_rollback",

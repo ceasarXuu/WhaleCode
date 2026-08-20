@@ -516,9 +516,9 @@ impl Codex {
         let skills_input = skills_load_input_from_config(&config, effective_skill_roots);
         let taskspace_projection_policy = match &conversation_history {
             InitialHistory::New | InitialHistory::Cleared => config.taskspace_projection_policy,
-            InitialHistory::Resumed(_) | InitialHistory::Forked(_) => {
-                conversation_history.taskspace_projection_policy()
-            }
+            InitialHistory::Resumed(_) | InitialHistory::Forked(_) => config
+                .taskspace_projection_policy
+                .or_else(|| conversation_history.taskspace_projection_policy()),
         };
         let loaded_skills = skills_manager.skills_for_config(&skills_input, fs).await;
         for err in &loaded_skills.errors {

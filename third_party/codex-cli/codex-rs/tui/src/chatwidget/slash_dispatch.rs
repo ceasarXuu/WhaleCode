@@ -10,6 +10,7 @@ use crate::app_event::ThreadGoalSetMode;
 use crate::bottom_pane::prompt_args::parse_slash_name;
 use crate::bottom_pane::slash_commands;
 use codex_protocol::protocol::MapRuntimeMode;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SlashCommandDispatchSource {
@@ -35,8 +36,15 @@ const GOAL_USAGE_HINT: &str = "Example: /goal improve benchmark coverage";
 
 impl ChatWidget {
     fn submit_taskspace_enable(&mut self) {
+        self.set_taskspace_active(true);
         self.submit_op(AppCommand::set_map_runtime_mode(MapRuntimeMode::Experiment));
         self.submit_op(AppCommand::show_action_map());
+    }
+
+    fn select_taskspace_projection_policy(&mut self, policy: TaskSpaceProjectionPolicy) {
+        self.submit_op(AppCommand::set_taskspace_projection_policy(policy));
+        self.app_event_tx
+            .send(AppEvent::PersistTaskSpaceProjectionPolicy(policy));
     }
 
     /// Dispatch a bare slash command and record its staged local-history entry.
@@ -239,6 +247,15 @@ impl ChatWidget {
             }
             SlashCommand::TaskSpace => {
                 self.submit_taskspace_enable();
+            }
+            SlashCommand::MapRequest => {
+                self.select_taskspace_projection_policy(TaskSpaceProjectionPolicy::MapRequest);
+            }
+            SlashCommand::MapAppend => {
+                self.select_taskspace_projection_policy(TaskSpaceProjectionPolicy::MapAppend);
+            }
+            SlashCommand::MapAlways => {
+                self.select_taskspace_projection_policy(TaskSpaceProjectionPolicy::MapAlways);
             }
             SlashCommand::TaskShow => {
                 self.submit_op(AppCommand::show_action_map());
@@ -842,6 +859,7 @@ impl ChatWidget {
             audio_device_selection_enabled: self.realtime_audio_device_selection_enabled(),
             allow_elevate_sandbox,
             side_conversation_active: self.active_side_conversation,
+            taskspace_active: self.taskspace_active,
         }
     }
 
@@ -860,6 +878,9 @@ impl ChatWidget {
             | SlashCommand::MemoryUpdate
             | SlashCommand::Mcp
             | SlashCommand::TaskSpace
+            | SlashCommand::MapRequest
+            | SlashCommand::MapAppend
+            | SlashCommand::MapAlways
             | SlashCommand::TaskShow
             | SlashCommand::Apps
             | SlashCommand::Plugins

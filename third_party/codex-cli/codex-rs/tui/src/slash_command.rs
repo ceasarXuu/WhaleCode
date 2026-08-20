@@ -36,6 +36,9 @@ pub enum SlashCommand {
     Collab,
     #[strum(serialize = "taskspace")]
     TaskSpace,
+    MapRequest,
+    MapAppend,
+    MapAlways,
     #[strum(serialize = "task-show")]
     TaskShow,
     Agent,
@@ -115,6 +118,9 @@ impl SlashCommand {
             SlashCommand::Goal => "set or view the goal for a long-running task",
             SlashCommand::Collab => "change collaboration mode (experimental)",
             SlashCommand::TaskSpace => "enter TaskSpace mode and open the live viewer",
+            SlashCommand::MapRequest => "show the Map only when the agent requests it",
+            SlashCommand::MapAppend => "append each new Map projection to context",
+            SlashCommand::MapAlways => "keep the latest Map projection in every request",
             SlashCommand::TaskShow => "open the live TaskSpace browser viewer",
             SlashCommand::Agent | SlashCommand::MultiAgents => "switch the active agent thread",
             SlashCommand::Side => "start a side conversation in an ephemeral fork",
@@ -187,6 +193,9 @@ impl SlashCommand {
             | SlashCommand::Review
             | SlashCommand::Plan
             | SlashCommand::TaskSpace
+            | SlashCommand::MapRequest
+            | SlashCommand::MapAppend
+            | SlashCommand::MapAlways
             | SlashCommand::Clear
             | SlashCommand::Logout
             | SlashCommand::MemoryDrop

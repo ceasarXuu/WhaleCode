@@ -1,4 +1,5 @@
 use super::*;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use pretty_assertions::assert_eq;
 
 fn turn_complete_event(turn_id: &str, last_agent_message: Option<&str>) -> TurnCompleteEvent {
@@ -1190,6 +1191,27 @@ async fn taskspace_slash_command_enables_mode_and_opens_viewer() {
     }
     assert!(observed_enable);
     assert!(observed_show);
+}
+
+#[tokio::test]
+async fn taskspace_projection_command_updates_current_session_and_global_preference() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.set_taskspace_active(true);
+
+    submit_composer_text(&mut chat, "/map-append");
+
+    assert_matches!(
+        op_rx.try_recv(),
+        Ok(Op::SetTaskSpaceProjectionPolicy {
+            policy: TaskSpaceProjectionPolicy::MapAppend,
+        })
+    );
+    assert!(
+        std::iter::from_fn(|| rx.try_recv().ok()).any(|event| matches!(
+            event,
+            AppEvent::PersistTaskSpaceProjectionPolicy(TaskSpaceProjectionPolicy::MapAppend)
+        ))
+    );
 }
 
 #[tokio::test]

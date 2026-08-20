@@ -12,6 +12,7 @@ use codex_protocol::config_types::ServiceTier;
 use codex_protocol::config_types::TrustLevel;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::AskForApproval;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::path::Path;
@@ -1015,6 +1016,14 @@ impl ConfigEditsBuilder {
     pub fn set_personality(mut self, personality: Option<Personality>) -> Self {
         self.edits
             .push(ConfigEdit::SetModelPersonality { personality });
+        self
+    }
+
+    pub fn set_taskspace_projection_policy(mut self, policy: TaskSpaceProjectionPolicy) -> Self {
+        self.edits.push(ConfigEdit::SetPath {
+            segments: vec!["taskspace_projection_policy".to_string()],
+            value: value(policy.to_string()),
+        });
         self
     }
 
