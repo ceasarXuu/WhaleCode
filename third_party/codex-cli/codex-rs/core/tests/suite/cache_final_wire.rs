@@ -1,5 +1,7 @@
 use super::cache_payload_contract::configure_deepseek_responses;
 use super::cache_payload_contract::provider_identity;
+use super::cache_payload_contract::run_large_stack_test;
+use codex_core::TurnInputRequest;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeMode;
@@ -47,16 +49,10 @@ async fn capture_responses_body() -> anyhow::Result<Value> {
         .build(&server)
         .await?;
     test.codex
-        .submit(Op::UserInput {
-            additional_context: Default::default(),
-            items: vec![UserInput::Text {
-                text: "inspect final wire".to_string(),
-                text_elements: Vec::new(),
-            }],
-            final_output_json_schema: None,
-            responsesapi_client_metadata: None,
-            thread_settings: Default::default(),
-        })
+        .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
+            text: "inspect final wire".to_string(),
+            text_elements: Vec::new(),
+        }]))
         .await?;
     let requests = tokio::time::timeout(std::time::Duration::from_secs(10), async {
         loop {
@@ -110,8 +106,12 @@ async fn standard_session_reaches_responses_final_wire() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn taskspace_production_tool_wire() -> anyhow::Result<()> {
+#[test]
+fn taskspace_production_tool_wire() -> anyhow::Result<()> {
+    run_large_stack_test(taskspace_production_tool_wire_impl)
+}
+
+async fn taskspace_production_tool_wire_impl() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
     let server = start_mock_server().await;
     Mock::given(method("POST"))

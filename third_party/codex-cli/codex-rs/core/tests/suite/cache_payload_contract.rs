@@ -1,9 +1,9 @@
+use codex_core::TurnInputRequest;
 use codex_core::config::Config;
 use codex_model_provider_info::DEEPSEEK_PROVIDER_ID;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::WireApi;
 use codex_protocol::protocol::EventMsg;
-use codex_protocol::protocol::Op;
 use codex_protocol::user_input::UserInput;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use core_test_support::cache_payload::FinalWireEvidence;
@@ -17,6 +17,7 @@ use core_test_support::test_codex::test_codex;
 use core_test_support::wait_for_event;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
 use wiremock::Mock;
 use wiremock::ResponseTemplate;
@@ -35,22 +36,36 @@ pub(super) async fn submit_turn(
     text: &str,
 ) -> anyhow::Result<()> {
     test.codex
-        .submit(Op::UserInput {
-            additional_context: Default::default(),
-            items: vec![UserInput::Text {
-                text: text.to_string(),
-                text_elements: Vec::new(),
-            }],
-            final_output_json_schema: None,
-            responsesapi_client_metadata: None,
-            thread_settings: Default::default(),
-        })
+        .start_or_steer_turn(TurnInputRequest::user_input(vec![UserInput::Text {
+            text: text.to_string(),
+            text_elements: Vec::new(),
+        }]))
         .await?;
     wait_for_event(&test.codex, |event| {
         matches!(event, EventMsg::TurnComplete(_))
     })
     .await;
     Ok(())
+}
+
+pub(super) fn run_large_stack_test<F, Fut>(test: F) -> anyhow::Result<()>
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
+{
+    std::thread::Builder::new()
+        .name("cache-final-wire".to_string())
+        .stack_size(16 * 1024 * 1024)
+        .spawn(move || {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .thread_stack_size(16 * 1024 * 1024)
+                .enable_all()
+                .build()?
+                .block_on(Box::pin(test()))
+        })?
+        .join()
+        .map_err(|_| anyhow::anyhow!("cache final-wire test thread panicked"))?
 }
 
 fn replace_tag_value(text: &str, tag: &str, replacement: &str) -> String {
@@ -101,6 +116,7 @@ fn stabilize_projection_canonical_sha256(text: &str) -> String {
 struct FixtureStabilizer {
     message_ids: HashMap<String, String>,
     session_ids: HashMap<String, String>,
+    root_turn_ids: HashMap<String, String>,
     thread_ids: HashMap<String, String>,
     turn_ids: HashMap<String, String>,
     window_ids: HashMap<String, String>,
@@ -126,6 +142,7 @@ impl FixtureStabilizer {
             *text = match key.as_str() {
                 "x-codex-installation-id" => "<INSTALLATION_ID>".to_string(),
                 "session_id" => Self::stable_id(&mut self.session_ids, text, "SESSION_ID"),
+                "root_turn_id" => Self::stable_id(&mut self.root_turn_ids, text, "ROOT_TURN_ID"),
                 "thread_id" => Self::stable_id(&mut self.thread_ids, text, "THREAD_ID"),
                 "turn_id" => Self::stable_id(&mut self.turn_ids, text, "TURN_ID"),
                 "x-codex-window-id" => Self::stable_id(&mut self.window_ids, text, "WINDOW_ID"),
@@ -146,6 +163,12 @@ impl FixtureStabilizer {
             match (key.as_str(), value) {
                 ("installation_id", value) => {
                     *value = Value::String("<INSTALLATION_ID>".to_string());
+                }
+                ("agent_name", value) => {
+                    *value = Value::String("<AGENT_NAME>".to_string());
+                }
+                ("root_turn_id", Value::String(text)) => {
+                    *text = Self::stable_id(&mut self.root_turn_ids, text, "ROOT_TURN_ID");
                 }
                 ("session_id", Value::String(text)) => {
                     *text = Self::stable_id(&mut self.session_ids, text, "SESSION_ID");
@@ -319,8 +342,12 @@ fn fixture_stabilization_normalizes_ephemeral_wire_ids_without_collapsing_identi
     assert_eq!(turn_metadata["request_kind"], "turn");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn standard_request_pair_preserves_the_complete_prefix() -> anyhow::Result<()> {
+#[test]
+fn standard_request_pair_preserves_the_complete_prefix() -> anyhow::Result<()> {
+    run_large_stack_test(standard_request_pair_preserves_the_complete_prefix_impl)
+}
+
+async fn standard_request_pair_preserves_the_complete_prefix_impl() -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
     let server = start_mock_server().await;
     Mock::given(method("POST"))
