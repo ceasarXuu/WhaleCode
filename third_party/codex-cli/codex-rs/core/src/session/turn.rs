@@ -2479,14 +2479,17 @@ async fn try_run_sampling_request(
     let provider_actions = if let Some(scope) = taskspace_response_scope.as_ref() {
         match scope.finalize(response_completed, taskspace_response_identity) {
             Ok(actions) => actions,
-            Err(message) if scope.is_recoverable_rejection(&message) => {
-                let actions = scope
-                    .provider_actions_for_recoverable_rejection(&message)
-                    .map_err(taskspace_response_reconciliation_error)?;
-                recoverable_taskspace_rejection = Some(message);
-                actions
+            Err(message) => {
+                if let Some(rejection) = scope.recoverable_rejection(&message) {
+                    let actions = scope
+                        .provider_actions_for_recoverable_rejection(&message)
+                        .map_err(taskspace_response_reconciliation_error)?;
+                    recoverable_taskspace_rejection = Some((message, rejection));
+                    actions
+                } else {
+                    return Err(taskspace_response_reconciliation_error(message));
+                }
             }
-            Err(message) => return Err(taskspace_response_reconciliation_error(message)),
         }
     } else {
         Vec::new()
@@ -2498,10 +2501,10 @@ async fn try_run_sampling_request(
         .await
         .map_err(taskspace_response_reconciliation_error)?;
 
-    if let Some(message) = recoverable_taskspace_rejection {
+    if let Some((message, rejection)) = recoverable_taskspace_rejection {
         warn!(
             event_name = "taskspace.exec.response_rejected",
-            reason_code = "recoverable_client_tool_escape",
+            reason_code = rejection.reason_code(),
             reason = %message,
             "TaskSpace response rejected; model may correct the request"
         );

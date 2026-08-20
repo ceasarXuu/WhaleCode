@@ -12,6 +12,23 @@ use super::hosted::HostedToolIdentity;
 use super::hosted::hosted_response_fact;
 use super::hosted::merge_hosted_outcome;
 
+const MULTIPLE_EXEC_CALLS_ERROR: &str = "TaskSpace response contains more than one Exec call";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TaskSpaceExecRecoverableRejection {
+    ClientToolEscape,
+    MultipleExecCalls,
+}
+
+impl TaskSpaceExecRecoverableRejection {
+    pub(crate) fn reason_code(self) -> &'static str {
+        match self {
+            Self::ClientToolEscape => "recoverable_client_tool_escape",
+            Self::MultipleExecCalls => "multiple_outer_exec_calls",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct TaskSpaceExecResponseScope {
     capability_identity: Arc<str>,
@@ -259,12 +276,15 @@ impl TaskSpaceExecResponseScope {
         Ok(())
     }
 
-    pub(crate) fn is_recoverable_rejection(&self, message: &str) -> bool {
+    pub(crate) fn recoverable_rejection(
+        &self,
+        message: &str,
+    ) -> Option<TaskSpaceExecRecoverableRejection> {
         let state = self
             .state
             .lock()
             .expect("TaskSpace response scope poisoned");
-        state.terminal && state.recoverable_error.as_deref() == Some(message)
+        recoverable_rejection(&state, message)
     }
 
     pub(crate) fn provider_actions_for_recoverable_rejection(
@@ -275,7 +295,7 @@ impl TaskSpaceExecResponseScope {
             .state
             .lock()
             .expect("TaskSpace response scope poisoned");
-        if !state.terminal || state.recoverable_error.as_deref() != Some(message) {
+        if recoverable_rejection(&state, message).is_none() {
             return Err("TaskSpace response is not a recoverable rejection".to_string());
         }
         provider_actions(&state)
@@ -321,7 +341,7 @@ fn validate_finalized(state: &ResponseScopeState) -> Result<(), String> {
         return Err(error.clone());
     }
     if state.exec_call_count > 1 {
-        return Err("TaskSpace response contains more than one Exec call".to_string());
+        return Err(MULTIPLE_EXEC_CALLS_ERROR.to_string());
     }
     if state.exec_call_count == 1 && state.request.is_none() {
         return Err("TaskSpace response has no request Map snapshot".to_string());
@@ -333,6 +353,20 @@ fn validate_finalized(state: &ResponseScopeState) -> Result<(), String> {
         return Err(error.clone());
     }
     Ok(())
+}
+
+fn recoverable_rejection(
+    state: &ResponseScopeState,
+    message: &str,
+) -> Option<TaskSpaceExecRecoverableRejection> {
+    if !state.terminal || !state.complete || state.error.is_some() {
+        return None;
+    }
+    if state.exec_call_count > 1 && message == MULTIPLE_EXEC_CALLS_ERROR {
+        return Some(TaskSpaceExecRecoverableRejection::MultipleExecCalls);
+    }
+    (state.recoverable_error.as_deref() == Some(message))
+        .then_some(TaskSpaceExecRecoverableRejection::ClientToolEscape)
 }
 
 fn provider_actions(
@@ -548,12 +582,15 @@ mod tests {
 
         let error = scope.finalize(true, Some(response_identity())).unwrap_err();
         assert!(error.contains("forbidden top-level client Tool `inspect`"));
-        assert!(scope.is_recoverable_rejection(&error));
+        assert_eq!(
+            scope.recoverable_rejection(&error),
+            Some(TaskSpaceExecRecoverableRejection::ClientToolEscape)
+        );
         assert!(scope.claim_response("outer").is_err());
     }
 
     #[test]
-    fn integrity_rejection_is_not_recoverable() {
+    fn multiple_exec_rejection_is_recoverable_without_becoming_valid() {
         let scope = TaskSpaceExecResponseScope::default();
         scope.begin_request("map-1", Some(7)).unwrap();
         for call_id in ["outer-1", "outer-2"] {
@@ -567,7 +604,13 @@ mod tests {
         }
 
         let error = scope.finalize(true, Some(response_identity())).unwrap_err();
-        assert!(!scope.is_recoverable_rejection(&error));
+        assert_eq!(error, MULTIPLE_EXEC_CALLS_ERROR);
+        assert_eq!(
+            scope.recoverable_rejection(&error),
+            Some(TaskSpaceExecRecoverableRejection::MultipleExecCalls)
+        );
+        assert!(scope.claim_response("outer-1").is_err());
+        assert!(scope.claim_response("outer-2").is_err());
     }
 
     #[test]
@@ -593,7 +636,10 @@ mod tests {
 
         let error = scope.finalize(true, Some(response_identity())).unwrap_err();
         assert!(error.contains("more than one Exec call"));
-        assert!(!scope.is_recoverable_rejection(&error));
+        assert_eq!(
+            scope.recoverable_rejection(&error),
+            Some(TaskSpaceExecRecoverableRejection::MultipleExecCalls)
+        );
     }
 
     #[test]

@@ -293,16 +293,83 @@ fn invocation_raw_with_token(
     arguments: String,
     cancellation_token: CancellationToken,
 ) -> ToolInvocation {
+    invocation_raw_with_call_id(harness, "outer", arguments, cancellation_token)
+}
+
+fn invocation_raw_with_call_id(
+    harness: &Harness,
+    call_id: &str,
+    arguments: String,
+    cancellation_token: CancellationToken,
+) -> ToolInvocation {
     ToolInvocation {
         session: Arc::clone(&harness.session),
         turn: Arc::clone(&harness.turn),
         cancellation_token,
         tracker: Arc::new(Mutex::new(TurnDiffTracker::new())),
-        call_id: "outer".into(),
+        call_id: call_id.into(),
         tool_name: ToolName::plain(TASKSPACE_EXEC_TOOL_NAME),
         source: ToolCallSource::Direct,
         payload: ToolPayload::Function { arguments },
     }
+}
+
+#[tokio::test]
+async fn multiple_outer_exec_calls_each_receive_the_same_contract_rejection() {
+    let harness = harness(false).await;
+    begin_scope(&harness).await;
+    for call_id in ["outer-1", "outer-2"] {
+        harness
+            .response_scope
+            .record_completed_item(&ResponseItem::FunctionCall {
+                id: None,
+                name: TASKSPACE_EXEC_TOOL_NAME.into(),
+                namespace: None,
+                arguments: "{}".into(),
+                call_id: call_id.into(),
+            });
+    }
+    let error = harness
+        .response_scope
+        .finalize(
+            true,
+            Some(TaskSpaceExecResponseIdentity {
+                provider_response_id: "response-1".into(),
+                provider_request_id: Some("request-1".into()),
+                provider_logical_request_id: Some("logical-1".into()),
+                provider_attempt_seq: Some(1),
+            }),
+        )
+        .unwrap_err();
+    assert_eq!(
+        harness.response_scope.recoverable_rejection(&error),
+        Some(TaskSpaceExecRecoverableRejection::MultipleExecCalls)
+    );
+
+    for call_id in ["outer-1", "outer-2"] {
+        let result = harness
+            .handler
+            .handle(invocation_raw_with_call_id(
+                &harness,
+                call_id,
+                initialize_work(vec![inspect_action(json!({}))]).to_string(),
+                CancellationToken::new(),
+            ))
+            .await;
+        let error = match result {
+            Ok(_) => panic!("multiple outer calls must be rejected"),
+            Err(error) => error,
+        };
+        let message = error.to_string();
+        assert!(message.contains("invalid top-level contract"));
+        assert!(message.contains("exactly one outer taskspace_exec"));
+        assert!(message.contains("No Map or Tool actions were executed"));
+    }
+    assert_eq!(harness.client_handler.calls.load(Ordering::SeqCst), 0);
+    let (_, map) = super::handler::read_current_map(harness.session.as_ref(), "outer")
+        .await
+        .unwrap();
+    assert!(map.is_none());
 }
 
 #[tokio::test]

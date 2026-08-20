@@ -18,6 +18,7 @@ use futures::StreamExt;
 use super::TaskSpaceExecCatalog;
 use super::TaskSpaceExecEnvelopeError;
 use super::TaskSpaceExecPlanDecodeError;
+use super::TaskSpaceExecRecoverableRejection;
 use super::TaskSpaceExecRequestContext;
 use super::TaskSpaceExecResponseScope;
 use super::dispatch::dispatched_outcome;
@@ -71,7 +72,21 @@ impl ToolHandler for TaskSpaceExecHandler {
             .response_scope
             .claim_response(&invocation.call_id)
             .map_err(|error| {
-                taskspace_rejection("response_claim_rejected", Some(&invocation.call_id), error)
+                if self.response_scope.recoverable_rejection(&error)
+                    == Some(TaskSpaceExecRecoverableRejection::MultipleExecCalls)
+                {
+                    taskspace_rejection(
+                        "response_cardinality_rejected",
+                        Some(&invocation.call_id),
+                        "invalid top-level contract: one provider response must contain exactly one outer taskspace_exec; put all client actions in that call's tools[]. No Map or Tool actions were executed.",
+                    )
+                } else {
+                    taskspace_rejection(
+                        "response_claim_rejected",
+                        Some(&invocation.call_id),
+                        error,
+                    )
+                }
             })?;
         if claim.request.capability_identity.as_ref() != self.catalog.capability_identity() {
             return Err(taskspace_rejection(

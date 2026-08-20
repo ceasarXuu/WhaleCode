@@ -65,6 +65,53 @@ try {
     Assert-Equal $facts.capability_identity $capabilityIdentity 'Exec capability identity was not observed'
     Assert-Equal $facts.wire_capability_identity $capabilityIdentity 'wire capability identity was not observed'
 
+    $multiOuterDir = Join-Path $temp 'multi-outer'
+    New-Item -ItemType Directory -Path $multiOuterDir -Force | Out-Null
+    @(
+        [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
+                type = 'function_call'; name = 'taskspace_exec'; call_id = 'outer-1'
+                arguments = ($arguments | ConvertTo-Json -Compress -Depth 12)
+            } },
+        [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
+                type = 'function_call'; name = 'taskspace_exec'; call_id = 'outer-2'
+                arguments = ($arguments | ConvertTo-Json -Compress -Depth 12)
+            } },
+        [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
+                type = 'function_call_output'; call_id = 'outer-1'
+                output = 'taskspace_exec rejected: invalid top-level contract: one provider response must contain exactly one outer taskspace_exec; put all client actions in that call''s tools[]. No Map or Tool actions were executed.'
+            } },
+        [pscustomobject]@{ type = 'response_item'; payload = [pscustomobject]@{
+                type = 'function_call_output'; call_id = 'outer-2'
+                output = 'taskspace_exec rejected: invalid top-level contract: one provider response must contain exactly one outer taskspace_exec; put all client actions in that call''s tools[]. No Map or Tool actions were executed.'
+            } }
+    ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 15 } |
+        Set-Content -LiteralPath (Join-Path $multiOuterDir 'rollout.jsonl') -Encoding UTF8
+    [pscustomobject]@{
+        schema_version = 'whalecode-request-facts-v1'
+        rows = @([pscustomobject]@{ request_id = 'request-1' })
+    } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $multiOuterDir 'request-facts.json') -Encoding UTF8
+    [pscustomobject]@{
+        schema_version = 'provider-chat-wire-trace-v11'; status = 'payload_captured'
+        request_id = 'request-1'; taskspace_capability_identity = $capabilityIdentity
+    } | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $multiOuterDir 'provider-wire-trace.jsonl') -Encoding UTF8
+    @(
+        "INFO codex_core::taskspace_exec: event_name=`"taskspace.exec.response_finalized`" provider_request_id=`"request-1`" provider_response_id=`"response-1`" outer_call_id=`"outer-1`" map_id=`"map-1`" capability_identity=`"$capabilityIdentity`" exec_call_count=2 accepted=false",
+        'WARN codex_core::taskspace_exec: event_name="taskspace.exec.rejected" reason_code="response_cardinality_rejected" outer_call_id="outer-1"',
+        'WARN codex_core::taskspace_exec: event_name="taskspace.exec.rejected" reason_code="response_cardinality_rejected" outer_call_id="outer-2"'
+    ) | Set-Content -LiteralPath (Join-Path $multiOuterDir 'whale-exec.stderr.log') -Encoding UTF8
+
+    $multiOuterFacts = Get-TaskspaceExecObservation $multiOuterDir $null
+    Assert-Equal $multiOuterFacts.availability 'measured' 'recoverable multi-outer rejection was not measurable'
+    Assert-Equal $multiOuterFacts.exec_count 2 'multi-outer call count drifted'
+    Assert-Equal $multiOuterFacts.rejected_call_count 2 'multi-outer rejection total drifted'
+    Assert-Equal $multiOuterFacts.rejected_contract_call_count 2 'multi-outer contract classification drifted'
+    Assert-Equal $multiOuterFacts.rejected_unknown_call_count 0 'multi-outer rejection was classified as unknown'
+    Assert-Equal $multiOuterFacts.correlated_request_count 1 'multi-outer request identity was not joined'
+    Assert-Equal $multiOuterFacts.correlated_outer_call_count 2 'both multi-outer call identities were not joined'
+    if (@($multiOuterFacts.findings | Where-Object { $_ -like 'exec_result_missing:*' }).Count -ne 0) {
+        throw 'recoverable multi-outer rejection was reported as missing Exec output'
+    }
+
     $referencedResult = $result | ConvertTo-Json -Compress -Depth 12
     $referencedSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
     $referenceDir = Join-Path $temp 'home/.whale/session-store/output-refs/sha256'

@@ -49,6 +49,7 @@ pub(crate) use protocol::canonical_first_turn_example;
 pub(crate) use protocol::canonical_handoff_example;
 #[cfg(test)]
 pub(crate) use protocol::canonical_read_example;
+pub(crate) use response_scope::TaskSpaceExecRecoverableRejection;
 pub(crate) use response_scope::TaskSpaceExecResponseIdentity;
 pub(crate) use response_scope::TaskSpaceExecResponseScope;
 pub(crate) use response_scope::TaskSpaceProviderActionFact;
