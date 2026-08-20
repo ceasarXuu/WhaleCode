@@ -147,6 +147,7 @@ impl ApprovalReviewContributor for AllContributors {
         _session_store: &'a ExtensionData,
         _thread_store: &'a ExtensionData,
         _prompt: &'a str,
+        _extension_metrics: Option<Arc<dyn ExtensionMetrics>>,
     ) -> ExtensionFuture<'a, Option<ReviewDecision>> {
         Box::pin(async move {
             let _self = self;
@@ -190,6 +191,7 @@ async fn build_round_trips_every_contributor_category() {
                 &ExtensionData::new("session"),
                 &ExtensionData::new("thread"),
                 "review this",
+                /*extension_metrics*/ None,
             )
             .await,
         Some(ReviewDecision::ApprovedForSession)
@@ -336,6 +338,7 @@ impl ApprovalReviewContributor for RecordingApprovalContributor {
         session_store: &'a ExtensionData,
         thread_store: &'a ExtensionData,
         prompt: &'a str,
+        _extension_metrics: Option<Arc<dyn ExtensionMetrics>>,
     ) -> ExtensionFuture<'a, Option<ReviewDecision>> {
         Box::pin(async move {
             self.calls
@@ -377,6 +380,7 @@ async fn approval_review_returns_first_claim_and_short_circuits() {
             &ExtensionData::new("session-1"),
             &ExtensionData::new("thread-1"),
             "allow command?",
+            /*extension_metrics*/ None,
         )
         .await;
 
@@ -465,6 +469,7 @@ async fn empty_registry_does_not_claim_approval_review() {
                 &ExtensionData::new("session"),
                 &ExtensionData::new("thread"),
                 "unclaimed",
+                /*extension_metrics*/ None,
             )
             .await,
         None

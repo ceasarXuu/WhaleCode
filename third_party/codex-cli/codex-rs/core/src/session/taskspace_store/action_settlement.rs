@@ -144,7 +144,7 @@ impl Session {
             .await
             .map_err(|error| format!("TaskSpace settlement recovery path failed: {error}"))?;
         let mut recovered = BTreeMap::<String, TaskSpaceActionSettlementFact>::new();
-        for item in history.raw_items().iter().rev() {
+        for item in history.raw_items().rev() {
             let ResponseItem::FunctionCallOutput { output, .. } = item else {
                 continue;
             };

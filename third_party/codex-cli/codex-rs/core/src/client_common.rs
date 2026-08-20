@@ -22,7 +22,7 @@ pub struct Prompt {
 
     /// Tools available to the model, including additional tools sourced from
     /// external MCP servers.
-    pub(crate) tools: Vec<ToolSpec>,
+    pub(crate) tools: Arc<[ToolSpec]>,
 
     /// Whether parallel tool calls are permitted for this prompt.
     pub(crate) parallel_tool_calls: bool,
@@ -43,7 +43,7 @@ impl Default for Prompt {
     fn default() -> Self {
         Self {
             input: Vec::new(),
-            tools: Vec::new(),
+            tools: Arc::default(),
             parallel_tool_calls: false,
             taskspace_capability_identity: None,
             base_instructions: BaseInstructions::default(),

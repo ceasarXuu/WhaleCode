@@ -13,6 +13,7 @@ use super::STATE_MIGRATOR;
 use super::THREAD_HISTORY_MIGRATOR;
 use super::repair_legacy_recency_migration_version;
 use super::repair_legacy_whale_taskspace_migrations;
+use super::repair_whale_0147_taskspace_migration_versions;
 use crate::PINNED_THREAD_SECTION_ID;
 use crate::PINNED_THREAD_SECTION_NAME;
 
@@ -57,6 +58,36 @@ fn legacy_whale_taskspace_migrator() -> Migrator {
         include_str!("fixtures/legacy_whale_0031_taskspace_canonical_maps.sql").into_sql_str(),
         false,
     ));
+    Migrator::with_migrations(migrations)
+}
+
+fn whale_0147_taskspace_migrator() -> Migrator {
+    let mut migrations = STATE_MIGRATOR
+        .migrations
+        .iter()
+        .filter(|migration| migration.version <= 46)
+        .cloned()
+        .collect::<Vec<_>>();
+    for (version, description, sql) in [
+        (
+            47,
+            "taskspace canonical store",
+            include_str!("../migrations/0051_taskspace_canonical_store.sql"),
+        ),
+        (
+            48,
+            "taskspace relational store",
+            include_str!("../migrations/0052_taskspace_relational_store.sql"),
+        ),
+    ] {
+        migrations.push(Migration::new(
+            version,
+            Cow::Borrowed(description),
+            MigrationType::Simple,
+            sql.into_sql_str(),
+            false,
+        ));
+    }
     Migrator::with_migrations(migrations)
 }
 
@@ -250,6 +281,93 @@ async fn legacy_whale_taskspace_repair_is_noop_for_fresh_and_current_databases()
 }
 
 #[tokio::test]
+async fn repairs_whale_0147_taskspace_versions_before_applying_upstream_0149() {
+    let sqlite_home = crate::runtime::test_support::unique_temp_dir();
+    tokio::fs::create_dir_all(&sqlite_home)
+        .await
+        .expect("sqlite home should be created");
+    let _cleanup = scopeguard::guard(sqlite_home.clone(), |sqlite_home| {
+        let _ = std::fs::remove_dir_all(sqlite_home);
+    });
+    let sqlite = crate::SqliteConfig::new_for_testing(sqlite_home.as_path().abs());
+    let pool = sqlite
+        .open_read_write_pool(&sqlite.state_db_path())
+        .await
+        .expect("state database should open");
+    whale_0147_taskspace_migrator()
+        .run(&pool)
+        .await
+        .expect("Whale 0.147 migrations should apply");
+    pool.close().await;
+
+    let runtime = crate::StateRuntime::init(sqlite.clone(), "deepseek".to_string())
+        .await
+        .expect("0.149 runtime should repair and migrate a Whale 0.147 database");
+    let verification_pool = sqlite
+        .open_read_write_pool(&sqlite.state_db_path())
+        .await
+        .expect("migrated database should open");
+    let applied = sqlx::query_as::<_, (i64, Vec<u8>)>(
+        "SELECT version, checksum FROM _sqlx_migrations WHERE version BETWEEN 47 AND 52 ORDER BY version",
+    )
+    .fetch_all(&verification_pool)
+    .await
+    .expect("migration metadata should be readable");
+    let expected = STATE_MIGRATOR
+        .migrations
+        .iter()
+        .filter(|migration| (47..=52).contains(&migration.version))
+        .map(|migration| (migration.version, migration.checksum.to_vec()))
+        .collect::<Vec<_>>();
+    assert_eq!(applied, expected);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('rollout_migration_state', 'projects', 'taskspace_map_nodes')",
+        )
+        .fetch_one(&verification_pool)
+        .await
+        .expect("0.149 and TaskSpace tables should be queryable"),
+        3
+    );
+    verification_pool.close().await;
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn whale_0147_taskspace_version_repair_rejects_unknown_history() {
+    let sqlite_home = crate::runtime::test_support::unique_temp_dir();
+    tokio::fs::create_dir_all(&sqlite_home)
+        .await
+        .expect("sqlite home should be created");
+    let _cleanup = scopeguard::guard(sqlite_home.clone(), |sqlite_home| {
+        let _ = std::fs::remove_dir_all(sqlite_home);
+    });
+    let sqlite = crate::SqliteConfig::new_for_testing(sqlite_home.as_path().abs());
+    let pool = sqlite
+        .open_read_write_pool(&sqlite.state_db_path())
+        .await
+        .expect("state database should open");
+    whale_0147_taskspace_migrator()
+        .run(&pool)
+        .await
+        .expect("Whale 0.147 migrations should apply");
+    sqlx::query("UPDATE _sqlx_migrations SET checksum = X'00' WHERE version = 48")
+        .execute(&pool)
+        .await
+        .expect("unknown history should be constructed");
+
+    repair_whale_0147_taskspace_migration_versions(&pool, &STATE_MIGRATOR)
+        .await
+        .expect("unsupported history should remain untouched");
+    let err = STATE_MIGRATOR
+        .run(&pool)
+        .await
+        .expect_err("SQLx should reject unknown 0.147 history");
+    assert!(matches!(err, MigrateError::VersionMismatch(47)));
+    pool.close().await;
+}
+
+#[tokio::test]
 async fn relational_taskspace_migration_archives_v2_rows_without_activating_them() {
     let sqlite_home = crate::runtime::test_support::unique_temp_dir();
     tokio::fs::create_dir_all(&sqlite_home)
@@ -263,7 +381,7 @@ async fn relational_taskspace_migration_archives_v2_rows_without_activating_them
         .open_read_write_pool(&sqlite.state_db_path())
         .await
         .expect("state database should open");
-    migrator_through(47)
+    migrator_through(51)
         .run(&pool)
         .await
         .expect("v2 migrations should apply");
@@ -412,16 +530,18 @@ INSERT INTO threads (
         .expect("legacy thread insert should succeed");
     }
 
-    let registered_sections =
-        sqlx::query_as::<_, (String, String)>("SELECT id, name FROM thread_sections ORDER BY id")
-            .fetch_all(&pool)
-            .await
-            .expect("independent thread sections should load");
+    let registered_sections = sqlx::query_as::<_, (String, String, Option<String>)>(
+        "SELECT id, name, appearance FROM thread_sections ORDER BY id",
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("independent thread sections should load");
     assert_eq!(
         registered_sections,
         vec![(
             PINNED_THREAD_SECTION_ID.to_string(),
             PINNED_THREAD_SECTION_NAME.to_string(),
+            None,
         )]
     );
 

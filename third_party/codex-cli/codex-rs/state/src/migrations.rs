@@ -64,6 +64,96 @@ const LEGACY_WHALE_TASKSPACE_MIGRATIONS: [(i64, &str); 2] = [
     ),
 ];
 
+const WHALE_0147_TASKSPACE_MIGRATIONS: [(i64, i64, &str); 2] = [
+    (
+        47,
+        51,
+        "98f170c12ba97ea33b511af5ed58fab58913c8da007bc93e69d8673584e9984ab471c15d39f30bcb74bbc3d84ee8bb3b",
+    ),
+    (
+        48,
+        52,
+        "dd29b7f828e39019bb5ba684d11573b399ecf7b7bcb0988adcc925493b8e8b4045991ef0eb7a402634e61df92b6ed573",
+    ),
+];
+
+/// Move the TaskSpace migrations shipped by Whale's 0.147 substrate out of
+/// the versions that Codex 0.149 subsequently assigned to upstream schema.
+///
+/// Both legacy checksums must match and both destination versions must be
+/// absent. Unknown or partial histories remain untouched so SQLx rejects them.
+pub(crate) async fn repair_whale_0147_taskspace_migration_versions(
+    pool: &SqlitePool,
+    migrator: &Migrator,
+) -> anyhow::Result<()> {
+    let migrations_table_exists = sqlx::query_scalar::<_, i64>(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_sqlx_migrations'",
+    )
+    .fetch_optional(pool)
+    .await?
+    .is_some();
+    if !migrations_table_exists {
+        return Ok(());
+    }
+
+    let applied = sqlx::query_as::<_, (i64, String)>(
+        r#"
+SELECT version, lower(hex(checksum))
+FROM _sqlx_migrations
+WHERE version IN (47, 48) AND success = 1
+ORDER BY version
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+    let expected = WHALE_0147_TASKSPACE_MIGRATIONS
+        .iter()
+        .map(|(legacy_version, _, checksum)| (*legacy_version, (*checksum).to_string()))
+        .collect::<Vec<_>>();
+    if applied != expected {
+        return Ok(());
+    }
+
+    let destination_count = sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM _sqlx_migrations WHERE version IN (51, 52)",
+    )
+    .fetch_one(pool)
+    .await?;
+    if destination_count != 0 {
+        return Ok(());
+    }
+
+    let mut tx = pool.begin().await?;
+    for (legacy_version, current_version, legacy_checksum) in WHALE_0147_TASKSPACE_MIGRATIONS {
+        let current = migrator
+            .migrations
+            .iter()
+            .find(|migration| migration.version == current_version)
+            .ok_or_else(|| {
+                anyhow::anyhow!("current state migration {current_version} is missing")
+            })?;
+        let result = sqlx::query(
+            r#"
+UPDATE _sqlx_migrations
+SET version = ?, description = ?, checksum = ?
+WHERE version = ? AND success = 1 AND lower(hex(checksum)) = ?
+            "#,
+        )
+        .bind(current_version)
+        .bind(current.description.as_ref())
+        .bind(current.checksum.as_ref())
+        .bind(legacy_version)
+        .bind(legacy_checksum)
+        .execute(&mut *tx)
+        .await?;
+        if result.rows_affected() != 1 {
+            anyhow::bail!("Whale 0.147 migration {legacy_version} changed during version repair");
+        }
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 pub(crate) async fn repair_legacy_whale_taskspace_migrations(
     pool: &SqlitePool,
     migrator: &Migrator,

@@ -73,8 +73,8 @@ pub(crate) fn tool_log_payload<'a>(
 }
 
 pub struct ToolRouter {
-    registry: Arc<ToolRegistry>,
-    model_visible_specs: Vec<ToolSpec>,
+    registry: ToolRegistry,
+    model_visible_specs: Arc<[ToolSpec]>,
     taskspace_response_scope: Option<Arc<TaskSpaceExecResponseScope>>,
     taskspace_catalog: Option<Arc<TaskSpaceExecCatalog>>,
 }
@@ -110,8 +110,8 @@ impl ToolRouter {
 
     pub(crate) fn from_parts(registry: ToolRegistry, model_visible_specs: Vec<ToolSpec>) -> Self {
         Self {
-            registry: Arc::new(registry),
-            model_visible_specs,
+            registry,
+            model_visible_specs: model_visible_specs.into(),
             taskspace_response_scope: None,
             taskspace_catalog: None,
         }
@@ -158,8 +158,8 @@ impl ToolRouter {
                 .filter(|spec| matches!(spec, ToolSpec::WebSearch { .. })),
         );
         Ok(Self {
-            registry: Arc::new(registry),
-            model_visible_specs,
+            registry,
+            model_visible_specs: model_visible_specs.into(),
             taskspace_response_scope: Some(response_scope),
             taskspace_catalog: Some(catalog),
         })
@@ -182,8 +182,8 @@ impl ToolRouter {
         self_heal_taskspace_exec_response_item(item, self.taskspace_catalog.as_deref()?)
     }
 
-    pub(crate) fn model_visible_specs(&self) -> Vec<ToolSpec> {
-        self.model_visible_specs.clone()
+    pub(crate) fn model_visible_specs(&self) -> Arc<[ToolSpec]> {
+        Arc::clone(&self.model_visible_specs)
     }
 
     pub(crate) fn deferred_tool_namespaces(&self) -> BTreeMap<String, String> {

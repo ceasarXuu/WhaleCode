@@ -30,8 +30,8 @@ pub(crate) struct ProjectionCursor {
 }
 
 impl ProjectionCursor {
-    pub(crate) fn from_items(items: &[ResponseItem]) -> Self {
-        let last_emitted = items.iter().rev().find_map(|item| {
+    pub(crate) fn from_items<'a>(items: impl DoubleEndedIterator<Item = &'a ResponseItem>) -> Self {
+        let last_emitted = items.rev().find_map(|item| {
             let ResponseItem::Message { role, content, .. } = item else {
                 return None;
             };
@@ -297,7 +297,7 @@ mod tests {
             internal_chat_message_metadata_passthrough: None,
         };
 
-        let cursor = ProjectionCursor::from_items(&[item]);
+        let cursor = ProjectionCursor::from_items([item].iter());
         let identity = cursor.last_emitted.expect("projection identity");
         assert_eq!(identity.map_id.as_deref(), Some("map-1"));
         assert_eq!(identity.revision, Some(4));
