@@ -553,6 +553,24 @@ client_request_definitions! {
         serialization: thread_id(params.thread_id),
         response: v2::ThreadGoalClearResponse,
     },
+    #[experimental("thread/mapRuntimeMode/set")]
+    ThreadMapRuntimeModeSet => "thread/mapRuntimeMode/set" {
+        params: v2::ThreadMapRuntimeModeSetParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::ThreadMapRuntimeModeSetResponse,
+    },
+    #[experimental("thread/actionMap/read")]
+    ThreadActionMapRead => "thread/actionMap/read" {
+        params: v2::ThreadActionMapReadParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::ThreadActionMapReadResponse,
+    },
+    #[experimental("thread/taskspace/read")]
+    ThreadTaskSpaceRead => "thread/taskspace/read" {
+        params: v2::ThreadTaskSpaceReadParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::ThreadTaskSpaceReadResponse,
+    },
     ThreadMetadataUpdate => "thread/metadata/update" {
         params: v2::ThreadMetadataUpdateParams,
         serialization: thread_id(params.thread_id),
@@ -1694,6 +1712,8 @@ server_notification_definitions! {
     ThreadNameUpdated => "thread/name/updated" (v2::ThreadNameUpdatedNotification),
     ThreadGoalUpdated => "thread/goal/updated" (v2::ThreadGoalUpdatedNotification),
     ThreadGoalCleared => "thread/goal/cleared" (v2::ThreadGoalClearedNotification),
+    #[experimental("thread/taskspace/updated")]
+    TaskSpaceUpdated => "thread/taskspace/updated" (v2::TaskSpaceUpdatedNotification),
     #[experimental("thread/environment/connected")]
     EnvironmentConnected => "thread/environment/connected" (v2::EnvironmentConnectionNotification),
     #[experimental("thread/environment/disconnected")]

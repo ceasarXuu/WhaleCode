@@ -89,6 +89,15 @@ fn extension_tool_call_source(source: ToolCallSource) -> ExtensionToolCallSource
         ToolCallSource::Direct | ToolCallSource::DirectPlaintextMessage => {
             ExtensionToolCallSource::Direct
         }
+        ToolCallSource::TaskSpaceExec {
+            outer_call_id,
+            call_index,
+            node_id,
+        } => ExtensionToolCallSource::TaskSpaceExec {
+            outer_call_id,
+            call_index,
+            node_id,
+        },
         ToolCallSource::CodeMode {
             cell_id,
             runtime_tool_call_id,

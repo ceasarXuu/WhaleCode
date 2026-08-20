@@ -45,7 +45,7 @@ pub fn project_tool_spec_capabilities(spec: &ToolSpec) -> Vec<ToolSpecCapability
             description: tool.description.clone(),
             input: ToolSpecCapabilityInput::Freeform(tool.format.clone()),
             output_schema: None,
-            deferred: false,
+            deferred: tool.defer_loading.unwrap_or(false),
         }],
         ToolSpec::Namespace(namespace) => namespace
             .tools
@@ -59,6 +59,17 @@ pub fn project_tool_spec_capabilities(spec: &ToolSpec) -> Vec<ToolSpecCapability
                         description: tool.description.clone(),
                         input: ToolSpecCapabilityInput::Function(tool.parameters.clone()),
                         output_schema: tool.output_schema.clone(),
+                        deferred: tool.defer_loading.unwrap_or(false),
+                    }
+                }
+                ResponsesApiNamespaceTool::Custom(tool) => {
+                    let tool_name = ToolName::namespaced(namespace.name.clone(), tool.name.clone());
+                    ToolSpecCapability {
+                        public_name: nested_tool_public_name(&tool_name),
+                        tool_name,
+                        description: tool.description.clone(),
+                        input: ToolSpecCapabilityInput::Freeform(tool.format.clone()),
+                        output_schema: None,
                         deferred: tool.defer_loading.unwrap_or(false),
                     }
                 }
@@ -76,9 +87,7 @@ pub fn project_tool_spec_capabilities(spec: &ToolSpec) -> Vec<ToolSpecCapability
             output_schema: None,
             deferred: false,
         }],
-        ToolSpec::LocalShell {} | ToolSpec::ImageGeneration { .. } | ToolSpec::WebSearch { .. } => {
-            Vec::new()
-        }
+        ToolSpec::WebSearch { .. } => Vec::new(),
     }
 }
 

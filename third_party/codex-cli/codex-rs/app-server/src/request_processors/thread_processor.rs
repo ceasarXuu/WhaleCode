@@ -641,6 +641,52 @@ impl ThreadRequestProcessor {
             .map(|response| Some(response.into()))
     }
 
+    pub(crate) async fn thread_map_runtime_mode_set(
+        &self,
+        params: ThreadMapRuntimeModeSetParams,
+    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
+        let ThreadMapRuntimeModeSetParams {
+            thread_id,
+            mode,
+            projection_policy,
+        } = params;
+        let (_, thread) = self.load_thread(&thread_id).await?;
+        thread
+            .submit(codex_protocol::protocol::Op::SetMapRuntimeMode { mode })
+            .await
+            .map_err(|err| core_thread_write_error("set TaskSpace runtime mode", err))?;
+        if let Some(policy) = projection_policy {
+            thread
+                .submit(codex_protocol::protocol::Op::SetTaskSpaceProjectionPolicy { policy })
+                .await
+                .map_err(|err| core_thread_write_error("set TaskSpace projection policy", err))?;
+        }
+        Ok(Some(ThreadMapRuntimeModeSetResponse {}.into()))
+    }
+
+    pub(crate) async fn thread_action_map_read(
+        &self,
+        params: ThreadActionMapReadParams,
+    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
+        let (_, thread) = self.load_thread(&params.thread_id).await?;
+        let snapshot = thread
+            .action_map_snapshot()
+            .await
+            .map_err(|err| internal_error(format!("failed to read canonical action map: {err}")))?;
+        Ok(Some(ThreadActionMapReadResponse { snapshot }.into()))
+    }
+
+    pub(crate) async fn thread_taskspace_read(
+        &self,
+        params: ThreadTaskSpaceReadParams,
+    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
+        let (_, thread) = self.load_thread(&params.thread_id).await?;
+        let snapshot = thread.action_map_snapshot().await.map_err(|err| {
+            internal_error(format!("failed to read canonical TaskSpace map: {err}"))
+        })?;
+        Ok(Some(ThreadTaskSpaceReadResponse { snapshot }.into()))
+    }
+
     pub(crate) async fn memory_reset(
         &self,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {

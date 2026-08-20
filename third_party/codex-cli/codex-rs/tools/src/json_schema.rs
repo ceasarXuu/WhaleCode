@@ -52,6 +52,10 @@ pub struct JsonSchema {
     pub enum_values: Option<Vec<JsonValue>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<Box<JsonSchema>>,
+    #[serde(rename = "minItems", skip_serializing_if = "Option::is_none")]
+    pub min_items: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minimum: Option<serde_json::Number>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub properties: Option<BTreeMap<String, JsonSchema>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -74,6 +78,27 @@ pub struct JsonSchema {
 }
 
 impl JsonSchema {
+    pub fn reference(schema_ref: impl Into<String>) -> Self {
+        Self {
+            schema_ref: Some(schema_ref.into()),
+            ..Default::default()
+        }
+    }
+
+    pub fn with_definitions(mut self, definitions: BTreeMap<String, JsonSchema>) -> Self {
+        self.defs = Some(definitions);
+        self
+    }
+
+    pub fn object_any_of(variants: Vec<JsonSchema>, description: Option<String>) -> Self {
+        Self {
+            schema_type: Some(JsonSchemaType::Single(JsonSchemaPrimitiveType::Object)),
+            description,
+            any_of: Some(variants),
+            ..Default::default()
+        }
+    }
+
     /// Construct a scalar/object/array schema with a single JSON Schema type.
     fn typed(schema_type: JsonSchemaPrimitiveType, description: Option<String>) -> Self {
         Self {
@@ -148,6 +173,16 @@ impl JsonSchema {
             items: Some(Box::new(items)),
             ..Default::default()
         }
+    }
+
+    pub fn with_min_items(mut self, min_items: usize) -> Self {
+        self.min_items = Some(min_items);
+        self
+    }
+
+    pub fn with_minimum(mut self, minimum: i64) -> Self {
+        self.minimum = Some(minimum.into());
+        self
     }
 
     pub fn object(

@@ -20,6 +20,9 @@ use codex_extension_api::PromptSlot;
 use codex_extension_api::SkillInvocationContributor;
 use codex_extension_api::ThreadLifecycleContributor;
 use codex_extension_api::TokenUsageContributor;
+use codex_extension_api::ToolBatchPreflightContributor;
+use codex_extension_api::ToolBatchPreflightFailure;
+use codex_extension_api::ToolBatchPreflightInput;
 use codex_extension_api::ToolCall;
 use codex_extension_api::ToolContributor;
 use codex_extension_api::ToolExecutor;
@@ -113,6 +116,15 @@ impl ToolContributor for AllContributors {
     }
 }
 
+impl ToolBatchPreflightContributor for AllContributors {
+    fn preflight<'a>(
+        &'a self,
+        _input: ToolBatchPreflightInput<'a>,
+    ) -> ExtensionFuture<'a, Result<(), ToolBatchPreflightFailure>> {
+        Box::pin(std::future::ready(Ok(())))
+    }
+}
+
 impl ToolLifecycleContributor for AllContributors {}
 
 impl TurnItemContributor for AllContributors {
@@ -155,6 +167,7 @@ async fn build_round_trips_every_contributor_category() {
     builder.prompt_contributor(contributor.clone());
     builder.turn_input_contributor(contributor.clone());
     builder.tool_contributor(contributor.clone());
+    builder.tool_batch_preflight_contributor(contributor.clone());
     builder.tool_lifecycle_contributor(contributor.clone());
     builder.turn_item_contributor(contributor.clone());
     builder.approval_review_contributor(contributor);
@@ -168,6 +181,7 @@ async fn build_round_trips_every_contributor_category() {
     assert_eq!(registry.context_contributors().len(), 1);
     assert_eq!(registry.turn_input_contributors().len(), 1);
     assert_eq!(registry.tool_contributors().len(), 1);
+    assert_eq!(registry.tool_batch_preflight_contributors().len(), 1);
     assert_eq!(registry.tool_lifecycle_contributors().len(), 1);
     assert_eq!(registry.turn_item_contributors().len(), 1);
     assert_eq!(

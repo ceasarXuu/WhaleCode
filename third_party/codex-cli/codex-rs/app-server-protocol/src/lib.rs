@@ -13,6 +13,8 @@ mod schema_fixtures;
 #[path = "schema_fixtures_tests.rs"]
 mod schema_fixtures_tests;
 
+pub use codex_protocol::protocol::MapRuntimeMode;
+pub use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 pub use experimental_api::*;
 pub use precomputed_exports::GenerateTsOptions;
 pub use precomputed_exports::generate_internal_json_schema;

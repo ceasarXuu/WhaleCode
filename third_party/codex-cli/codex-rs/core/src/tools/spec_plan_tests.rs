@@ -11,6 +11,7 @@ use codex_model_provider_info::AMAZON_BEDROCK_GPT_5_6_LUNA_MODEL_ID;
 use codex_model_provider_info::AMAZON_BEDROCK_GPT_5_6_SOL_MODEL_ID;
 use codex_model_provider_info::AMAZON_BEDROCK_PROVIDER_ID;
 use codex_model_provider_info::ModelProviderInfo;
+use codex_model_provider_info::OPENAI_PROVIDER_ID;
 use codex_protocol::AgentPath;
 use codex_protocol::ThreadId;
 use codex_protocol::config_types::WebSearchMode;
@@ -284,10 +285,12 @@ fn use_chatgpt_auth(turn: &mut TurnContext) {
     turn.auth_manager = Some(AuthManager::from_auth_for_testing(
         CodexAuth::create_dummy_chatgpt_auth_for_testing(),
     ));
-    turn.provider = create_model_provider(
-        turn.config.model_provider.clone(),
-        turn.auth_manager.clone(),
-    );
+    let provider_info = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+    update_config(turn, |config| {
+        config.model_provider_id = OPENAI_PROVIDER_ID.to_string();
+        config.model_provider = provider_info.clone();
+    });
+    turn.provider = create_model_provider(provider_info, turn.auth_manager.clone());
 }
 
 fn use_bedrock_provider(turn: &mut TurnContext) {

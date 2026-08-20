@@ -8,13 +8,18 @@ use crate::function_tool::FunctionCallError;
 use crate::session::session::Session;
 use crate::tools::context::FunctionToolOutput;
 use crate::tools::context::ToolInvocation;
+use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
+use crate::tools::context::boxed_tool_output;
 use crate::tools::parallel::ToolCallRuntime;
-use crate::tools::registry::ToolHandler;
-use crate::tools::registry::ToolKind;
+use crate::tools::registry::CoreToolRuntime;
+use crate::tools::registry::ToolExecutor;
 use crate::tools::router::ToolRouter;
+use codex_tools::ToolName;
+use codex_tools::ToolSpec;
 use futures::StreamExt;
 
+use super::TASKSPACE_EXEC_TOOL_NAME;
 use super::TaskSpaceExecCatalog;
 use super::TaskSpaceExecEnvelopeError;
 use super::TaskSpaceExecPlanDecodeError;
@@ -51,18 +56,31 @@ impl TaskSpaceExecHandler {
     }
 }
 
-impl ToolHandler for TaskSpaceExecHandler {
-    type Output = FunctionToolOutput;
-
-    fn kind(&self) -> ToolKind {
-        ToolKind::Function
+impl ToolExecutor<ToolInvocation> for TaskSpaceExecHandler {
+    fn tool_name(&self) -> ToolName {
+        ToolName::plain(TASKSPACE_EXEC_TOOL_NAME)
     }
 
-    async fn is_mutating(&self, _invocation: &ToolInvocation) -> bool {
-        true
+    fn spec(&self) -> ToolSpec {
+        ToolSpec::Function(self.catalog.declaration().clone())
     }
 
-    async fn handle(&self, invocation: ToolInvocation) -> Result<Self::Output, FunctionCallError> {
+    fn supports_parallel_tool_calls(&self) -> bool {
+        false
+    }
+
+    fn handle(&self, invocation: ToolInvocation) -> codex_tools::ToolExecutorFuture<'_> {
+        Box::pin(self.handle_call(invocation))
+    }
+}
+
+impl CoreToolRuntime for TaskSpaceExecHandler {}
+
+impl TaskSpaceExecHandler {
+    async fn handle_call(
+        &self,
+        invocation: ToolInvocation,
+    ) -> Result<Box<dyn ToolOutput>, FunctionCallError> {
         let ToolPayload::Function { arguments } = &invocation.payload else {
             return Err(FunctionCallError::Fatal(
                 "taskspace_exec received a non-function payload".to_string(),
@@ -184,10 +202,14 @@ impl ToolHandler for TaskSpaceExecHandler {
             capability_identity = self.catalog.capability_identity(),
             action_count = action_bindings.len(),
         );
+        let client_step_context = Arc::new(
+            invocation
+                .step_context
+                .with_tool_router(Arc::clone(&self.client_router)),
+        );
         let client_runtime = ToolCallRuntime::new(
-            Arc::clone(&self.client_router),
             Arc::clone(&invocation.session),
-            Arc::clone(&invocation.turn),
+            client_step_context,
             Arc::clone(&invocation.tracker),
         );
         let mut dispatched = dispatch_client_calls(
@@ -218,6 +240,7 @@ impl ToolHandler for TaskSpaceExecHandler {
             }
             client_results.push(ClientResult {
                 call_index: result.identity.index,
+                action_id: result.identity.transport_id(),
                 node_id: result.node_id,
                 tool: result.display_name,
                 outcome: outcome_name(outcome),
@@ -241,7 +264,13 @@ impl ToolHandler for TaskSpaceExecHandler {
             candidate_map.as_ref(),
             envelope.plan(),
         );
-        let output = TaskSpaceExecResult::new(affected_node_states, reads, client_results);
+        let output = TaskSpaceExecResult::new(
+            invocation.call_id.clone(),
+            map_id.clone(),
+            affected_node_states,
+            reads,
+            client_results,
+        );
         let text = serde_json::to_string(&output).map_err(|error| {
             FunctionCallError::Fatal(format!(
                 "taskspace_exec feedback serialization failed: {error}"
@@ -261,7 +290,10 @@ impl ToolHandler for TaskSpaceExecHandler {
             client_result_count,
             success = all_succeeded,
         );
-        Ok(FunctionToolOutput::from_text(text, Some(all_succeeded)))
+        Ok(boxed_tool_output(FunctionToolOutput::from_text(
+            text,
+            Some(all_succeeded),
+        )))
     }
 }
 

@@ -3639,6 +3639,37 @@
         }
       ]
     },
+    "TaskSpaceUpdatedNotification": {
+      "properties": {
+        "mapId": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "mapId",
+        "operation",
+        "revision",
+        "threadId"
+      ],
+      "type": "object"
+    },
     "TerminalInteractionNotification": {
       "properties": {
         "itemId": {
@@ -6155,6 +6186,26 @@
         "params"
       ],
       "title": "Thread/goal/clearedNotification",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "method": {
+          "enum": [
+            "thread/taskspace/updated"
+          ],
+          "title": "Thread/taskspace/updatedNotificationMethod",
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/TaskSpaceUpdatedNotification"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "title": "Thread/taskspace/updatedNotification",
       "type": "object"
     },
     {

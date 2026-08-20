@@ -224,7 +224,24 @@ fn parse_tool_input_schema_infers_number_from_numeric_keywords() {
     }))
     .expect("parse schema");
 
-    assert_eq!(schema, JsonSchema::number(/*description*/ None));
+    assert_eq!(
+        schema,
+        JsonSchema::number(/*description*/ None).with_minimum(1)
+    );
+}
+
+#[test]
+fn parse_tool_input_schema_preserves_fractional_minimum() {
+    let schema = parse_tool_input_schema(&serde_json::json!({
+        "type": "number",
+        "minimum": 0.1
+    }))
+    .expect("parse schema with fractional minimum");
+
+    assert_eq!(
+        schema.minimum,
+        Some(serde_json::Number::from_f64(0.1).expect("finite number"))
+    );
 }
 
 #[test]

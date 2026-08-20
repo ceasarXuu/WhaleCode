@@ -13,6 +13,12 @@ pub type ToolLifecycleFuture<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>
 pub enum ToolCallSource {
     /// The model invoked the tool directly.
     Direct,
+    /// A TaskSpace batch invoked this nested tool.
+    TaskSpaceExec {
+        outer_call_id: String,
+        call_index: usize,
+        node_id: String,
+    },
     /// Code mode invoked the tool while executing a runtime cell.
     CodeMode {
         /// Runtime cell that issued the nested tool request.

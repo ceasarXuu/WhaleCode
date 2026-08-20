@@ -273,7 +273,7 @@ impl Session {
                             .to_string());
                     }
                 }
-                settle_runtime_action(&mut state.action_map_runtime, &fact, self.conversation_id)?;
+                settle_runtime_action(&mut state.action_map_runtime, &fact, self.thread_id)?;
                 return Ok(());
             };
             handle
@@ -296,7 +296,7 @@ impl Session {
                 tool_name: fact.tool_name.clone(),
                 outcome: fact.outcome,
                 operation: "taskspace_exec_settle".to_string(),
-                actor_thread_id: self.conversation_id,
+                actor_thread_id: self.thread_id,
             })
             .await
             .map_err(|error| format!("TaskSpace Action settlement failed: {error}"))?;

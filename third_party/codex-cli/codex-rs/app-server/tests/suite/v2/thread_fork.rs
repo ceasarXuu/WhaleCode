@@ -15,15 +15,19 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::JSONRPCError;
 use codex_app_server_protocol::JSONRPCMessage;
 use codex_app_server_protocol::JSONRPCResponse;
+use codex_app_server_protocol::MapRuntimeMode;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::SessionSource;
+use codex_app_server_protocol::TaskSpaceProjectionPolicy;
 use codex_app_server_protocol::ThreadForkParams;
 use codex_app_server_protocol::ThreadForkResponse;
 use codex_app_server_protocol::ThreadHistoryMode;
 use codex_app_server_protocol::ThreadItem;
 use codex_app_server_protocol::ThreadListParams;
 use codex_app_server_protocol::ThreadListResponse;
+use codex_app_server_protocol::ThreadMapRuntimeModeSetParams;
+use codex_app_server_protocol::ThreadMapRuntimeModeSetResponse;
 use codex_app_server_protocol::ThreadReadParams;
 use codex_app_server_protocol::ThreadReadResponse;
 use codex_app_server_protocol::ThreadResumeParams;
@@ -36,6 +40,8 @@ use codex_app_server_protocol::ThreadStartResponse;
 use codex_app_server_protocol::ThreadStartedNotification;
 use codex_app_server_protocol::ThreadStatus;
 use codex_app_server_protocol::ThreadStatusChangedNotification;
+use codex_app_server_protocol::ThreadTaskSpaceReadParams;
+use codex_app_server_protocol::ThreadTaskSpaceReadResponse;
 use codex_app_server_protocol::ThreadTurnsListParams;
 use codex_app_server_protocol::ThreadTurnsListResponse;
 use codex_app_server_protocol::TurnItemsView;
@@ -279,6 +285,241 @@ async fn thread_fork_creates_new_thread_and_emits_started() -> Result<()> {
     expected_started_thread.turns.clear();
     assert_eq!(started.thread, expected_started_thread);
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn thread_fork_inherits_taskspace_through_production_extensions() -> Result<()> {
+    let server = responses::start_mock_server().await;
+    let initialize = json!({
+        "type": "initialize_and_work",
+        "initialize_map": {
+            "root": {
+                "node_id": "root",
+                "goal": "deliver the requested change",
+                "content": "",
+                "parents": []
+            },
+            "work_nodes": [{
+                "node_id": "work",
+                "goal": "verify nested TaskSpace execution",
+                "content": "",
+                "parents": ["root"]
+            }],
+            "finish": {
+                "node_id": "finish",
+                "goal": "close the task",
+                "content": "",
+                "parents": ["work"]
+            }
+        },
+        "tools": [{
+            "tool": "exec_command",
+            "node_id": "work",
+            "input": {"cmd": "printf taskspace-initialized"}
+        }]
+    });
+    let read_map = json!({"type": "read_map", "read_map": {}});
+    let response_mock = responses::mount_sse_sequence(
+        &server,
+        vec![
+            responses::sse(vec![
+                responses::ev_response_created("standard-response"),
+                responses::ev_assistant_message("standard-message", "standard done"),
+                responses::ev_completed("standard-response"),
+            ]),
+            responses::sse(vec![
+                responses::ev_response_created("taskspace-response"),
+                responses::ev_function_call(
+                    "taskspace-initialize",
+                    "taskspace_exec",
+                    &serde_json::to_string(&initialize)?,
+                ),
+                responses::ev_completed("taskspace-response"),
+            ]),
+            responses::sse(vec![
+                responses::ev_response_created("taskspace-followup"),
+                responses::ev_assistant_message("taskspace-message", "taskspace initialized"),
+                responses::ev_completed("taskspace-followup"),
+            ]),
+            responses::sse(vec![
+                responses::ev_response_created("resumed-taskspace-response"),
+                responses::ev_function_call(
+                    "taskspace-read",
+                    "taskspace_exec",
+                    &serde_json::to_string(&read_map)?,
+                ),
+                responses::ev_completed("resumed-taskspace-response"),
+            ]),
+            responses::sse(vec![
+                responses::ev_response_created("resumed-taskspace-followup"),
+                responses::ev_assistant_message("resumed-taskspace-message", "taskspace resumed"),
+                responses::ev_completed("resumed-taskspace-followup"),
+            ]),
+        ],
+    )
+    .await;
+    let codex_home = TempDir::new()?;
+    MockResponsesConfig::new(&server.uri())
+        .enable_feature(Feature::Sqlite)
+        .write(codex_home.path())?;
+
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .build_initialized()
+        .await?;
+    let source: ThreadStartResponse = mcp
+        .request(|request_id| ClientRequest::ThreadStart {
+            request_id,
+            params: ThreadStartParams::default(),
+        })
+        .await?;
+    mcp.start_turn_and_wait_for_completion(TurnStartParams {
+        thread_id: source.thread.id.clone(),
+        input: vec![UserInput::Text {
+            text: "standard request before TaskSpace".into(),
+            text_elements: Vec::new(),
+        }],
+        ..Default::default()
+    })
+    .await?;
+
+    let _: ThreadMapRuntimeModeSetResponse = mcp
+        .request(|request_id| ClientRequest::ThreadMapRuntimeModeSet {
+            request_id,
+            params: ThreadMapRuntimeModeSetParams {
+                thread_id: source.thread.id.clone(),
+                mode: MapRuntimeMode::Experiment,
+                projection_policy: Some(TaskSpaceProjectionPolicy::MapRequest),
+            },
+        })
+        .await?;
+    mcp.start_turn_and_wait_for_completion(TurnStartParams {
+        thread_id: source.thread.id.clone(),
+        input: vec![UserInput::Text {
+            text: "initialize TaskSpace through the model tool path".into(),
+            text_elements: Vec::new(),
+        }],
+        ..Default::default()
+    })
+    .await?;
+    let initialized: ThreadTaskSpaceReadResponse = mcp
+        .request(|request_id| ClientRequest::ThreadTaskSpaceRead {
+            request_id,
+            params: ThreadTaskSpaceReadParams {
+                thread_id: source.thread.id.clone(),
+            },
+        })
+        .await?;
+    let initialized_map = initialized
+        .snapshot
+        .map
+        .as_ref()
+        .expect("taskspace_exec should initialize the production map");
+    assert_eq!(initialized.snapshot.mode, MapRuntimeMode::Experiment);
+    assert!(!initialized.snapshot.bootstrap_required);
+    assert_eq!(initialized_map.nodes.len(), 3);
+    let map_id = initialized_map.id.clone();
+
+    let fork_id = mcp
+        .send_thread_fork_request(ThreadForkParams {
+            thread_id: source.thread.id,
+            ..Default::default()
+        })
+        .await?;
+    let ThreadForkResponse { thread, .. } =
+        timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(fork_id)).await??;
+    let forked_snapshot: ThreadTaskSpaceReadResponse = mcp
+        .request(|request_id| ClientRequest::ThreadTaskSpaceRead {
+            request_id,
+            params: ThreadTaskSpaceReadParams {
+                thread_id: thread.id.clone(),
+            },
+        })
+        .await?;
+    assert_eq!(forked_snapshot.snapshot.mode, MapRuntimeMode::Experiment);
+    assert_eq!(
+        forked_snapshot.snapshot.map.as_ref().map(|map| &map.id),
+        Some(&map_id)
+    );
+
+    mcp.shutdown_gracefully().await?;
+
+    let mut resumed_mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .build_initialized()
+        .await?;
+    let resumed: ThreadResumeResponse = resumed_mcp
+        .request(|request_id| ClientRequest::ThreadResume {
+            request_id,
+            params: ThreadResumeParams {
+                thread_id: thread.id.clone(),
+                ..Default::default()
+            },
+        })
+        .await?;
+    assert_eq!(resumed.thread.id, thread.id);
+    let resumed_snapshot: ThreadTaskSpaceReadResponse = resumed_mcp
+        .request(|request_id| ClientRequest::ThreadTaskSpaceRead {
+            request_id,
+            params: ThreadTaskSpaceReadParams {
+                thread_id: thread.id.clone(),
+            },
+        })
+        .await?;
+    assert_eq!(resumed_snapshot.snapshot.mode, MapRuntimeMode::Experiment);
+    assert_eq!(
+        resumed_snapshot
+            .snapshot
+            .map
+            .as_ref()
+            .map(|map| map.id.as_str()),
+        Some(map_id.as_str())
+    );
+
+    resumed_mcp
+        .start_turn_and_wait_for_completion(TurnStartParams {
+            thread_id: thread.id,
+            input: vec![UserInput::Text {
+                text: "taskspace request after fork and reload".into(),
+                text_elements: Vec::new(),
+            }],
+            ..Default::default()
+        })
+        .await?;
+    resumed_mcp.shutdown_gracefully().await?;
+
+    let requests = response_mock.requests();
+    assert_eq!(requests.len(), 5, "expected full production request chain");
+    let standard = requests[0].body_json();
+    let taskspace_initialize = requests[1].body_json();
+    let taskspace_followup = requests[2].body_json();
+    let resumed_taskspace = requests[3].body_json();
+    let standard_tools = standard["tools"].as_array().expect("standard tools");
+    let taskspace_tools = taskspace_initialize["tools"]
+        .as_array()
+        .expect("TaskSpace tools");
+    assert!(
+        !standard_tools
+            .iter()
+            .any(|tool| tool["name"] == "taskspace_exec")
+    );
+    assert_eq!(
+        taskspace_tools
+            .iter()
+            .filter(|tool| tool["name"] == "taskspace_exec")
+            .count(),
+        1
+    );
+    let standard_wire = serde_json::to_string(&standard)?;
+    let taskspace_wire = serde_json::to_string(&taskspace_initialize)?;
+    let followup_wire = serde_json::to_string(&taskspace_followup)?;
+    let resumed_wire = serde_json::to_string(&resumed_taskspace)?;
+    assert!(!standard_wire.contains("TaskSpaceMapHandleR8V1"));
+    assert!(taskspace_wire.contains("TaskSpaceMapHandleR8V1"));
+    assert!(followup_wire.contains("taskspace_exec_result"));
+    assert!(resumed_wire.contains("TaskSpaceMapHandleR8V1"));
+    assert!(resumed_wire.contains(&map_id));
     Ok(())
 }
 

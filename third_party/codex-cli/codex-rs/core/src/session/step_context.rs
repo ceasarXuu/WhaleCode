@@ -23,3 +23,17 @@ pub(crate) struct StepContext {
     /// The canonical AGENTS.md value observed with this environment snapshot.
     pub(crate) loaded_agents_md: Option<Arc<LoadedAgentsMd>>,
 }
+
+impl StepContext {
+    pub(crate) fn with_tool_router(&self, tool_router: Arc<ToolRouter>) -> Self {
+        Self {
+            turn: Arc::clone(&self.turn),
+            environments: self.environments.clone(),
+            selected_capability_roots: self.selected_capability_roots.clone(),
+            executor_capability_discovery: self.executor_capability_discovery.clone(),
+            mcp: Arc::clone(&self.mcp),
+            tool_router,
+            loaded_agents_md: self.loaded_agents_md.clone(),
+        }
+    }
+}

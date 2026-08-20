@@ -20,6 +20,8 @@ pub struct ThreadStartInput<'a, C> {
     pub config: &'a C,
     /// Source that created the session for this thread.
     pub session_source: &'a SessionSource,
+    /// Immediate history source for a regular thread fork, resolved by the host.
+    pub forked_from_thread_id: Option<codex_protocol::ThreadId>,
     /// Whether persistent thread-scoped state is available for this thread.
     pub persistent_thread_state_available: bool,
     /// Execution environments selected for this thread.

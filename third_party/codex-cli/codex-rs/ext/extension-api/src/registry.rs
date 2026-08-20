@@ -12,6 +12,9 @@ use crate::NoopExtensionEventSink;
 use crate::SkillInvocationContributor;
 use crate::ThreadLifecycleContributor;
 use crate::TokenUsageContributor;
+use crate::ToolBatchPreflightContributor;
+use crate::ToolBatchPreflightFailure;
+use crate::ToolBatchPreflightInput;
 use crate::ToolContributor;
 use crate::ToolLifecycleContributor;
 use crate::TurnInputContributor;
@@ -38,6 +41,7 @@ impl<C: Sync> Default for ExtensionRegistryBuilder<C> {
                 mcp_server_contributors: Vec::new(),
                 turn_input_contributors: Vec::new(),
                 tool_contributors: Vec::new(),
+                tool_batch_preflight_contributors: Vec::new(),
                 tool_lifecycle_contributors: Vec::new(),
                 turn_item_contributors: Vec::new(),
             },
@@ -123,6 +127,16 @@ impl<C: Sync> ExtensionRegistryBuilder<C> {
         self.registry.tool_contributors.push(contributor);
     }
 
+    /// Registers a response-level tool batch gate.
+    pub fn tool_batch_preflight_contributor(
+        &mut self,
+        contributor: Arc<dyn ToolBatchPreflightContributor>,
+    ) {
+        self.registry
+            .tool_batch_preflight_contributors
+            .push(contributor);
+    }
+
     /// Registers one tool-lifecycle contributor.
     pub fn tool_lifecycle_contributor(&mut self, contributor: Arc<dyn ToolLifecycleContributor>) {
         self.registry.tool_lifecycle_contributors.push(contributor);
@@ -151,6 +165,7 @@ pub struct ExtensionRegistry<C: Sync> {
     mcp_server_contributors: Vec<Arc<dyn McpServerContributor<C>>>,
     turn_input_contributors: Vec<Arc<dyn TurnInputContributor>>,
     tool_contributors: Vec<Arc<dyn ToolContributor>>,
+    tool_batch_preflight_contributors: Vec<Arc<dyn ToolBatchPreflightContributor>>,
     tool_lifecycle_contributors: Vec<Arc<dyn ToolLifecycleContributor>>,
     turn_item_contributors: Vec<Arc<dyn TurnItemContributor>>,
     approval_review_contributors: Vec<Arc<dyn ApprovalReviewContributor>>,
@@ -225,6 +240,29 @@ impl<C: Sync> ExtensionRegistry<C> {
     /// Returns the registered native tool contributors.
     pub fn tool_contributors(&self) -> &[Arc<dyn ToolContributor>] {
         &self.tool_contributors
+    }
+
+    /// Runs response-level gates in registration order and returns the first failure.
+    pub async fn preflight_tool_batch(
+        &self,
+        input: ToolBatchPreflightInput<'_>,
+    ) -> Result<(), ToolBatchPreflightFailure> {
+        for contributor in &self.tool_batch_preflight_contributors {
+            contributor
+                .preflight(ToolBatchPreflightInput {
+                    session_store: input.session_store,
+                    thread_store: input.thread_store,
+                    turn_store: input.turn_store,
+                    calls: input.calls,
+                })
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Returns the registered response-level tool batch gates.
+    pub fn tool_batch_preflight_contributors(&self) -> &[Arc<dyn ToolBatchPreflightContributor>] {
+        &self.tool_batch_preflight_contributors
     }
 
     /// Returns the registered tool-lifecycle contributors.

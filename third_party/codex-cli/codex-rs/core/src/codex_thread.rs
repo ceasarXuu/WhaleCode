@@ -228,6 +228,12 @@ impl CodexThread {
         self.io.submit(op).await
     }
 
+    pub async fn action_map_snapshot(
+        &self,
+    ) -> Result<codex_protocol::protocol::ActionMapSnapshot, String> {
+        self.session.canonical_action_map_snapshot().await
+    }
+
     /// Returns the session telemetry handle for thread-scoped production instrumentation.
     pub fn session_telemetry(&self) -> SessionTelemetry {
         self.session.services.session_telemetry.clone()

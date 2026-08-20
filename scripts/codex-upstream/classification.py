@@ -380,7 +380,13 @@ def classify(
 
     if (
         path.startswith((".github/", ".vscode/"))
-        or path in {"BUILD_NUMBER", "MODULE.bazel.lock", "codex-rs/arg0/src/lib.rs"}
+        or path
+        in {
+            "BUILD_NUMBER",
+            "MODULE.bazel.lock",
+            "justfile",
+            "codex-rs/arg0/src/lib.rs",
+        }
         or path.endswith(("Cargo.toml", "Cargo.lock", "BUILD.bazel", ".bzl"))
         or path.startswith("codex-cli/scripts/")
         or path == "codex-cli/package.json"

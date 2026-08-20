@@ -3393,14 +3393,29 @@ impl CodexMessageProcessor {
             }
         };
 
-        let op = match projection_policy {
-            Some(policy) => Op::SetTaskSpaceProjectionPolicy { policy },
-            None => Op::SetMapRuntimeMode { mode },
-        };
-        if let Err(err) = self.submit_core_op(&request_id, thread.as_ref(), op).await {
+        if let Err(err) = self
+            .submit_core_op(&request_id, thread.as_ref(), Op::SetMapRuntimeMode { mode })
+            .await
+        {
             self.send_internal_error(
                 request_id,
                 format!("failed to set thread map runtime mode: {err}"),
+            )
+            .await;
+            return;
+        }
+        if let Some(policy) = projection_policy
+            && let Err(err) = self
+                .submit_core_op(
+                    &request_id,
+                    thread.as_ref(),
+                    Op::SetTaskSpaceProjectionPolicy { policy },
+                )
+                .await
+        {
+            self.send_internal_error(
+                request_id,
+                format!("failed to set thread TaskSpace projection policy: {err}"),
             )
             .await;
             return;

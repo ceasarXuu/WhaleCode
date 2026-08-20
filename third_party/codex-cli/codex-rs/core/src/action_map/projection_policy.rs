@@ -42,7 +42,7 @@ impl ProjectionCursor {
                 ContentItem::InputText { text } | ContentItem::OutputText { text } => {
                     projection_identity_from_context(text)
                 }
-                ContentItem::InputImage { .. } => None,
+                ContentItem::InputImage { .. } | ContentItem::InputAudio { .. } => None,
             })
         });
         Self { last_emitted }
@@ -293,8 +293,8 @@ mod tests {
                     "{TASKSPACE_MAP_PROJECTION_MARKER}\n- projection_kind: request_snapshot\n- map_id: map-1\n- revision: 4\n- canonical_sha256: canonical-4\n{TASKSPACE_MAP_PROJECTION_END}\n"
                 ),
             }],
-            end_turn: None,
             phase: None,
+            internal_chat_message_metadata_passthrough: None,
         };
 
         let cursor = ProjectionCursor::from_items(&[item]);

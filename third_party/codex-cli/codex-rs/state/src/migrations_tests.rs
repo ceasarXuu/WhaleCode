@@ -1,11 +1,5 @@
-use codex_protocol::ThreadId;
-use codex_taskspace_extension::model::MapEdge;
-use codex_taskspace_extension::model::map_node;
-use codex_taskspace_extension::model::new_map;
 use codex_utils_absolute_path::test_support::PathExt;
 use pretty_assertions::assert_eq;
-use sha2::Digest;
-use sha2::Sha256;
 use sqlx::Connection;
 use sqlx::Row;
 use sqlx::SqlSafeStr;
@@ -91,27 +85,9 @@ async fn open_legacy_whale_taskspace_pool() -> (
 }
 
 #[tokio::test]
-async fn repairs_legacy_whale_taskspace_migration_collision_and_preserves_data() {
+async fn repairs_legacy_whale_collision_then_archives_v2_data_for_r8() {
     let (_cleanup, sqlite, pool) = open_legacy_whale_taskspace_pool().await;
-    let owner = ThreadId::new();
-    let canonical_map = new_map(
-        "map-1".into(),
-        map_node("root", "deliver", vec![]),
-        vec![map_node("work", "implement", vec![])],
-        map_node("finish", "close", vec![]),
-        vec![
-            MapEdge {
-                from: "root".into(),
-                to: "work".into(),
-            },
-            MapEdge {
-                from: "work".into(),
-                to: "finish".into(),
-            },
-        ],
-    );
-    let canonical_json = serde_json::to_string(&canonical_map).expect("map should encode");
-    let canonical_sha256 = format!("{:x}", Sha256::digest(canonical_json.as_bytes()));
+    let canonical_json = r#"{"schema_version":"taskspace-canonical-map-v2","map_id":"legacy-map"}"#;
     sqlx::query(
         r#"
 INSERT INTO taskspace_maps (
@@ -121,55 +97,43 @@ INSERT INTO taskspace_maps (
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
-    .bind("map-1")
-    .bind(owner.to_string())
+    .bind("legacy-map")
+    .bind("legacy-owner")
     .bind("taskspace-canonical-map-v2")
-    .bind(&canonical_json)
-    .bind(canonical_sha256)
+    .bind(canonical_json)
+    .bind("legacy-sha")
     .bind(1_i64)
-    .bind(1_i64)
+    .bind(0_i64)
     .bind(0_i64)
     .bind(1_i64)
     .bind(1_i64)
     .execute(&pool)
     .await
-    .expect("legacy canonical map should be inserted");
+    .expect("legacy canonical map should insert");
     pool.close().await;
 
     let runtime = crate::StateRuntime::init(sqlite.clone(), "deepseek".to_string())
         .await
-        .expect("0.147 state runtime should repair and open the legacy Whale database");
-    let loaded = runtime
-        .load_taskspace_map("map-1")
-        .await
-        .expect("legacy canonical map should decode")
-        .expect("legacy canonical map should remain present");
-    assert_eq!(loaded.map, canonical_map);
+        .expect("current runtime should repair and migrate the legacy database");
+    assert!(
+        runtime
+            .load_taskspace_map("legacy-map")
+            .await
+            .expect("R8 store should remain readable")
+            .is_none()
+    );
+
     let verification_pool = sqlite
         .open_read_write_pool(&sqlite.state_db_path())
         .await
-        .expect("repaired state database should open");
+        .expect("migrated database should open");
     let preserved = sqlx::query_scalar::<_, String>(
-        "SELECT canonical_json FROM taskspace_maps WHERE map_id = 'map-1'",
+        "SELECT canonical_json FROM taskspace_v2_maps WHERE map_id = 'legacy-map'",
     )
     .fetch_one(&verification_pool)
     .await
-    .expect("legacy TaskSpace data should remain readable");
+    .expect("legacy canonical JSON should be archived losslessly");
     assert_eq!(preserved, canonical_json);
-    let thread_source_columns = sqlx::query_scalar::<_, i64>(
-        "SELECT count(*) FROM pragma_table_info('threads') WHERE name = 'thread_source'",
-    )
-    .fetch_one(&verification_pool)
-    .await
-    .expect("threads schema should be readable");
-    assert_eq!(thread_source_columns, 1);
-    let device_key_tables = sqlx::query_scalar::<_, i64>(
-        "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'device_key_bindings'",
-    )
-    .fetch_one(&verification_pool)
-    .await
-    .expect("device key schema should be readable");
-    assert_eq!(device_key_tables, 0);
     let applied = sqlx::query_as::<_, (i64, Vec<u8>)>(
         "SELECT version, checksum FROM _sqlx_migrations WHERE version IN (30, 31) ORDER BY version",
     )
@@ -183,7 +147,6 @@ INSERT INTO taskspace_maps (
         .map(|migration| (migration.version, migration.checksum.to_vec()))
         .collect::<Vec<_>>();
     assert_eq!(applied, expected);
-
     verification_pool.close().await;
     runtime.close().await;
 }
@@ -284,6 +247,99 @@ async fn legacy_whale_taskspace_repair_is_noop_for_fresh_and_current_databases()
     .expect("current migration metadata should remain readable");
     assert_eq!(after, before);
     pool.close().await;
+}
+
+#[tokio::test]
+async fn relational_taskspace_migration_archives_v2_rows_without_activating_them() {
+    let sqlite_home = crate::runtime::test_support::unique_temp_dir();
+    tokio::fs::create_dir_all(&sqlite_home)
+        .await
+        .expect("sqlite home should be created");
+    let _cleanup = scopeguard::guard(sqlite_home.clone(), |sqlite_home| {
+        let _ = std::fs::remove_dir_all(sqlite_home);
+    });
+    let sqlite = crate::SqliteConfig::new_for_testing(sqlite_home.as_path().abs());
+    let pool = sqlite
+        .open_read_write_pool(&sqlite.state_db_path())
+        .await
+        .expect("state database should open");
+    migrator_through(47)
+        .run(&pool)
+        .await
+        .expect("v2 migrations should apply");
+
+    sqlx::query("INSERT INTO taskspace_maps VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind("legacy-map")
+        .bind("legacy-owner")
+        .bind("taskspace.v2")
+        .bind(r#"{"schema_version":"taskspace.v2"}"#)
+        .bind("legacy-sha")
+        .bind(2_i64)
+        .bind(4_i64)
+        .bind(0_i64)
+        .bind(10_i64)
+        .bind(20_i64)
+        .execute(&pool)
+        .await
+        .expect("legacy map should insert");
+    sqlx::query("INSERT INTO taskspace_map_bindings VALUES (?, ?, ?, ?, ?, ?)")
+        .bind("legacy-thread")
+        .bind("legacy-map")
+        .bind("owner")
+        .bind(Option::<String>::None)
+        .bind(10_i64)
+        .bind(20_i64)
+        .execute(&pool)
+        .await
+        .expect("legacy binding should insert");
+    sqlx::query("INSERT INTO taskspace_map_commits VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .bind("legacy-commit")
+        .bind("legacy-map")
+        .bind(1_i64)
+        .bind(2_i64)
+        .bind("legacy-sha")
+        .bind("legacy-request")
+        .bind("update")
+        .bind("legacy-thread")
+        .bind(20_i64)
+        .execute(&pool)
+        .await
+        .expect("legacy commit should insert");
+
+    STATE_MIGRATOR
+        .run(&pool)
+        .await
+        .expect("relational migration should apply");
+
+    let archived = sqlx::query_as::<_, (String, String)>(
+        "SELECT map_id, canonical_json FROM taskspace_v2_maps",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("archived map should remain readable");
+    assert_eq!(archived.0, "legacy-map");
+    assert_eq!(archived.1, r#"{"schema_version":"taskspace.v2"}"#);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM taskspace_v2_map_bindings")
+            .fetch_one(&pool)
+            .await
+            .expect("archived bindings should remain readable"),
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM taskspace_v2_map_commits")
+            .fetch_one(&pool)
+            .await
+            .expect("archived commits should remain readable"),
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM taskspace_maps")
+            .fetch_one(&pool)
+            .await
+            .expect("new relational store should be readable"),
+        0
+    );
 }
 
 #[tokio::test]

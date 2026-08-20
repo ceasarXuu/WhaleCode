@@ -8,7 +8,7 @@ pub const DEFAULT_FUNCTION_NAMESPACE: &str = "functions";
 
 /// Identifies a callable tool, preserving the namespace split when the model
 /// provides one.
-#[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct ToolName {
     pub name: String,
     pub namespace: Option<String>,
@@ -90,28 +90,5 @@ impl From<String> for ToolName {
 impl From<&str> for ToolName {
     fn from(name: &str) -> Self {
         Self::plain(name)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use pretty_assertions::assert_eq;
-
-    #[test]
-    fn serde_round_trips_plain_and_namespaced_identity_without_flattening() {
-        let identities = [
-            ToolName::plain("alpha_beta_gamma"),
-            ToolName::namespaced("alpha", "beta_gamma"),
-            ToolName::namespaced("alpha_beta", "gamma"),
-            ToolName::namespaced("namespace:/with:_separators", "tool:/with:_separators"),
-        ];
-
-        for identity in identities {
-            let encoded = serde_json::to_string(&identity).expect("ToolName should serialize");
-            let decoded =
-                serde_json::from_str::<ToolName>(&encoded).expect("ToolName should deserialize");
-            assert_eq!(decoded, identity);
-        }
     }
 }

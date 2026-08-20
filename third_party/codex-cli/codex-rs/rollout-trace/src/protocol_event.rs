@@ -422,6 +422,8 @@ pub(crate) fn tool_runtime_trace_event(event: &EventMsg) -> Option<ToolRuntimeTr
         | EventMsg::PlanDelta(_)
         | EventMsg::ReasoningContentDelta(_)
         | EventMsg::ReasoningRawContentDelta(_)
+        | EventMsg::TaskSpaceUpdated(_)
+        | EventMsg::MapRuntime(_)
         | EventMsg::CollabResumeBegin(_)
         | EventMsg::CollabResumeEnd(_) => None,
     }
@@ -434,6 +436,7 @@ pub(crate) fn wrapped_protocol_event_type(event: &EventMsg) -> Option<&'static s
         EventMsg::TurnComplete(_) => Some("turn_complete"),
         EventMsg::TurnAborted(_) => Some("turn_aborted"),
         EventMsg::ThreadRolledBack(_) => Some("thread_rolled_back"),
+        EventMsg::MapRuntime(_) => Some("map_runtime"),
         EventMsg::Error(_) => Some("error"),
         EventMsg::Warning(_) => Some("warning"),
         EventMsg::ShutdownComplete => Some("shutdown_complete"),
@@ -498,6 +501,7 @@ pub(crate) fn wrapped_protocol_event_type(event: &EventMsg) -> Option<&'static s
         | EventMsg::PlanDelta(_)
         | EventMsg::ReasoningContentDelta(_)
         | EventMsg::ReasoningRawContentDelta(_)
+        | EventMsg::TaskSpaceUpdated(_)
         | EventMsg::CollabAgentSpawnBegin(_)
         | EventMsg::CollabAgentSpawnEnd(_)
         | EventMsg::CollabAgentInteractionBegin(_)

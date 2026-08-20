@@ -9,13 +9,18 @@ use codex_protocol::taskspace::TaskSpaceCanonicalMap;
 use codex_protocol::taskspace::TaskSpaceMapNode;
 use codex_protocol::taskspace::TaskSpaceNodeAction;
 use codex_protocol::taskspace::TaskSpaceNodeState;
+use codex_utils_absolute_path::test_support::PathExt;
+use sqlx::AssertSqlSafe;
 use sqlx::Row;
 
 async fn runtime() -> (std::path::PathBuf, std::sync::Arc<StateRuntime>) {
     let home = unique_temp_dir();
-    let runtime = StateRuntime::init(home.clone(), "test-provider".to_string())
-        .await
-        .expect("state runtime");
+    let runtime = StateRuntime::init(
+        crate::SqliteConfig::new_for_testing(home.as_path().abs()),
+        "test-provider".to_string(),
+    )
+    .await
+    .expect("state runtime");
     (home, runtime)
 }
 
@@ -169,7 +174,7 @@ async fn action_outcome_commit_updates_only_the_matching_action_row() {
         let statement = format!(
             "CREATE TRIGGER {name} AFTER {operation} ON {table} BEGIN INSERT INTO taskspace_write_audit VALUES ('{entity}', '{operation}', {action_id}); END"
         );
-        sqlx::query(&statement)
+        sqlx::query(AssertSqlSafe(statement.as_str()))
             .execute(runtime.pool.as_ref())
             .await
             .expect("audit trigger");
@@ -270,7 +275,7 @@ async fn action_row_diff_handles_add_delete_and_reorder_without_reinserting_surv
         let statement = format!(
             "CREATE TRIGGER {name} AFTER {operation} ON taskspace_map_node_actions BEGIN INSERT INTO taskspace_action_audit VALUES ('{operation}', {action_id}); END"
         );
-        sqlx::query(&statement)
+        sqlx::query(AssertSqlSafe(statement.as_str()))
             .execute(runtime.pool.as_ref())
             .await
             .expect("audit trigger");
@@ -372,7 +377,7 @@ async fn node_row_diff_handles_reorder_without_unique_conflict_or_reinserting_su
         let statement = format!(
             "CREATE TRIGGER {name} AFTER {operation} ON taskspace_map_nodes BEGIN INSERT INTO taskspace_node_audit VALUES ('{operation}', {node_id}); END"
         );
-        sqlx::query(&statement)
+        sqlx::query(AssertSqlSafe(statement.as_str()))
             .execute(runtime.pool.as_ref())
             .await
             .expect("audit trigger");

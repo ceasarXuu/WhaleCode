@@ -4,7 +4,9 @@
 // user-visible output must go through the appropriate abstraction (e.g.,
 // the TUI or the tracing stack).
 #![deny(clippy::print_stdout, clippy::print_stderr)]
+#![recursion_limit = "256"]
 
+mod action_map;
 mod apply_patch;
 mod apps;
 mod client;

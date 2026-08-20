@@ -44,14 +44,14 @@ Current verified Whale overlay:
 - Free final-wire/cache contracts for DeepSeek Standard and TaskSpace; the
   accepted live cache baseline remains unchanged because no real model run was
   authorized or required for this refresh.
-- TaskSpace canonical domain and replay state, the single state-runtime store,
-  extension-owned lifecycle/tools/world-state integration, experimental
-  app-server RPC/events, TUI slash routing and the loopback-only viewer.
+- TaskSpace R8 canonical domain and replay state, the single relational
+  state-runtime store, built-in `taskspace_exec` execution path, experimental
+  app-server RPC/events and fork/restart restoration. Legacy v2 JSON tables are
+  retained under `taskspace_v2_*` as a non-active archive during migration.
 
-The current generated overlay inventory contains 185 changed vendor paths
-relative to the immutable `rust-v0.147.0` tree. This count includes production
-overlay, tests and generated protocol artifacts; it is not a manually
-maintained patch count. OpenAI/ChatGPT login product UI, OpenAI-hosted remote
+The current generated overlay inventory is the authority for changed vendor
+paths relative to the immutable `rust-v0.147.0` tree. It includes production
+overlay, tests and generated protocol artifacts. OpenAI/ChatGPT login product UI, OpenAI-hosted remote
 plugin sharing and recommendations, Bedrock-specific model catalogs, remaining
 user-facing branding cleanup, Windows validation and the known TaskSpace TUI
 fixture remain outside the verified release matrix.
@@ -65,4 +65,6 @@ python3 scripts/codex-upstream/validate_sync_metadata.py
 ```
 
 The release-closeout evidence is recorded in
-[`2026-08-14-u17-release-closeout.md`](../../docs/migration/codex-sync/2026-08-14-u17-release-closeout.md).
+[`2026-08-14-u17-release-closeout.md`](../../docs/migration/codex-sync/2026-08-14-u17-release-closeout.md). The subsequent project-main rebase and
+R8 semantic migration are recorded in
+[`2026-08-21-u18-main-rebase-r8-semantic-migration.md`](../../docs/migration/codex-sync/2026-08-21-u18-main-rebase-r8-semantic-migration.md).

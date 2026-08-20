@@ -1843,6 +1843,13 @@
       ],
       "type": "string"
     },
+    "MapRuntimeMode": {
+      "enum": [
+        "standard",
+        "experiment"
+      ],
+      "type": "string"
+    },
     "MarketplaceAddParams": {
       "properties": {
         "refName": {
@@ -3876,6 +3883,14 @@
         "name"
       ],
       "type": "object"
+    },
+    "TaskSpaceProjectionPolicy": {
+      "enum": [
+        "map-always",
+        "map-append",
+        "map-request"
+      ],
+      "type": "string"
     },
     "TextElement": {
       "properties": {

@@ -305,18 +305,14 @@ impl TaskSpaceExecResponseScope {
 #[cfg(test)]
 impl Default for TaskSpaceExecResponseScope {
     fn default() -> Self {
-        let specs = [
-            ToolSpec::WebSearch {
-                external_web_access: Some(true),
-                filters: None,
-                user_location: None,
-                search_context_size: None,
-                search_content_types: None,
-            },
-            ToolSpec::ImageGeneration {
-                output_format: "png".into(),
-            },
-        ];
+        let specs = [ToolSpec::WebSearch {
+            external_web_access: Some(true),
+            indexed_web_access: None,
+            filters: None,
+            user_location: None,
+            search_context_size: None,
+            search_content_types: None,
+        }];
         Self::new(
             Arc::from("test-capability-identity"),
             specs
@@ -408,10 +404,9 @@ fn unexpected_client_tool(item: &ResponseItem) -> Option<(String, bool)> {
                 .map_or_else(|| name.clone(), |namespace| format!("{namespace}.{name}")),
             true,
         )),
-        ResponseItem::LocalShellCall { call_id, id, .. } => Some((
-            "local_shell".to_string(),
-            call_id.as_ref().or(id.as_ref()).is_some(),
-        )),
+        ResponseItem::LocalShellCall { call_id, id, .. } => {
+            Some(("local_shell".to_string(), call_id.is_some() || id.is_some()))
+        }
         ResponseItem::CustomToolCall { name, .. } => Some((name.clone(), true)),
         ResponseItem::ToolSearchCall { .. } => Some(("tool_search".to_string(), false)),
         _ => None,
@@ -439,26 +434,30 @@ mod tests {
         let scope = TaskSpaceExecResponseScope::default();
         scope.begin_request("map-1", Some(7)).unwrap();
         scope.record_completed_item(&ResponseItem::WebSearchCall {
-            id: Some("ws-1".into()),
+            id: None,
             status: Some("completed".into()),
             action: Some(WebSearchAction::Search {
                 query: Some("query".into()),
                 queries: None,
             }),
+            internal_chat_message_metadata_passthrough: None,
         });
         scope.record_completed_item(&ResponseItem::WebSearchCall {
-            id: Some("ws-2".into()),
+            id: None,
             status: Some("failed".into()),
             action: Some(WebSearchAction::OpenPage {
                 url: Some("https://example.com".into()),
             }),
+            internal_chat_message_metadata_passthrough: None,
         });
         scope.record_completed_item(&ResponseItem::FunctionCall {
             id: None,
             name: TASKSPACE_EXEC_TOOL_NAME.into(),
             namespace: None,
             arguments: "{}".into(),
+            encrypted_function_args: None,
             call_id: "outer".into(),
+            internal_chat_message_metadata_passthrough: None,
         });
         let pending = scope.finalize(true, Some(response_identity())).unwrap();
         assert_eq!(pending.len(), 1);
@@ -494,7 +493,9 @@ mod tests {
             name: TASKSPACE_EXEC_TOOL_NAME.into(),
             namespace: None,
             arguments: "{}".into(),
+            encrypted_function_args: None,
             call_id: "outer".into(),
+            internal_chat_message_metadata_passthrough: None,
         });
         assert!(scope.finalize(false, None).is_err());
         assert!(
@@ -517,9 +518,10 @@ mod tests {
         let scope = TaskSpaceExecResponseScope::default();
         scope.begin_request("map-1", Some(7)).unwrap();
         scope.record_completed_item(&ResponseItem::WebSearchCall {
-            id: Some("ws-1".into()),
+            id: None,
             status: Some("completed".into()),
             action: None,
+            internal_chat_message_metadata_passthrough: None,
         });
         let actions = scope.finalize(true, Some(response_identity())).unwrap();
         assert_eq!(actions.len(), 1);
@@ -536,7 +538,9 @@ mod tests {
                 name: TASKSPACE_EXEC_TOOL_NAME.into(),
                 namespace: None,
                 arguments: "{}".into(),
+                encrypted_function_args: None,
                 call_id: call_id.into(),
+                internal_chat_message_metadata_passthrough: None,
             });
         }
         assert!(
@@ -553,7 +557,9 @@ mod tests {
             name: TASKSPACE_EXEC_TOOL_NAME.into(),
             namespace: None,
             arguments: "{}".into(),
+            encrypted_function_args: None,
             call_id: "outer".into(),
+            internal_chat_message_metadata_passthrough: None,
         });
         scope.finalize(true, Some(response_identity())).unwrap();
         assert!(scope.ensure_reconciled().is_err());
@@ -570,14 +576,18 @@ mod tests {
             name: "inspect".into(),
             namespace: None,
             arguments: "{}".into(),
+            encrypted_function_args: None,
             call_id: "bypass".into(),
+            internal_chat_message_metadata_passthrough: None,
         });
         scope.record_completed_item(&ResponseItem::FunctionCall {
             id: None,
             name: TASKSPACE_EXEC_TOOL_NAME.into(),
             namespace: None,
             arguments: "{}".into(),
+            encrypted_function_args: None,
             call_id: "outer".into(),
+            internal_chat_message_metadata_passthrough: None,
         });
 
         let error = scope.finalize(true, Some(response_identity())).unwrap_err();
@@ -599,7 +609,9 @@ mod tests {
                 name: TASKSPACE_EXEC_TOOL_NAME.into(),
                 namespace: None,
                 arguments: "{}".into(),
+                encrypted_function_args: None,
                 call_id: call_id.into(),
+                internal_chat_message_metadata_passthrough: None,
             });
         }
 
@@ -622,7 +634,9 @@ mod tests {
             name: "inspect".into(),
             namespace: None,
             arguments: "{}".into(),
+            encrypted_function_args: None,
             call_id: "bypass".into(),
+            internal_chat_message_metadata_passthrough: None,
         });
         for call_id in ["outer-1", "outer-2"] {
             scope.record_completed_item(&ResponseItem::FunctionCall {
@@ -630,7 +644,9 @@ mod tests {
                 name: TASKSPACE_EXEC_TOOL_NAME.into(),
                 namespace: None,
                 arguments: "{}".into(),
+                encrypted_function_args: None,
                 call_id: call_id.into(),
+                internal_chat_message_metadata_passthrough: None,
             });
         }
 
@@ -647,16 +663,19 @@ mod tests {
         let scope = TaskSpaceExecResponseScope::default();
         scope.begin_request("map-1", Some(7)).unwrap();
         scope.record_completed_item(&ResponseItem::WebSearchCall {
-            id: Some("ws-1".into()),
+            id: None,
             status: Some("completed".into()),
             action: None,
+            internal_chat_message_metadata_passthrough: None,
         });
         scope.record_completed_item(&ResponseItem::FunctionCall {
             id: None,
             name: "inspect".into(),
             namespace: None,
             arguments: "{}".into(),
+            encrypted_function_args: None,
             call_id: "bypass".into(),
+            internal_chat_message_metadata_passthrough: None,
         });
 
         let error = scope.finalize(true, Some(response_identity())).unwrap_err();
@@ -679,7 +698,9 @@ mod tests {
             name: TASKSPACE_EXEC_TOOL_NAME.into(),
             namespace: None,
             arguments: "{}".into(),
+            encrypted_function_args: None,
             call_id: "outer".into(),
+            internal_chat_message_metadata_passthrough: None,
         });
 
         assert!(

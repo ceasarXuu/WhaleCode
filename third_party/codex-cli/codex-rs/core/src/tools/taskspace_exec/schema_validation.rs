@@ -86,15 +86,30 @@ fn validate_at(
             }
         }
     }
-    if let Some(minimum) = schema.minimum
-        && value.as_i64().is_some_and(|number| number < minimum)
+    if let Some(minimum) = schema.minimum.as_ref()
+        && value
+            .as_number()
+            .is_some_and(|number| number_is_below_minimum(number, minimum))
     {
         return Err(SchemaViolation {
             path: path.to_string(),
-            reason: format!("integer is below minimum {minimum}"),
+            reason: format!("number is below minimum {minimum}"),
         });
     }
     Ok(())
+}
+
+fn number_is_below_minimum(number: &serde_json::Number, minimum: &serde_json::Number) -> bool {
+    match (number.as_i64(), minimum.as_i64()) {
+        (Some(number), Some(minimum)) => number < minimum,
+        _ => match (number.as_u64(), minimum.as_u64()) {
+            (Some(number), Some(minimum)) => number < minimum,
+            _ => match (number.as_f64(), minimum.as_f64()) {
+                (Some(number), Some(minimum)) => number < minimum,
+                _ => false,
+            },
+        },
+    }
 }
 
 fn discriminated_variants<'a>(value: &Value, variants: &'a [JsonSchema]) -> Vec<&'a JsonSchema> {
@@ -158,7 +173,7 @@ fn validate_object(
 
 fn resolve_local_reference<'a>(root: &'a JsonSchema, reference: &str) -> Option<&'a JsonSchema> {
     let name = reference.strip_prefix("#/$defs/")?;
-    root.definitions.as_ref()?.get(name)
+    root.defs.as_ref().or(root.definitions.as_ref())?.get(name)
 }
 
 fn matches_type(value: &Value, schema_type: &JsonSchemaType) -> bool {

@@ -384,6 +384,7 @@ mod tests {
             ToolSpec::Freeform(FreeformTool {
                 name: "apply_patch".to_string(),
                 description: "apply one patch".to_string(),
+                defer_loading: None,
                 format: FreeformToolFormat {
                     r#type: "grammar".to_string(),
                     syntax: "lark".to_string(),
@@ -400,7 +401,9 @@ mod tests {
             name: TASKSPACE_EXEC_TOOL_NAME.to_string(),
             namespace: None,
             arguments,
+            encrypted_function_args: None,
             call_id: "call-1".to_string(),
+            internal_chat_message_metadata_passthrough: None,
         }
     }
 

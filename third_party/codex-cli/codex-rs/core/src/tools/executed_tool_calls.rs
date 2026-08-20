@@ -135,6 +135,7 @@ impl ExecutedToolCallRecorder {
                     original_bytes,
                 );
             }
+            ToolCallSource::TaskSpaceExec { .. } => {}
         }
     }
 

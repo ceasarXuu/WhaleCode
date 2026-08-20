@@ -8,7 +8,6 @@ license.workspace = true
 anyhow = { workspace = true }
 chrono = { workspace = true }
 codex-protocol = { workspace = true }
-codex-taskspace-extension = { workspace = true }
 codex-utils-absolute-path = { workspace = true }
 libsqlite3-sys = { workspace = true }
 log = { workspace = true }

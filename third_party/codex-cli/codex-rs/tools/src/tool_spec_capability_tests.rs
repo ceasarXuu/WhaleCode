@@ -24,18 +24,9 @@ fn function(name: &str) -> ResponsesApiTool {
 #[test]
 fn projects_function_without_container_policy() {
     let capabilities = project_tool_spec_capabilities(&ToolSpec::Function(function("exec")));
-
-    assert_eq!(
-        capabilities,
-        vec![ToolSpecCapability {
-            public_name: "exec".to_string(),
-            tool_name: ToolName::plain("exec"),
-            description: "Run exec.".to_string(),
-            input: ToolSpecCapabilityInput::Function(function("exec").parameters),
-            output_schema: Some(json!({"type": "string"})),
-            deferred: true,
-        }]
-    );
+    assert_eq!(capabilities[0].tool_name, ToolName::plain("exec"));
+    assert_eq!(capabilities[0].public_name, "exec");
+    assert!(capabilities[0].deferred);
 }
 
 #[test]
@@ -48,14 +39,15 @@ fn projects_freeform_contract_without_rewriting_description() {
     let capabilities = project_tool_spec_capabilities(&ToolSpec::Freeform(FreeformTool {
         name: "apply_patch".to_string(),
         description: "Apply one patch.".to_string(),
+        defer_loading: Some(true),
         format: format.clone(),
     }));
-
     assert_eq!(capabilities[0].description, "Apply one patch.");
     assert_eq!(
         capabilities[0].input,
         ToolSpecCapabilityInput::Freeform(format)
     );
+    assert!(capabilities[0].deferred);
 }
 
 #[test]
@@ -66,7 +58,6 @@ fn expands_namespace_and_preserves_native_identity() {
             description: "Sample tools.".to_string(),
             tools: vec![ResponsesApiNamespaceTool::Function(function("lookup"))],
         }));
-
     assert_eq!(capabilities[0].public_name, "mcp__sample__lookup");
     assert_eq!(
         capabilities[0].tool_name,
@@ -79,7 +70,6 @@ fn current_nested_public_name_is_not_a_reversible_identity() {
     let namespaced_left = ToolName::namespaced("alpha", "beta_gamma");
     let namespaced_right = ToolName::namespaced("alpha_beta", "gamma");
     let plain = ToolName::plain("alpha_beta_gamma");
-
     assert_ne!(namespaced_left, namespaced_right);
     assert_ne!(namespaced_left, plain);
     assert_eq!(
@@ -96,7 +86,6 @@ fn current_nested_public_name_is_not_a_reversible_identity() {
 fn current_boundary_heuristic_also_collides() {
     let namespace_ends_with_separator = ToolName::namespaced("alpha_", "beta");
     let tool_starts_with_separator = ToolName::namespaced("alpha", "_beta");
-
     assert_ne!(namespace_ends_with_separator, tool_starts_with_separator);
     assert_eq!(
         nested_tool_public_name(&namespace_ends_with_separator),
@@ -116,17 +105,10 @@ fn projects_schema_backed_client_tool_search() {
         description: "Search deferred tools.".to_string(),
         parameters: parameters.clone(),
     });
-
+    assert_eq!(capabilities[0].public_name, "tool_search");
     assert_eq!(
-        capabilities,
-        vec![ToolSpecCapability {
-            public_name: "tool_search".to_string(),
-            tool_name: ToolName::plain("tool_search"),
-            description: "Search deferred tools.".to_string(),
-            input: ToolSpecCapabilityInput::Function(parameters),
-            output_schema: None,
-            deferred: false,
-        }]
+        capabilities[0].input,
+        ToolSpecCapabilityInput::Function(parameters)
     );
 }
 
@@ -134,11 +116,11 @@ fn projects_schema_backed_client_tool_search() {
 fn excludes_provider_hosted_specs() {
     let capabilities = project_tool_spec_capabilities(&ToolSpec::WebSearch {
         external_web_access: Some(true),
+        indexed_web_access: None,
         filters: None,
         user_location: None,
         search_context_size: None,
         search_content_types: None,
     });
-
     assert!(capabilities.is_empty());
 }

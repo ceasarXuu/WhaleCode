@@ -63,6 +63,11 @@ WhaleCode is under active development. The repository currently vendors Codex
 CLI under `third_party/codex-cli/` and layers Whale-specific work around that
 upstream substrate.
 
+The current Codex `rust-v0.147.0` overlay has been rebased onto the latest
+project main and revalidated across DeepSeek Responses and the TaskSpace R8
+fork/restart/final-wire path. See the [U18 rebase and semantic migration
+report](docs/migration/codex-sync/2026-08-21-u18-main-rebase-r8-semantic-migration.md).
+
 The active Rust workspace lives here:
 
 ```powershell

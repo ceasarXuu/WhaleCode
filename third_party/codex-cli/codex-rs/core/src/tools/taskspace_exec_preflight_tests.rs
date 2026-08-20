@@ -48,6 +48,7 @@ fn catalog() -> Arc<TaskSpaceExecCatalog> {
             ToolSpec::Freeform(FreeformTool {
                 name: "apply_patch".into(),
                 description: "Apply one patch.".into(),
+                defer_loading: None,
                 format: FreeformToolFormat {
                     r#type: "grammar".into(),
                     syntax: "lark".into(),
@@ -56,6 +57,7 @@ fn catalog() -> Arc<TaskSpaceExecCatalog> {
             }),
             ToolSpec::WebSearch {
                 external_web_access: Some(true),
+                indexed_web_access: None,
                 filters: None,
                 user_location: None,
                 search_context_size: None,

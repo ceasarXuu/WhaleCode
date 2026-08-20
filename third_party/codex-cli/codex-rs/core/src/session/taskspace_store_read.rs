@@ -31,18 +31,18 @@ impl Session {
                 }
             }
             let state = self.state.lock().await;
-            return Ok(read(&state.action_map_runtime, self.conversation_id));
+            return Ok(read(&state.action_map_runtime, self.thread_id));
         };
 
         let (record, binding) = self
             .require_taskspace_state_db()?
-            .load_taskspace_map_for_thread(self.conversation_id)
+            .load_taskspace_map_for_thread(self.thread_id)
             .await
             .map_err(|error| format!("TaskSpace Map Store read failed: {error}"))?
             .ok_or_else(|| {
                 format!(
                     "TaskSpace Map Store has no canonical binding for thread `{}`.",
-                    self.conversation_id
+                    self.thread_id
                 )
             })?;
         if record.map_id != handle.map_id {
@@ -76,7 +76,7 @@ impl Session {
             target: "codex_core::taskspace",
             event_name = "taskspace.map_store_read",
             map_id = record.map_id,
-            actor_thread_id = %self.conversation_id,
+            actor_thread_id = %self.thread_id,
             owner_thread_id = %record.owner_thread_id,
             relation = binding.relation.as_str(),
             store_revision = record.store_revision,

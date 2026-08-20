@@ -255,6 +255,11 @@ class ContractTests(unittest.TestCase):
                 self.assertIn("configuration", result.categories)
                 self.assertNotIn("unclassified", result.categories)
 
+    def test_root_justfile_is_build_release(self) -> None:
+        result = classify("justfile", b"old\n", b"new\n", set())
+        self.assertIn("build_release", result.categories)
+        self.assertNotIn("unclassified", result.categories)
+
     def test_tui_summary_tamper_is_rejected(self) -> None:
         document = copy.deepcopy(self.tui_baseline)
         document["summary"]["test_count"] += 1

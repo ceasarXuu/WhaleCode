@@ -14,6 +14,9 @@ use super::feedback::AffectedNodeState;
 
 #[derive(Debug, Serialize)]
 pub(super) struct TaskSpaceExecResult {
+    kind: &'static str,
+    outer_call_id: String,
+    map_id: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     affected_node_states: Vec<AffectedNodeState>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -29,8 +32,8 @@ pub(super) struct MapReadResult {
 
 #[derive(Debug, Serialize)]
 pub(super) struct ClientResult {
-    #[serde(skip)]
     pub(super) call_index: usize,
+    pub(super) action_id: String,
     pub(super) node_id: String,
     pub(super) tool: String,
     pub(super) outcome: &'static str,
@@ -44,11 +47,16 @@ pub(super) struct ClientResult {
 
 impl TaskSpaceExecResult {
     pub(super) fn new(
+        outer_call_id: String,
+        map_id: String,
         affected_node_states: Vec<AffectedNodeState>,
         reads: Vec<MapReadResult>,
         client_results: Vec<ClientResult>,
     ) -> Self {
         Self {
+            kind: "taskspace_exec_result",
+            outer_call_id,
+            map_id,
             affected_node_states,
             reads,
             client_results,
@@ -62,6 +70,9 @@ pub(super) fn result_schema<'a>(
     let clients = clients.collect::<Vec<_>>();
     strict_object(
         [
+            ("kind", exact_string("taskspace_exec_result")),
+            ("outer_call_id", JsonSchema::string(None)),
+            ("map_id", JsonSchema::string(None)),
             (
                 "affected_node_states",
                 JsonSchema::array(affected_node_state_schema(), None),
@@ -72,13 +83,15 @@ pub(super) fn result_schema<'a>(
                 JsonSchema::array(client_result_schema(&clients), None),
             ),
         ],
-        &[],
+        &["kind", "outer_call_id", "map_id"],
     )
 }
 
 fn affected_node_state_schema() -> JsonSchema {
     strict_object(
         [
+            ("call_index", JsonSchema::integer(None).with_minimum(0)),
+            ("action_id", JsonSchema::string(None)),
             ("node_id", JsonSchema::string(None)),
             (
                 "previous_state",
@@ -229,7 +242,7 @@ fn client_result_schema(clients: &[&ToolSpecCapability]) -> JsonSchema {
             ("error", JsonSchema::string(None)),
             ("settlement_error", JsonSchema::string(None)),
         ],
-        &["node_id", "tool", "outcome"],
+        &["call_index", "action_id", "node_id", "tool", "outcome"],
     )
 }
 

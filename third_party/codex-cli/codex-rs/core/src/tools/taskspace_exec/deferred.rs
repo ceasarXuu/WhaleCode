@@ -28,11 +28,9 @@ pub(crate) fn loaded_deferred_specs(input: &[ResponseItem]) -> Vec<ToolSpec> {
     input
         .iter()
         .filter_map(|item| match item {
-            ResponseItem::FunctionCallOutput { call_id, output }
-                if taskspace_call_ids.contains(call_id) =>
-            {
-                Some(output_texts(&output.body))
-            }
+            ResponseItem::FunctionCallOutput {
+                call_id, output, ..
+            } if taskspace_call_ids.contains(call_id) => Some(output_texts(&output.body)),
             _ => None,
         })
         .flatten()
@@ -58,14 +56,15 @@ pub(crate) fn retain_available_deferred_specs(
                     ResponsesApiNamespaceTool::Function(tool) => {
                         is_available(&ToolName::namespaced(&namespace_name, &tool.name))
                     }
+                    ResponsesApiNamespaceTool::Custom(tool) => {
+                        is_available(&ToolName::namespaced(&namespace_name, &tool.name))
+                    }
                 });
                 (!namespace.tools.is_empty()).then_some(ToolSpec::Namespace(namespace))
             }
-            ToolSpec::Freeform(_)
-            | ToolSpec::ToolSearch { .. }
-            | ToolSpec::LocalShell {}
-            | ToolSpec::ImageGeneration { .. }
-            | ToolSpec::WebSearch { .. } => None,
+            ToolSpec::Freeform(_) | ToolSpec::ToolSearch { .. } | ToolSpec::WebSearch { .. } => {
+                None
+            }
         })
         .collect()
 }
@@ -77,7 +76,9 @@ fn output_texts(body: &FunctionCallOutputBody) -> Vec<&str> {
             .iter()
             .filter_map(|item| match item {
                 FunctionCallOutputContentItem::InputText { text } => Some(text.as_str()),
-                FunctionCallOutputContentItem::InputImage { .. } => None,
+                FunctionCallOutputContentItem::InputImage { .. }
+                | FunctionCallOutputContentItem::InputAudio { .. }
+                | FunctionCallOutputContentItem::EncryptedContent { .. } => None,
             })
             .collect(),
     }
@@ -118,14 +119,18 @@ mod tests {
             name: TASKSPACE_EXEC_TOOL_NAME.into(),
             namespace: None,
             arguments: "{}".into(),
+            encrypted_function_args: None,
             call_id: call_id.into(),
+            internal_chat_message_metadata_passthrough: None,
         }
     }
 
     fn output(call_id: &str, value: Value) -> ResponseItem {
         ResponseItem::FunctionCallOutput {
+            id: None,
             call_id: call_id.into(),
             output: FunctionCallOutputPayload::from_text(value.to_string()),
+            internal_chat_message_metadata_passthrough: None,
         }
     }
 

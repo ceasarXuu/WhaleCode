@@ -225,6 +225,7 @@ mod safety_buffering;
 mod session_lifecycle;
 mod side;
 mod startup_prompts;
+mod taskspace_viewer;
 mod thread_events;
 mod thread_goal_actions;
 mod thread_routing;
@@ -599,6 +600,7 @@ pub(crate) struct App {
     // Serialize hook enablement writes per hook so stale completions cannot
     // persist an older toggle after a newer one.
     pending_hook_enabled_writes: HashMap<String, Option<bool>>,
+    taskspace_viewer: Option<taskspace_viewer::TaskSpaceViewerServer>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1089,6 +1091,7 @@ See the Codex keymap documentation for supported actions and examples."
             rate_limit_hard_stop_generation: 0,
             pending_plugin_enabled_writes: HashMap::new(),
             pending_hook_enabled_writes: HashMap::new(),
+            taskspace_viewer: None,
         };
         if let Some(entry) = startup_hooks_browser {
             app.chat_widget.open_hooks_browser(entry);
