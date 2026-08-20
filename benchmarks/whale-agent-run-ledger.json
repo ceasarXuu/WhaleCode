@@ -1,7 +1,120 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-21T04:49:58+08:00",
+  "updated_at": "2026-08-21T05:06:11+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260821-050539-CACHE-REGRESSION-E2F72457",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-21T05:05:48+08:00",
+      "ended_at": "2026-08-21T05:06:11+08:00",
+      "elapsed_calendar_seconds": 23.29,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "Retry Codex 0.147 rebase cache validation after restoring the omitted whale exec --taskspace bridge; prior authorized run stopped before any provider request and cannot be retried under its zero-retry authorization.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260821-U18-MAIN-REBASE-RETRY",
+        "reference": "用户于 2026-08-21 在收到修复 whale exec --taskspace 入口遗漏后的追加专项缓存回归预算后明确回复‘批准’；仅覆盖 deepseek-v4-flash、single-file-fast-fix 的 standard 与 map-request 各 1 次，零重试，总费用硬上限 0.40 CNY。前一次授权运行在 Provider 调用前停止、实际费用为 0，但其零重试授权不复用。",
+        "budget_summary": {
+          "provider_requests": 36,
+          "input_tokens": 360000,
+          "output_tokens": 20000,
+          "elapsed_seconds": 1200,
+          "estimated_cost": 0.4,
+          "currency": "CNY"
+        },
+        "note": "严格绑定预算提案 CBP-E38AD62811CCDD3A。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "82d2b33a70f40a08fc8fc2c463e53cafd2c684b67f09bb7ba9a9e8a89674d516",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "standard",
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 2,
+        "actual_sample_runs": 1,
+        "api_requests": 7,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "unavailable",
+        "currency": "CNY",
+        "amount": null,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": {
+          "currency": "CNY",
+          "captured_at": "2026-08-18",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": null,
+        "note": "无完整 token 证据。"
+      },
+      "evidence": {
+        "planned_run_root": "target/cache-hit-regression/WAR-20260821-050539-CACHE-REGRESSION-E2F72457",
+        "subject_commit": "d7e9ded3cf5614c58fa4373a712347bb2c95a775",
+        "surface_sha256": "39d7143df2e98ce7b716b9dc8db322e79bab76be6c6e45d4016a90e7a8f7a0c0",
+        "proposal_id": "CBP-E38AD62811CCDD3A",
+        "proposal_contract_sha256": "bf8eca0b97b90925d300b6679db0fa173c5e60264095402ef8fc739fa45c43a2",
+        "proposal_path": "benchmarks/cache-regression/proposals/2026-08-21-u18-main-rebase-retry.json",
+        "proposal_sha256": "f7c6e33c2b93ec6771920f8939b5426e5b54c7f4d8dc297de9f812db6eb66354",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260821-U18-MAIN-REBASE-RETRY.json",
+        "authorization_sha256": "07647c9fee6d4ed1ce24f192330ed5d6321cc48f4d6d0a0acbfdf430f1f6d1cc",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "single-file-fast-fix"
+          ],
+          "arms": [
+            "standard",
+            "map-request"
+          ],
+          "repeat": 1,
+          "planned_sample_runs": 2,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 2,
+          "stop_conditions": [
+            "after_any_run_failure",
+            "after_any_business_failure",
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "Retry Codex 0.147 rebase cache validation after restoring the omitted whale exec --taskspace bridge; prior authorized run stopped before any provider request and cannot be retried under its zero-retry authorization."
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_run_failure",
+          "after_any_business_failure",
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "unavailable",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260821-050539-CACHE-REGRESSION-E2F72457/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "7813b5da87a8b1d092f7151e60d3843be117e7725a1d052209944fa804a38256",
+        "actual_run_root": "target/cache-hit-regression/WAR-20260821-050539-CACHE-REGRESSION-E2F72457",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260821-050539-CACHE-REGRESSION-E2F72457.json",
+        "runner_exit_code": 3,
+        "outcome": "partial"
+      }
+    },
     {
       "record_id": "WAR-20260821-044944-CACHE-REGRESSION-ED00A4E2",
       "record_type": "run_batch",

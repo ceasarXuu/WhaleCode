@@ -1,0 +1,29 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v2",
+  "status": "granted",
+  "approved_by": "user",
+  "authorization_id": "CBA-20260821-U18-MAIN-REBASE-RETRY",
+  "approval_reference": "用户于 2026-08-21 在收到修复 whale exec --taskspace 入口遗漏后的追加专项缓存回归预算后明确回复‘批准’；仅覆盖 deepseek-v4-flash、single-file-fast-fix 的 standard 与 map-request 各 1 次，零重试，总费用硬上限 0.40 CNY。前一次授权运行在 Provider 调用前停止、实际费用为 0，但其零重试授权不复用。",
+  "approved_at": "2026-08-21T05:05:13+08:00",
+  "proposal_id": "CBP-E38AD62811CCDD3A",
+  "proposal_sha256": "bf8eca0b97b90925d300b6679db0fa173c5e60264095402ef8fc739fa45c43a2",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": ["single-file-fast-fix"],
+    "arms": ["standard", "map-request"],
+    "repeat": 1,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": ["after_any_run_failure", "after_any_business_failure", "after_any_usage_gap", "after_any_budget_observation_exceeded"],
+    "selection_reason": "Retry Codex 0.147 rebase cache validation after restoring the omitted whale exec --taskspace bridge; prior authorized run stopped before any provider request and cannot be retried under its zero-retry authorization."
+  },
+  "approved_maximums": {
+    "provider_requests": 36,
+    "input_tokens": 360000,
+    "output_tokens": 20000,
+    "elapsed_seconds": 1200,
+    "estimated_cost": 0.4,
+    "currency": "CNY"
+  }
+}

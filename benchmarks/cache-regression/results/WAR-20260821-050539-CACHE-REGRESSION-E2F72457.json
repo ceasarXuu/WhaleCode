@@ -1,0 +1,104 @@
+{
+  "schema_version": "whalecode-cache-hit-regression-v6",
+  "record_id": "WAR-20260821-050539-CACHE-REGRESSION-E2F72457",
+  "status": "partial",
+  "started_at": "2026-08-21T05:05:48+08:00",
+  "subject_commit": "d7e9ded3cf5614c58fa4373a712347bb2c95a775",
+  "surface_sha256": "39d7143df2e98ce7b716b9dc8db322e79bab76be6c6e45d4016a90e7a8f7a0c0",
+  "proposal_id": "CBP-E38AD62811CCDD3A",
+  "proposal_sha256": "bf8eca0b97b90925d300b6679db0fa173c5e60264095402ef8fc739fa45c43a2",
+  "authorization_reference": "用户于 2026-08-21 在收到修复 whale exec --taskspace 入口遗漏后的追加专项缓存回归预算后明确回复‘批准’；仅覆盖 deepseek-v4-flash、single-file-fast-fix 的 standard 与 map-request 各 1 次，零重试，总费用硬上限 0.40 CNY。前一次授权运行在 Provider 调用前停止、实际费用为 0，但其零重试授权不复用。",
+  "authorization_sha256": "07647c9fee6d4ed1ce24f192330ed5d6321cc48f4d6d0a0acbfdf430f1f6d1cc",
+  "observed_scope": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "standard",
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "Retry Codex 0.147 rebase cache validation after restoring the omitted whale exec --taskspace bridge; prior authorized run stopped before any provider request and cannot be retried under its zero-retry authorization."
+  },
+  "unverified_scope": [
+    {
+      "sample": "single-file-fast-fix",
+      "arm": "map-request",
+      "repeat": 1
+    }
+  ],
+  "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+  "actual_sample_runs": 1,
+  "credential_source": ".env.local",
+  "provider_route_attestation": {
+    "schema_version": "whalecode-provider-route-preflight-v1",
+    "status": "passed",
+    "model": "deepseek-v4-flash",
+    "provider_routing": {
+      "route_kind": "custom_provider_transport_alias",
+      "logical_provider_id": "deepseek",
+      "transport_provider_id": "deepseek-boundary",
+      "provider_name": "DeepSeek",
+      "base_url": "http://provider-proxy:8080",
+      "env_key": "DEEPSEEK_API_KEY",
+      "wire_api": "responses",
+      "intentional_differences": [
+        "provider_id",
+        "base_url"
+      ]
+    },
+    "provider_descriptor_sha256": "82d2b33a70f40a08fc8fc2c463e53cafd2c684b67f09bb7ba9a9e8a89674d516",
+    "whale_binary_sha256": "f5338c5ed4c9c001dc6fb6a14d5f6c0748b0f5332727fee6304f479673242f74",
+    "preflight_started_at": "2026-08-20T21:05:41.5281882Z",
+    "preflight_completed_at": "2026-08-20T21:05:44.3339611Z",
+    "artifact_path": "benchmarks/cache-regression/evidence/WAR-20260821-050539-CACHE-REGRESSION-E2F72457/provider-route-preflight/provider-route-preflight.json",
+    "artifact_sha256": "7813b5da87a8b1d092f7151e60d3843be117e7725a1d052209944fa804a38256"
+  },
+  "run_root": "target/cache-hit-regression/WAR-20260821-050539-CACHE-REGRESSION-E2F72457",
+  "result_path": "benchmarks/cache-regression/results/WAR-20260821-050539-CACHE-REGRESSION-E2F72457.json",
+  "attempts": [
+    {
+      "sample": "single-file-fast-fix",
+      "arm": "standard",
+      "repeat": 1,
+      "run_id": "WAR-20260821-050539-CACHE-REGRESSION-E2F72457-CACHE-001",
+      "status": "failed",
+      "exit_code": 0,
+      "timed_out": false,
+      "elapsed_seconds": 19.102,
+      "post_run_cleanup": {
+        "status": "verified_absent",
+        "container_ids": [],
+        "stable_empty_polls": 3,
+        "network_cleanup_status": "verified_absent",
+        "network_ids": [],
+        "secret_cleanup_status": "verified_absent",
+        "secret_paths": [],
+        "error": ""
+      },
+      "provider_boundary_request_count": 7,
+      "provider_boundary_evidence_path": "benchmarks/cache-regression/evidence/WAR-20260821-050539-CACHE-REGRESSION-E2F72457/WAR-20260821-050539-CACHE-REGRESSION-E2F72457-CACHE-001/provider-boundary-evidence.json",
+      "provider_boundary_evidence_sha256": "24ac6f11acd78a214ce7c7cedd5721b13ece814dac6b260bb65e9ad886c4e0b6",
+      "evidence_error": "FileNotFoundError: [Errno 2] No such file or directory: '/home/zhangxu/whalecode-codex/target/cache-hit-regression/WAR-20260821-050539-CACHE-REGRESSION-E2F72457/single-file-fast-fix/WAR-20260821-050539-CACHE-REGRESSION-E2F72457-CACHE-001/pair-001/left/artifacts/provider-wire-trace.jsonl'",
+      "stop_reason": "run_failure"
+    }
+  ],
+  "observations": [],
+  "stop_reason": "run_failure",
+  "provider_boundary_requests_minimum": 7,
+  "provider_boundary_accounting_status": "complete",
+  "evidence_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "runner_exit_code": 3,
+  "ended_at": "2026-08-21T05:06:11+08:00",
+  "elapsed_seconds": 23.29
+}
