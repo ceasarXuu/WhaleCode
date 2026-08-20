@@ -1,7 +1,7 @@
 # Problem P-001: 0.147 rebase 后缓存验收缺失 Provider wire trace
 - Status: open
 - Created: 2026-08-21 05:07
-- Updated: 2026-08-21 05:11
+- Updated: 2026-08-21 05:21
 - Objective: 恢复真实缓存验收对 Standard 与 TaskSpace Provider wire trace 的完整采集和结算。
 - Symptoms:
   - Standard 真实运行 CLI exit 0、Provider 边界计数 7，但 runner 因找不到 `pair-001/left/artifacts/provider-wire-trace.jsonl` 判定失败。
@@ -115,6 +115,7 @@
   - E-001
   - E-002
   - E-003
+  - E-004
 - Conclusion: 参数成功传入容器，但迁移删除 producer 和 ModelClient 接线，导致配置无人消费。
 - Repair design readiness: ready
 - Next step: 将历史已验证 wire trace producer 适配到 0.147 ModelClient 请求与终止边界。
@@ -232,3 +233,24 @@
   ```
 - Interpretation: H-002 的具体机制被直接代码证据确认；H-003 不成立，因为没有 writer 可发生写入失败。
 - Time: 2026-08-21 05:11
+
+## Evidence E-004: 0.147 trace producer 与完整 CLI 离线验证通过
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: fix-validation
+- Source: 当前工作树定向 Rust 测试、CLI 编译和缓存控制面测试
+- Prediction or plan link:
+  - H-002 修复方向：producer 恢复并接入 0.147 Responses HTTP/WebSocket dispatch 与 terminal 边界后应可编译、写出 v11 request/terminal 事件且不破坏 collector 合同。
+- Matched signal:
+  - `cargo test -p codex-core provider_wire_trace --lib` 通过 22 项；`cargo check -p codex-cli` 通过；`python3 -m unittest discover -s scripts/cache-regression -p 'test_*.py' -v` 通过 232 项。
+- Correlation keys:
+  - repair worktree after commit `9f4949924`
+- Raw content:
+  ```text
+  provider_wire_trace: 22 passed, 0 failed
+  codex-cli: cargo check passed
+  cache-regression: 232 tests passed
+  ```
+- Interpretation: producer、0.147 类型适配与 collector 控制面在无 Provider 条件下闭合；原始真实运行症状仍需新授权 run 复验后才能将 P-001 标记 fixed。
+- Time: 2026-08-21 05:21

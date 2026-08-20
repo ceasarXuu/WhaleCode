@@ -95,6 +95,7 @@ use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
 use codex_protocol::protocol::InternalSessionSource;
 use codex_protocol::protocol::SessionSource;
+use codex_protocol::protocol::TokenUsage;
 use codex_protocol::protocol::W3cTraceContext;
 use codex_rollout_trace::CompactionTraceContext;
 use codex_rollout_trace::InferenceTraceAttempt;
@@ -127,6 +128,7 @@ use crate::client_common::Prompt;
 use crate::client_common::ResponseEvent;
 use crate::client_common::ResponseStream;
 use crate::feedback_tags;
+use crate::provider_wire_trace::ProviderWireTrace;
 use crate::responses_metadata::CodexResponsesMetadata;
 use crate::responses_metadata::subagent_header_value;
 use crate::util::emit_feedback_auth_recovery_tags;
@@ -408,6 +410,7 @@ struct ModelClientState {
     disable_websockets: AtomicBool,
     agent_identity_session_fallback: AgentIdentitySessionFallback,
     cached_websocket_session: StdMutex<WebsocketSession>,
+    provider_wire_trace: ProviderWireTrace,
     provider_request_hard_limit: Arc<ProviderRequestHardLimit>,
 }
 
@@ -665,6 +668,7 @@ impl ModelClient {
                 disable_websockets: AtomicBool::new(false),
                 agent_identity_session_fallback: AgentIdentitySessionFallback::default(),
                 cached_websocket_session: StdMutex::new(WebsocketSession::default()),
+                provider_wire_trace: ProviderWireTrace::from_env(),
                 provider_request_hard_limit,
             }),
             agent_identity_policy,
@@ -1346,6 +1350,17 @@ impl Drop for ModelClientSession {
 }
 
 impl ModelClientSession {
+    pub(crate) fn record_provider_wire_terminal(
+        &self,
+        status: &str,
+        token_usage: Option<&TokenUsage>,
+    ) -> Option<crate::provider_wire_trace::ProviderWireRequestIdentity> {
+        self.client
+            .state
+            .provider_wire_trace
+            .record_terminal(status, token_usage)
+    }
+
     pub(crate) fn turn_state(&self) -> Arc<OnceLock<String>> {
         Arc::clone(&self.turn_state)
     }
@@ -1633,6 +1648,13 @@ impl ModelClientSession {
             .as_ref()
             .map(AuthManager::unauthorized_recovery);
         let mut pending_retry = PendingUnauthorizedRetry::default();
+        let wire_epoch_id = responses_metadata.window_id.as_str();
+        let wire_logical_request_id = self
+            .client
+            .state
+            .provider_wire_trace
+            .begin_logical_request(wire_epoch_id);
+        let mut wire_attempt_seq = 0usize;
         loop {
             let client_setup = self.client.current_client_setup().await?;
             let transport = self
@@ -1685,6 +1707,17 @@ impl ModelClientSession {
                 .state
                 .provider_request_hard_limit
                 .claim(RESPONSES_ENDPOINT)?;
+            wire_attempt_seq += 1;
+            self.client.state.provider_wire_trace.record_request(
+                wire_epoch_id,
+                &wire_logical_request_id,
+                wire_attempt_seq,
+                "responses_http",
+                self.client.state.provider.info().wire_api,
+                &request,
+                None,
+                prompt.taskspace_capability_identity.as_deref(),
+            );
             let stream_result = client.stream_request(request, options).await;
 
             match stream_result {
@@ -1700,6 +1733,7 @@ impl ModelClientSession {
                 Err(ApiError::Transport(
                     unauthorized_transport @ TransportError::Http { status, .. },
                 )) if status == StatusCode::UNAUTHORIZED => {
+                    self.record_provider_wire_terminal("retry_unauthorized", None);
                     let response_debug_context =
                         extract_response_debug_context(&unauthorized_transport);
                     inference_trace_attempt.record_failed(
@@ -1719,6 +1753,7 @@ impl ModelClientSession {
                     continue;
                 }
                 Err(err) => {
+                    self.record_provider_wire_terminal("response_failed", None);
                     let response_debug_context =
                         extract_response_debug_context_from_api_error(&err);
                     let err = self.client.state.provider.map_api_error(err);
@@ -1767,6 +1802,13 @@ impl ModelClientSession {
             .as_ref()
             .map(AuthManager::unauthorized_recovery);
         let mut pending_retry = PendingUnauthorizedRetry::default();
+        let wire_epoch_id = responses_metadata.window_id.as_str();
+        let wire_logical_request_id = self
+            .client
+            .state
+            .provider_wire_trace
+            .begin_logical_request(wire_epoch_id);
+        let mut wire_attempt_seq = 0usize;
         loop {
             let client_setup = self.client.current_client_setup().await?;
             let request_auth_context = AuthRequestTelemetryContext::new(
@@ -1892,6 +1934,21 @@ impl ModelClientSession {
                 .state
                 .provider_request_hard_limit
                 .claim(RESPONSES_ENDPOINT)?;
+            if !warmup {
+                wire_attempt_seq += 1;
+                let wire_value =
+                    serde_json::to_value(&ws_request).unwrap_or(serde_json::Value::Null);
+                self.client.state.provider_wire_trace.record_request(
+                    wire_epoch_id,
+                    &wire_logical_request_id,
+                    wire_attempt_seq,
+                    "responses_websocket",
+                    self.client.state.provider.info().wire_api,
+                    &request,
+                    Some(wire_value),
+                    prompt.taskspace_capability_identity.as_deref(),
+                );
+            }
             let stream_result = websocket_connection
                 .stream_request(
                     ws_request,
@@ -1907,6 +1964,9 @@ impl ModelClientSession {
             self.websocket_session.last_request = Some(request);
             self.websocket_session.last_response_from_untraced_warmup = warmup;
             let stream_result = stream_result.map_err(|err| {
+                if !warmup {
+                    self.record_provider_wire_terminal("response_failed", None);
+                }
                 let response_debug_context = extract_response_debug_context_from_api_error(&err);
                 let err = self.client.state.provider.map_api_error(err);
                 inference_trace_attempt.record_failed(

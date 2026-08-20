@@ -1290,6 +1290,7 @@ pub(crate) fn build_prompt(
         input,
         tools: router.model_visible_specs(),
         parallel_tool_calls: turn_context.model_info.supports_parallel_tool_calls,
+        taskspace_capability_identity: router.taskspace_capability_identity(),
         base_instructions,
         output_schema: turn_context.final_output_json_schema.clone(),
         output_schema_strict: !crate::guardian::is_guardian_reviewer_source(
@@ -2256,14 +2257,19 @@ async fn try_run_sampling_request(
         {
             Ok(event) => event,
             Err(codex_async_utils::CancelErr::Cancelled) => {
+                client_session.record_provider_wire_terminal("cancelled", None);
                 break Err(CodexErr::TurnAborted);
             }
         };
 
         let event = match event {
             Some(Ok(event)) => event,
-            Some(Err(err)) => break Err(err),
+            Some(Err(err)) => {
+                client_session.record_provider_wire_terminal("response_failed", None);
+                break Err(err);
+            }
             None => {
+                client_session.record_provider_wire_terminal("response_failed", None);
                 break Err(CodexErr::Stream(
                     "stream closed before response.completed".into(),
                 ));
@@ -2545,11 +2551,19 @@ async fn try_run_sampling_request(
                 end_turn,
             } => {
                 response_completed = true;
+                let provider_request_identity = client_session
+                    .record_provider_wire_terminal("response_completed", token_usage.as_ref());
                 taskspace_response_identity = Some(TaskSpaceExecResponseIdentity {
                     provider_response_id: response_id.clone(),
-                    provider_request_id: None,
-                    provider_logical_request_id: None,
-                    provider_attempt_seq: None,
+                    provider_request_id: provider_request_identity
+                        .as_ref()
+                        .map(|identity| identity.request_id.clone()),
+                    provider_logical_request_id: provider_request_identity
+                        .as_ref()
+                        .map(|identity| identity.logical_request_id.clone()),
+                    provider_attempt_seq: provider_request_identity
+                        .as_ref()
+                        .map(|identity| identity.attempt_seq),
                 });
                 sess.services
                     .analytics_events_client

@@ -8,6 +8,7 @@ use codex_tools::ToolSpec;
 use futures::Stream;
 use serde_json::Value;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 use tokio::sync::mpsc;
@@ -26,6 +27,9 @@ pub struct Prompt {
     /// Whether parallel tool calls are permitted for this prompt.
     pub(crate) parallel_tool_calls: bool,
 
+    /// Runtime-only identity for the effective TaskSpace Tool catalog.
+    pub(crate) taskspace_capability_identity: Option<Arc<str>>,
+
     pub base_instructions: BaseInstructions,
 
     /// Optional the output schema for the model's response.
@@ -41,6 +45,7 @@ impl Default for Prompt {
             input: Vec::new(),
             tools: Vec::new(),
             parallel_tool_calls: false,
+            taskspace_capability_identity: None,
             base_instructions: BaseInstructions::default(),
             output_schema: None,
             output_schema_strict: true,
