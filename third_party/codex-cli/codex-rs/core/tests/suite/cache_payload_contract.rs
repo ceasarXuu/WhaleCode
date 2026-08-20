@@ -16,6 +16,7 @@ use core_test_support::skip_if_no_network;
 use core_test_support::test_codex::test_codex;
 use core_test_support::wait_for_event;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use wiremock::Mock;
 use wiremock::ResponseTemplate;
@@ -96,39 +97,122 @@ fn stabilize_projection_canonical_sha256(text: &str) -> String {
         .collect()
 }
 
-pub(super) fn stabilize_fixture_inputs(value: &mut Value, path_prefixes: &[(&str, &str)]) {
-    match value {
-        Value::Array(values) => values
-            .iter_mut()
-            .for_each(|value| stabilize_fixture_inputs(value, path_prefixes)),
-        Value::Object(values) => {
-            for (key, value) in values {
-                match key.as_str() {
-                    "prompt_cache_key" => {
-                        *value = Value::String("<PROMPT_CACHE_KEY>".to_string());
-                    }
-                    "x-codex-installation-id" => {
-                        *value = Value::String("<INSTALLATION_ID>".to_string());
-                    }
-                    _ => stabilize_fixture_inputs(value, path_prefixes),
-                }
-            }
-        }
-        Value::String(text) => {
-            if text.contains("<environment_context>") {
-                *text = replace_tag_value(text, "current_date", "FIXED_CURRENT_DATE");
-                *text = replace_tag_value(text, "timezone", "FIXED_TIMEZONE");
-            }
-            *text = stabilize_projection_canonical_sha256(text);
-            for (prefix, replacement) in path_prefixes {
-                if prefix.is_empty() {
-                    continue;
-                }
-                *text = text.replace(prefix, replacement);
-            }
-        }
-        _ => {}
+#[derive(Default)]
+struct FixtureStabilizer {
+    message_ids: HashMap<String, String>,
+    session_ids: HashMap<String, String>,
+    thread_ids: HashMap<String, String>,
+    turn_ids: HashMap<String, String>,
+    window_ids: HashMap<String, String>,
+}
+
+impl FixtureStabilizer {
+    fn stable_id(values: &mut HashMap<String, String>, value: &str, label: &str) -> String {
+        let next = values.len() + 1;
+        values
+            .entry(value.to_string())
+            .or_insert_with(|| format!("<{label}_{next}>"))
+            .clone()
     }
+
+    fn stabilize_client_metadata(&mut self, value: &mut Value) {
+        let Value::Object(metadata) = value else {
+            return;
+        };
+        for (key, value) in metadata {
+            let Value::String(text) = value else {
+                continue;
+            };
+            *text = match key.as_str() {
+                "x-codex-installation-id" => "<INSTALLATION_ID>".to_string(),
+                "session_id" => Self::stable_id(&mut self.session_ids, text, "SESSION_ID"),
+                "thread_id" => Self::stable_id(&mut self.thread_ids, text, "THREAD_ID"),
+                "turn_id" => Self::stable_id(&mut self.turn_ids, text, "TURN_ID"),
+                "x-codex-window-id" => Self::stable_id(&mut self.window_ids, text, "WINDOW_ID"),
+                "x-codex-turn-metadata" => self.stabilize_turn_metadata(text),
+                _ => continue,
+            };
+        }
+    }
+
+    fn stabilize_turn_metadata(&mut self, text: &str) -> String {
+        let Ok(mut metadata) = serde_json::from_str::<Value>(text) else {
+            return text.to_string();
+        };
+        let Value::Object(values) = &mut metadata else {
+            return text.to_string();
+        };
+        for (key, value) in values {
+            match (key.as_str(), value) {
+                ("installation_id", value) => {
+                    *value = Value::String("<INSTALLATION_ID>".to_string());
+                }
+                ("session_id", Value::String(text)) => {
+                    *text = Self::stable_id(&mut self.session_ids, text, "SESSION_ID");
+                }
+                ("thread_id", Value::String(text)) => {
+                    *text = Self::stable_id(&mut self.thread_ids, text, "THREAD_ID");
+                }
+                ("turn_id", Value::String(text)) => {
+                    *text = Self::stable_id(&mut self.turn_ids, text, "TURN_ID");
+                }
+                ("window_id", Value::String(text)) => {
+                    *text = Self::stable_id(&mut self.window_ids, text, "WINDOW_ID");
+                }
+                ("turn_started_at_unix_ms", value) => {
+                    *value = Value::String("<TURN_STARTED_AT_UNIX_MS>".to_string());
+                }
+                _ => {}
+            }
+        }
+        serde_json::to_string(&metadata).expect("normalized turn metadata should serialize")
+    }
+
+    fn stabilize(&mut self, value: &mut Value, path_prefixes: &[(&str, &str)]) {
+        match value {
+            Value::Array(values) => values
+                .iter_mut()
+                .for_each(|value| self.stabilize(value, path_prefixes)),
+            Value::Object(values) => {
+                let is_message = values.get("type").and_then(Value::as_str) == Some("message");
+                for (key, value) in values {
+                    match key.as_str() {
+                        "prompt_cache_key" => {
+                            *value = Value::String("<PROMPT_CACHE_KEY>".to_string());
+                        }
+                        "x-codex-installation-id" => {
+                            *value = Value::String("<INSTALLATION_ID>".to_string());
+                        }
+                        "client_metadata" => self.stabilize_client_metadata(value),
+                        "id" if is_message => {
+                            if let Value::String(text) = value {
+                                *text = Self::stable_id(&mut self.message_ids, text, "MESSAGE_ID");
+                            }
+                        }
+                        _ => self.stabilize(value, path_prefixes),
+                    }
+                }
+            }
+            Value::String(text) => {
+                if text.contains("<environment_context>") {
+                    *text = replace_tag_value(text, "current_date", "FIXED_CURRENT_DATE");
+                    *text = replace_tag_value(text, "timezone", "FIXED_TIMEZONE");
+                }
+                *text = stabilize_projection_canonical_sha256(text);
+                for (prefix, replacement) in path_prefixes {
+                    if prefix.is_empty() {
+                        continue;
+                    }
+                    *text = text.replace(prefix, replacement);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+pub(super) fn stabilize_fixture_inputs(value: &mut Value, path_prefixes: &[(&str, &str)]) {
+    FixtureStabilizer::default().stabilize(value, path_prefixes);
 }
 
 pub(super) fn value_contains_text(value: &Value, marker: &str) -> bool {
@@ -188,6 +272,51 @@ fn fixture_stabilization_replaces_only_valid_projection_canonical_hash() {
                 .to_string()
         )
     );
+}
+
+#[test]
+fn fixture_stabilization_normalizes_ephemeral_wire_ids_without_collapsing_identity() {
+    let fixture = |suffix: &str| {
+        serde_json::json!({
+            "client_metadata": {
+                "session_id": format!("session-{suffix}"),
+                "thread_id": format!("thread-{suffix}"),
+                "turn_id": format!("turn-one-{suffix}"),
+                "x-codex-window-id": format!("window-{suffix}"),
+                "x-codex-turn-metadata": serde_json::json!({
+                    "installation_id": format!("installation-{suffix}"),
+                    "session_id": format!("session-{suffix}"),
+                    "thread_id": format!("thread-{suffix}"),
+                    "turn_id": format!("turn-one-{suffix}"),
+                    "window_id": format!("window-{suffix}"),
+                    "turn_started_at_unix_ms": 12345,
+                    "request_kind": "turn"
+                }).to_string()
+            },
+            "input": [
+                {"type": "message", "id": format!("message-one-{suffix}")},
+                {"type": "message", "id": format!("message-two-{suffix}")},
+                {"type": "message", "id": format!("message-one-{suffix}")}
+            ]
+        })
+    };
+    let mut left = fixture("left");
+    let mut right = fixture("right");
+    stabilize_fixture_inputs(&mut left, &[]);
+    stabilize_fixture_inputs(&mut right, &[]);
+
+    assert_eq!(left, right);
+    assert_eq!(left["input"][0]["id"], "<MESSAGE_ID_1>");
+    assert_eq!(left["input"][1]["id"], "<MESSAGE_ID_2>");
+    assert_eq!(left["input"][2]["id"], "<MESSAGE_ID_1>");
+    let turn_metadata: Value = serde_json::from_str(
+        left["client_metadata"]["x-codex-turn-metadata"]
+            .as_str()
+            .expect("turn metadata string"),
+    )
+    .expect("normalized turn metadata JSON");
+    assert_eq!(turn_metadata["turn_id"], "<TURN_ID_1>");
+    assert_eq!(turn_metadata["request_kind"], "turn");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
