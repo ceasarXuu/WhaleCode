@@ -3,8 +3,10 @@
 - Created: 2026-07-31
 - Updated: 2026-08-20
 - Authority: R8 当前问题状态的唯一事实源
+- Milestone status: Frozen at engineering baseline `8ae4f2759`
 - Historical evidence: `docs/v0.0.5/build-R7/47-r7.1-global-issue-register-legacy.md`
 - Current progress report: [`03-r8-current-progress.md`](03-r8-current-progress.md)
+- Final freeze report: [`04-r8-freeze-report.md`](04-r8-freeze-report.md)
 
 > **VA-04A 离线重映射（2026-08-09）**：TaskSpace Exec Phase B4 已完成观测、固定离线门禁和当前源码重映射。
 > 此前的 Tool schema 入侵、顶层结构化容器和 sibling 配对路线已封存在
@@ -491,7 +493,7 @@ TaskSpace Exec 与全局问题的处理边界统一记录在
 | 9 | R8-I04 | F5 | P2 | Agent 可能选择依赖未满足或已完成的节点，或没有利用可并行 frontier | Agent 准确使用可执行 frontier；Runtime 只守硬规则 | 顺序 patch 事务离线通过，最新生产运行无 `TransitionInvalid`；但目标同批父子完成未自然命中，Map 仍为线性链 | [verifying](I04/03-ordered-map-patch-live-validation-result.md) | GI-004 |
 | 10 | R8-I08 | F6 | P3 | TaskSpace 的请求、输入、时间和未缓存成本可能高于 Standard | 额外成本可解释、稳定并与产品收益匹配 | 复杂样本四臂 repeat=3：always/append/request 总 input 为 Standard `1.25x/1.60x/1.32x`，费用为 `2.83x/2.09x/2.43x` | [investigating](I01/03-i01-four-arm-repeat3-result.md) | GI-008 |
 
-问题总数：**10**；Open：**5**；Closed：**5**。Provider-hosted Runtime 机械归纳已通过生产验收，当前没有该专题停点。
+问题总数：**10**；Residual：**5**；Closed：**5**；Active engineering queue：**0**。Provider-hosted Runtime 机械归纳已通过生产验收，当前没有该专题停点。
 I07 的逻辑模式选择已在真实运行中证明只启动 TaskSpace，多 outer 的逐 call 结果和 observer 对账也已离线修复；自然在线
 分支尚未命中，因此保持 verifying。I05 的顶层 client escape 恢复链已离线修复且正常路径无回归；I08 默认模式已由用户
 确认为 map-request，小型等价压缩按用户决定暂缓，
@@ -506,7 +508,7 @@ I07 的逻辑模式选择已在真实运行中证明只启动 TaskSpace，多 ou
 | 已关闭 | I02、I06 | 单次 outer 反馈、统一预检、零副作用旁路拒绝和单 Patch 边界均有确定性与生产证据 | Agent 仍可能生成非法动作，但不再构成底层边界缺口 |
 | 工程修复、正常路径已验收 | I05 | JSON/schema reject 与 forbidden 顶层 client Tool 均有准确、同调用身份、零副作用反馈；repeat=3 正常路径全部通过 | 本轮未自然触发顶层 client escape，尚无新的恢复分支在线命中证据 |
 | 已关闭 | I10 | 最新 21 个 TaskSpace wire 请求身份一致；Catalog、dispatch、wire、trace 与 observer 共用同一值 | Projection 不参与能力身份计算，其三臂验收归入 I01/I08 |
-| 工程修复、待自然闭环 | I07 | canonical request/usage、projection 与 Exec 拒绝均可由原始事实复算；最新六轮原始证据完整 | graph placeholder 与 singleton collection 已修复；最终 sample timing 仍有单值兼容缺口 |
+| 工程修复、待自然闭环 | I07 | canonical request/usage、projection 与 Exec 拒绝均可由原始事实复算；graph placeholder、singleton collection 和 strict-mode timing 缺口均已修复 | 多 outer 自然在线 artifact 尚未产生，不能确认生产 trace 与离线 fixture 完全一致 |
 | 复杂样本可完成 | I03 | Base `3.0.7` 最新 3 轮共 18 次 Exec 均显式携带 `type` 且零拒绝，业务、oracle 与 Map 3/3 通过 | 实际 TaskSpace 只有三轮，尚不足以证明跨样本稳定或关闭整个 I03 |
 | 当前行为已观察 | I04 | 顺序 patch 事务离线通过；最新复杂运行 Map 合法闭合且无 `TransitionInvalid` | 同批父子完成没有自然命中；TaskSpace 仍为线性链，未形成 fork/join |
 | 复杂成本已测 | I08 | always/append/request 的请求、input、缓存、wall 和费用取舍已量化 | 只有一个复杂样本；产品阈值与多样本外推未完成 |
@@ -536,6 +538,18 @@ TaskSpace wire 请求身份一致，见 [`I10 关闭结算`](I10/01-i10-capabili
 
 I07 不作为所有问题的整体前置。其 request/usage 双计、local attempt/boundary 对账、Exec 动作身份和默认 metrics
 拒绝消费链均已闭环；该修复没有扩展为长期 Observer 专项，也没有修改 Runtime 产品行为。
+
+## 5.1 冻结处置
+
+| ID | 冻结处置 | 不主动继续的原因 | 重新开启条件 |
+|---|---|---|---|
+| I05 | 自然观察 | 恢复代码和正常路径已验证，缺少的只是逃逸分支自然命中 | 出现重复反馈、错误分类、非零副作用或无法进入下一请求 |
+| I07 | 自然观察 | 已知 observer 工程缺口均已修复，离线多 outer 对账通过 | 生产报告与 canonical request/usage/rollout/trace 任一事实不一致 |
+| I03 | 保留已知残余 | Runtime 已安全容纳非法 envelope；继续加约束没有坐实根因 | 非法响应无法恢复，或跨代表性样本重复且证据指向上下文、Tool 合同或 Runtime 缺口 |
+| I04 | 延后能力观察 | 当前真实样本没有形成足以判断 fork/join 的客观复杂图 | 合法 DAG 被 Runtime 错拒，或真实任务持续出现错误 frontier 且上下文缺口有证据 |
+| I08 | 长期成本观察 | 三模式成本已量化，默认模式已确定，尚无产品阈值要求继续优化 | 获得跨样本长期数据并明确成本目标，或出现缓存结构性塌陷 |
+
+上述五项不进入 R8 active engineering queue。新增证据可以追加到本账本；代码修复必须满足重新开启条件并取得用户确认。
 
 ## 6. 已知但不作为独立问题迁移
 

@@ -1,6 +1,7 @@
 # R8 当前进展报告
 
 - Report date: 2026-08-20
+- Status: Frozen; superseded for final status by [`04-r8-freeze-report.md`](04-r8-freeze-report.md)
 - Source plans: `00-r8-charter.md`、`01-r8-known-issues.md`、`taskspace-exec/12-phase-b-zero-base-plan.md`
 - Scope: `whalecode-alpha` branch，当前离线修复 commit `8ae4f2759`
 - Latest runtime evidence: `WAR-20260820-214337-R8-MAP-REQUEST-R3`
@@ -132,14 +133,14 @@ output，Agent 无法纠正。实际为 1 run / 2 requests / 26,722 input / 655 
 | I04 复杂依赖 | 客观提供两个独立修复域的新样本仍形成线性链；顺序 patch 事务仅离线通过 | fork/join、多 Ready 节点和多父节点仍无生产证据 | 不诱导拆图；先验收新事务，再分析首次读取前初始化通用链的影响 |
 | I08 长期成本 | 单个复杂样本已量化三模式取舍，默认 map-request 已确认 | 不能外推长期 Map 和真实日常任务成本 | 暂不改协议，在代表性使用中继续积累事实 |
 
-## 7. 建议顺序
+## 7. 冻结处置
 
 | 优先级 | 动作 | 依赖 | 验收方式 |
 |---:|---|---|---|
 | Done | I03 多 outer 可恢复拒绝 | 最新真实 trace 与 H-016 | 离线证明整批零执行、两个原 call-id 同合同错误且 turn 可继续 |
 | Done | I07 多 outer 可比观测 | I03 逐 call 结果 | fixture 对账 2 call / 2 reject / 1 request，missing result 为 0 |
-| P0 | 继续观察 I03 Agent 生成稳定性与在线恢复 | 当前修复 | 不人为诱导；自然命中时验证下一请求纠正和生产 observer |
-| P1 | 观察默认 map-request 的长期成本 | 当前产品默认已确认 | 保持三模式共用基建，不为单个成本指标改变语义 |
+| Observe | 观察 I03 Agent 生成稳定性与在线恢复 | 当前修复 | 不人为诱导；自然命中时验证下一请求纠正和生产 observer |
+| Observe | 观察默认 map-request 的长期成本 | 当前产品默认已确认 | 保持三模式共用基建，不为单个成本指标改变语义 |
 
 多 outer fatal 恢复链与离线 observer 已完成；下一步是在自然获批样本中验证 Agent 收到逐 call 错误后继续纠正，不人为
-诱导该错误。I04 按用户决定暂不处理，I08 不做新的压缩改动。
+诱导该错误。I04 按用户决定暂不处理，I08 不做新的压缩改动。上述事项已转入冻结观察，不构成 R8 后续实施计划。
