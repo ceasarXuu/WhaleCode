@@ -68,7 +68,8 @@ class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
         self.write_ledger()
 
         with self.assertRaisesRegex(
-            ValueError, "provider accounting|not durable|logical_mode"
+            ValueError,
+            "provider accounting|not durable|logical_mode|resolved provider profile",
         ):
             self.validate(result=self.result, acceptance=self.acceptance)
 
@@ -377,7 +378,9 @@ class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
             result["observations"][0]["provider_payload_sha256"]
         )
 
-        with self.assertRaisesRegex(ValueError, "identical provider wire"):
+        with self.assertRaisesRegex(
+            ValueError, "provider terminal usage|identical provider wire"
+        ):
             self.validate(result=result)
 
     def test_rejects_float_request_count_in_observation(self) -> None:
@@ -434,6 +437,7 @@ class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
         )
         recomputed = analyze_artifacts(
             self.repo / observation["artifacts"]["cache_summary"],
+            self.repo / observation["artifacts"]["provider_wire"],
             self.repo / observation["artifacts"]["request_summary"],
             metrics_path,
             self.repo / observation["artifacts"]["provider_boundary"],
@@ -454,6 +458,8 @@ class PromoteCacheBaselineTest(PromoteCacheBaselineFixture, unittest.TestCase):
                 "elapsed_seconds": 1.0,
                 "budget_observation_exceeded": [],
                 "run_id": observation["run_id"],
+                "provider_routing": observation["provider_routing"],
+                "provider_route_profile": observation["provider_route_profile"],
             }
         )
         result["observations"][0] = recomputed

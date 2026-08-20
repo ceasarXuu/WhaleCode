@@ -49,7 +49,6 @@ use crate::create_shell_tool;
 use crate::create_spawn_agent_tool_v1;
 use crate::create_spawn_agent_tool_v2;
 use crate::create_spawn_agents_on_csv_tool;
-use crate::create_taskspace_control_tool;
 use crate::create_test_sync_tool;
 use crate::create_tool_search_tool;
 use crate::create_tool_suggest_tool;
@@ -118,6 +117,7 @@ pub fn build_tool_registry_plan(
                 &enabled_tools,
                 &namespace_descriptions,
                 config.code_mode_only_enabled,
+                config.code_mode_exec_function_enabled,
                 config.search_tool
                     && params
                         .deferred_mcp_tools
@@ -443,13 +443,6 @@ pub fn build_tool_registry_plan(
     }
 
     if config.collab_tools {
-        plan.push_spec(
-            create_taskspace_control_tool(),
-            /*supports_parallel_tool_calls*/ false,
-            config.code_mode_enabled,
-        );
-        plan.specs.rotate_right(1);
-        plan.register_handler("taskspace_control", ToolHandlerKind::TaskSpaceControl);
         if config.multi_agent_v2 {
             let agent_type_description =
                 agent_type_description(config, params.default_agent_type_description);

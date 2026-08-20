@@ -1,0 +1,38 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "approved_at": "2026-08-13T08:37:06+08:00",
+  "authorization_id": "CBA-20260813-R8-LS09-LOGICAL-4A4CF466B06FBDA6",
+  "approval_reference": "用户于 2026-08-13 明确要求修复并批准一次修复测试；本授权只认领 provider-web-search-probe × map-request × repeat=1，最多 12 Provider requests、500,000 input 与 20,000 output 观测阈值、720 秒，零自动重试。",
+  "proposal_id": "CBP-4A4CF466B06FBDA6",
+  "proposal_sha256": "60a85dd963999db60b4d37276494104e70d217ad9462f9facf7c5f719a7c6a44",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "provider-web-search-probe"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 1,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 1,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "LS-09 logical Hosted Tool revalidation: verify one web_search declaration aggregates all provider-internal search/open outputs, binds to Agent-declared nodes, completes the business artifact and closes the Map without schema retries."
+  },
+  "approved_maximums": {
+    "provider_requests": 12,
+    "input_tokens": 12000000,
+    "output_tokens": 4608000,
+    "elapsed_seconds": 840,
+    "estimated_cost": 2.97024,
+    "currency": "USD"
+  }
+}

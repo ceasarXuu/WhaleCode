@@ -18,7 +18,8 @@ from cache_json import exact_json_equal, strict_json_loads
 from cache_time import parse_timestamp, require_not_future, require_ordered
 
 
-AUTHORIZATION_SCHEMA_VERSION = "whalecode-cache-budget-authorization-v1"
+AUTHORIZATION_SCHEMA_VERSION = "whalecode-cache-budget-authorization-v2"
+LEGACY_AUTHORIZATION_SCHEMA_VERSION = "whalecode-cache-budget-authorization-v1"
 
 
 def require(condition: bool, message: str) -> None:
@@ -67,11 +68,11 @@ def validate_proposal_context(
         repeat=selection["repeat"],
         retry_sample_run_limit=selection["retry_sample_run_limit"],
         max_provider_requests_per_run=limits["provider_requests"],
-        observed_input_tokens_per_run=proposal["per_sample_run_observation_thresholds"][
+        observed_input_tokens_per_run=proposal["per_sample_run_budget_limits"][
             "input_tokens"
         ],
         observed_output_tokens_per_run=proposal[
-            "per_sample_run_observation_thresholds"
+            "per_sample_run_budget_limits"
         ]["output_tokens"],
         max_seconds_per_run=limits["elapsed_seconds"],
         stop_conditions=selection["stop_conditions"],
@@ -88,8 +89,10 @@ def validate_proposal_context(
 def validate_authorization(
     proposal: dict[str, Any], authorization: dict[str, Any]
 ) -> None:
+    legacy = proposal.get("schema_version") == "whalecode-cache-budget-proposal-v2"
     require(
-        authorization.get("schema_version") == AUTHORIZATION_SCHEMA_VERSION,
+        authorization.get("schema_version")
+        == (LEGACY_AUTHORIZATION_SCHEMA_VERSION if legacy else AUTHORIZATION_SCHEMA_VERSION),
         "invalid cache budget authorization schema",
     )
     require(authorization.get("status") == "granted", "cache budget is not granted")
@@ -129,7 +132,10 @@ def validate_authorization(
         "authorization selection does not match proposal",
     )
     require(
-        exact_json_equal(authorization.get("approved_maximums"), proposal["maximums"]),
+        exact_json_equal(
+            authorization.get("approved_maximums"),
+            proposal["maximums"] if legacy else proposal["approved_maximums"],
+        ),
         "authorization maximums do not match proposal",
     )
 
@@ -163,7 +169,7 @@ def benchmark_command(
 ) -> list[str]:
     arm = execution["arm"]
     policy = arm if arm != "standard" else "map-request"
-    side = "left" if arm == "standard" else "right"
+    logical_mode = "standard" if arm == "standard" else "taskspace"
     return [
         "pwsh",
         "-NoProfile",
@@ -184,10 +190,27 @@ def benchmark_command(
         "-TaskSpaceProjectionPolicy",
         policy,
         "-RunSide",
-        side,
+        "both",
+        "-RunLogicalMode",
+        logical_mode,
+        "-AllowNonE2Result",
         "-TimeoutSeconds",
         str(proposal["per_sample_run_limits"]["elapsed_seconds"]),
         "-ProviderRequestHardLimit",
         str(proposal["per_sample_run_limits"]["provider_requests"]),
+        "-ProviderInputTokenHardLimit",
+        str(proposal["per_sample_run_budget_limits"]["input_tokens"]),
+        "-ProviderOutputTokenHardLimit",
+        str(proposal["per_sample_run_budget_limits"]["output_tokens"]),
+        "-ProviderEstimatedCostHardLimit",
+        str(proposal["per_sample_run_budget_limits"]["estimated_cost"]),
+        "-ProviderBudgetCurrency",
+        str(proposal["pricing_snapshot"]["currency"]),
+        "-ProviderCachedInputRatePerMillion",
+        str(proposal["pricing_snapshot"]["cached_input_per_million"]),
+        "-ProviderUncachedInputRatePerMillion",
+        str(proposal["pricing_snapshot"]["uncached_input_per_million"]),
+        "-ProviderOutputRatePerMillion",
+        str(proposal["pricing_snapshot"]["output_per_million"]),
         "-EnableDockerImageCache",
     ]

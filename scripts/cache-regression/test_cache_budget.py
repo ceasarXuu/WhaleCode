@@ -35,6 +35,9 @@ class CacheBudgetProposalTest(unittest.TestCase):
         runner = self.repo / "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1"
         runner.parent.mkdir(parents=True)
         runner.write_text("runner\n", encoding="utf-8")
+        runner.with_name("invoke-provider-route-preflight.ps1").write_text(
+            "preflight\n", encoding="utf-8"
+        )
         for sample in ("simple", "complex"):
             scenario = self.repo / "benchmarks/taskspace/scenarios" / sample
             scenario.mkdir(parents=True)
@@ -55,9 +58,10 @@ class CacheBudgetProposalTest(unittest.TestCase):
                     {"id": "prompt", "globs": ["prompt/**"], "reason": "prompt"}
                 ],
                 "pricing_snapshot": {
-                    "currency": "USD",
-                    "uncached_input_per_million": 0.14,
-                    "output_per_million": 0.28,
+                    "currency": "CNY",
+                    "cached_input_per_million": 0.02,
+                    "uncached_input_per_million": 1.0,
+                    "output_per_million": 2.0,
                 },
                 "provider_hard_limits": {
                     "deepseek-v4-flash": {
@@ -114,19 +118,18 @@ class CacheBudgetProposalTest(unittest.TestCase):
             selection_reason="human selected representative paths",
         )
 
-    def test_computes_declared_maximums_without_cache_discount(self) -> None:
+    def test_separates_approved_budget_from_provider_capacity(self) -> None:
         proposal = self.proposal()
         validate_budget_proposal(proposal)
         self.assertEqual(proposal["selection"]["planned_sample_runs"], 8)
         self.assertEqual(proposal["selection"]["maximum_sample_runs"], 9)
-        self.assertEqual(proposal["maximums"]["provider_requests"], 90)
-        self.assertEqual(proposal["maximums"]["input_tokens"], 90_000_000)
-        self.assertEqual(proposal["maximums"]["output_tokens"], 34_560_000)
-        self.assertEqual(proposal["maximums"]["elapsed_seconds"], 2160)
-        self.assertEqual(proposal["maximums"]["estimated_cost"], 22.2768)
-        self.assertEqual(
-            proposal["observation_threshold_totals"]["estimated_cost"], 0.1386
-        )
+        self.assertEqual(proposal["approved_maximums"]["provider_requests"], 90)
+        self.assertEqual(proposal["approved_maximums"]["input_tokens"], 900_000)
+        self.assertEqual(proposal["approved_maximums"]["output_tokens"], 45_000)
+        self.assertEqual(proposal["approved_maximums"]["elapsed_seconds"], 2160)
+        self.assertEqual(proposal["approved_maximums"]["estimated_cost"], 0.99)
+        self.assertEqual(proposal["provider_capacity_ceiling"]["input_tokens"], 90_000_000)
+        self.assertEqual(proposal["provider_capacity_ceiling"]["output_tokens"], 34_560_000)
         self.assertGreater(len(proposal["execution_identity"]["entries"]), 2)
 
     def test_rejects_unblocked_or_uncomparable_gate(self) -> None:
@@ -156,6 +159,29 @@ class CacheBudgetProposalTest(unittest.TestCase):
         report["free_validation"]["passed"] = True
         report["free_validation"]["commands"][0]["status"] = "pass"
         proposal = build_budget_proposal(**{**self._kwargs(), "gate_report": report})
+        self.assertEqual(proposal["trigger"]["failed_free_commands"], [])
+
+    def test_accepts_clean_revalidation_of_stale_accepted_manifest(self) -> None:
+        report = json.loads(self.report_path.read_text(encoding="utf-8"))
+        report.update(
+            {
+                "discovery_state": "revalidation_requested",
+                "baseline_status": "accepted",
+                "accepted_baseline_validation": {
+                    "valid": True,
+                    "manifest_matches_current": False,
+                },
+                "revalidation_requested": True,
+                "require_live_baseline": True,
+                "require_clean_subject": True,
+                "sensitive_changes": [],
+            }
+        )
+        report["free_validation"]["passed"] = True
+        report["free_validation"]["commands"][0]["status"] = "pass"
+
+        proposal = build_budget_proposal(**{**self._kwargs(), "gate_report": report})
+
         self.assertEqual(proposal["trigger"]["failed_free_commands"], [])
 
     def test_rejects_gate_report_from_another_surface(self) -> None:
@@ -196,7 +222,7 @@ class CacheBudgetProposalTest(unittest.TestCase):
             validate_budget_proposal(proposal)
 
         proposal = self.proposal()
-        proposal["maximums"]["provider_requests"] = True
+        proposal["approved_maximums"]["provider_requests"] = True
         self._reseal(proposal)
         with self.assertRaisesRegex(ValueError, "maximums"):
             validate_budget_proposal(proposal)

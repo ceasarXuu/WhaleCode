@@ -22,6 +22,7 @@ pub(crate) struct BuiltinCommandFlags {
     pub(crate) audio_device_selection_enabled: bool,
     pub(crate) allow_elevate_sandbox: bool,
     pub(crate) side_conversation_active: bool,
+    pub(crate) taskspace_active: bool,
 }
 
 /// Return the built-ins that should be visible/usable for the current input.
@@ -41,6 +42,13 @@ pub(crate) fn builtins_for_input(flags: BuiltinCommandFlags) -> Vec<(&'static st
         .filter(|(_, cmd)| flags.realtime_conversation_enabled || *cmd != SlashCommand::Realtime)
         .filter(|(_, cmd)| flags.audio_device_selection_enabled || *cmd != SlashCommand::Settings)
         .filter(|(_, cmd)| !flags.side_conversation_active || cmd.available_in_side_conversation())
+        .filter(|(_, cmd)| {
+            flags.taskspace_active
+                || !matches!(
+                    *cmd,
+                    SlashCommand::MapRequest | SlashCommand::MapAppend | SlashCommand::MapAlways
+                )
+        })
         .collect()
 }
 
@@ -90,6 +98,7 @@ mod tests {
             audio_device_selection_enabled: true,
             allow_elevate_sandbox: true,
             side_conversation_active: false,
+            taskspace_active: true,
         }
     }
 
@@ -136,6 +145,29 @@ mod tests {
         let mut flags = all_enabled_flags();
         flags.fast_command_enabled = false;
         assert_eq!(find_builtin_command("fast", flags), None);
+    }
+
+    #[test]
+    fn projection_policy_commands_are_visible_only_in_taskspace() {
+        let mut flags = all_enabled_flags();
+        flags.taskspace_active = false;
+        for name in ["map-request", "map-append", "map-always"] {
+            assert_eq!(find_builtin_command(name, flags), None);
+        }
+
+        flags.taskspace_active = true;
+        assert_eq!(
+            find_builtin_command("map-request", flags),
+            Some(SlashCommand::MapRequest)
+        );
+        assert_eq!(
+            find_builtin_command("map-append", flags),
+            Some(SlashCommand::MapAppend)
+        );
+        assert_eq!(
+            find_builtin_command("map-always", flags),
+            Some(SlashCommand::MapAlways)
+        );
     }
 
     #[test]

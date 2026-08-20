@@ -1,0 +1,38 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "approved_at": "2026-08-14T20:51:30+08:00",
+  "authorization_id": "CBA-20260814-R8-HOSTED-CONTRACT-FIX-8C7CDEEF5CAEC7B8",
+  "approval_reference": "用户在要求先修复明确错误后，明确批准再运行一轮；本授权仅覆盖 provider-web-search-probe × map-request × repeat=1，零重试，任一失败即停止。",
+  "proposal_id": "CBP-8C7CDEEF5CAEC7B8",
+  "proposal_sha256": "8dbbb159b1b857701bf336190fac99535f8070ea03fdcd249ea8449f947fcce1",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "provider-web-search-probe"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 1,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 1,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "验证修复后 Agent 不再把原生 web_search 伪造为顶层 Function Call，并观察原生 Provider 结果与 taskspace_exec 节点归属双写；用户已明确批准修复后再运行一轮，repeat=1、零重试、任一失败即停止。"
+  },
+  "approved_maximums": {
+    "provider_requests": 12,
+    "input_tokens": 12000000,
+    "output_tokens": 4608000,
+    "elapsed_seconds": 420,
+    "estimated_cost": 2.97024,
+    "currency": "USD"
+  }
+}

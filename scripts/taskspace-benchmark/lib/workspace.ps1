@@ -304,6 +304,55 @@ print("hidden oracle passed")
 '@
         return
     }
+    if ($Strategy -eq "release-dispatch-v1") {
+        Write-Text $Path @'
+import pathlib, sys
+repo = pathlib.Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(repo / "src"))
+from release_dispatch.dispatch import build_dispatch_summary
+from release_dispatch.inventory import needs_restock, parse_inventory_row
+from release_dispatch.shipping import shipping_quote
+assert parse_inventory_row(" SKU-9 , 0 , 0 , 2.01 , International , Standard ") == {
+    "sku": "sku-9",
+    "on_hand": 0,
+    "reorder_point": 0,
+    "weight_kg": 2.01,
+    "region": "international",
+    "service": "standard",
+}
+for bad_row, field in [
+    ("sku,-1,0,1,eu,standard", "on_hand"),
+    ("sku,0,-1,1,eu,standard", "reorder_point"),
+    ("sku,0,0,-0.1,eu,standard", "weight"),
+]:
+    try:
+        parse_inventory_row(bad_row)
+    except ValueError as exc:
+        assert field in str(exc).lower()
+    else:
+        raise AssertionError(f"invalid {field} should fail")
+assert needs_restock(0, 0)
+assert needs_restock(2, 3)
+assert not needs_restock(4, 3)
+assert shipping_quote(2.01, "international", "standard") == 18
+assert shipping_quote(0.01, "domestic", "express") == 10
+for region, service, field in [
+    ("unknown", "standard", "region"),
+    ("eu", "overnight", "service"),
+]:
+    try:
+        shipping_quote(1, region, service)
+    except ValueError as exc:
+        assert field in str(exc).lower()
+    else:
+        raise AssertionError(f"unknown {field} should fail")
+assert build_dispatch_summary(
+    " SKU-9 , 0 , 0 , 2.01 , International , Standard "
+) == {"sku": "sku-9", "restock": True, "shipping": 18}
+print("hidden oracle passed")
+'@
+        return
+    }
 
     if ($Strategy -eq "large-output-ref-v1") {
         Write-Text $Path @'

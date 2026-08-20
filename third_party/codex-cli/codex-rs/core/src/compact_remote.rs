@@ -170,6 +170,7 @@ async fn run_remote_compact_task_inner_impl(
         tools: tool_router.model_visible_specs(),
         parallel_tool_calls: turn_context.model_info.supports_parallel_tool_calls,
         tool_choice: "auto".into(),
+        taskspace_capability_identity: tool_router.taskspace_capability_identity(),
         base_instructions,
         personality: turn_context.personality,
         output_schema: None,

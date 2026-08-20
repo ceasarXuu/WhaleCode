@@ -1,14 +1,14 @@
 use super::StateRuntime;
+use super::taskspace_map_codec::canonical_sha256;
 use super::taskspace_map_codec::decode_binding_row;
-use super::taskspace_map_codec::decode_map_row;
 use super::taskspace_map_codec::from_i64;
-use super::taskspace_map_codec::map_revision;
-use super::taskspace_map_codec::map_terminal;
 use super::taskspace_map_codec::request_sha256;
 use super::taskspace_map_codec::require_nonempty;
-use super::taskspace_map_codec::sha256;
 use super::taskspace_map_codec::to_i64;
 use super::taskspace_map_codec::validate_map_identity;
+use super::taskspace_map_repository::compare_and_swap_map;
+use super::taskspace_map_repository::insert_map_head;
+use super::taskspace_map_repository::load_map_in_tx;
 use crate::BindTaskSpaceMapRequest;
 use crate::CommitTaskSpaceMapRequest;
 use crate::CreateTaskSpaceMapRequest;
@@ -17,7 +17,6 @@ use crate::TaskSpaceMapRecord;
 use crate::TaskSpaceMapRelation;
 use crate::TaskSpaceMapWriteOutcome;
 use codex_protocol::ThreadId;
-use codex_protocol::taskspace::TASKSPACE_CANONICAL_SCHEMA_VERSION;
 use sqlx::Row;
 use sqlx::Sqlite;
 use sqlx::Transaction;
@@ -30,8 +29,7 @@ impl StateRuntime {
         validate_map_identity(&request.map_id, request.canonical_map.as_ref())?;
         require_nonempty("commit_id", &request.commit_id)?;
         require_nonempty("operation", &request.operation)?;
-        let canonical_json = serde_json::to_string(&request.canonical_map)?;
-        let canonical_sha256 = sha256(canonical_json.as_bytes());
+        let canonical_sha256 = canonical_sha256(&request.canonical_map)?;
         let request_sha256 = request_sha256(
             &request.map_id,
             0,
@@ -40,8 +38,6 @@ impl StateRuntime {
             request.owner_thread_id,
             None,
         )?;
-        let map_revision = map_revision(request.canonical_map.as_ref());
-        let terminal = map_terminal(request.canonical_map.as_ref());
         let now = chrono::Utc::now().timestamp_millis();
         let mut tx = self.pool.begin_with("BEGIN IMMEDIATE").await?;
 
@@ -57,28 +53,16 @@ impl StateRuntime {
             return Ok(outcome);
         }
 
-        let inserted = sqlx::query(
-            r#"
-INSERT INTO taskspace_maps (
-    map_id, owner_thread_id, canonical_schema_version, canonical_json, canonical_sha256,
-    store_revision, map_revision, terminal, created_at_ms, updated_at_ms
-) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
-ON CONFLICT(map_id) DO NOTHING
-            "#,
-        )
-        .bind(&request.map_id)
-        .bind(request.owner_thread_id.to_string())
-        .bind(TASKSPACE_CANONICAL_SCHEMA_VERSION)
-        .bind(canonical_json)
-        .bind(&canonical_sha256)
-        .bind(to_i64(map_revision, "map_revision")?)
-        .bind(i64::from(terminal))
-        .bind(now)
-        .bind(now)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
-        if inserted == 0 {
+        let record = TaskSpaceMapRecord {
+            map_id: request.map_id.clone(),
+            owner_thread_id: request.owner_thread_id,
+            canonical_map: request.canonical_map,
+            canonical_sha256: canonical_sha256.clone(),
+            store_revision: 1,
+            created_at_ms: now,
+            updated_at_ms: now,
+        };
+        if !insert_map_head(&mut tx, &record).await? {
             let current = load_map_in_tx(&mut tx, &request.map_id).await?;
             tx.commit().await?;
             return Ok(TaskSpaceMapWriteOutcome::Conflict { current });
@@ -119,46 +103,40 @@ ON CONFLICT(map_id) DO NOTHING
         &self,
         map_id: &str,
     ) -> anyhow::Result<Option<TaskSpaceMapRecord>> {
-        let row = sqlx::query(
-            r#"
-SELECT map_id, owner_thread_id, canonical_schema_version, canonical_json, canonical_sha256,
-       store_revision, map_revision, terminal, created_at_ms, updated_at_ms
-FROM taskspace_maps
-WHERE map_id = ?
-            "#,
-        )
-        .bind(map_id)
-        .fetch_optional(self.pool.as_ref())
-        .await?;
-        row.map(|row| decode_map_row(&row)).transpose()
+        let mut tx = self.pool.begin().await?;
+        let record = load_map_in_tx(&mut tx, map_id).await?;
+        tx.commit().await?;
+        Ok(record)
     }
 
     pub async fn load_taskspace_map_for_thread(
         &self,
         thread_id: ThreadId,
     ) -> anyhow::Result<Option<(TaskSpaceMapRecord, TaskSpaceMapBindingRecord)>> {
+        let mut tx = self.pool.begin().await?;
         let row = sqlx::query(
             r#"
 SELECT
-    m.map_id, m.owner_thread_id, m.canonical_schema_version, m.canonical_json,
-    m.canonical_sha256, m.store_revision, m.map_revision, m.terminal,
-    m.created_at_ms, m.updated_at_ms,
-    b.thread_id AS binding_thread_id, b.relation, b.parent_thread_id,
+    b.map_id, b.thread_id AS binding_thread_id, b.relation, b.parent_thread_id,
     b.created_at_ms AS binding_created_at_ms, b.updated_at_ms AS binding_updated_at_ms
 FROM taskspace_map_bindings b
-JOIN taskspace_maps m ON m.map_id = b.map_id
 WHERE b.thread_id = ?
             "#,
         )
         .bind(thread_id.to_string())
-        .fetch_optional(self.pool.as_ref())
+        .fetch_optional(&mut *tx)
         .await?;
-        row.map(|row| {
-            let map = decode_map_row(&row)?;
+        let result = if let Some(row) = row {
             let binding = decode_binding_row(&row)?;
-            Ok((map, binding))
-        })
-        .transpose()
+            let map = load_map_in_tx(&mut tx, &binding.map_id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("TaskSpace binding references a missing map"))?;
+            Some((map, binding))
+        } else {
+            None
+        };
+        tx.commit().await?;
+        Ok(result)
     }
 
     pub async fn bind_thread_to_taskspace_map(
@@ -185,8 +163,7 @@ WHERE b.thread_id = ?
         validate_map_identity(&request.map_id, request.canonical_map.as_ref())?;
         require_nonempty("commit_id", &request.commit_id)?;
         require_nonempty("operation", &request.operation)?;
-        let canonical_json = serde_json::to_string(&request.canonical_map)?;
-        let canonical_sha256 = sha256(canonical_json.as_bytes());
+        let canonical_sha256 = canonical_sha256(&request.canonical_map)?;
         let request_sha256 = request_sha256(
             &request.map_id,
             request.expected_store_revision,
@@ -195,8 +172,6 @@ WHERE b.thread_id = ?
             request.actor_thread_id,
             request.binding.as_ref(),
         )?;
-        let map_revision = map_revision(request.canonical_map.as_ref());
-        let terminal = map_terminal(request.canonical_map.as_ref());
         let next_revision = request
             .expected_store_revision
             .checked_add(1)
@@ -216,35 +191,21 @@ WHERE b.thread_id = ?
             return Ok(outcome);
         }
 
-        let updated = sqlx::query(
-            r#"
-UPDATE taskspace_maps
-SET canonical_schema_version = ?,
-    canonical_json = ?,
-    canonical_sha256 = ?,
-    store_revision = ?,
-    map_revision = ?,
-    terminal = ?,
-    updated_at_ms = ?
-WHERE map_id = ? AND store_revision = ?
-            "#,
-        )
-        .bind(TASKSPACE_CANONICAL_SCHEMA_VERSION)
-        .bind(canonical_json)
-        .bind(&canonical_sha256)
-        .bind(to_i64(next_revision, "store_revision")?)
-        .bind(to_i64(map_revision, "map_revision")?)
-        .bind(i64::from(terminal))
-        .bind(now)
-        .bind(&request.map_id)
-        .bind(to_i64(
-            request.expected_store_revision,
-            "expected_store_revision",
-        )?)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
-        if updated == 0 {
+        let Some(current) = load_map_in_tx(&mut tx, &request.map_id).await? else {
+            tx.commit().await?;
+            return Ok(TaskSpaceMapWriteOutcome::Conflict { current: None });
+        };
+        if current.store_revision != request.expected_store_revision
+            || !compare_and_swap_map(
+                &mut tx,
+                &current,
+                &request.canonical_map,
+                next_revision,
+                &canonical_sha256,
+                now,
+            )
+            .await?
+        {
             let current = load_map_in_tx(&mut tx, &request.map_id).await?;
             tx.commit().await?;
             return Ok(TaskSpaceMapWriteOutcome::Conflict { current });
@@ -321,7 +282,7 @@ WHERE taskspace_map_bindings.map_id = excluded.map_id
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn insert_commit(
+pub(super) async fn insert_commit(
     tx: &mut Transaction<'_, Sqlite>,
     commit_id: &str,
     map_id: &str,
@@ -355,7 +316,7 @@ INSERT INTO taskspace_map_commits (
     Ok(())
 }
 
-async fn replay_commit(
+pub(super) async fn replay_commit(
     tx: &mut Transaction<'_, Sqlite>,
     commit_id: &str,
     map_id: &str,
@@ -390,24 +351,6 @@ WHERE commit_id = ?
         anyhow::bail!("TaskSpace map revision regressed behind an idempotent commit");
     }
     Ok(Some(TaskSpaceMapWriteOutcome::IdempotentReplay(record)))
-}
-
-async fn load_map_in_tx(
-    tx: &mut Transaction<'_, Sqlite>,
-    map_id: &str,
-) -> anyhow::Result<Option<TaskSpaceMapRecord>> {
-    let row = sqlx::query(
-        r#"
-SELECT map_id, owner_thread_id, canonical_schema_version, canonical_json, canonical_sha256,
-       store_revision, map_revision, terminal, created_at_ms, updated_at_ms
-FROM taskspace_maps
-WHERE map_id = ?
-        "#,
-    )
-    .bind(map_id)
-    .fetch_optional(&mut **tx)
-    .await?;
-    row.map(|row| decode_map_row(&row)).transpose()
 }
 
 async fn load_binding_in_tx(

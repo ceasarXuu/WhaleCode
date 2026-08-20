@@ -1,0 +1,5 @@
+error: unrecognized subcommand 'provider'
+
+Usage: whale debug [OPTIONS] <COMMAND>
+
+For more information, try '--help'.

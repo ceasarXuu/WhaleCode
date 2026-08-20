@@ -5,7 +5,6 @@ $runRoot = Join-Path ([IO.Path]::GetTempPath()) "r7-request-observer-$([guid]::N
 . (Join-Path $PSScriptRoot "lib/r7-artifact-provenance.ps1")
 . (Join-Path $PSScriptRoot "lib/r7-five-layer-trace-analysis.ps1")
 $evaluationAuthority = Get-R7EvaluationAuthority $repoRoot "initial"
-
 function Write-Json([string]$Path, $Value) {
     $parent = Split-Path -Parent $Path
     New-Item -ItemType Directory -Force -Path $parent | Out-Null
@@ -15,7 +14,6 @@ function Write-Json([string]$Path, $Value) {
         [Text.UTF8Encoding]::new($false)
     )
 }
-
 function Write-JsonLines([string]$Path, [object[]]$Values) {
     $parent = Split-Path -Parent $Path
     New-Item -ItemType Directory -Force -Path $parent | Out-Null
@@ -32,22 +30,27 @@ function New-WireShape(
     [string]$LogicalMode,
     [object[]]$Messages,
     [int]$Lcp,
-    [object[]]$Receipts = @()
+    [object[]]$FinalControlResults = @()
 ) {
     [pscustomobject]@{
-        schema_version = "provider-chat-wire-trace-v10"
+        schema_version = "provider-chat-wire-trace-v11"
         event_name = if ($Index -eq 1) { "provider.chat_wire_shape_recorded" } else { "provider.chat_wire_prefix_broken" }
+        status = "payload_captured"
         request_id = $RequestId
         logical_request_id = "$RequestId-logical"
         attempt_seq = 1
         transport = "responses_http"
         request_index = $Index
+        provider_payload_sha256 = $Index.ToString("x64")
         provider_wire_api = $evaluationAuthority.provider_wire_api
         tools_hash = $evaluationAuthority.tool_capability_profiles.$LogicalMode.tools_hash
         tools_count = [int64]$evaluationAuthority.tool_capability_profiles.$LogicalMode.tools_count
         lcp_message_count = $Lcp
         message_shapes = $Messages
-        taskspace_final_receipt_identity = @{ count = $Receipts.Count; receipts = $Receipts }
+        taskspace_final_control_result_identity = @{
+            count = $FinalControlResults.Count
+            results = $FinalControlResults
+        }
         section_cost = @{
             sections = @(
                 @{ kind = "tools"; estimated_tokens = 100 },
@@ -59,7 +62,7 @@ function New-WireShape(
 
 function New-WireTerminal([string]$RequestId, [int]$InputTokens, [int]$CachedInputTokens) {
     [pscustomobject]@{
-        schema_version = "provider-chat-wire-trace-v10"
+        schema_version = "provider-chat-wire-trace-v11"
         event_name = "provider.chat_wire_request_terminal"
         request_id = $RequestId
         logical_request_id = "$RequestId-logical"
@@ -74,7 +77,11 @@ function New-WireTerminal([string]$RequestId, [int]$InputTokens, [int]$CachedInp
     }
 }
 
-function New-TokenBoundary([string]$RequestId) {
+function New-TokenBoundary(
+    [string]$RequestId,
+    [int]$InputTokens = 100,
+    [int]$CachedInputTokens = 0
+) {
     [pscustomobject]@{
         type = "event_msg"
         payload = @{
@@ -82,6 +89,13 @@ function New-TokenBoundary([string]$RequestId) {
             provider_request_id = $RequestId
             provider_logical_request_id = "$RequestId-logical"
             provider_attempt_seq = 1
+            info = @{ last_token_usage = @{
+                    input_tokens = $InputTokens
+                    cached_input_tokens = $CachedInputTokens
+                    output_tokens = 10
+                    reasoning_output_tokens = 4
+                    total_tokens = $InputTokens + 10
+                } }
         }
     }
 }
@@ -251,14 +265,13 @@ try {
         } else {
             $controlArgs = '{"action":"initialize_and_execute","root":{"node_id":"root","goal":"task"},"work_nodes":[{"node_id":"work","goal":"work"}],"finish":{"node_id":"finish","goal":"finish"},"edges":[{"from":"root","to":"work"},{"from":"work","to":"finish"}],"actions":[{"node_id":"work","tool":"exec_command"}]}'
             $controlOutput = [ordered]@{
-                schema_version = "TaskSpaceResponseCommitV1"
-                status = "accepted"
+                schema_version = "TaskSpaceResponseResultV2"
+                status = "settled"
                 success = $true
                 state_commit = $true
                 map_id = "map-$arm"
                 action = "initialize_and_execute"
-                revision_before = 0
-                revision_after = 1
+                canonical_revision = 2
                 reserved_actions = @(
                     [ordered]@{
                         call_index = 0
@@ -268,26 +281,34 @@ try {
                         reservation_id = "reservation:$arm-tool"
                     }
                 )
+                settlement = [ordered]@{
+                    prepared_action_count = 1
+                    attributed_result_count = 1
+                    outstanding_reservation_count = 0
+                }
             } | ConvertTo-Json -Compress -Depth 10
             Write-JsonLines (Join-Path $artifactDir "rollout.jsonl") @(
                 @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "$arm-control"; rawPayload = @{ name = "taskspace_control"; arguments = $controlArgs } } },
                 @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "$arm-tool"; rawPayload = @{ name = "exec_command"; arguments = '{"cmd":"true"}' } } },
                 (New-TokenBoundary "$sample-$repeat-$arm-1"),
-                @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "$arm-control"; toolSuccess = $true; rawPayload = @{ output = $controlOutput } } },
+                @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "$arm-control"; toolSuccess = $true; rawPayload = @{ type = "function_call_output"; call_id = "$arm-control"; output = $controlOutput } } },
                 @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "$arm-tool"; toolSuccess = $true; rawPayload = @{ output = "ok" } } },
-                @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "message"; originalRole = "developer"; rawPayload = @{ type = "message"; role = "developer"; content = @(@{ type = "input_text"; text = '{"schema_version":"TaskSpaceResponseFinalReceiptV1"}' }) } } },
-                (New-TokenBoundary "$sample-$repeat-$arm-2")
+                (New-TokenBoundary "$sample-$repeat-$arm-2" 200 20)
             )
-            $receiptHash = ("a" * 64) -join ""
+            $resultHash = ("a" * 64) -join ""
             Write-JsonLines (Join-Path $artifactDir "provider-wire-trace.jsonl") @(
                 (New-WireShape "$sample-$repeat-$arm-1" 1 $logicalMode @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }) 0),
                 (New-WireTerminal "$sample-$repeat-$arm-1" 100 0),
-                (New-WireShape "$sample-$repeat-$arm-2" 2 $logicalMode @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }, @{ index = 2; role = "assistant" }, @{ index = 3; role = "tool" }, @{ index = 4; role = "system" }) 2 @(
-                    @{ message_index = 4; wire_role = "system"; control_call_id_sha256 = $receiptHash; reservation_revision_after = 1; canonical_revision = 2; revision_delta = 1; complete = $true }
+                (New-WireShape "$sample-$repeat-$arm-2" 2 $logicalMode @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }, @{ index = 2; role = "assistant" }, @{ index = 3; role = "tool" }, @{ index = 4; role = "tool" }) 2 @(
+                    @{ message_index = 4; item_kind = "function_call_output"; wire_role = $null; control_call_id_sha256 = $resultHash; canonical_revision = 2; settled = $true }
                 )),
                 (New-WireTerminal "$sample-$repeat-$arm-2" 200 20)
             )
         }
+        Invoke-TaskspaceRequestFactsGenerator `
+            -RolloutJsonlPath (Join-Path $artifactDir "rollout.jsonl") `
+            -WireTracePath (Join-Path $artifactDir "provider-wire-trace.jsonl") `
+            -OutputPath (Join-Path $artifactDir "request-facts.json") | Out-Null
         $evidenceFact = Write-R7RunArtifactEvidenceManifest $runDir $logicalMode
         $runs.Add([pscustomobject]@{
                 sample = $sample
@@ -378,10 +399,10 @@ try {
         throw "Matrix report removed or reclassified a validly observed Agent failure"
     }
     $append = @($summary | Where-Object arm -eq "map-append")[0]
-    if ([int]$append.receipt_before_requests -ne 1 -or
-        [double]$append.receipt_before_cache_hit_rate -ne 0.1 -or
-        [string]$append.receipt_wire_roles -ne "system") {
-        throw "Matrix report lost receipt/cache carrier facts"
+    if ([int]$append.final_control_result_before_requests -ne 1 -or
+        [double]$append.final_control_result_before_cache_hit_rate -ne 0.1 -or
+        [string]$append.final_control_result_item_kinds -ne "function_call_output") {
+        throw "Matrix report lost final-control/cache carrier facts"
     }
     if ([int]$trace.schema_version -ne 4 -or
         [string]$trace.input_artifact_provenance.status -ne "valid" -or
@@ -401,7 +422,7 @@ try {
     if ([int]$finalProvenance.schema_version -ne 2 -or
         [string]$finalProvenance.phase -ne "final" -or
         [string]$finalProvenance.status -ne "valid" -or
-        [int]$finalProvenance.raw_artifact_count -ne 192 -or
+        [int]$finalProvenance.raw_artifact_count -ne 216 -or
         -not [bool]$matrixStatus.final_aggregate_ready) {
         throw "Matrix report did not publish sealed final aggregate provenance"
     }

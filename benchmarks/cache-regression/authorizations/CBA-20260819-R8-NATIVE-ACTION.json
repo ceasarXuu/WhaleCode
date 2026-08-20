@@ -1,0 +1,41 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v2",
+  "status": "cancelled",
+  "approved_by": "user",
+  "authorization_id": "CBA-20260819-R8-NATIVE-ACTION",
+  "approval_reference": "用户于 2026-08-19 在收到 native action protocol 的 7 次真实运行预算后明确回复‘批准预算’；其中两次运行用于 Standard/map-request 缓存回归。",
+  "approved_at": "2026-08-19T06:40:28+08:00",
+  "cancelled_at": "2026-08-19T07:05:31+08:00",
+  "cancellation_reason": "Behavior validation remained incomplete and exposed residual top-level action promotion; the cache pair was stopped before execution and this authorization must not be reused.",
+  "proposal_id": "CBP-7B16D4953D310820",
+  "proposal_sha256": "165a65d94b138d0dcc39bf1466f8a17eb49a7a83bdf8cecc82a0c37015816824",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "standard",
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "R8 native action protocol cache release check: Standard and map-request once on the fixed simple sample, zero retries, immediate stop on failure."
+  },
+  "approved_maximums": {
+    "provider_requests": 36,
+    "input_tokens": 360000,
+    "output_tokens": 20000,
+    "elapsed_seconds": 1200,
+    "estimated_cost": 0.4,
+    "currency": "CNY"
+  }
+}

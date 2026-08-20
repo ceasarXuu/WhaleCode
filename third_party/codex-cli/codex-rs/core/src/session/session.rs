@@ -15,6 +15,10 @@ pub(crate) struct Session {
     /// Serializes canonical TaskSpace Store compare-and-swap transactions.
     /// Native Tool execution remains parallel; only factual commits are ordered.
     pub(super) taskspace_store_write_lock: Semaphore,
+    /// Owns the FIFO bridge from completed Tool calls to canonical Map facts.
+    pub(super) taskspace_action_settlements: TaskSpaceActionSettlementQueue,
+    /// Recovery scans the persisted Tool feedback at most once per Session.
+    pub(super) taskspace_action_recovery_scanned: AtomicBool,
     /// Serializes rebuild/apply cycles for the running proxy; each cycle
     /// rebuilds from the current SessionState while holding this lock.
     pub(super) managed_network_proxy_refresh_lock: Semaphore,
@@ -43,7 +47,6 @@ pub(crate) struct SessionConfiguration {
     pub(super) model_reasoning_summary: Option<ReasoningSummaryConfig>,
     pub(super) service_tier: Option<ServiceTier>,
     pub(super) taskspace_projection_policy: Option<TaskSpaceProjectionPolicy>,
-    pub(super) taskspace_skill_snapshot: Option<TaskSpaceSkillSnapshotIdentity>,
 
     /// Developer instructions that supplement the base instructions.
     pub(super) developer_instructions: Option<String>,
@@ -250,6 +253,10 @@ pub(crate) struct AppServerClientMetadata {
 }
 
 impl Session {
+    pub(crate) fn is_shutting_down(&self) -> bool {
+        self.shutting_down.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     #[instrument(name = "session_init", level = "info", skip_all)]
     #[allow(clippy::too_many_arguments)]
     #[expect(
@@ -328,9 +335,6 @@ impl Session {
                                 dynamic_tools: session_configuration.dynamic_tools.clone(),
                                 taskspace_projection_policy: session_configuration
                                     .taskspace_projection_policy,
-                                taskspace_skill_snapshot: session_configuration
-                                    .taskspace_skill_snapshot
-                                    .clone(),
                                 event_persistence_mode,
                             },
                         )
@@ -642,9 +646,15 @@ impl Session {
                 conversation_id,
                 &initial_history,
                 &session_configuration.session_source,
-                session_configuration.taskspace_projection_policy.is_some(),
+                initial_history.taskspace_projection_policy().is_some(),
             )
             .await?;
+            if hydrated_action_map.is_some()
+                && session_configuration.taskspace_projection_policy.is_none()
+            {
+                session_configuration.taskspace_projection_policy =
+                    Some(TaskSpaceProjectionPolicy::MapRequest);
+            }
             let mut state = SessionState::new(session_configuration.clone());
             if let Some(hydrated) = hydrated_action_map {
                 state.action_map_runtime = hydrated.runtime;
@@ -807,6 +817,8 @@ impl Session {
                 out_of_band_elicitation_paused,
                 state: Mutex::new(state),
                 taskspace_store_write_lock: Semaphore::new(/*permits*/ 1),
+                taskspace_action_settlements: TaskSpaceActionSettlementQueue::default(),
+                taskspace_action_recovery_scanned: AtomicBool::new(false),
                 managed_network_proxy_refresh_lock: Semaphore::new(/*permits*/ 1),
                 features: config.features.clone(),
                 pending_mcp_server_refresh_config: Mutex::new(None),
@@ -821,6 +833,8 @@ impl Session {
                 next_internal_sub_id: AtomicU64::new(0),
                 shutting_down: AtomicBool::new(false),
             });
+            sess.taskspace_action_settlements
+                .start(Arc::downgrade(&sess));
             if let Some(network_policy_decider_session) = network_policy_decider_session {
                 let mut guard = network_policy_decider_session.write().await;
                 *guard = Arc::downgrade(&sess);

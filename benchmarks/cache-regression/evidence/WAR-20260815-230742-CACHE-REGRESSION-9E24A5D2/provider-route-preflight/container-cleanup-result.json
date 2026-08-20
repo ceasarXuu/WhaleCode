@@ -1,0 +1,34 @@
+[
+  {
+    "schema_version": 1,
+    "role": "agent",
+    "container_id": "9c892b17da8b37eabdf9601b28212c35ac77cfc6f89d1324765a7bb085ed4e4c",
+    "removed": true,
+    "reason_code": "",
+    "finished_at": "2026-08-15T15:07:44.7335932Z"
+  },
+  {
+    "schema_version": 1,
+    "role": "agent",
+    "container_id": "7dcf0c1753eecadccc577ec4135c277563a140fa44e5b8f3de5882e4041b7bd1",
+    "removed": true,
+    "reason_code": "",
+    "finished_at": "2026-08-15T15:07:45.0467943Z"
+  },
+  {
+    "schema_version": 1,
+    "role": "agent",
+    "container_id": "a8977e959dca48fa2924c053f7b8a5909a58fbfaec7c94b9850dec479fb64e51",
+    "removed": true,
+    "reason_code": "",
+    "finished_at": "2026-08-15T15:07:45.403042Z"
+  },
+  {
+    "schema_version": 1,
+    "role": "agent",
+    "container_id": "7f9ae48eb2a3d84dd8db0ff1f883c41b45fe6fac56d697495d0b25bc5031a4e2",
+    "removed": true,
+    "reason_code": "",
+    "finished_at": "2026-08-15T15:07:45.7588387Z"
+  }
+]

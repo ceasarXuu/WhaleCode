@@ -601,7 +601,12 @@ $timingMetrics.left.docker_build_duration_ms = 800
 $timingMetrics.right.docker_build_duration_ms = 100
 Write-TaskspacePairTiming -PairDir $pairTimingDir2 -Repeat 2 -PairStartedAt $pairStart -PairFinishedAt $pairStart.AddSeconds(20) -Manifest ([pscustomobject]@{ Id = "timing-sample" }) -Pair $null -MetricsBySide $timingMetrics -ValidationTimingBySide $timingValidation | Out-Null
 
-Write-TaskspaceSampleTiming $timingRun "timing-sample" | Out-Null
+Set-StrictMode -Version Latest
+try {
+    Write-TaskspaceSampleTiming $timingRun "timing-sample" | Out-Null
+} finally {
+    Set-StrictMode -Off
+}
 $sampleTiming = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $timingRun "sample-timing.json") | ConvertFrom-Json
 Assert-True ([int64]$sampleTiming.docker_build_duration_ms -eq 2600) "sample timing did not aggregate docker build duration"
 Assert-True ([int]$sampleTiming.bottleneck_counts.docker_build_bound -eq 1) "sample timing did not aggregate bottleneck count"

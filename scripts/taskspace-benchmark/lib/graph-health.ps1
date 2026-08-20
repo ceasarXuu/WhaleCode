@@ -6,11 +6,13 @@ function Get-TaskspaceSafeRatio {
 
 function Get-TaskspaceResultAdoptionState {
     param($Result)
-    $ep = if ($Result -and $Result.PSObject.Properties.Name -contains "evidencePackage") { $Result.evidencePackage } else { $null }
-    if ($null -ne $ep -and $ep.PSObject.Properties.Name -contains "adoptionState") {
+    if ($Result -isnot [pscustomobject]) { return "legacy_unset" }
+    $epProperty = if ($null -ne $Result) { $Result.PSObject.Properties["evidencePackage"] } else { $null }
+    $ep = if ($null -ne $epProperty) { $epProperty.Value } else { $null }
+    if ($null -ne $ep -and $null -ne $ep.PSObject.Properties["adoptionState"]) {
         return [string]$ep.adoptionState
     }
-    if ($null -ne $Result -and $Result.PSObject.Properties.Name -contains "adoptionState") {
+    if ($null -ne $Result -and $null -ne $Result.PSObject.Properties["adoptionState"]) {
         return [string]$Result.adoptionState
     }
     "legacy_unset"
@@ -18,20 +20,20 @@ function Get-TaskspaceResultAdoptionState {
 
 function Get-TaskspaceBenchmarkResultId {
     param($Result)
-    if ($Result -and $Result.PSObject.Properties.Name -contains "id") { return [string]$Result.id }
-    if ($Result -and $Result.PSObject.Properties.Name -contains "resultId") { return [string]$Result.resultId }
-    if ($Result -and $Result.PSObject.Properties.Name -contains "result_id") { return [string]$Result.result_id }
+    if ($Result -isnot [pscustomobject]) { return "" }
+    if ($Result -and $null -ne $Result.PSObject.Properties["id"]) { return [string]$Result.id }
+    if ($Result -and $null -ne $Result.PSObject.Properties["resultId"]) { return [string]$Result.resultId }
+    if ($Result -and $null -ne $Result.PSObject.Properties["result_id"]) { return [string]$Result.result_id }
     ""
 }
 
 function Get-TaskspaceBenchmarkResultAdoption {
     param($Result)
-    if (-not $Result) { return $null }
-    if ($Result.PSObject.Properties.Name -contains "adoption") { return $Result.adoption }
-    if ($Result.PSObject.Properties.Name -contains "evidencePackage" -and
-        $null -ne $Result.evidencePackage -and
-        $Result.evidencePackage.PSObject.Properties.Name -contains "adoption") {
-        return $Result.evidencePackage.adoption
+    if (-not $Result -or $Result -isnot [pscustomobject]) { return $null }
+    if ($null -ne $Result.PSObject.Properties["adoption"]) { return $Result.adoption }
+    $ep = if ($null -ne $Result.PSObject.Properties["evidencePackage"]) { $Result.evidencePackage } else { $null }
+    if ($ep -is [pscustomobject] -and $null -ne $ep.PSObject.Properties["adoption"]) {
+        return $ep.adoption
     }
     return $null
 }
@@ -44,17 +46,18 @@ function Test-TaskspaceBenchmarkResultSupportsDecision {
     $adoptedDecisionIds = @()
     if ($adoption) {
         foreach ($name in @("adoptedByDecisions", "adopted_by_decisions")) {
-            if ($adoption.PSObject.Properties.Name -contains $name -and @($adoption.$name).Count -gt 0) {
+            if ($null -ne $adoption.PSObject.Properties[$name] -and @($adoption.$name).Count -gt 0) {
                 $adoptedDecisionIds = @($adoption.$name)
                 break
             }
         }
     }
     foreach ($decision in @($Decisions)) {
-        $decisionId = if ($decision.PSObject.Properties.Name -contains "id") { [string]$decision.id } elseif ($decision.PSObject.Properties.Name -contains "Id") { [string]$decision.Id } else { "" }
+        if ($decision -isnot [pscustomobject]) { continue }
+        $decisionId = if ($null -ne $decision.PSObject.Properties["id"]) { [string]$decision.id } elseif ($null -ne $decision.PSObject.Properties["Id"]) { [string]$decision.Id } else { "" }
         foreach ($name in @("dependsOnResults", "depends_on_results")) {
             $adoptedCurrentDecision = $adoptedDecisionIds.Count -eq 0 -or $adoptedDecisionIds -contains $decisionId
-            if ($decision.PSObject.Properties.Name -contains $name -and @($decision.$name) -contains $resultId -and $adoptedCurrentDecision) {
+            if ($null -ne $decision.PSObject.Properties[$name] -and @($decision.$name) -contains $resultId -and $adoptedCurrentDecision) {
                 return $true
             }
         }
@@ -68,13 +71,15 @@ function Test-TaskspaceGraphNeedsDecisionDensity {
     if ($SubagentSpawnCount -gt 0) { return $true }
     $nodeKindById = @{}
     foreach ($node in @($Nodes)) {
+        if ($node -isnot [pscustomobject] -or $null -eq $node.PSObject.Properties["id"]) { continue }
         $nodeId = [string]$node.id
         if (-not [string]::IsNullOrWhiteSpace($nodeId)) {
-            $nodeKindById[$nodeId] = [string]$node.kind
+            $nodeKindById[$nodeId] = Get-TaskspaceGraphNodeRole $node
         }
     }
     $nonFinalOutgoing = @{}
     foreach ($edge in @($Edges)) {
+        if ($edge -isnot [pscustomobject] -or $null -eq $edge.PSObject.Properties["from"] -or $null -eq $edge.PSObject.Properties["to"]) { continue }
         $from = [string]$edge.from
         $to = [string]$edge.to
         if ([string]::IsNullOrWhiteSpace($from) -or [string]::IsNullOrWhiteSpace($to)) { continue }
@@ -90,12 +95,26 @@ function Test-TaskspaceGraphNeedsDecisionDensity {
     return $false
 }
 
+function Get-TaskspaceGraphNodeRole {
+    param($Node)
+    if ($null -eq $Node) { return "" }
+    if ($null -ne $Node.PSObject.Properties["kind"]) { return [string]$Node.kind }
+    if ($null -ne $Node.PSObject.Properties["role"]) { return [string]$Node.role }
+    return ""
+}
+
+function Get-TaskspaceGraphNodeStatus {
+    param($Node)
+    if ($null -ne $Node -and $null -ne $Node.PSObject.Properties["status"]) { return [string]$Node.status }
+    return ""
+}
+
 function Get-TaskspaceRootedGraphMetrics {
     param([object[]]$Nodes, [object[]]$Edges, [object[]]$Maps)
     $map = @($Maps | Select-Object -First 1)
-    $rootId = if ($map.Count -gt 0) { [string]$map[0].rootNodeId } else { "" }
-    $finishId = if ($map.Count -gt 0) { [string]$map[0].finishNodeId } else { "" }
-    $ids = @($Nodes | ForEach-Object { [string]$_.id } | Where-Object { $_ })
+    $rootId = if ($map.Count -gt 0 -and $null -ne $map[0].PSObject.Properties["rootNodeId"]) { [string]$map[0].rootNodeId } else { "" }
+    $finishId = if ($map.Count -gt 0 -and $null -ne $map[0].PSObject.Properties["finishNodeId"]) { [string]$map[0].finishNodeId } else { "" }
+    $ids = @($Nodes | Where-Object { $_ -is [pscustomobject] -and $null -ne $_.PSObject.Properties["id"] } | ForEach-Object { [string]$_.id } | Where-Object { $_ })
     $outgoing = @{}
     $incoming = @{}
     foreach ($id in $ids) {
@@ -103,6 +122,8 @@ function Get-TaskspaceRootedGraphMetrics {
         $incoming[$id] = New-Object System.Collections.Generic.List[string]
     }
     foreach ($edge in @($Edges)) {
+        if ($edge -isnot [pscustomobject]) { continue }
+        if ($null -eq $edge.PSObject.Properties["from"] -or $null -eq $edge.PSObject.Properties["to"]) { continue }
         $from = [string]$edge.from
         $to = [string]$edge.to
         if ($outgoing.ContainsKey($from) -and $incoming.ContainsKey($to)) {
@@ -160,18 +181,30 @@ function New-TaskspaceGraphHealthReport {
         [string]$Mode = "",
         [string]$LogicalMode = ""
     )
-    $nodes = if ($Observability) { @($Observability.nodes) } else { @() }
-    $edges = if ($Observability) { @($Observability.edges) } else { @() }
-    $maps = if ($Observability) { @($Observability.maps) } else { @() }
-    $toolCalls = if ($Observability) { @($Observability.toolCalls) } else { @() }
-    $results = @($nodes | ForEach-Object { @($_.results) })
+    $nodes = if ($Observability -and $Observability.PSObject.Properties.Name -contains "nodes") {
+        @($Observability.nodes | Where-Object { $_ -is [pscustomobject] -and $null -ne $_.PSObject.Properties["id"] })
+    } else { @() }
+    $edges = if ($Observability -and $Observability.PSObject.Properties.Name -contains "edges") { @($Observability.edges) } else { @() }
+    $maps = if ($Observability -and $Observability.PSObject.Properties.Name -contains "maps") { @($Observability.maps) } else { @() }
+    $toolCalls = if ($Observability -and $Observability.PSObject.Properties.Name -contains "toolCalls") { @($Observability.toolCalls) } else { @() }
+    $results = @($nodes | ForEach-Object {
+            if ($_.PSObject.Properties.Name -contains "results") { @($_.results) }
+        } | Where-Object { $_ -is [pscustomobject] })
     $reviewableResults = @($nodes | ForEach-Object {
-            $nodeKind = [string]$_.kind
-            @($_.results | Where-Object {
-                    [string]$_.kind -eq "result" -and $nodeKind -ne "final_synthesis"
-                })
+            $nodeKind = Get-TaskspaceGraphNodeRole $_
+            if ($_.PSObject.Properties.Name -contains "results") {
+                @($_.results | Where-Object {
+                        $_ -is [pscustomobject] -and
+                        $null -ne $_.PSObject.Properties["kind"] -and
+                        [string]$_.kind -eq "result" -and $nodeKind -ne "final_synthesis"
+                    })
+            }
         })
-    $legacyHealth = Get-TaskspaceGraphHealth $Observability
+    $legacyHealth = if (@($nodes | Where-Object { $null -ne $_.PSObject.Properties["kind"] }).Count -gt 0) {
+        Get-TaskspaceGraphHealth $Observability
+    } else {
+        Get-TaskspaceGraphHealth $null
+    }
     $rootedHealth = Get-TaskspaceRootedGraphMetrics $nodes $edges $maps
     $resultCount = @($results).Count
     $accepted = @($results | Where-Object { [string]$_.validity -eq "accepted" })
@@ -187,7 +220,7 @@ function New-TaskspaceGraphHealthReport {
     } else {
         "measured"
     }
-    $decisionEvents = if ($Observability) {
+    $decisionEvents = if ($Observability -and $Observability.PSObject.Properties.Name -contains "timeline") {
         @($Observability.timeline | Where-Object {
             [string]$_.kind -eq "cognitive_state_updated" -and
             [string]$_.details.updateKind -match "(?i)decision"
@@ -198,28 +231,45 @@ function New-TaskspaceGraphHealthReport {
         $decisions = @($Observability.decisions | Where-Object { $null -ne $_ })
     }
     elseif ($Observability -and $Observability.PSObject.Properties.Name -contains "tasks") {
-        $decisions = @($Observability.tasks | ForEach-Object { @($_.problemLedger.decisions) + @($_.problem_ledger.decisions) } | Where-Object { $null -ne $_ })
+        $decisions = @($Observability.tasks | ForEach-Object {
+                foreach ($ledgerName in @("problemLedger", "problem_ledger")) {
+                    $ledgerProperty = $_.PSObject.Properties[$ledgerName]
+                    if ($null -ne $ledgerProperty -and $null -ne $ledgerProperty.Value -and $null -ne $ledgerProperty.Value.PSObject.Properties["decisions"]) {
+                        @($ledgerProperty.Value.decisions)
+                    }
+                }
+            } | Where-Object { $null -ne $_ })
     }
-    $blockedNodes = @($nodes | Where-Object { [string]$_.status -eq "blocked" })
-    $readyWorkNodes = @($nodes | Where-Object { [string]$_.kind -eq "work" -and [string]$_.status -eq "ready" })
-    $runningWorkNodes = @($nodes | Where-Object { [string]$_.kind -eq "work" -and [string]$_.status -eq "running" })
-    $finishReady = @($nodes | Where-Object { [string]$_.kind -eq "finish" -and [string]$_.status -eq "ready" }).Count -eq 1
+    $blockedNodes = @($nodes | Where-Object { (Get-TaskspaceGraphNodeStatus $_) -eq "blocked" })
+    $readyWorkNodes = @($nodes | Where-Object { (Get-TaskspaceGraphNodeRole $_) -eq "work" -and (Get-TaskspaceGraphNodeStatus $_) -eq "ready" })
+    $runningWorkNodes = @($nodes | Where-Object { (Get-TaskspaceGraphNodeRole $_) -eq "work" -and (Get-TaskspaceGraphNodeStatus $_) -in @("running", "in_flight") })
+    $finishReady = @($nodes | Where-Object { (Get-TaskspaceGraphNodeRole $_) -eq "finish" -and (Get-TaskspaceGraphNodeStatus $_) -eq "ready" }).Count -eq 1
     $spawnCalls = @($toolCalls | Where-Object { [string]$_.tool -eq "spawn_agent" -and [string]$_.status -eq "completed" })
     $subagentPlans = if ($Observability -and $Observability.PSObject.Properties.Name -contains "maps") {
-        @($Observability.maps | ForEach-Object { @($_.subagentPlans) + @($_.subagent_plans) } | Where-Object { $null -ne $_ })
+        @($Observability.maps | ForEach-Object {
+                foreach ($name in @("subagentPlans", "subagent_plans")) {
+                    $property = $_.PSObject.Properties[$name]
+                    if ($null -ne $property) { @($property.Value) }
+                }
+            } | Where-Object { $null -ne $_ })
     } else { @() }
     $subagentSpawnCount = if (@($subagentPlans).Count -gt 0) { @($subagentPlans).Count } else { @($spawnCalls).Count }
     $subagentResultCount = 0
     $subagentAdoptedCount = 0
     $subagentDecisionResultIds = [System.Collections.Generic.HashSet[string]]::new()
     $subagentThreadIds = @($nodes | ForEach-Object {
-            @($_.leases | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.agentThreadId) } | ForEach-Object { [string]$_.agentThreadId })
+            if ($_.PSObject.Properties.Name -contains "leases") {
+                @($_.leases | ForEach-Object {
+                        $property = $_.PSObject.Properties["agentThreadId"]
+                        if ($null -ne $property -and -not [string]::IsNullOrWhiteSpace([string]$property.Value)) { [string]$property.Value }
+                    })
+            }
         } | Sort-Object -Unique)
     foreach ($result in $results) {
         $isSubagentResult = (
             ($result.PSObject.Properties.Name -contains "subagentPlanId" -and -not [string]::IsNullOrWhiteSpace([string]$result.subagentPlanId)) -or
             ($result.PSObject.Properties.Name -contains "subagent_plan_id" -and -not [string]::IsNullOrWhiteSpace([string]$result.subagent_plan_id)) -or
-            ($subagentThreadIds -contains [string]$result.sourceThreadId)
+            ($null -ne $result.PSObject.Properties["sourceThreadId"] -and $subagentThreadIds -contains [string]$result.sourceThreadId)
         )
         if ($isSubagentResult) {
             $subagentResultCount++

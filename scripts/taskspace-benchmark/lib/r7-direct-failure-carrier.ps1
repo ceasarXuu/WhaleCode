@@ -13,7 +13,7 @@ function Get-R7StructuredFailureSchemas {
 function Get-R7ReservedTaskspaceCarrierSchemas {
     @(
         Get-R7StructuredFailureSchemas
-        "TaskSpaceResponseCommitV1"
+        "TaskSpaceResponseResultV2"
     )
 }
 
@@ -88,44 +88,71 @@ function Resolve-R7StructuredCallOutcome {
     $structured
 }
 
-function Get-R7ResponseCommitShapeError {
+function Get-R7ResponseFinalControlResultShapeError {
     param($Payload)
     foreach ($field in @(
             "status", "success", "state_commit", "map_id", "action",
-            "revision_before", "revision_after", "reserved_actions"
+            "canonical_revision", "reserved_actions", "settlement"
         )) {
         if (-not ($Payload.PSObject.Properties.Name -contains $field)) {
-            return "TaskSpaceResponseCommitV1 is missing $field"
+            return "TaskSpaceResponseResultV2 is missing $field"
         }
     }
-    if ([string]$Payload.status -cne "accepted" -or
-        $Payload.success -isnot [bool] -or -not [bool]$Payload.success -or
+    if ([string]$Payload.status -cnotin @("settled", "settlement_incomplete") -or
+        $Payload.success -isnot [bool] -or
         $Payload.state_commit -isnot [bool] -or -not [bool]$Payload.state_commit) {
-        return "TaskSpaceResponseCommitV1 has invalid success semantics"
+        return "TaskSpaceResponseResultV2 has invalid result semantics"
+    }
+    if (([string]$Payload.status -ceq "settled") -ne [bool]$Payload.success) {
+        return "TaskSpaceResponseResultV2 status and success disagree"
     }
     if ($Payload.map_id -isnot [string] -or
         [string]::IsNullOrWhiteSpace([string]$Payload.map_id)) {
-        return "TaskSpaceResponseCommitV1 map_id must be a non-empty string"
+        return "TaskSpaceResponseResultV2 map_id must be a non-empty string"
     }
     if ([string]$Payload.action -cnotin @(
             "initialize_and_execute", "execute", "reopen_map"
         )) {
-        return "TaskSpaceResponseCommitV1 action is unsupported"
+        return "TaskSpaceResponseResultV2 action is unsupported"
     }
-    foreach ($field in @("revision_before", "revision_after")) {
-        if ($Payload.$field -isnot [long] -and $Payload.$field -isnot [int]) {
-            return "TaskSpaceResponseCommitV1 $field must be an integer"
-        }
-        if ([int64]$Payload.$field -lt 0) {
-            return "TaskSpaceResponseCommitV1 $field must be nonnegative"
-        }
+    if ($null -ne $Payload.canonical_revision -and
+        $Payload.canonical_revision -isnot [long] -and
+        $Payload.canonical_revision -isnot [int]) {
+        return "TaskSpaceResponseResultV2 canonical_revision must be an integer or null"
     }
-    if ([int64]$Payload.revision_after -le [int64]$Payload.revision_before) {
-        return "TaskSpaceResponseCommitV1 revision_after must advance"
+    if ($null -ne $Payload.canonical_revision -and [int64]$Payload.canonical_revision -lt 0) {
+        return "TaskSpaceResponseResultV2 canonical_revision must be nonnegative"
+    }
+    if ([bool]$Payload.success -and $null -eq $Payload.canonical_revision) {
+        return "TaskSpaceResponseResultV2 settled result requires canonical_revision"
     }
     if ($Payload.reserved_actions -isnot [System.Array] -or
         $Payload.reserved_actions.Count -eq 0) {
-        return "TaskSpaceResponseCommitV1 reserved_actions must be non-empty"
+        return "TaskSpaceResponseResultV2 reserved_actions must be non-empty"
+    }
+    if ($Payload.settlement -isnot [pscustomobject]) {
+        return "TaskSpaceResponseResultV2 settlement must be an object"
+    }
+    foreach ($field in @(
+            "prepared_action_count", "attributed_result_count",
+            "outstanding_reservation_count"
+        )) {
+        if ($Payload.settlement.$field -isnot [long] -and
+            $Payload.settlement.$field -isnot [int] -or
+            [int64]$Payload.settlement.$field -lt 0) {
+            return "TaskSpaceResponseResultV2 settlement $field is invalid"
+        }
+    }
+    if ([int64]$Payload.settlement.prepared_action_count -ne
+        [int64]$Payload.reserved_actions.Count) {
+        return "TaskSpaceResponseResultV2 prepared action count does not match reservations"
+    }
+    if ([bool]$Payload.success -and (
+            [int64]$Payload.settlement.attributed_result_count -ne
+                [int64]$Payload.settlement.prepared_action_count -or
+            [int64]$Payload.settlement.outstanding_reservation_count -ne 0
+        )) {
+        return "TaskSpaceResponseResultV2 settled result has incomplete attribution"
     }
     $callIds = [Collections.Generic.HashSet[string]]::new(
         [StringComparer]::Ordinal
@@ -139,40 +166,44 @@ function Get-R7ResponseCommitShapeError {
             $reservation.call_index -isnot [long] -and
             $reservation.call_index -isnot [int] -or
             [int64]$reservation.call_index -ne $index) {
-            return "TaskSpaceResponseCommitV1 call_index is invalid"
+            return "TaskSpaceResponseResultV2 call_index is invalid"
         }
         foreach ($field in @("call_id", "node_id", "tool", "reservation_id")) {
             if ($reservation.$field -isnot [string] -or
                 [string]::IsNullOrWhiteSpace([string]$reservation.$field)) {
-                return "TaskSpaceResponseCommitV1 reserved action $field is invalid"
+                return "TaskSpaceResponseResultV2 reserved action $field is invalid"
             }
         }
         if (-not $callIds.Add([string]$reservation.call_id) -or
             -not $reservationIds.Add([string]$reservation.reservation_id)) {
-            return "TaskSpaceResponseCommitV1 reservation identities must be unique"
+            return "TaskSpaceResponseResultV2 reservation identities must be unique"
         }
     }
     ""
 }
 
-function Resolve-R7ResponseCommitOutcome {
+function Resolve-R7ResponseFinalControlResultOutcome {
     param($Payload, $ToolSuccess = $null)
-    $shapeError = Get-R7ResponseCommitShapeError $Payload
+    $shapeError = Get-R7ResponseFinalControlResultShapeError $Payload
     if (-not [string]::IsNullOrWhiteSpace($shapeError)) {
         return New-R7InvalidCallOutcome `
-            "response_commit_payload_incomplete" `
-            "incomplete_response_commit_payload" `
-            "TaskSpaceResponseCommitV1" `
+            "response_final_control_result_payload_incomplete" `
+            "incomplete_response_final_control_result_payload" `
+            "TaskSpaceResponseResultV2" `
             (Get-R7JsonProperty $Payload "state_commit")
     }
-    if ($ToolSuccess -is [bool] -and -not [bool]$ToolSuccess) {
+    if ($ToolSuccess -is [bool] -and
+        [bool]$ToolSuccess -ne [bool]$Payload.success) {
         return New-R7InvalidCallOutcome `
             "outer_inner_success_mismatch" `
             "outer_inner_success_mismatch" `
-            "TaskSpaceResponseCommitV1" `
+            "TaskSpaceResponseResultV2" `
             $true
     }
-    New-R7SuccessfulCallOutcome $true
+    if ([bool]$Payload.success) {
+        return New-R7SuccessfulCallOutcome $true
+    }
+    Resolve-R7StructuredCallOutcome $Payload $ToolSuccess
 }
 
 function Complete-R7CallOutcomeFacts {
@@ -215,9 +246,9 @@ function Complete-R7CallOutcomeFacts {
             Get-R7JsonProperty $Payload "action" ""
         ))
     $Outcome | Add-Member -Force `
-        -NotePropertyName carrier_revision_before `
+        -NotePropertyName carrier_canonical_revision `
         -NotePropertyValue (
-            Get-R7JsonProperty $Payload "revision_before"
+            Get-R7JsonProperty $Payload "canonical_revision"
         )
     $Outcome
 }
@@ -245,7 +276,7 @@ function Get-R7CallOutcome {
     $isControlTool = $ToolName -ceq "taskspace_control"
     $isStructuredFailureSchema =
         $schemaVersion -cin $structuredFailureSchemas
-    $isResponseCommitSchema = $schemaVersion -ceq "TaskSpaceResponseCommitV1"
+    $isResponseFinalControlResultSchema = $schemaVersion -ceq "TaskSpaceResponseResultV2"
     $isReservedTaskspaceSchema = $schemaVersion -cin $reservedSchemas
 
     if ($isControlTool) {
@@ -262,8 +293,8 @@ function Get-R7CallOutcome {
                 (Get-R7JsonProperty $payload "state_commit")
             return Complete-R7CallOutcomeFacts $outcome $payload
         }
-        if ($isResponseCommitSchema) {
-            $outcome = Resolve-R7ResponseCommitOutcome $payload $ToolSuccess
+        if ($isResponseFinalControlResultSchema) {
+            $outcome = Resolve-R7ResponseFinalControlResultOutcome $payload $ToolSuccess
             return Complete-R7CallOutcomeFacts $outcome $payload
         }
         if (-not $isStructuredFailureSchema) {
@@ -294,8 +325,8 @@ function Get-R7CallOutcome {
                 (Get-R7JsonProperty $payload "state_commit")
             return Complete-R7CallOutcomeFacts $outcome $payload
         }
-        if ($isResponseCommitSchema) {
-            $outcome = Resolve-R7ResponseCommitOutcome $payload $ToolSuccess
+        if ($isResponseFinalControlResultSchema) {
+            $outcome = Resolve-R7ResponseFinalControlResultOutcome $payload $ToolSuccess
             return Complete-R7CallOutcomeFacts $outcome $payload
         }
         $outcome = Resolve-R7StructuredCallOutcome $payload $ToolSuccess

@@ -17,6 +17,7 @@ function New-TokenBoundary([string]$RequestId) {
             provider_request_id = $RequestId
             provider_logical_request_id = "$RequestId-logical"
             provider_attempt_seq = 1
+            info = @{ last_token_usage = @{ input_tokens = 10; cached_input_tokens = 0; output_tokens = 2; reasoning_output_tokens = 1; total_tokens = 12 } }
         }
     }
 }
@@ -85,7 +86,7 @@ try {
     )
     $standardBoundaryRejected = $false
     try { Get-R7StandardRequestPath $missingStandardBoundary 1 | Out-Null }
-    catch { $standardBoundaryRejected = $_.Exception.Message -like "Standard rollout request boundary mismatch:*" }
+    catch { $standardBoundaryRejected = $_.Exception.Message -like "Rollout request boundary mismatch:*" }
     if (-not $standardBoundaryRejected) { throw "Missing Standard request boundaries did not fail closed" }
     $nonBoundaryTokenPath = Join-Path $tempRoot "standard-non-boundary-token.jsonl"
     Write-Lines $nonBoundaryTokenPath @(
@@ -101,7 +102,7 @@ try {
     )
     $partialBoundaryRejected = $false
     try { Get-R7StandardRequestPath $partialBoundaryPath 1 | Out-Null }
-    catch { $partialBoundaryRejected = $_.Exception.Message -like "*incomplete provider request identity" }
+    catch { $partialBoundaryRejected = $_.Exception.Message -like "Rollout request facts are not comparable:*identity_incomplete*" }
     if (-not $partialBoundaryRejected) {
         throw "Partially identified token boundary did not fail closed"
     }
@@ -265,9 +266,8 @@ try {
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "t0"; rawPayload = @{ name = "taskspace_control"; arguments = $initControlArgs } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "t1"; rawPayload = @{ name = "shell_command"; arguments = '{"cmd":"ls"}' } } },
         (New-TokenBoundary "wire-1"),
-        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t0"; toolSuccess = $true; rawPayload = @{ output = '{"schema_version":"TaskSpaceResponseCommitV1","status":"accepted","success":true,"state_commit":true,"map_id":"map-1","action":"initialize_and_execute","revision_before":0,"revision_after":2,"reserved_actions":[{"call_index":0,"call_id":"t1","node_id":"explore","tool":"shell_command","reservation_id":"reservation:t1"}]}' } } },
+        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t0"; toolSuccess = $true; rawPayload = @{ type = "function_call_output"; call_id = "t0"; output = '{"schema_version":"TaskSpaceResponseResultV2","status":"settled","success":true,"state_commit":true,"map_id":"map-1","action":"initialize_and_execute","canonical_revision":2,"reserved_actions":[{"call_index":0,"call_id":"t1","node_id":"explore","tool":"shell_command","reservation_id":"reservation:t1"}],"settlement":{"prepared_action_count":1,"attributed_result_count":1,"outstanding_reservation_count":0}}' } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t1"; toolSuccess = $true; rawPayload = @{ output = "ok" } } },
-        @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "message"; originalRole = "developer"; rawPayload = @{ type = "message"; role = "developer"; content = @(@{ type = "input_text"; text = '{"schema_version":"TaskSpaceResponseFinalReceiptV1"}' }) } } },
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call"; callId = "t2"; rawPayload = @{ name = "taskspace_control"; arguments = $finishArgs } } },
         (New-TokenBoundary "wire-2"),
         @{ type = "event_msg"; payload = @{ type = "map_runtime"; map_event_type = "task_context_event_recorded"; eventType = "function_call_output"; callId = "t2"; toolSuccess = $true; rawPayload = @{ output = '{"schema_version":"TaskSpaceControlResultV2","action":"finish_map","success":true,"state_commit":true}' } } },
@@ -277,8 +277,9 @@ try {
     if ($taskspace[0].calls[0].control_action -ne "initialize_and_execute") { throw "TaskSpace initialization manifest was not parsed" }
     if ($taskspace[0].calls[1].declared_node_id -ne "explore") { throw "TaskSpace sibling ownership was not reconstructed" }
     if ($taskspace[1].calls[0].control_action -ne "finish_map") { throw "TaskSpace terminal request was not flushed" }
-    if (-not $taskspace[1].receipt_before -or $taskspace[1].receipt_original_role -ne "developer") {
-        throw "TaskSpace response-final receipt was not assigned to the following provider request"
+    if (-not $taskspace[1].final_control_result_before -or
+        $taskspace[1].final_control_result_item_kind -ne "function_call_output") {
+        throw "TaskSpace final control result was not assigned to the following provider request"
     }
     $stateFailureJson = '{"schema_version":"TaskSpaceResponseCommitFailureV3","status":"state_rejected","success":false,"state_commit":false,"canonical_revision":4,"current_revision":4,"rejected_candidate_committed":false,"executed_tool_call_count":0,"failure_provenance":{"scope":"provider_response","copy_group_id":"provider_response:copy-control","zero_dispatch":true,"affected_call_ids":["copy-control","copy-sibling"]},"error":{"class":"state_machine","code":"taskspace_response_state_commit_failed","violations":[{"code":"node_state_invalid","subjects":["reservation-1"],"node_id":"join","canonical_before_transaction":{"node_present":true,"state":"waiting","unsatisfied_predecessor_ids":["left"]},"rejected_candidate_at_violation":{"committed":false,"state":"completed","allowed_states":["ready","in_flight"],"unsatisfied_predecessor_ids":[]}}]}}'
     $stateFailure = Get-R7CallOutcome -ToolSuccess $false -Output $stateFailureJson -TrustedRuntimeCarrier
@@ -291,7 +292,8 @@ try {
         [string]$stateFailure.violation_contexts[0].rejected_candidate_at_violation.state -ne "completed") {
         throw "TaskSpace structured state violation was not preserved"
     }
-    $copiedRequests = New-R7RequestRows 1
+    $copiedRequests = New-R7RequestRows
+    Add-R7RequestRowIfMissing $copiedRequests 1
     $copiedRequests[0].rollout_provider_request_id = "copy-request"
     $copiedRequests[0].rollout_provider_logical_request_id = "copy-request-logical"
     $copiedRequests[0].rollout_provider_attempt_seq = 1
@@ -315,7 +317,8 @@ try {
         $copied[0].sibling_failure_copy_count -ne 1) {
         throw "Sibling failure copies were not collapsed into one request-level primary class"
     }
-    $independentRequests = New-R7RequestRows 1
+    $independentRequests = New-R7RequestRows
+    Add-R7RequestRowIfMissing $independentRequests 1
     $independentRequests[0].rollout_provider_request_id = "independent-request"
     $independentRequests[0].rollout_provider_logical_request_id =
         "independent-request-logical"
@@ -360,7 +363,7 @@ try {
     )
     $missingBoundaryRejected = $false
     try { Get-R7TaskspaceRequestPath $missingBoundaryPath 1 | Out-Null }
-    catch { $missingBoundaryRejected = $_.Exception.Message -like "TaskSpace rollout request boundary mismatch:*" }
+    catch { $missingBoundaryRejected = $_.Exception.Message -like "Rollout request boundary mismatch:*" }
     if (-not $missingBoundaryRejected) { throw "Missing TaskSpace request boundaries did not fail closed" }
 
     $taskspaceShapesPath = Join-Path $tempRoot "taskspace-shapes.jsonl"
@@ -384,12 +387,12 @@ try {
     }
 
     $wirePath = Join-Path $tempRoot "wire.jsonl"
-    $receiptHash = ("a" * 64) -join ""
+    $resultHash = ("a" * 64) -join ""
     Write-Lines $wirePath @(
-        @{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_shape_recorded"; request_id = "wire-1"; logical_request_id = "wire-1-logical"; attempt_seq = 1; transport = "responses_http"; request_index = 1; provider_wire_api = "ChatCompletions"; lcp_message_count = 0; message_shapes = @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }); taskspace_final_receipt_identity = @{ count = 0; receipts = @() }; section_cost = @{ sections = @(@{ kind = "tools"; estimated_tokens = 100 }, @{ kind = "active_projection"; estimated_tokens = 20 }) } },
-        @{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_request_terminal"; request_id = "wire-1"; logical_request_id = "wire-1-logical"; attempt_seq = 1; transport = "responses_http"; status = "response_completed"; input_tokens = 100; cached_input_tokens = 0; output_tokens = 10; reasoning_output_tokens = 4; total_tokens = 110 },
-        @{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_prefix_broken"; request_id = "wire-2"; logical_request_id = "wire-2-logical"; attempt_seq = 1; transport = "responses_websocket"; request_index = 2; provider_wire_api = "Responses"; lcp_message_count = 2; message_shapes = @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }, @{ index = 2; role = "assistant" }, @{ index = 3; role = "tool" }, @{ index = 4; role = "system" }); taskspace_final_receipt_identity = @{ count = 1; receipts = @(@{ message_index = 4; wire_role = "system"; control_call_id_sha256 = $receiptHash; reservation_revision_after = 1; canonical_revision = 2; revision_delta = 1; complete = $true }) }; section_cost = @{ sections = @(@{ kind = "tools"; estimated_tokens = 100 }, @{ kind = "active_projection"; estimated_tokens = 40 }) } },
-        @{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_request_terminal"; request_id = "wire-2"; logical_request_id = "wire-2-logical"; attempt_seq = 1; transport = "responses_websocket"; status = "response_completed"; input_tokens = 200; cached_input_tokens = 20; output_tokens = 12; reasoning_output_tokens = 5; total_tokens = 212 }
+        @{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_shape_recorded"; request_id = "wire-1"; logical_request_id = "wire-1-logical"; attempt_seq = 1; transport = "responses_http"; status = "payload_captured"; request_index = 1; provider_payload_sha256 = "a" * 64; provider_wire_api = "ChatCompletions"; lcp_message_count = 0; message_shapes = @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }); taskspace_final_control_result_identity = @{ count = 0; results = @() }; section_cost = @{ sections = @(@{ kind = "tools"; estimated_tokens = 100 }, @{ kind = "active_projection"; estimated_tokens = 20 }) } },
+        @{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_request_terminal"; request_id = "wire-1"; logical_request_id = "wire-1-logical"; attempt_seq = 1; transport = "responses_http"; status = "response_completed"; input_tokens = 100; cached_input_tokens = 0; output_tokens = 10; reasoning_output_tokens = 4; total_tokens = 110 },
+        @{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_prefix_broken"; request_id = "wire-2"; logical_request_id = "wire-2-logical"; attempt_seq = 1; transport = "responses_websocket"; status = "payload_captured"; request_index = 2; provider_payload_sha256 = "b" * 64; provider_wire_api = "Responses"; lcp_message_count = 2; message_shapes = @(@{ index = 0; role = "system" }, @{ index = 1; role = "user" }, @{ index = 2; role = "assistant" }, @{ index = 3; role = "tool" }, @{ index = 4; role = "tool" }); taskspace_final_control_result_identity = @{ count = 1; results = @(@{ message_index = 4; item_kind = "function_call_output"; wire_role = $null; control_call_id_sha256 = $resultHash; canonical_revision = 2; settled = $true }) }; section_cost = @{ sections = @(@{ kind = "tools"; estimated_tokens = 100 }, @{ kind = "active_projection"; estimated_tokens = 40 }) } },
+        @{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_request_terminal"; request_id = "wire-2"; logical_request_id = "wire-2-logical"; attempt_seq = 1; transport = "responses_websocket"; status = "response_completed"; input_tokens = 200; cached_input_tokens = 20; output_tokens = 12; reasoning_output_tokens = 5; total_tokens = 212 }
     )
     $sections = Get-R7WireSectionSummary $wirePath
     if ($sections.request_count -ne 2 -or $sections.estimated_tokens_total.tools -ne 200 -or $sections.estimated_tokens_mean.tools -ne 100 -or $sections.estimated_tokens_mean.active_projection -ne 30) {
@@ -398,10 +401,10 @@ try {
     $taskspace = @(Add-R7WireFactsToRequestPath $taskspace $wirePath)
     $requestSummary = Get-R7RequestObservabilitySummary $taskspace
     if (-not $requestSummary.classification_reconciled -or
-        $requestSummary.receipt_before_requests -ne 1 -or
-        $requestSummary.receipt_before_cache_hit_rate -ne 0.1 -or
-        $taskspace[1].receipt_wire_role -ne "system") {
-        throw "Request taxonomy or receipt/cache attribution did not reconcile"
+        $requestSummary.final_control_result_before_requests -ne 1 -or
+        $requestSummary.final_control_result_before_cache_hit_rate -ne 0.1 -or
+        $taskspace[1].final_control_result_item_kind -ne "function_call_output") {
+        throw "Request taxonomy or final-control/cache attribution did not reconcile"
     }
 
     $identityMismatch = @(
@@ -417,12 +420,13 @@ try {
 
     $retryWirePath = Join-Path $tempRoot "wire-retry.jsonl"
     Write-Lines $retryWirePath @(
-        @{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_shape_recorded"; request_id = "retry-logical:attempt-1"; logical_request_id = "retry-logical"; attempt_seq = 1; transport = "responses_http"; request_index = 1; provider_wire_api = "ChatCompletions"; lcp_message_count = 0; message_shapes = @(); taskspace_final_receipt_identity = @{ count = 0; receipts = @() } },
-        @{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_request_terminal"; request_id = "retry-logical:attempt-1"; logical_request_id = "retry-logical"; attempt_seq = 1; transport = "responses_http"; status = "retry_unauthorized" },
-        @{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_prefix_preserved"; request_id = "retry-logical:attempt-2"; logical_request_id = "retry-logical"; attempt_seq = 2; transport = "responses_http"; request_index = 2; provider_wire_api = "ChatCompletions"; lcp_message_count = 2; message_shapes = @(); taskspace_final_receipt_identity = @{ count = 0; receipts = @() } },
-        @{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_request_terminal"; request_id = "retry-logical:attempt-2"; logical_request_id = "retry-logical"; attempt_seq = 2; transport = "responses_http"; status = "response_completed"; input_tokens = 120; cached_input_tokens = 100; output_tokens = 8; reasoning_output_tokens = 2; total_tokens = 128 }
+        @{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_shape_recorded"; request_id = "retry-logical:attempt-1"; logical_request_id = "retry-logical"; attempt_seq = 1; transport = "responses_http"; status = "payload_captured"; request_index = 1; provider_payload_sha256 = "c" * 64; provider_wire_api = "ChatCompletions"; lcp_message_count = 0; message_shapes = @(); taskspace_final_control_result_identity = @{ count = 0; results = @() } },
+        @{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_request_terminal"; request_id = "retry-logical:attempt-1"; logical_request_id = "retry-logical"; attempt_seq = 1; transport = "responses_http"; status = "retry_unauthorized" },
+        @{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_prefix_preserved"; request_id = "retry-logical:attempt-2"; logical_request_id = "retry-logical"; attempt_seq = 2; transport = "responses_http"; status = "payload_captured"; request_index = 2; provider_payload_sha256 = "d" * 64; provider_wire_api = "ChatCompletions"; lcp_message_count = 2; message_shapes = @(); taskspace_final_control_result_identity = @{ count = 0; results = @() } },
+        @{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_request_terminal"; request_id = "retry-logical:attempt-2"; logical_request_id = "retry-logical"; attempt_seq = 2; transport = "responses_http"; status = "response_completed"; input_tokens = 120; cached_input_tokens = 100; output_tokens = 8; reasoning_output_tokens = 2; total_tokens = 128 }
     )
-    $retryRequests = New-R7RequestRows 1
+    $retryRequests = New-R7RequestRows
+    Add-R7RequestRowIfMissing $retryRequests 1
     $retryRequests[0].rollout_provider_request_id = "retry-logical:attempt-2"
     $retryRequests[0].rollout_provider_logical_request_id = "retry-logical"
     $retryRequests[0].rollout_provider_attempt_seq = 2
@@ -450,7 +454,7 @@ try {
     Write-Lines $duplicateTerminalPath $duplicateTerminalRows
     $duplicateTerminalRejected = $false
     try { Get-R7WireRequestInventory $duplicateTerminalPath | Out-Null }
-    catch { $duplicateTerminalRejected = $_.Exception.Message -like "*incomplete physical request rows" }
+    catch { $duplicateTerminalRejected = $_.Exception.Message -like "Canonical request facts are unavailable*wire_terminal_duplicate*" }
     if (-not $duplicateTerminalRejected) {
         throw "Duplicate provider terminal did not fail closed"
     }
@@ -467,30 +471,33 @@ try {
     Write-Lines $reorderedAttemptPath $reorderedAttemptRows
     $reorderedAttemptRejected = $false
     try { Get-R7WireRequestInventory $reorderedAttemptPath | Out-Null }
-    catch { $reorderedAttemptRejected = $_.Exception.Message -like "*attempts are missing, duplicated, or reordered*" }
+    catch {
+        $reorderedAttemptRejected =
+            $_.Exception.Message -like "Canonical request facts are unavailable*logical_attempt_sequence_invalid*"
+    }
     if (-not $reorderedAttemptRejected) {
         throw "Reordered provider retry attempts did not fail closed"
     }
 
-    $badReceiptPath = Join-Path $tempRoot "wire-bad-receipt.jsonl"
-    $badReceiptRows = @(
+    $badResultPath = Join-Path $tempRoot "wire-bad-final-control-result.jsonl"
+    $badResultRows = @(
         Get-Content -Encoding UTF8 -LiteralPath $wirePath |
             ForEach-Object { $_ | ConvertFrom-Json -Depth 100 }
     )
-    $badReceiptShape = @(
-        $badReceiptRows |
+    $badResultShape = @(
+        $badResultRows |
             Where-Object {
                 [string]$_.request_id -eq "wire-2" -and
                 $null -ne $_.request_index
             }
     )[0]
-    $badReceiptShape.taskspace_final_receipt_identity.receipts[0].complete = $false
-    Write-Lines $badReceiptPath $badReceiptRows
-    $receiptRejected = $false
-    try { Add-R7WireFactsToRequestPath $taskspace $badReceiptPath | Out-Null }
-    catch { $receiptRejected = $_.Exception.Message -like "Provider response-final receipt identity is incomplete*" }
-    if (-not $receiptRejected) {
-        throw "Incomplete response-final receipt did not fail closed"
+    $badResultShape.taskspace_final_control_result_identity.results[0].settled = $false
+    Write-Lines $badResultPath $badResultRows
+    $resultRejected = $false
+    try { Add-R7WireFactsToRequestPath $taskspace $badResultPath | Out-Null }
+    catch { $resultRejected = $_.Exception.Message -like "Provider final control result identity is incomplete*" }
+    if (-not $resultRejected) {
+        throw "Incomplete final control result did not fail closed"
     }
     Write-Output "R7 five-layer trace analysis passed."
 } finally {

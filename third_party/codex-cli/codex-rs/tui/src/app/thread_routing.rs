@@ -5,6 +5,7 @@
 //! when the visible thread changes.
 
 use super::*;
+use codex_protocol::protocol::MapRuntimeMode;
 
 impl App {
     pub(super) async fn shutdown_current_thread(&mut self, app_server: &mut AppServerSession) {
@@ -619,7 +620,17 @@ impl App {
             }
             AppCommandView::SetMapRuntimeMode { mode } => {
                 app_server
-                    .thread_map_runtime_mode_set(thread_id, *mode)
+                    .thread_map_runtime_mode_set(thread_id, *mode, None)
+                    .await?;
+                Ok(true)
+            }
+            AppCommandView::SetTaskSpaceProjectionPolicy { policy } => {
+                app_server
+                    .thread_map_runtime_mode_set(
+                        thread_id,
+                        MapRuntimeMode::Experiment,
+                        Some(*policy),
+                    )
                     .await?;
                 Ok(true)
             }

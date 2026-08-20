@@ -1,0 +1,72 @@
+{
+  "schema_version": "whalecode-provider-boundary-evidence-v2",
+  "request_facts_analyzer_version": "i07-review-fixes-v3",
+  "status": "reconciled",
+  "boundary_availability": "measured",
+  "boundary_correlation_availability": "measured",
+  "expected_model": "deepseek-v4-flash",
+  "allowed_method": "POST",
+  "allowed_path": "/responses",
+  "boundary_request_count": 2,
+  "wire_request_count": 2,
+  "local_attempt_count": 3,
+  "local_only_attempt_count": 1,
+  "boundary_requests": [
+    {
+      "count": 1,
+      "method": "POST",
+      "path": "/responses",
+      "model": "deepseek-v4-flash",
+      "body_sha256": "c3b8096cd7581956f03b02af29d491f3108ff009692e3253c794835908552191"
+    },
+    {
+      "count": 2,
+      "method": "POST",
+      "path": "/responses",
+      "model": "deepseek-v4-flash",
+      "body_sha256": "23045583387443aaf159535976f2fc2d2d5096c222810f12dc73bbbc4057c390"
+    }
+  ],
+  "wire_requests": [
+    {
+      "request_id": "provider-wire:019fe863-2bc5-7110-9ce4-4f6e260d03f1:0:logical-1:attempt-1",
+      "request_count_after": 1,
+      "provider_payload_sha256": "c3b8096cd7581956f03b02af29d491f3108ff009692e3253c794835908552191"
+    },
+    {
+      "request_id": "provider-wire:019fe863-2bc5-7110-9ce4-4f6e260d03f1:0:logical-2:attempt-1",
+      "request_count_after": 2,
+      "provider_payload_sha256": "23045583387443aaf159535976f2fc2d2d5096c222810f12dc73bbbc4057c390"
+    }
+  ],
+  "local_attempts": [
+    {
+      "request_id": "provider-wire:019fe863-2bc5-7110-9ce4-4f6e260d03f1:0:logical-1:attempt-1",
+      "logical_request_id": "provider-wire:019fe863-2bc5-7110-9ce4-4f6e260d03f1:0:logical-1",
+      "attempt_seq": 1,
+      "request_index": 1,
+      "provider_payload_sha256": "c3b8096cd7581956f03b02af29d491f3108ff009692e3253c794835908552191",
+      "boundary_status": "observed",
+      "terminal_status": "response_completed"
+    },
+    {
+      "request_id": "provider-wire:019fe863-2bc5-7110-9ce4-4f6e260d03f1:0:logical-2:attempt-1",
+      "logical_request_id": "provider-wire:019fe863-2bc5-7110-9ce4-4f6e260d03f1:0:logical-2",
+      "attempt_seq": 1,
+      "request_index": 2,
+      "provider_payload_sha256": "23045583387443aaf159535976f2fc2d2d5096c222810f12dc73bbbc4057c390",
+      "boundary_status": "observed",
+      "terminal_status": "response_completed"
+    },
+    {
+      "request_id": "provider-wire:019fe863-2bc5-7110-9ce4-4f6e260d03f1:0:logical-3:attempt-1",
+      "logical_request_id": "provider-wire:019fe863-2bc5-7110-9ce4-4f6e260d03f1:0:logical-3",
+      "attempt_seq": 1,
+      "request_index": 3,
+      "provider_payload_sha256": "3f8e1bf6b6b061ec341d1a09e2680fd2aafd031654aa29f28183b9faa3abe117",
+      "boundary_status": "not_observed",
+      "terminal_status": "response_failed"
+    }
+  ],
+  "errors": []
+}

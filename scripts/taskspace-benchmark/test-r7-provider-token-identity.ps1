@@ -6,17 +6,19 @@ New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
 
 function Write-WireFixture([string]$Path, $Terminal) {
     $shape = [pscustomobject]@{
-        schema_version = "provider-chat-wire-trace-v10"
+        schema_version = "provider-chat-wire-trace-v11"
         event_name = "provider.chat_wire_shape_recorded"
         request_id = "request-1"
         logical_request_id = "logical-1"
         attempt_seq = 1
         transport = "responses_http"
+        status = "payload_captured"
         request_index = 1
+        provider_payload_sha256 = "a" * 64
         provider_wire_api = "ChatCompletions"
         lcp_message_count = 0
         message_shapes = @()
-        taskspace_final_receipt_identity = @{ count = 0; receipts = @() }
+        taskspace_final_control_result_identity = @{ count = 0; results = @() }
     }
     [IO.File]::WriteAllLines(
         $Path,
@@ -29,7 +31,7 @@ function Write-WireFixture([string]$Path, $Terminal) {
 
 function New-Terminal {
     [pscustomobject]@{
-        schema_version = "provider-chat-wire-trace-v10"
+        schema_version = "provider-chat-wire-trace-v11"
         event_name = "provider.chat_wire_request_terminal"
         request_id = "request-1"
         logical_request_id = "logical-1"
@@ -53,7 +55,9 @@ function Assert-InvalidTokenFixture([string]$Name, [scriptblock]$Mutation) {
     try {
         Get-R7WireRequestInventory $path | Out-Null
     } catch {
-        $rejected = $_.Exception.Message -match "incomplete physical request rows"
+        $rejected = $_.Exception.Message -match (
+            "Canonical request facts are unavailable.*usage_(missing|invalid)"
+        )
     }
     if (-not $rejected) {
         throw "Provider token fixture was accepted: $Name"
@@ -105,17 +109,19 @@ try {
     $stringIdentity.attempt_seq = "1"
     $identityPath = Join-Path $tempRoot "string-identity.jsonl"
     $shape = [pscustomobject]@{
-        schema_version = "provider-chat-wire-trace-v10"
+        schema_version = "provider-chat-wire-trace-v11"
         event_name = "provider.chat_wire_shape_recorded"
         request_id = "request-1"
         logical_request_id = "logical-1"
         attempt_seq = "1"
         transport = "responses_http"
+        status = "payload_captured"
         request_index = "1"
+        provider_payload_sha256 = "a" * 64
         provider_wire_api = "ChatCompletions"
         lcp_message_count = 0
         message_shapes = @()
-        taskspace_final_receipt_identity = @{ count = 0; receipts = @() }
+        taskspace_final_control_result_identity = @{ count = 0; results = @() }
     }
     [IO.File]::WriteAllLines(
         $identityPath,
@@ -129,7 +135,7 @@ try {
         Get-R7WireRequestInventory $identityPath | Out-Null
     } catch {
         $identityRejected = $_.Exception.Message -match (
-            "invalid nonnegative Int64|incomplete physical request rows"
+            "Canonical request facts are unavailable.*(identity_incomplete|attempt_evidence_invalid)"
         )
     }
     if (-not $identityRejected) {

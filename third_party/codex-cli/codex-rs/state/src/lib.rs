@@ -40,6 +40,7 @@ pub use model::CommitTaskSpaceMapRequest;
 pub use model::CreateTaskSpaceMapRequest;
 pub use model::DirectionalThreadSpawnEdgeStatus;
 pub use model::ExtractionOutcome;
+pub use model::SettleTaskSpaceActionRequest;
 pub use model::SortDirection;
 pub use model::SortKey;
 pub use model::Stage1JobClaim;
@@ -73,7 +74,7 @@ pub const SQLITE_HOME_ENV: &str = "CODEX_SQLITE_HOME";
 pub const LOGS_DB_FILENAME: &str = "logs";
 pub const LOGS_DB_VERSION: u32 = 2;
 pub const STATE_DB_FILENAME: &str = "state";
-pub const STATE_DB_VERSION: u32 = 5;
+pub const STATE_DB_VERSION: u32 = 7;
 
 /// Errors encountered during DB operations. Tags: [stage]
 pub const DB_ERROR_METRIC: &str = "codex.db.error";

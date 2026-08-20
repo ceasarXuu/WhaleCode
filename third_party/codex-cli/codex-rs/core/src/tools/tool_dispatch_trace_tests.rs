@@ -42,7 +42,7 @@ impl ToolHandler for TestHandler {
 }
 
 #[tokio::test]
-async fn dispatch_lifecycle_trace_records_direct_and_code_mode_requesters() -> anyhow::Result<()> {
+async fn dispatch_lifecycle_trace_records_all_requester_identities() -> anyhow::Result<()> {
     let temp = TempDir::new()?;
     let (mut session, turn) = make_session_and_context().await;
     attach_test_trace(&mut session, &turn, temp.path())?;
@@ -72,8 +72,22 @@ async fn dispatch_lifecycle_trace_records_direct_and_code_mode_requesters() -> a
         .await?;
     registry
         .dispatch_any(test_invocation(
-            session,
-            turn,
+            Arc::clone(&session),
+            Arc::clone(&turn),
+            "outer/taskspace/call/2",
+            "test_tool",
+            ToolCallSource::TaskSpaceExec {
+                outer_call_id: "outer".to_string(),
+                call_index: 2,
+                node_id: "verify".to_string(),
+            },
+            "{}",
+        ))
+        .await?;
+    registry
+        .dispatch_any(test_invocation(
+            Arc::clone(&session),
+            Arc::clone(&turn),
             "code-mode-call",
             "test_tool",
             ToolCallSource::CodeMode {
@@ -83,6 +97,7 @@ async fn dispatch_lifecycle_trace_records_direct_and_code_mode_requesters() -> a
             "{}",
         ))
         .await?;
+    drop((session, turn));
 
     let replayed = codex_rollout_trace::replay_bundle(single_bundle_dir(temp.path())?)?;
     assert_eq!(
@@ -125,7 +140,18 @@ async fn dispatch_lifecycle_trace_records_direct_and_code_mode_requesters() -> a
             .is_some(),
         "code-mode calls should keep the result returned to JavaScript",
     );
-
+    let taskspace = &replayed.tool_calls["outer/taskspace/call/2"];
+    assert_eq!(taskspace.model_visible_call_id, None);
+    assert_eq!(taskspace.code_mode_runtime_tool_id, None);
+    assert_eq!(
+        taskspace.requester,
+        ToolCallRequester::TaskSpaceExec {
+            outer_call_id: "outer".to_string(),
+            call_index: 2,
+            node_id: "verify".to_string(),
+        },
+    );
+    assert!(taskspace.raw_result_payload_id.is_some());
     Ok(())
 }
 

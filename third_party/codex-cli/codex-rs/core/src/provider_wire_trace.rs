@@ -15,18 +15,10 @@ use std::sync::Mutex;
 use tracing::info;
 use tracing::warn;
 
-use crate::context::TASKSPACE_CONTRACT_MANIFEST_ID;
-use crate::context::TASKSPACE_CONTRACT_MANIFEST_SHA256;
-use crate::context::TASKSPACE_CONTRACT_MANIFEST_VERSION;
-use crate::context::TASKSPACE_CORE_PROTOCOL;
-use crate::context::TASKSPACE_CORE_PROTOCOL_SHA256;
-use crate::context::TASKSPACE_CORE_PROTOCOL_VERSION;
 use crate::context::WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256;
 use crate::context::WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION;
 use crate::context::WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256;
 use crate::context::WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION;
-use crate::context::taskspace_contract_manifest_matches;
-use crate::context::taskspace_core_protocol_matches;
 
 #[path = "provider_wire_sections.rs"]
 mod provider_wire_sections;
@@ -34,7 +26,6 @@ mod provider_wire_sections;
 use provider_wire_sections::ProviderWireSectionCost;
 
 const TRACE_PATH_ENV: &str = "WHALE_PROVIDER_WIRE_TRACE_PATH";
-const TASKSPACE_FINAL_RECEIPT_SCHEMA: &str = "TaskSpaceResponseFinalReceiptV1";
 
 #[derive(Debug)]
 pub(crate) struct ProviderWireTrace {
@@ -94,6 +85,8 @@ struct WireShapeEvent<'a> {
     section_cost: &'a ProviderWireSectionCost,
     messages_hash: String,
     tools_hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    taskspace_capability_identity: Option<&'a str>,
     cache_shape_hash: String,
     tools_count: usize,
     tool_choice_kind: &'a str,
@@ -101,10 +94,6 @@ struct WireShapeEvent<'a> {
     message_count: usize,
     message_shapes: &'a [WireMessageShape],
     base_instructions_identity: BaseInstructionsWireIdentity,
-    taskspace_wire_contract_identity: TaskspaceWireContractIdentity,
-    taskspace_final_receipt_identity: TaskspaceFinalReceiptIdentity,
-    taskspace_contract_manifest_identity: TaskspaceContractManifestWireIdentity,
-    taskspace_core_protocol_identity: TaskspaceCoreProtocolWireIdentity,
     previous_request_id: Option<&'a str>,
     lcp_message_count: usize,
     lcp_message_bytes: usize,
@@ -129,59 +118,6 @@ struct BaseInstructionsWireIdentity {
     sha256: Option<&'static str>,
     matches_current_contract: bool,
     unavailable_reason: Option<&'static str>,
-}
-
-#[derive(Debug, Serialize, PartialEq, Eq)]
-struct TaskspaceContractManifestWireIdentity {
-    count: usize,
-    contract_id: Option<&'static str>,
-    version: Option<&'static str>,
-    sha256: Option<&'static str>,
-    matches_current_contract: bool,
-    unavailable_reason: Option<&'static str>,
-}
-
-#[derive(Debug, Serialize, PartialEq, Eq)]
-struct TaskspaceCoreProtocolWireIdentity {
-    count: usize,
-    message_index: Option<usize>,
-    wire_role: Option<String>,
-    section_order: Option<usize>,
-    bytes: Option<usize>,
-    estimated_tokens: Option<usize>,
-    version: Option<&'static str>,
-    sha256: Option<&'static str>,
-    matches_current_contract: bool,
-    unavailable_reason: Option<&'static str>,
-}
-
-#[derive(Debug, Serialize, PartialEq, Eq)]
-struct TaskspaceWireContractIdentity {
-    system_message_count: usize,
-    expected_system_message_count: Option<usize>,
-    map_handle_count: usize,
-    map_handle_message_index: Option<usize>,
-    map_handle_wire_role: Option<String>,
-    map_handle_is_request_tail: bool,
-    matches_current_contract: bool,
-    unavailable_reason: Option<&'static str>,
-}
-
-#[derive(Debug, Serialize, PartialEq, Eq)]
-struct TaskspaceFinalReceiptIdentity {
-    count: usize,
-    receipts: Vec<TaskspaceFinalReceiptMessageIdentity>,
-}
-
-#[derive(Debug, Serialize, PartialEq, Eq)]
-struct TaskspaceFinalReceiptMessageIdentity {
-    message_index: usize,
-    wire_role: String,
-    control_call_id_sha256: Option<String>,
-    reservation_revision_after: Option<u64>,
-    canonical_revision: Option<u64>,
-    revision_delta: Option<i64>,
-    complete: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -233,6 +169,7 @@ impl ProviderWireTrace {
         provider_wire_api: WireApi,
         request: &ResponsesApiRequest,
         wire_override: Option<Value>,
+        taskspace_capability_identity: Option<&str>,
     ) -> Value {
         let pre_wire = serde_json::to_value(request).unwrap_or(Value::Null);
         let wire = wire_override.unwrap_or_else(|| match provider_wire_api {
@@ -300,19 +237,10 @@ impl ProviderWireTrace {
             Some(false) => "provider.chat_wire_prefix_broken",
             None => "provider.chat_wire_shape_recorded",
         };
-        let base_instructions_identity = base_instructions_identity(&messages);
-        let taskspace_core_protocol_identity =
-            taskspace_core_protocol_identity(&messages, &base_instructions_identity);
-        let taskspace_wire_contract_identity =
-            taskspace_wire_contract_identity(&messages, &base_instructions_identity);
-        let taskspace_final_receipt_identity = taskspace_final_receipt_identity(&messages);
-        let taskspace_contract_manifest_identity = taskspace_contract_manifest_identity(
-            &base_instructions_identity,
-            &taskspace_core_protocol_identity,
-            &taskspace_wire_contract_identity,
-        );
+        let base_instructions_identity =
+            base_instructions_identity(&wire, provider_wire_api, &messages);
         let event = WireShapeEvent {
-            schema_version: "provider-chat-wire-trace-v10",
+            schema_version: "provider-chat-wire-trace-v11",
             event_name,
             request_id: &request_identity.request_id,
             logical_request_id: &request_identity.logical_request_id,
@@ -327,6 +255,7 @@ impl ProviderWireTrace {
             section_cost: &section_cost,
             messages_hash,
             tools_hash: tools_hash.clone(),
+            taskspace_capability_identity,
             cache_shape_hash,
             tools_count,
             tool_choice_kind,
@@ -334,10 +263,6 @@ impl ProviderWireTrace {
             message_count: message_shapes.len(),
             message_shapes: &message_shapes,
             base_instructions_identity,
-            taskspace_wire_contract_identity,
-            taskspace_final_receipt_identity,
-            taskspace_contract_manifest_identity,
-            taskspace_core_protocol_identity,
             previous_request_id,
             lcp_message_count: comparison
                 .as_ref()
@@ -395,7 +320,7 @@ impl ProviderWireTrace {
             return None;
         };
         let event = WireTerminalEvent {
-            schema_version: "provider-chat-wire-trace-v10",
+            schema_version: "provider-chat-wire-trace-v11",
             event_name: "provider.chat_wire_request_terminal",
             request_id: &request_identity.request_id,
             logical_request_id: &request_identity.logical_request_id,
@@ -424,40 +349,48 @@ fn reset_epoch_if_needed(state: &mut ProviderWireTraceState, epoch_id: &str) {
     state.active_request_identity = None;
 }
 
-fn base_instructions_identity(messages: &[Value]) -> BaseInstructionsWireIdentity {
+fn base_instructions_identity(
+    wire: &Value,
+    provider_wire_api: WireApi,
+    messages: &[Value],
+) -> BaseInstructionsWireIdentity {
     let mut matches = Vec::new();
-    for (index, message) in messages.iter().enumerate() {
-        let Some(role @ ("developer" | "system")) = message.get("role").and_then(Value::as_str)
-        else {
-            continue;
-        };
-        let mut strings = Vec::new();
-        collect_strings(message.get("content").unwrap_or(&Value::Null), &mut strings);
-        for text in strings {
-            let identity = if text == BASE_INSTRUCTIONS_WHALECODE_STANDARD {
-                Some((
-                    "standard",
-                    WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION,
-                    WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256,
-                ))
-            } else if text == BASE_INSTRUCTIONS_WHALECODE_TASKSPACE {
-                Some((
-                    "taskspace",
-                    WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION,
-                    WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256,
-                ))
-            } else {
-                None
-            };
-            if let Some((profile, version, sha256)) = identity {
+    match provider_wire_api {
+        WireApi::Responses => {
+            if let Some(instructions) = wire.get("instructions").and_then(Value::as_str)
+                && let Some((profile, version, sha256)) = known_base_instructions(instructions)
+            {
                 matches.push((
-                    index,
-                    role,
+                    None,
+                    "instructions",
                     profile,
                     version,
                     sha256,
-                    json_bytes(message).len(),
+                    json_bytes(&Value::String(instructions.to_string())).len(),
                 ));
+            }
+        }
+        WireApi::ChatCompletions => {
+            for (index, message) in messages.iter().enumerate() {
+                let Some(role @ ("developer" | "system")) =
+                    message.get("role").and_then(Value::as_str)
+                else {
+                    continue;
+                };
+                let mut strings = Vec::new();
+                collect_strings(message.get("content").unwrap_or(&Value::Null), &mut strings);
+                for text in strings {
+                    if let Some((profile, version, sha256)) = known_base_instructions(text) {
+                        matches.push((
+                            Some(index),
+                            role,
+                            profile,
+                            version,
+                            sha256,
+                            json_bytes(message).len(),
+                        ));
+                    }
+                }
             }
         }
     }
@@ -473,7 +406,7 @@ fn base_instructions_identity(messages: &[Value]) -> BaseInstructionsWireIdentit
     let (message_index, wire_role, profile, version, sha256, message_bytes) = matches[0];
     BaseInstructionsWireIdentity {
         count: 1,
-        message_index: Some(message_index),
+        message_index,
         wire_role: Some(wire_role.to_string()),
         message_bytes: Some(message_bytes),
         estimated_tokens: Some(message_bytes.div_ceil(4)),
@@ -482,6 +415,24 @@ fn base_instructions_identity(messages: &[Value]) -> BaseInstructionsWireIdentit
         sha256: Some(sha256),
         matches_current_contract: true,
         unavailable_reason: None,
+    }
+}
+
+fn known_base_instructions(text: &str) -> Option<(&'static str, &'static str, &'static str)> {
+    if text == BASE_INSTRUCTIONS_WHALECODE_STANDARD {
+        Some((
+            "standard",
+            WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION,
+            WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256,
+        ))
+    } else if text == BASE_INSTRUCTIONS_WHALECODE_TASKSPACE {
+        Some((
+            "taskspace",
+            WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION,
+            WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256,
+        ))
+    } else {
+        None
     }
 }
 
@@ -496,255 +447,6 @@ fn unavailable_base_instructions_identity(
         message_bytes: None,
         estimated_tokens: None,
         profile: None,
-        version: None,
-        sha256: None,
-        matches_current_contract: false,
-        unavailable_reason: Some(reason),
-    }
-}
-
-fn taskspace_contract_manifest_identity(
-    base_identity: &BaseInstructionsWireIdentity,
-    core_protocol_identity: &TaskspaceCoreProtocolWireIdentity,
-    wire_contract_identity: &TaskspaceWireContractIdentity,
-) -> TaskspaceContractManifestWireIdentity {
-    if base_identity.profile == Some("taskspace") && base_identity.matches_current_contract {
-        let matches_current_contract = taskspace_contract_manifest_matches()
-            && core_protocol_identity.matches_current_contract
-            && wire_contract_identity.matches_current_contract;
-        return TaskspaceContractManifestWireIdentity {
-            count: 1,
-            contract_id: Some(TASKSPACE_CONTRACT_MANIFEST_ID),
-            version: Some(TASKSPACE_CONTRACT_MANIFEST_VERSION),
-            sha256: Some(TASKSPACE_CONTRACT_MANIFEST_SHA256),
-            matches_current_contract,
-            unavailable_reason: (!matches_current_contract).then_some(
-                if !core_protocol_identity.matches_current_contract {
-                    "taskspace_core_protocol_invalid"
-                } else {
-                    "taskspace_wire_shape_invalid"
-                },
-            ),
-        };
-    }
-
-    TaskspaceContractManifestWireIdentity {
-        count: 0,
-        contract_id: None,
-        version: None,
-        sha256: None,
-        matches_current_contract: false,
-        unavailable_reason: Some(if base_identity.profile == Some("standard") {
-            "taskspace_profile_not_active"
-        } else {
-            "taskspace_base_identity_unavailable"
-        }),
-    }
-}
-
-fn taskspace_wire_contract_identity(
-    messages: &[Value],
-    base_identity: &BaseInstructionsWireIdentity,
-) -> TaskspaceWireContractIdentity {
-    let system_message_count = messages
-        .iter()
-        .filter(|message| message.get("role").and_then(Value::as_str) == Some("system"))
-        .count();
-    let mut handles = Vec::new();
-    for (message_index, message) in messages.iter().enumerate() {
-        let Some(role) = message.get("role").and_then(Value::as_str) else {
-            continue;
-        };
-        let mut strings = Vec::new();
-        collect_strings(message.get("content").unwrap_or(&Value::Null), &mut strings);
-        for text in strings {
-            for _ in 0..text.matches("TaskSpaceMapHandleR7V1:").count() {
-                handles.push((message_index, role));
-            }
-        }
-    }
-
-    if base_identity.profile != Some("taskspace") || !base_identity.matches_current_contract {
-        return TaskspaceWireContractIdentity {
-            system_message_count,
-            expected_system_message_count: None,
-            map_handle_count: handles.len(),
-            map_handle_message_index: None,
-            map_handle_wire_role: None,
-            map_handle_is_request_tail: false,
-            matches_current_contract: false,
-            unavailable_reason: Some(if base_identity.profile == Some("standard") {
-                "taskspace_profile_not_active"
-            } else {
-                "taskspace_base_identity_unavailable"
-            }),
-        };
-    }
-
-    let single_handle = match handles.as_slice() {
-        [(message_index, role)] => Some((*message_index, *role)),
-        _ => None,
-    };
-    let map_handle_message_index = single_handle.map(|(message_index, _)| message_index);
-    let map_handle_wire_role = single_handle.map(|(_, role)| role.to_string());
-    let map_handle_is_request_tail =
-        single_handle.is_some_and(|(message_index, _)| message_index + 1 == messages.len());
-    let handle_shape_valid = handles.is_empty()
-        || single_handle.is_some_and(|(_, role)| role == "user" && map_handle_is_request_tail);
-    let matches_current_contract = system_message_count == 2 && handle_shape_valid;
-    TaskspaceWireContractIdentity {
-        system_message_count,
-        expected_system_message_count: Some(2),
-        map_handle_count: handles.len(),
-        map_handle_message_index,
-        map_handle_wire_role,
-        map_handle_is_request_tail,
-        matches_current_contract,
-        unavailable_reason: (!matches_current_contract).then_some(if system_message_count != 2 {
-            "taskspace_system_message_count_invalid"
-        } else {
-            "taskspace_map_handle_position_invalid"
-        }),
-    }
-}
-
-fn taskspace_final_receipt_identity(messages: &[Value]) -> TaskspaceFinalReceiptIdentity {
-    let receipts = messages
-        .iter()
-        .enumerate()
-        .filter_map(|(message_index, message)| {
-            let wire_role = message.get("role").and_then(Value::as_str)?;
-            let payload = exact_schema_payload(
-                message.get("content").unwrap_or(&Value::Null),
-                TASKSPACE_FINAL_RECEIPT_SCHEMA,
-            )?;
-            let reservation_revision_after = payload
-                .get("reservation_revision_after")
-                .and_then(Value::as_u64);
-            let canonical_revision = payload.get("canonical_revision").and_then(Value::as_u64);
-            Some(TaskspaceFinalReceiptMessageIdentity {
-                message_index,
-                wire_role: wire_role.to_string(),
-                control_call_id_sha256: payload
-                    .get("control_call_id")
-                    .and_then(Value::as_str)
-                    .map(|value| json_hash(&Value::String(value.to_string()))),
-                reservation_revision_after,
-                canonical_revision,
-                revision_delta: reservation_revision_after.zip(canonical_revision).and_then(
-                    |(before, after)| {
-                        Some(i64::try_from(after).ok()? - i64::try_from(before).ok()?)
-                    },
-                ),
-                complete: payload.get("status").and_then(Value::as_str) == Some("complete")
-                    && payload.get("success").and_then(Value::as_bool) == Some(true),
-            })
-        })
-        .collect::<Vec<_>>();
-    TaskspaceFinalReceiptIdentity {
-        count: receipts.len(),
-        receipts,
-    }
-}
-
-fn exact_schema_payload(content: &Value, schema: &str) -> Option<Value> {
-    match content {
-        Value::String(text) => serde_json::from_str::<Value>(text)
-            .ok()
-            .filter(|value| value.get("schema_version").and_then(Value::as_str) == Some(schema)),
-        Value::Array(values) => values
-            .iter()
-            .find_map(|value| exact_schema_payload(value, schema)),
-        Value::Object(object) => {
-            if object.get("schema_version").and_then(Value::as_str) == Some(schema) {
-                return Some(content.clone());
-            }
-            object
-                .get("text")
-                .or_else(|| object.get("content"))
-                .and_then(|value| exact_schema_payload(value, schema))
-        }
-        _ => None,
-    }
-}
-
-fn taskspace_core_protocol_identity(
-    messages: &[Value],
-    base_identity: &BaseInstructionsWireIdentity,
-) -> TaskspaceCoreProtocolWireIdentity {
-    let mut matches = Vec::new();
-    for (message_index, message) in messages.iter().enumerate() {
-        let Some(role @ ("developer" | "system")) = message.get("role").and_then(Value::as_str)
-        else {
-            continue;
-        };
-        let mut strings = Vec::new();
-        collect_strings(message.get("content").unwrap_or(&Value::Null), &mut strings);
-        for text in strings {
-            for _ in 0..text.matches(TASKSPACE_CORE_PROTOCOL).count() {
-                matches.push((
-                    message_index,
-                    role,
-                    text.starts_with(TASKSPACE_CORE_PROTOCOL),
-                ));
-            }
-        }
-    }
-
-    if matches.is_empty() && base_identity.profile == Some("standard") {
-        return unavailable_taskspace_core_protocol_identity(0, "taskspace_profile_not_active");
-    }
-    if matches.len() != 1 {
-        return unavailable_taskspace_core_protocol_identity(
-            matches.len(),
-            if matches.is_empty() {
-                "taskspace_core_protocol_missing"
-            } else {
-                "taskspace_core_protocol_count_invalid"
-            },
-        );
-    }
-    if base_identity.profile != Some("taskspace") || !base_identity.matches_current_contract {
-        return unavailable_taskspace_core_protocol_identity(
-            1,
-            "taskspace_base_identity_unavailable",
-        );
-    }
-
-    let (message_index, wire_role, is_first_section) = matches[0];
-    let expected_message_index = base_identity.message_index.map(|index| index + 1);
-    if Some(message_index) != expected_message_index || !is_first_section {
-        return unavailable_taskspace_core_protocol_identity(
-            1,
-            "taskspace_core_protocol_position_invalid",
-        );
-    }
-
-    TaskspaceCoreProtocolWireIdentity {
-        count: 1,
-        message_index: Some(message_index),
-        wire_role: Some(wire_role.to_string()),
-        section_order: Some(0),
-        bytes: Some(TASKSPACE_CORE_PROTOCOL.len()),
-        estimated_tokens: Some(TASKSPACE_CORE_PROTOCOL.len().div_ceil(4)),
-        version: Some(TASKSPACE_CORE_PROTOCOL_VERSION),
-        sha256: Some(TASKSPACE_CORE_PROTOCOL_SHA256),
-        matches_current_contract: taskspace_core_protocol_matches(),
-        unavailable_reason: None,
-    }
-}
-
-fn unavailable_taskspace_core_protocol_identity(
-    count: usize,
-    reason: &'static str,
-) -> TaskspaceCoreProtocolWireIdentity {
-    TaskspaceCoreProtocolWireIdentity {
-        count,
-        message_index: None,
-        wire_role: None,
-        section_order: None,
-        bytes: None,
-        estimated_tokens: None,
         version: None,
         sha256: None,
         matches_current_contract: false,
@@ -934,6 +636,7 @@ mod tests {
             WireApi::Responses,
             &request,
             None,
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
         );
         let first = trace
             .record_terminal("retry_unauthorized", None)
@@ -946,6 +649,7 @@ mod tests {
             WireApi::Responses,
             &request,
             None,
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
         );
         let usage = TokenUsage {
             input_tokens: 10,
@@ -967,6 +671,7 @@ mod tests {
             WireApi::Responses,
             &request,
             Some(serde_json::json!({"input": [], "tools": []})),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
         );
         let websocket = trace
             .record_terminal("cancelled", None)
@@ -987,7 +692,7 @@ mod tests {
         assert_eq!(rows.len(), 6);
         assert!(rows.iter().all(|row| {
             row.get("schema_version").and_then(Value::as_str)
-                == Some("provider-chat-wire-trace-v10")
+                == Some("provider-chat-wire-trace-v11")
         }));
         assert_eq!(
             rows[0].get("request_id").and_then(Value::as_str),
@@ -1001,6 +706,14 @@ mod tests {
             rows[4].get("transport").and_then(Value::as_str),
             Some("responses_websocket")
         );
+        for index in [0, 2, 4] {
+            assert_eq!(
+                rows[index]
+                    .get("taskspace_capability_identity")
+                    .and_then(Value::as_str),
+                Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+            );
+        }
         assert_eq!(
             rows[5].get("status").and_then(Value::as_str),
             Some("cancelled")
@@ -1014,7 +727,11 @@ mod tests {
             message("user", "task"),
         ];
 
-        let identity = base_instructions_identity(&messages);
+        let identity = base_instructions_identity(
+            &serde_json::json!({"messages": messages}),
+            WireApi::ChatCompletions,
+            &messages,
+        );
         assert_eq!(identity.count, 1);
         assert_eq!(identity.message_index, Some(0));
         assert_eq!(identity.wire_role.as_deref(), Some("developer"));
@@ -1032,247 +749,68 @@ mod tests {
     }
 
     #[test]
-    fn taskspace_base_identity_accepts_chat_completions_system_role() {
-        let messages = vec![message("system", BASE_INSTRUCTIONS_WHALECODE_TASKSPACE)];
+    fn taskspace_base_identity_tracks_version_hash_and_position() {
+        let messages = vec![
+            message("developer", BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
+            message("user", "task"),
+        ];
 
-        let identity = base_instructions_identity(&messages);
+        let identity = base_instructions_identity(
+            &serde_json::json!({"messages": messages}),
+            WireApi::ChatCompletions,
+            &messages,
+        );
         assert_eq!(identity.count, 1);
-        assert_eq!(identity.wire_role.as_deref(), Some("system"));
+        assert_eq!(identity.message_index, Some(0));
+        assert_eq!(identity.wire_role.as_deref(), Some("developer"));
         assert_eq!(identity.profile, Some("taskspace"));
-        assert!(identity.matches_current_contract);
-    }
-
-    #[test]
-    fn taskspace_base_selects_one_matching_contract_manifest() {
-        let messages = vec![
-            message("system", BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
-            message("system", TASKSPACE_CORE_PROTOCOL),
-            message(
-                "user",
-                "TaskSpaceMapHandleR7V1:\nTaskSpaceMapHandleR7V1 end.",
-            ),
-        ];
-        let base_identity = base_instructions_identity(&messages);
-        let core_identity = taskspace_core_protocol_identity(&messages, &base_identity);
-        let wire_identity = taskspace_wire_contract_identity(&messages, &base_identity);
-
-        let identity =
-            taskspace_contract_manifest_identity(&base_identity, &core_identity, &wire_identity);
-
-        assert_eq!(identity.count, 1);
-        assert_eq!(identity.contract_id, Some(TASKSPACE_CONTRACT_MANIFEST_ID));
-        assert_eq!(identity.version, Some(TASKSPACE_CONTRACT_MANIFEST_VERSION));
-        assert_eq!(identity.sha256, Some(TASKSPACE_CONTRACT_MANIFEST_SHA256));
+        assert_eq!(
+            identity.version,
+            Some(WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION)
+        );
+        assert_eq!(
+            identity.sha256,
+            Some(WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256)
+        );
         assert!(identity.matches_current_contract);
         assert_eq!(identity.unavailable_reason, None);
-    }
-
-    #[test]
-    fn standard_base_does_not_select_a_taskspace_contract_manifest() {
-        let messages = vec![message("system", BASE_INSTRUCTIONS_WHALECODE_STANDARD)];
-        let base_identity = base_instructions_identity(&messages);
-        let core_identity = taskspace_core_protocol_identity(&messages, &base_identity);
-        let wire_identity = taskspace_wire_contract_identity(&messages, &base_identity);
-
-        let identity =
-            taskspace_contract_manifest_identity(&base_identity, &core_identity, &wire_identity);
-
-        assert_eq!(identity.count, 0);
-        assert_eq!(identity.contract_id, None);
-        assert!(!identity.matches_current_contract);
-        assert_eq!(
-            identity.unavailable_reason,
-            Some("taskspace_profile_not_active")
-        );
-    }
-
-    #[test]
-    fn taskspace_wire_contract_accepts_two_system_messages_and_user_tail_handle() {
-        let messages = vec![
-            message("system", BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
-            message("system", TASKSPACE_CORE_PROTOCOL),
-            message("user", "task"),
-            message(
-                "user",
-                "TaskSpaceMapHandleR7V1:\nTaskSpaceMapHandleR7V1 end.",
-            ),
-        ];
-        let base_identity = base_instructions_identity(&messages);
-
-        let identity = taskspace_wire_contract_identity(&messages, &base_identity);
-
-        assert_eq!(identity.system_message_count, 2);
-        assert_eq!(identity.expected_system_message_count, Some(2));
-        assert_eq!(identity.map_handle_count, 1);
-        assert_eq!(identity.map_handle_message_index, Some(3));
-        assert_eq!(identity.map_handle_wire_role.as_deref(), Some("user"));
-        assert!(identity.map_handle_is_request_tail);
-        assert!(identity.matches_current_contract);
-        assert_eq!(identity.unavailable_reason, None);
-    }
-
-    #[test]
-    fn taskspace_wire_contract_rejects_static_system_map_handle() {
-        let messages = vec![
-            message("system", BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
-            message("system", TASKSPACE_CORE_PROTOCOL),
-            message(
-                "system",
-                "TaskSpaceMapHandleR7V1:\nTaskSpaceMapHandleR7V1 end.",
-            ),
-            message("user", "task"),
-        ];
-        let base_identity = base_instructions_identity(&messages);
-        let core_identity = taskspace_core_protocol_identity(&messages, &base_identity);
-        let wire_identity = taskspace_wire_contract_identity(&messages, &base_identity);
-
-        assert_eq!(wire_identity.system_message_count, 3);
-        assert!(!wire_identity.matches_current_contract);
-        assert_eq!(
-            wire_identity.unavailable_reason,
-            Some("taskspace_system_message_count_invalid")
-        );
-        let manifest_identity =
-            taskspace_contract_manifest_identity(&base_identity, &core_identity, &wire_identity);
-        assert!(!manifest_identity.matches_current_contract);
-        assert_eq!(
-            manifest_identity.unavailable_reason,
-            Some("taskspace_wire_shape_invalid")
-        );
-    }
-
-    #[test]
-    fn taskspace_wire_contract_accepts_no_handle_for_projection_policies() {
-        let messages = vec![
-            message("system", BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
-            message("system", TASKSPACE_CORE_PROTOCOL),
-            message("user", "task"),
-        ];
-        let base_identity = base_instructions_identity(&messages);
-
-        let identity = taskspace_wire_contract_identity(&messages, &base_identity);
-
-        assert_eq!(identity.system_message_count, 2);
-        assert_eq!(identity.map_handle_count, 0);
-        assert_eq!(identity.map_handle_message_index, None);
-        assert_eq!(identity.map_handle_wire_role, None);
-        assert!(!identity.map_handle_is_request_tail);
-        assert!(identity.matches_current_contract);
-        assert_eq!(identity.unavailable_reason, None);
-    }
-
-    #[test]
-    fn final_receipt_identity_preserves_exact_wire_role_and_revision_facts() {
-        let receipt = serde_json::json!({
-            "schema_version": TASKSPACE_FINAL_RECEIPT_SCHEMA,
-            "status": "complete",
-            "success": true,
-            "control_call_id": "control-1",
-            "reservation_revision_after": 4,
-            "canonical_revision": 6,
-        })
-        .to_string();
-        let messages = vec![
-            message("system", BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
-            message("user", "task"),
-            message("system", &receipt),
-        ];
-
-        let identity = taskspace_final_receipt_identity(&messages);
-
-        assert_eq!(identity.count, 1);
-        assert_eq!(identity.receipts[0].message_index, 2);
-        assert_eq!(identity.receipts[0].wire_role, "system");
-        assert_eq!(identity.receipts[0].reservation_revision_after, Some(4));
-        assert_eq!(identity.receipts[0].canonical_revision, Some(6));
-        assert_eq!(identity.receipts[0].revision_delta, Some(2));
-        assert!(identity.receipts[0].control_call_id_sha256.is_some());
-        assert!(identity.receipts[0].complete);
-    }
-
-    #[test]
-    fn final_receipt_identity_ignores_user_text_that_only_mentions_schema() {
-        let messages = vec![message(
-            "user",
-            "please explain TaskSpaceResponseFinalReceiptV1 without emitting one",
-        )];
-
-        let identity = taskspace_final_receipt_identity(&messages);
-
-        assert_eq!(identity.count, 0);
-        assert!(identity.receipts.is_empty());
-    }
-
-    #[test]
-    fn taskspace_core_protocol_is_the_second_system_message_first_section() {
-        let messages = vec![
-            message("system", BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
-            message(
-                "system",
-                &format!("{TASKSPACE_CORE_PROTOCOL}\n<permissions>stable</permissions>"),
-            ),
-            message("user", "task"),
-        ];
-        let base_identity = base_instructions_identity(&messages);
-
-        let identity = taskspace_core_protocol_identity(&messages, &base_identity);
-
-        assert_eq!(identity.count, 1);
-        assert_eq!(identity.message_index, Some(1));
-        assert_eq!(identity.wire_role.as_deref(), Some("system"));
-        assert_eq!(identity.section_order, Some(0));
-        assert_eq!(identity.version, Some(TASKSPACE_CORE_PROTOCOL_VERSION));
-        assert_eq!(identity.sha256, Some(TASKSPACE_CORE_PROTOCOL_SHA256));
-        assert!(identity.matches_current_contract);
-        assert_eq!(identity.unavailable_reason, None);
-    }
-
-    #[test]
-    fn duplicate_taskspace_core_protocol_is_invalid() {
-        let messages = vec![
-            message("system", BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
-            message("system", TASKSPACE_CORE_PROTOCOL),
-            message("system", TASKSPACE_CORE_PROTOCOL),
-        ];
-        let base_identity = base_instructions_identity(&messages);
-
-        let identity = taskspace_core_protocol_identity(&messages, &base_identity);
-
-        assert_eq!(identity.count, 2);
-        assert!(!identity.matches_current_contract);
-        assert_eq!(
-            identity.unavailable_reason,
-            Some("taskspace_core_protocol_count_invalid")
-        );
-    }
-
-    #[test]
-    fn standard_wire_has_no_taskspace_core_protocol() {
-        let messages = vec![
-            message("system", BASE_INSTRUCTIONS_WHALECODE_STANDARD),
-            message("system", "permissions"),
-        ];
-        let base_identity = base_instructions_identity(&messages);
-
-        let identity = taskspace_core_protocol_identity(&messages, &base_identity);
-
-        assert_eq!(identity.count, 0);
-        assert_eq!(
-            identity.unavailable_reason,
-            Some("taskspace_profile_not_active")
-        );
     }
 
     #[test]
     fn unknown_or_user_quoted_base_is_not_counted() {
         let messages = vec![message("user", BASE_INSTRUCTIONS_WHALECODE_STANDARD)];
 
-        let identity = base_instructions_identity(&messages);
+        let identity = base_instructions_identity(
+            &serde_json::json!({"messages": messages}),
+            WireApi::ChatCompletions,
+            &messages,
+        );
         assert_eq!(identity.count, 0);
         assert_eq!(
             identity.unavailable_reason,
             Some("base_instructions_unrecognized")
         );
+    }
+
+    #[test]
+    fn responses_base_identity_uses_top_level_instructions() {
+        let messages = vec![message("user", "task")];
+        let wire = serde_json::json!({
+            "instructions": BASE_INSTRUCTIONS_WHALECODE_TASKSPACE,
+            "input": messages,
+        });
+
+        let identity = base_instructions_identity(&wire, WireApi::Responses, &messages);
+
+        assert_eq!(identity.count, 1);
+        assert_eq!(identity.message_index, None);
+        assert_eq!(identity.wire_role.as_deref(), Some("instructions"));
+        assert_eq!(identity.profile, Some("taskspace"));
+        assert_eq!(
+            identity.version,
+            Some(WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION)
+        );
+        assert!(identity.matches_current_contract);
     }
 
     #[test]
@@ -1341,7 +879,7 @@ mod tests {
             request_id: "request-1".to_string(),
             tools_hash: json_hash(&serde_json::json!([])),
             tool_choice_kind: "named_function".to_string(),
-            tool_choice_name: Some("taskspace_control".to_string()),
+            tool_choice_name: Some("exec_command".to_string()),
             messages: message_shapes(&values),
         };
         let mut current = values;

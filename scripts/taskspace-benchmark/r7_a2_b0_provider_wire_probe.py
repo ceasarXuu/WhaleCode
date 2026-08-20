@@ -3,6 +3,11 @@
 
 This script validates transport and model-visible wire behavior only. It never
 executes returned tools and does not import the production TaskSpace runtime.
+
+The provider-native Web Search negative scenario is historical and specific to
+the former Chat Completions capability surface. DeepSeek's current Responses
+surface supports provider-hosted Web Search; use r8_hosted_container_probe.py
+for the current contract.
 """
 
 from __future__ import annotations

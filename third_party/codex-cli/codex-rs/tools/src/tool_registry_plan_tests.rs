@@ -143,11 +143,6 @@ fn test_full_toolset_specs_for_gpt5_codex_unified_exec_web_search() {
         let spec = create_request_permissions_tool(request_permissions_tool_description());
         expected.insert(spec.name().to_string(), spec);
     }
-    if config.collab_tools {
-        let spec = create_taskspace_control_tool();
-        expected.insert(spec.name().to_string(), spec);
-    }
-
     assert_eq!(
         actual.keys().collect::<Vec<_>>(),
         expected.keys().collect::<Vec<_>>(),
@@ -200,83 +195,6 @@ fn test_build_specs_collab_tools_enabled() {
     let (properties, _) = expect_object_schema(parameters);
     assert!(properties.contains_key("fork_context"));
     assert!(!properties.contains_key("fork_turns"));
-}
-
-#[test]
-fn taskspace_map_lifecycle_schema_is_the_only_taskspace_control_schema() {
-    let model_info = model_info();
-    let mut features = Features::with_defaults();
-    features.enable(Feature::Collab);
-    let available_models = Vec::new();
-    let tools_config = ToolsConfig::new(&ToolsConfigParams {
-        model_info: &model_info,
-        available_models: &available_models,
-        features: &features,
-        image_generation_tool_auth_allowed: true,
-        web_search_mode: Some(WebSearchMode::Cached),
-        session_source: SessionSource::Cli,
-        sandbox_policy: &SandboxPolicy::DangerFullAccess,
-        windows_sandbox_level: WindowsSandboxLevel::Disabled,
-    });
-    let (tools, _) = build_specs(
-        &tools_config,
-        /*mcp_tools*/ None,
-        /*deferred_mcp_tools*/ None,
-        &[],
-    );
-
-    assert_eq!(
-        tools.first().map(ConfiguredToolSpec::name),
-        Some("taskspace_control"),
-        "the mandatory TaskSpace lifecycle tool must keep the first stable tool position"
-    );
-    let taskspace = find_tool(&tools, "taskspace_control");
-    let ToolSpec::Function(ResponsesApiTool { parameters, .. }) = &taskspace.spec else {
-        panic!("taskspace_control should be a function tool");
-    };
-    let actions = parameters
-        .any_of
-        .as_ref()
-        .expect("action variants")
-        .iter()
-        .map(|variant| {
-            let (properties, _) = expect_object_schema(variant);
-            properties["action"]
-                .enum_values
-                .as_ref()
-                .expect("action enum")[0]
-                .as_str()
-                .expect("action string")
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        actions,
-        vec![
-            "initialize_and_execute",
-            "execute",
-            "reopen_map",
-            "read_map",
-            "read_output_ref",
-            "read_output_ref",
-            "read_output_ref",
-            "read_output_ref",
-            "finish_map"
-        ]
-    );
-    let serialized = serde_json::to_string(parameters).expect("serialize parameters");
-    assert!(serialized.contains("finish_map"));
-    assert!(!serialized.contains("initialize_map"));
-    assert!(serialized.contains("initialize_and_execute"));
-    assert!(serialized.contains("\"work_nodes\""));
-    assert!(serialized.contains("\"actions\""));
-    assert!(!serialized.contains("complete_then_continue"));
-    assert!(!serialized.contains("bind_node"));
-    assert!(!serialized.contains("current_node"));
-    assert!(!serialized.contains("\"current_work_node\""));
-    assert!(serialized.contains("edges"));
-    assert!(!serialized.contains("initialize_then_actions"));
-    assert!(!serialized.contains("output_contracts"));
-    assert!(!serialized.contains("output_contract_id"));
 }
 
 #[test]
@@ -466,46 +384,6 @@ fn test_build_specs_multi_agent_v2_uses_task_names_and_hides_resume() {
     );
     assert_lacks_tool_name(&tools, "send_input");
     assert_lacks_tool_name(&tools, "resume_agent");
-}
-
-#[test]
-fn ordinary_tool_specs_do_not_expose_taskspace_control_contracts() {
-    let model_info = model_info();
-    let mut features = Features::with_defaults();
-    features.enable(Feature::Collab);
-    features.enable(Feature::MultiAgentV2);
-    let available_models = Vec::new();
-    let config = ToolsConfig::new(&ToolsConfigParams {
-        model_info: &model_info,
-        available_models: &available_models,
-        features: &features,
-        image_generation_tool_auth_allowed: false,
-        web_search_mode: None,
-        session_source: SessionSource::Cli,
-        sandbox_policy: &SandboxPolicy::DangerFullAccess,
-        windows_sandbox_level: WindowsSandboxLevel::Disabled,
-    });
-    let (tools, _) = build_specs(&config, None, None, &[]);
-    let forbidden_markers = [
-        "taskspace_binding",
-        "current main-held node",
-        "TaskSpace node id",
-        "bind the new agent to the intended node",
-    ];
-
-    for tool in tools
-        .iter()
-        .filter(|tool| tool.name() != "taskspace_control")
-    {
-        let encoded = serde_json::to_string(&tool.spec).expect("serialize tool spec");
-        for marker in forbidden_markers {
-            assert!(
-                !encoded.contains(marker),
-                "ordinary tool `{}` exposes TaskSpace control marker `{marker}`",
-                tool.name()
-            );
-        }
-    }
 }
 
 #[test]
@@ -2146,15 +2024,25 @@ fn code_mode_augments_builtin_tool_descriptions_with_typed_sample() {
         /*deferred_mcp_tools*/ None,
         &[],
     );
-    let ToolSpec::Function(ResponsesApiTool { description, .. }) =
-        &find_tool(&tools, VIEW_IMAGE_TOOL_NAME).spec
-    else {
+    let configured = find_tool(&tools, VIEW_IMAGE_TOOL_NAME);
+    let ToolSpec::Function(ResponsesApiTool { description, .. }) = &configured.spec else {
         panic!("expected function tool");
     };
 
     assert_eq!(
         description,
         "View a local image from the filesystem (only use if given a full filepath by the user, and the image isn't already attached to the thread context within <image ...> tags).\n\nexec tool declaration:\n```ts\ndeclare const tools: { view_image(args: {\n  // Local filesystem path to an image file\n  path: string;\n}): Promise<{\n  // Image detail hint returned by view_image. Returns `original` when original resolution is preserved, otherwise `null`.\n  detail: string | null;\n  // Data URL for the loaded image.\n  image_url: string;\n}>; };\n```"
+    );
+    let ToolSpec::Function(ResponsesApiTool {
+        description: native_description,
+        ..
+    }) = &configured.native_spec
+    else {
+        panic!("expected native function tool");
+    };
+    assert_eq!(
+        native_description,
+        "View a local image from the filesystem (only use if given a full filepath by the user, and the image isn't already attached to the thread context within <image ...> tags)."
     );
 }
 
@@ -2194,6 +2082,53 @@ fn code_mode_only_exec_description_includes_full_nested_tool_details() {
     ));
     assert!(description.contains("### `update_plan`"));
     assert!(description.contains("### `view_image`"));
+}
+
+#[test]
+fn code_mode_exec_function_feature_changes_only_the_exec_wire_shape() {
+    let model_info = model_info();
+    let mut features = Features::with_defaults();
+    features.enable(Feature::CodeModeOnly);
+    features.enable(Feature::CodeModeExecFunction);
+    features.normalize_dependencies();
+    let available_models = Vec::new();
+    let tools_config = ToolsConfig::new(&ToolsConfigParams {
+        model_info: &model_info,
+        available_models: &available_models,
+        features: &features,
+        image_generation_tool_auth_allowed: true,
+        web_search_mode: Some(WebSearchMode::Cached),
+        session_source: SessionSource::Cli,
+        sandbox_policy: &SandboxPolicy::DangerFullAccess,
+        windows_sandbox_level: WindowsSandboxLevel::Disabled,
+    });
+
+    let (tools, _) = build_specs(
+        &tools_config,
+        /*mcp_tools*/ None,
+        /*deferred_mcp_tools*/ None,
+        &[],
+    );
+    let ToolSpec::Function(ResponsesApiTool {
+        name,
+        description,
+        parameters,
+        ..
+    }) = &find_tool(&tools, "exec").spec
+    else {
+        panic!("expected function exec tool");
+    };
+    let parameters = serde_json::to_value(parameters).expect("serialize exec parameters");
+
+    assert_eq!(name, "exec");
+    assert!(description.contains("### `exec_command`"));
+    assert_eq!(parameters["required"], json!(["source"]));
+    assert_eq!(parameters["properties"]["source"]["type"], "string");
+    assert_eq!(parameters["additionalProperties"], false);
+    assert!(matches!(
+        find_tool(&tools, "wait").spec,
+        ToolSpec::Function(_)
+    ));
 }
 
 #[test]

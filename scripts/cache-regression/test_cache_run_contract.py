@@ -24,6 +24,9 @@ BENCHMARK_RUNNER = (
     Path(__file__).resolve().parents[1]
     / "taskspace-benchmark/run-taskspace-benchmark.ps1"
 )
+BENCHMARK_PAIR_STAGE = BENCHMARK_RUNNER.with_name(
+    "run-taskspace-benchmark-pairs.ps1"
+)
 
 
 def run(*args: str, cwd: Path) -> str:
@@ -42,6 +45,9 @@ class CacheRunContractTest(unittest.TestCase):
         runner = self.repo / "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1"
         runner.parent.mkdir(parents=True)
         runner.write_text("runner\n", encoding="utf-8")
+        runner.with_name("invoke-provider-route-preflight.ps1").write_text(
+            "preflight\n", encoding="utf-8"
+        )
         scenario = self.repo / "benchmarks/taskspace/scenarios/simple"
         scenario.mkdir(parents=True)
         (scenario / "scenario.json").write_text("{}\n", encoding="utf-8")
@@ -61,9 +67,10 @@ class CacheRunContractTest(unittest.TestCase):
                     {"id": "prompt", "globs": ["prompt/**"], "reason": "prompt"}
                 ],
                 "pricing_snapshot": {
-                    "currency": "USD",
-                    "uncached_input_per_million": 0.14,
-                    "output_per_million": 0.28,
+                    "currency": "CNY",
+                    "cached_input_per_million": 0.02,
+                    "uncached_input_per_million": 1.0,
+                    "output_per_million": 2.0,
                 },
                 "provider_hard_limits": {
                     "deepseek-v4-flash": {
@@ -126,7 +133,7 @@ class CacheRunContractTest(unittest.TestCase):
             "proposal_id": self.proposal["proposal_id"],
             "proposal_sha256": self.proposal["proposal_sha256"],
             "approved_selection": self.proposal["selection"],
-            "approved_maximums": self.proposal["maximums"],
+            "approved_maximums": self.proposal["approved_maximums"],
         }
         self.authorization_path = (
             self.repo / "benchmarks/cache-regression/authorization.json"
@@ -203,6 +210,17 @@ class CacheRunContractTest(unittest.TestCase):
             )
 
         runner.write_text("runner\n", encoding="utf-8")
+        preflight = runner.with_name("invoke-provider-route-preflight.ps1")
+        preflight.write_text("changed preflight\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "current evidence"):
+            load_authorized_proposal(
+                self.repo,
+                self.contract,
+                self.proposal_path,
+                self.authorization_path,
+            )
+
+        preflight.write_text("preflight\n", encoding="utf-8")
         control = self.repo / "scripts/cache-regression/cache_run_contract.py"
         control.parent.mkdir(parents=True, exist_ok=True)
         control.write_text("new control code\n", encoding="utf-8")
@@ -246,7 +264,11 @@ class CacheRunContractTest(unittest.TestCase):
             self.proposal,
             {"sample": "simple", "arm": "map-append", "repeat": 1},
         )
-        self.assertEqual(command[command.index("-RunSide") + 1], "right")
+        self.assertEqual(command[command.index("-RunSide") + 1], "both")
+        self.assertEqual(
+            command[command.index("-RunLogicalMode") + 1], "taskspace"
+        )
+        self.assertIn("-AllowNonE2Result", command)
         self.assertEqual(
             command[command.index("-TaskSpaceProjectionPolicy") + 1], "map-append"
         )
@@ -255,7 +277,10 @@ class CacheRunContractTest(unittest.TestCase):
         self.assertEqual(command[command.index("-ProviderRequestHardLimit") + 1], "10")
 
     def test_benchmark_runner_routes_hard_limit_through_isolated_boundary(self) -> None:
-        source = BENCHMARK_RUNNER.read_text(encoding="utf-8")
+        source = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in (BENCHMARK_RUNNER, BENCHMARK_PAIR_STAGE)
+        )
         self.assertIn("[int]$ProviderRequestHardLimit = 0", source)
         self.assertIn(
             "Get-TaskspaceProviderBoundaryConfigOverrides",

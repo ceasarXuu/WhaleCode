@@ -1,0 +1,36 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "approved_at": "2026-08-14T00:15:31+08:00",
+  "authorization_id": "CBA-20260814-R8-LS09-SAME-RESPONSE-R5-EC6C0CBBC5EBE5DB",
+  "approval_reference": "用户已批准同一 sample 的 repeat=5；这是剩余统计运行 5/5，零自动重试。",
+  "proposal_id": "CBP-EC6C0CBBC5EBE5DB",
+  "proposal_sha256": "b86588c2459d0f15c3374ebbfb9d657d506d745350b9e0c731790b6b4053dc5d",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "provider-web-search-probe"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 1,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 1,
+    "stop_conditions": [
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "用户批准 provider-web-search-probe × map-request × repeat=5；首轮已结算，因 cache runner 固定在任意业务失败后停止，剩余 repeat 2-5 作为四个独立 repeat=1 批次继续收集，合计范围不超过原批准的五轮；每轮最多 12 Provider requests、500,000 input、25,000 output、420 秒，零重试。"
+  },
+  "approved_maximums": {
+    "provider_requests": 12,
+    "input_tokens": 12000000,
+    "output_tokens": 4608000,
+    "elapsed_seconds": 540,
+    "estimated_cost": 2.97024,
+    "currency": "USD"
+  }
+}

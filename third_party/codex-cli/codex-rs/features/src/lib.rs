@@ -85,6 +85,8 @@ pub enum Feature {
     CodeMode,
     /// Restrict model-visible tools to code mode entrypoints (`exec`, `wait`).
     CodeModeOnly,
+    /// Expose the code mode `exec` entrypoint as a JSON function tool.
+    CodeModeExecFunction,
     /// Removed compatibility flag for the deleted JavaScript REPL tool-only mode.
     JsReplToolsOnly,
     /// Use the single unified PTY-backed exec tool.
@@ -467,6 +469,9 @@ impl Features {
         if self.enabled(Feature::CodeModeOnly) && !self.enabled(Feature::CodeMode) {
             self.enable(Feature::CodeMode);
         }
+        if self.enabled(Feature::CodeModeExecFunction) && !self.enabled(Feature::CodeMode) {
+            self.enable(Feature::CodeMode);
+        }
     }
 }
 
@@ -662,6 +667,12 @@ pub const FEATURES: &[FeatureSpec] = &[
     FeatureSpec {
         id: Feature::CodeModeOnly,
         key: "code_mode_only",
+        stage: Stage::UnderDevelopment,
+        default_enabled: false,
+    },
+    FeatureSpec {
+        id: Feature::CodeModeExecFunction,
+        key: "code_mode_exec_function",
         stage: Stage::UnderDevelopment,
         default_enabled: false,
     },

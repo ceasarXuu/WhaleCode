@@ -367,6 +367,9 @@
             "code_mode": {
               "type": "boolean"
             },
+            "code_mode_exec_function": {
+              "type": "boolean"
+            },
             "code_mode_only": {
               "type": "boolean"
             },
@@ -2720,6 +2723,9 @@
           "type": "boolean"
         },
         "code_mode": {
+          "type": "boolean"
+        },
+        "code_mode_exec_function": {
           "type": "boolean"
         },
         "code_mode_only": {

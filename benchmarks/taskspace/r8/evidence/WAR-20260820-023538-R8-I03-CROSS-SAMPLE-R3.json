@@ -1,0 +1,103 @@
+{
+  "schema_version": "r8-i03-cross-sample-evidence-v1",
+  "record_id": "WAR-20260820-023538-R8-I03-CROSS-SAMPLE-R3",
+  "scenario": "release-dispatch-repair",
+  "arm": "map-request",
+  "repeat": 3,
+  "model": "deepseek-v4-flash",
+  "taskspace_base": {
+    "version": "3.0.6",
+    "sha256": "8ce811065ca4dc760bb81e0e9df62e4944ca9d1ed20e2635274ec87595ea449d",
+    "matches_current_contract": true
+  },
+  "product_binary": {
+    "sha256": "c6ddecda599727d20eb6870bc757b91ba05236ac4807ff5db5df004ff69c0496",
+    "codex_source_commit": "a38c91fde52add264d9913a8df5a336552a1e0a4"
+  },
+  "aggregate": {
+    "business_passes": 3,
+    "public_validation_passes": 3,
+    "hidden_oracle_passes": 3,
+    "map_closures": 3,
+    "provider_requests": 26,
+    "input_tokens": 443026,
+    "cached_input_tokens": 394752,
+    "uncached_input_tokens": 48274,
+    "output_tokens": 14204,
+    "overall_cache_hit_ratio": 0.891036,
+    "request_2_plus_input_tokens": 404435,
+    "request_2_plus_cached_input_tokens": 362240,
+    "request_2_plus_cache_hit_ratio": 0.895669,
+    "estimated_cost_cny": 0.08457704,
+    "top_level_client_escape_runs": 0,
+    "top_level_client_escape_calls": 0,
+    "taskspace_exec_calls": 23,
+    "exec_envelope_reject_runs": 1,
+    "exec_envelope_reject_calls": 2
+  },
+  "runs": [
+    {
+      "run": 1,
+      "artifact_root": "target/whale-agent-runs/WAR-20260820-023538-R8-I03-CROSS-SAMPLE-R3/run-1b/release-dispatch-repair/20260820-024009-779/pair-001/right/artifacts",
+      "provider_requests": 10,
+      "input_tokens": 174104,
+      "cached_input_tokens": 151936,
+      "uncached_input_tokens": 22168,
+      "output_tokens": 5469,
+      "estimated_cost_cny": 0.03614472,
+      "taskspace_exec_calls": 9,
+      "top_level_client_escape_calls": 0,
+      "exec_envelope_rejects": [
+        "required property type is missing",
+        "invalid JSON syntax"
+      ],
+      "business_passed": true,
+      "public_validation_passed": true,
+      "hidden_oracle_passed": true,
+      "map_complete": true,
+      "map_nodes": 5,
+      "map_edges": 4
+    },
+    {
+      "run": 2,
+      "artifact_root": "target/whale-agent-runs/WAR-20260820-023538-R8-I03-CROSS-SAMPLE-R3/run-2/release-dispatch-repair/20260820-025638-239/pair-001/right/artifacts",
+      "provider_requests": 8,
+      "input_tokens": 135701,
+      "cached_input_tokens": 120192,
+      "uncached_input_tokens": 15509,
+      "output_tokens": 4882,
+      "estimated_cost_cny": 0.02767684,
+      "taskspace_exec_calls": 7,
+      "top_level_client_escape_calls": 0,
+      "exec_envelope_rejects": [],
+      "business_passed": true,
+      "public_validation_passed": true,
+      "hidden_oracle_passed": true,
+      "map_complete": true,
+      "map_nodes": 5,
+      "map_edges": 4
+    },
+    {
+      "run": 3,
+      "artifact_root": "target/whale-agent-runs/WAR-20260820-023538-R8-I03-CROSS-SAMPLE-R3/run-3/release-dispatch-repair/20260820-025844-733/pair-001/right/artifacts",
+      "provider_requests": 8,
+      "input_tokens": 133221,
+      "cached_input_tokens": 122624,
+      "uncached_input_tokens": 10597,
+      "output_tokens": 3853,
+      "estimated_cost_cny": 0.02075548,
+      "taskspace_exec_calls": 7,
+      "top_level_client_escape_calls": 0,
+      "exec_envelope_rejects": [],
+      "business_passed": true,
+      "public_validation_passed": true,
+      "hidden_oracle_passed": true,
+      "map_complete": true,
+      "map_nodes": 5,
+      "map_edges": 4
+    }
+  ],
+  "i03_conclusion": "Base 3.0.6 cross-sample top-level client Tool scope behavior passed; I03 remains verifying because one run still produced two recoverable outer envelope errors.",
+  "i04_observation": "All three maps were five-node linear chains. No same-batch parent-child Work completion or natural fork/join was observed.",
+  "i07_observation": "All three Agent runs produced complete raw evidence, but post-processing encountered stale optional-field assumptions. Repairs were applied and raw traces were replayed through the affected observers; a future natural run must revalidate the complete finalization path."
+}

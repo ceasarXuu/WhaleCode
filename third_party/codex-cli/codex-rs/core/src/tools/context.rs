@@ -9,6 +9,7 @@ use crate::tools::output_reference::reference_text_for_raw_output;
 use crate::turn_diff_tracker::TurnDiffTracker;
 use crate::unified_exec::resolve_max_tokens;
 use codex_protocol::mcp::CallToolResult;
+use codex_protocol::models::ContentItem;
 use codex_protocol::models::DEFAULT_IMAGE_DETAIL;
 use codex_protocol::models::FunctionCallOutputBody;
 use codex_protocol::models::FunctionCallOutputContentItem;
@@ -38,15 +39,13 @@ const TASKSPACE_COMPLETE_READ_PREVIEW_MAX_BYTES: usize = 64 * 1024;
 const TASKSPACE_COMPLETE_READ_PREVIEW_MAX_LINES: usize = 320;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct TaskSpaceTerminalCarrier {
-    pub(crate) map_id: String,
-    pub(crate) revision: u64,
-    pub(crate) summary: String,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ToolCallSource {
     Direct,
+    TaskSpaceExec {
+        outer_call_id: String,
+        call_index: usize,
+        node_id: String,
+    },
     CodeMode {
         /// Runtime cell that issued the nested tool request.
         cell_id: String,
@@ -90,6 +89,64 @@ pub enum ToolPayload {
     },
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum NestedToolResult {
+    Message {
+        role: String,
+        content: Vec<ContentItem>,
+    },
+    Function {
+        output: FunctionCallOutputPayload,
+    },
+    Mcp {
+        output: CallToolResult,
+    },
+    Custom {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        output: FunctionCallOutputPayload,
+    },
+    ToolSearch {
+        status: String,
+        execution: String,
+        tools: Vec<JsonValue>,
+    },
+}
+
+impl NestedToolResult {
+    pub(crate) fn from_response_input(response: ResponseInputItem) -> Self {
+        match response {
+            ResponseInputItem::Message { role, content } => Self::Message { role, content },
+            ResponseInputItem::FunctionCallOutput { output, .. } => Self::Function { output },
+            ResponseInputItem::McpToolCallOutput { output, .. } => Self::Mcp { output },
+            ResponseInputItem::CustomToolCallOutput { name, output, .. } => {
+                Self::Custom { name, output }
+            }
+            ResponseInputItem::ToolSearchOutput {
+                status,
+                execution,
+                tools,
+                ..
+            } => Self::ToolSearch {
+                status,
+                execution,
+                tools,
+            },
+        }
+    }
+
+    pub(crate) fn succeeded(&self) -> bool {
+        match self {
+            Self::Function { output } | Self::Custom { output, .. } => {
+                output.success.unwrap_or(true)
+            }
+            Self::Mcp { output } => output.success(),
+            Self::Message { .. } | Self::ToolSearch { .. } => true,
+        }
+    }
+}
+
 impl ToolPayload {
     pub fn log_payload(&self) -> Cow<'_, str> {
         match self {
@@ -101,21 +158,7 @@ impl ToolPayload {
         }
     }
 
-    pub fn log_payload_for_tool(&self, tool_name: &ToolName) -> Cow<'_, str> {
-        if tool_name.namespace.is_none()
-            && tool_name.name == "taskspace_control"
-            && let Self::Function { arguments } = self
-            && let Ok(mut value) = serde_json::from_str::<JsonValue>(arguments)
-            && let Some(object) = value.as_object_mut()
-            && let Some(candidate) = object.get_mut("exact_summary")
-            && let Some(text) = candidate.as_str()
-        {
-            *candidate = serde_json::json!({
-                "redacted": true,
-                "bytes": text.len(),
-            });
-            return Cow::Owned(value.to_string());
-        }
+    pub fn log_payload_for_tool(&self, _tool_name: &ToolName) -> Cow<'_, str> {
         self.log_payload()
     }
 }
@@ -127,8 +170,8 @@ pub trait ToolOutput: Send {
 
     fn to_response_item(&self, call_id: &str, payload: &ToolPayload) -> ResponseInputItem;
 
-    fn taskspace_terminal_carrier(&self) -> Option<&TaskSpaceTerminalCarrier> {
-        None
+    fn nested_result(&self, payload: &ToolPayload) -> NestedToolResult {
+        NestedToolResult::from_response_input(self.to_response_item("", payload))
     }
 
     /// Returns the stable value exposed to `PostToolUse` hooks for this tool output.
@@ -272,6 +315,12 @@ impl ToolOutput for McpToolOutput {
         ResponseInputItem::FunctionCallOutput {
             call_id: call_id.to_string(),
             output: self.response_payload(),
+        }
+    }
+
+    fn nested_result(&self, _payload: &ToolPayload) -> NestedToolResult {
+        NestedToolResult::Mcp {
+            output: self.result.clone(),
         }
     }
 

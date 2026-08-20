@@ -5,8 +5,35 @@ from __future__ import annotations
 
 from typing import Any
 
+from cache_provider_route import EXPECTED_ROUTE, validate_route_identity
+
 
 TASKSPACE_ARMS = ("map-always", "map-append", "map-request")
+
+
+def provider_route_overrides() -> list[str]:
+    provider_id = EXPECTED_ROUTE["transport_provider_id"]
+    return [
+        f'model_provider="{provider_id}"',
+        f'model_providers.{provider_id}.name="{EXPECTED_ROUTE["provider_name"]}"',
+        f'model_providers.{provider_id}.base_url="{EXPECTED_ROUTE["base_url"]}"',
+        f'model_providers.{provider_id}.env_key="{EXPECTED_ROUTE["env_key"]}"',
+        f'model_providers.{provider_id}.env_key_instructions="Set DEEPSEEK_API_KEY to a DeepSeek API key before starting Whale."',
+        f'model_providers.{provider_id}.wire_api="{EXPECTED_ROUTE["wire_api"]}"',
+    ]
+
+
+def validate_route_argv(argv: list[str]) -> None:
+    for override in provider_route_overrides():
+        matches = [
+            index
+            for index, value in enumerate(argv)
+            if value == override and index > 0 and argv[index - 1] == "-c"
+        ]
+        if len(matches) != 1:
+            raise ValueError("cache execution provider route arguments are incomplete")
+    if any(value.startswith("model_providers.deepseek.") for value in argv):
+        raise ValueError("cache execution overrides the reserved DeepSeek provider")
 
 
 def policy_argument(arm: str) -> str:
@@ -36,6 +63,15 @@ def validate_arm_identity(
         or mode_map["repeat"] < 1
     ):
         raise ValueError("cache execution identity does not match its arm")
+    model_indexes = [index for index, value in enumerate(common) if value == "-m"]
+    if (
+        len(model_indexes) != 1
+        or model_indexes[0] + 1 >= len(common)
+        or not common[model_indexes[0] + 1].startswith("deepseek-")
+    ):
+        raise ValueError("cache execution identity does not use the approved DeepSeek model")
+    validate_route_identity(argv_evidence.get("provider_routing"))
+    validate_route_argv(common)
     if arm == "standard":
         if (
             argv != common
@@ -63,22 +99,18 @@ def validate_arm_identity(
 
 
 def fixture_arm_identity(arm: str) -> tuple[dict[str, Any], dict[str, Any]]:
-    common = ["exec", "--json", "-m", "deepseek-v4-flash", "-"]
+    common = ["exec", "--json"]
+    for override in provider_route_overrides():
+        common.extend(["-c", override])
+    common.extend(["-m", "deepseek-v4-flash", "-"])
     if arm == "standard":
         argv = list(common)
         delta = None
     else:
         expected_policy = policy_argument(arm)
-        argv = [
-            "exec",
-            "--json",
-            "--taskspace",
-            "-c",
-            expected_policy,
-            "-m",
-            "deepseek-v4-flash",
-            "-",
-        ]
+        argv = list(common)
+        argv.insert(2, "--taskspace")
+        argv[3:3] = ["-c", expected_policy]
         delta = ["--taskspace", f"-c {expected_policy}"]
     return (
         {
@@ -87,6 +119,7 @@ def fixture_arm_identity(arm: str) -> tuple[dict[str, Any], dict[str, Any]]:
             "common_argv_without_treatment": common,
             "treatment_delta": delta,
             "execution_substrate": "docker",
+            "provider_routing": EXPECTED_ROUTE,
         },
         {"repeat": 1, "left": "standard", "right": "taskspace"},
     )

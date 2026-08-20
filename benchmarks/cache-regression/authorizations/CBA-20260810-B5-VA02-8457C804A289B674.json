@@ -1,0 +1,38 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "authorization_id": "CBA-20260810-B5-VA02-8457C804A289B674",
+  "approval_reference": "用户于 2026-08-10 明确回复“每个预算批准2倍，用于修复，开始”，批准 Phase B5 VA-02 最多两轮顺序运行；本授权文件仅激活第一轮 single-file-fast-fix × map-request × repeat=1，最多 2 requests，50K input、12K output、USD 0.02 观察上限和 12 分钟执行上限，异常立即停止。",
+  "approved_at": "2026-08-10T04:40:17+08:00",
+  "proposal_id": "CBP-8457C804A289B674",
+  "proposal_sha256": "c2c5be77a971c04aa7683bec5b463873de0873fe94c3eaa899b51bb02fec4f38",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 1,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 1,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "用户于 2026-08-10 批准 Phase B5 VA-02 双倍总预算；本提案只激活第一轮 single-file-fast-fix × map-request × repeat=1，最多 2 requests，出现任何结构、业务、usage 或预算异常立即停止，不自动使用第二轮。"
+  },
+  "approved_maximums": {
+    "provider_requests": 2,
+    "input_tokens": 2000000,
+    "output_tokens": 768000,
+    "elapsed_seconds": 840,
+    "estimated_cost": 0.49504,
+    "currency": "USD"
+  }
+}

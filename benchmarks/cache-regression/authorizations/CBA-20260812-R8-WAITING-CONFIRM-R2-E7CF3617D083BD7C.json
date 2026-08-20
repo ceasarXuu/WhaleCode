@@ -1,0 +1,46 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "approved_at": "2026-08-12T05:23:00+08:00",
+  "authorization_id": "CBA-20260812-R8-WAITING-CONFIRM-R2-E7CF3617D083BD7C",
+  "approval_reference": "用户于 2026-08-12 明确批准当前 waiting 合同实现再运行 2 轮；若效果确实不如之前则总结分析并回滚。本授权限定 deepseek-v4-flash、single-file-fast-fix、map-request、repeat=2、无自动重试。",
+  "proposal_id": "CBP-7322171537156704",
+  "proposal_sha256": "60ff4f204a599e876ed912d71d31bbf33931ef5f122c2e3aa883fc55a5c246fe",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 2,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "User-approved two-run confirmation of the current waiting batch-boundary implementation before deciding whether to retain or roll it back; same simple sample and map-request arm, no retry."
+  },
+  "approved_maximums": {
+    "provider_requests": 20,
+    "input_tokens": 20000000,
+    "output_tokens": 7680000,
+    "elapsed_seconds": 1200,
+    "estimated_cost": 4.9504,
+    "currency": "USD"
+  },
+  "operational_limits": {
+    "provider_requests": 20,
+    "input_tokens": 360000,
+    "output_tokens": 10000,
+    "estimated_cost": 0.06,
+    "currency": "USD",
+    "automatic_retries": 0
+  }
+}

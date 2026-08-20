@@ -1,0 +1,38 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "approved_at": "2026-08-14T04:46:50+08:00",
+  "authorization_id": "CBA-20260814-R8-HOSTED-FIRST-TURN-STAGE2-AC6660557AB7E186",
+  "approval_reference": "用户明确批准四项协议变更逐项实施并各执行 provider-web-search-probe × map-request × repeat=3；本授权仅覆盖第2点首轮完整示例，零重试，任一失败即停止。",
+  "proposal_id": "CBP-AC6660557AB7E186",
+  "proposal_sha256": "03590d984d147950b845aca49430a19adc715382e9822985057426f14fa737dd",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "provider-web-search-probe"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 3,
+    "planned_sample_runs": 3,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 3,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "四阶段单变量验证第2阶段：仅验证首轮完整 initialize_and_work 示例同时表达 client work 与原生 provider-hosted already_executed 归属，provider-web-search-probe × map-request × repeat=3，零重试，任一运行、业务、usage 或预算异常即停止。用户已提前批准本阶段 repeat=3。"
+  },
+  "approved_maximums": {
+    "provider_requests": 36,
+    "input_tokens": 36000000,
+    "output_tokens": 13824000,
+    "elapsed_seconds": 900,
+    "estimated_cost": 8.91072,
+    "currency": "USD"
+  }
+}

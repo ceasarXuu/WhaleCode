@@ -40,8 +40,8 @@ function New-SideFixture {
         [pscustomobject]@{ kind = "system_messages"; count = $Requests; bytes = 40 * $Requests; estimated_tokens = 10 * $Requests },
         [pscustomobject]@{ kind = "natural_history"; count = $Requests; bytes = 30 * $Requests; estimated_tokens = 8 * $Requests },
         [pscustomobject]@{ kind = "active_projection"; count = $(if ($isTaskspace) { $Requests } else { 0 }); bytes = $(if ($isTaskspace) { 20 * $Requests } else { 0 }); estimated_tokens = $(if ($isTaskspace) { 5 * $Requests } else { 0 }) },
-        [pscustomobject]@{ kind = "taskspace_control_feedback"; count = $(if ($isTaskspace) { $Requests } else { 0 }); bytes = $(if ($isTaskspace) { 10 * $Requests } else { 0 }); estimated_tokens = $(if ($isTaskspace) { 3 * $Requests } else { 0 }) },
         [pscustomobject]@{ kind = "ordinary_tool_feedback"; count = $Requests; bytes = 15 * $Requests; estimated_tokens = 4 * $Requests },
+        [pscustomobject]@{ kind = "base_instructions"; count = $Requests; bytes = 10 * $Requests; estimated_tokens = 3 * $Requests },
         [pscustomobject]@{ kind = "tools"; count = $Requests; bytes = 10 * $Requests; estimated_tokens = 3 * $Requests },
         [pscustomobject]@{ kind = "tool_choice"; count = $Requests; bytes = 5 * $Requests; estimated_tokens = $Requests },
         [pscustomobject]@{ kind = "other_payload"; count = $Requests; bytes = 10 * $Requests; estimated_tokens = 3 * $Requests }
@@ -112,6 +112,21 @@ function New-SideFixture {
             cache_shape_transition_count = $(if ($isTaskspace) { 1 } else { 0 })
             section_cost_summary = $sectionCostSummary
         }) (Join-Path $artifactDir "provider-cache-trace-summary.json")
+    Write-Json ([pscustomobject]@{
+            schema_version = "whalecode-request-facts-v1"
+            analyzer_version = "fixture"
+            availability = [pscustomobject]@{ attempt = "measured"; boundary = "measured"; completion = "measured"; usage = "measured" }
+            summary = [pscustomobject]@{
+                logical_request_count = $Requests; local_attempt_count = $Requests
+                boundary_request_count = $Requests; completed_response_count = $Requests
+                failed_or_cancelled_attempt_count = 0
+                usage = [pscustomobject]@{
+                    input_tokens = $InputTokens; cached_input_tokens = $CachedTokens
+                    uncached_input_tokens = $InputTokens - $CachedTokens
+                    output_tokens = $OutputTokens
+                }
+            }
+        }) (Join-Path $artifactDir "request-facts.json")
     Write-JsonLines @(
         [pscustomobject]@{ event_name = "provider.chat_wire_shape_recorded"; request_index = 1; message_shapes = @(
                 [pscustomobject]@{ content_sha256 = "same"; bytes = 11 },
@@ -136,10 +151,6 @@ function New-SideFixture {
         Write-Json ([pscustomobject]@{
                 node_count = 3; edge_count = 2; result_count = 3; accepted_result_count = 0; unreviewed_result_count = 3
             }) (Join-Path $artifactDir "graph-health.json")
-        Write-Json ([pscustomobject]@{
-                retention_coverage_ratio = 1.0; salience_coverage_ratio = 1.0; semantic_replacement_rate = 0.0
-                protected_miss_count = 0; compaction_event_count = 0
-            }) (Join-Path $artifactDir "map-management-summary.json")
         Write-Json ([pscustomobject]@{
                 taskspace_control_count = 3
                 action_manifest_count = 1
@@ -334,6 +345,8 @@ $taskspace = @($report.aggregates | Where-Object { $_.logical_mode -eq "taskspac
 Assert-True ($report.rows.Count -eq 5) "report did not include measured and skipped sides"
 Assert-True ($standard.totals.provider_requests -eq 10) "standard request aggregate ignored alternating side mapping"
 Assert-True ($taskspace.totals.provider_requests -eq 18) "taskspace request aggregate ignored alternating side mapping"
+Assert-True ($taskspace.totals.provider_local_attempts -eq 18) "taskspace attempt facts were not aggregated"
+Assert-True ($taskspace.totals.provider_completed_responses -eq 18) "taskspace completion facts were not aggregated"
 Assert-True ($taskspace.totals.nested_actions -eq 0) "taskspace action declarations were misclassified as nested tool executions"
 Assert-True (@(Get-Content -Encoding UTF8 -LiteralPath $result.event_log_path | Where-Object { $_ -match '"event":"control_arguments_parse_failed"' }).Count -eq 0) "performance observer used a second control argument parser"
 Assert-True ($taskspace.totals.node_count -eq 6 -and $taskspace.totals.edge_count -eq 4) "map totals are incorrect"
@@ -367,8 +380,8 @@ Assert-True ($null -eq (Get-PerformanceNonnegativeInt64 1.5)) "fractional token 
 Assert-True ([string]$taskspaceMeasuredRow.map.map_store_availability -eq "measured") "measured Map Store availability was not preserved"
 $standardHistoricalRow = @($report.rows | Where-Object { $_.repeat -eq 2 -and $_.logical_mode -eq "standard" })[0]
 $standardActiveProjection = @($standardMeasuredRow.section_cost.sections | Where-Object { $_.kind -eq "active_projection" })[0]
-$standardControlFeedback = @($standardMeasuredRow.section_cost.sections | Where-Object { $_.kind -eq "taskspace_control_feedback" })[0]
-Assert-True ([int64]$standardActiveProjection.bytes -eq 0 -and [int64]$standardControlFeedback.bytes -eq 0) "measured Standard side should report zero TaskSpace-only sections"
+$standardBaseInstructions = @($standardMeasuredRow.section_cost.sections | Where-Object { $_.kind -eq "base_instructions" })[0]
+Assert-True ([int64]$standardActiveProjection.bytes -eq 0 -and [int64]$standardBaseInstructions.bytes -gt 0) "measured Standard side should have Base Instructions but no TaskSpace projection"
 Assert-True ($null -eq $standardHistoricalRow.section_cost.section_bytes_total -and [int]$standardHistoricalRow.section_cost.unavailable_reason_counts.unsupported_provider_wire_trace_schema -eq 4) "unsupported wire side fabricated section totals"
 Assert-True ([int64](($standardMeasuredRow.section_cost.sections | Measure-Object -Property bytes -Sum).Sum) -eq [int64]$standardMeasuredRow.section_cost.section_bytes_total) "side section bytes did not reconcile exactly"
 Assert-True (@($report.rows | Where-Object { $_.observation_status -eq "skipped" }).Count -eq 1) "right-only placeholder side was not classified as skipped"
@@ -408,7 +421,6 @@ Assert-True (Test-Path -LiteralPath $result.markdown_path) "markdown report was 
 Assert-True (Test-Path -LiteralPath $result.event_log_path) "event log was not written"
 $markdown = Get-Content -Raw -Encoding UTF8 -LiteralPath $result.markdown_path
 Assert-True ($markdown -match "## Map 节点") "markdown omitted map node details"
-Assert-True ($markdown -match "## Map 语义保存") "markdown omitted map semantic preservation details"
 Assert-True ($markdown -match "## Map 显式读取") "markdown omitted explicit map read metrics"
 Assert-True ($markdown -match "## 精确重复载体") "markdown omitted exact carrier duplication details"
 Assert-True ($markdown -match "## Cross carrier lineage") "markdown omitted cross carrier lineage details"
@@ -490,6 +502,81 @@ Assert-True (
     (Get-Content -Raw $invalidResult.event_log_path) -match
         '"event":"performance_count_identity_invalid"'
 ) "invalid count identity did not emit its stable event"
+$invalidMetrics.tool_call_count = 1
+Write-Json $invalidMetrics $invalidMetricPath
+Write-Json ([pscustomobject]@{ repeat = 1; left = "taskspace"; right = "taskspace" }) (
+    Join-Path $invalidPair "logical-mode-map.json"
+)
+$invalidResult = Write-TaskspacePerformanceObservation -RunRoot $invalidRoot
+$invalidReport = Get-Content -Raw -Encoding UTF8 -LiteralPath $invalidResult.json_path |
+    ConvertFrom-Json
+$invalidModeRow = @($invalidReport.rows)[0]
+Assert-True (
+    $invalidModeRow.logical_mode -eq "unknown" -and
+    $null -eq $invalidModeRow.repeat -and
+    $null -eq $invalidModeRow.actions.provider_requests -and
+    $null -eq $invalidModeRow.cost.input_tokens -and
+    $invalidModeRow.observation_status -eq "invalid" -and
+    -not [bool]$invalidModeRow.comparison_eligible
+) "invalid logical mode map remained attributable or comparison eligible"
+Assert-True ([string]$invalidReport.comparison_scope_status -eq "unavailable" -and @($invalidReport.aggregates).Count -eq 0) "invalid logical mode map retained exact comparison aggregates"
+Assert-True (
+    (Get-Content -Raw $invalidResult.event_log_path) -match
+        '"event":"performance_logical_mode_map_invalid"'
+) "invalid logical mode map did not emit its stable event"
+
+Write-Json ([pscustomobject]@{ left = "standard"; right = "taskspace" }) (
+    Join-Path $invalidPair "logical-mode-map.json"
+)
+$missingRepeatResult = Write-TaskspacePerformanceObservation -RunRoot $invalidRoot -ReportBaseName "performance-missing-repeat"
+$missingRepeatReport = Get-Content -Raw -Encoding UTF8 -LiteralPath $missingRepeatResult.json_path | ConvertFrom-Json
+$missingRepeatRow = @($missingRepeatReport.rows)[0]
+Assert-True ([string]$missingRepeatReport.comparison_scope_status -eq "unavailable" -and @($missingRepeatReport.aggregates).Count -eq 0 -and @($missingRepeatReport.ratios.PSObject.Properties).Count -eq 0) "missing repeat retained measured performance comparisons"
+Assert-True ($missingRepeatRow.observation_status -eq "invalid" -and $null -eq $missingRepeatRow.repeat -and $null -eq $missingRepeatRow.actions.provider_requests) "missing repeat retained exact row facts"
+
+$invalidMetrics | Add-Member -NotePropertyName metrics_taints -NotePropertyValue @("side_selection_skipped:fixture")
+Write-Json $invalidMetrics $invalidMetricPath
+Write-Json ([pscustomobject]@{ repeat = 1; left = "taskspace"; right = "taskspace" }) (
+    Join-Path $invalidPair "logical-mode-map.json"
+)
+$skippedInvalidResult = Write-TaskspacePerformanceObservation -RunRoot $invalidRoot -ReportBaseName "performance-skipped-invalid-map"
+$skippedInvalidReport = Get-Content -Raw -Encoding UTF8 -LiteralPath $skippedInvalidResult.json_path | ConvertFrom-Json
+$skippedInvalidRow = @($skippedInvalidReport.rows)[0]
+$skippedInvalidMarkdown = Get-Content -Raw -Encoding UTF8 -LiteralPath $skippedInvalidResult.markdown_path
+Assert-True ([string]$skippedInvalidReport.comparison_scope_status -eq "unavailable" -and @($skippedInvalidReport.aggregates).Count -eq 0 -and @($skippedInvalidReport.ratios.PSObject.Properties).Count -eq 0) "skipped side swallowed invalid logical mode scope"
+Assert-True ($skippedInvalidRow.observation_status -eq "invalid" -and $null -eq $skippedInvalidRow.actions.provider_requests -and $null -eq $skippedInvalidRow.cost.input_tokens) "skipped invalid-map row leaked exact facts"
+Assert-True ($skippedInvalidMarkdown -notmatch '\| unknown \| skipped \|' -and $skippedInvalidMarkdown -notmatch '\| unknown \| invalid \|.*\| 6 \|') "skipped invalid-map markdown leaked exact values"
+$invalidMetrics.PSObject.Properties.Remove("metrics_taints")
+Write-Json $invalidMetrics $invalidMetricPath
+
+$pair1ModePath = Join-Path $pair1 "logical-mode-map.json"
+$pair1ModeOriginal = Get-Content -Raw -Encoding UTF8 -LiteralPath $pair1ModePath
+Write-Json ([pscustomobject]@{ repeat = 1; left = "taskspace"; right = "taskspace" }) $pair1ModePath
+$partialScopeResult = Write-TaskspacePerformanceObservation -RunRoot $RunRoot -ReportBaseName "performance-invalid-scope"
+$partialScopeReport = Get-Content -Raw -Encoding UTF8 -LiteralPath $partialScopeResult.json_path | ConvertFrom-Json
+Assert-True ([string]$partialScopeReport.comparison_scope_status -eq "unavailable" -and @($partialScopeReport.aggregates).Count -eq 0) "one invalid pair left partial aggregates from otherwise valid pairs"
+Assert-True ((Get-Content -Raw -Encoding UTF8 -LiteralPath $partialScopeResult.event_log_path) -match '"event":"performance_comparison_scope_invalid"') "invalid comparison scope did not emit its stable event"
+[IO.File]::WriteAllText($pair1ModePath, $pair1ModeOriginal, [Text.UTF8Encoding]::new($false))
+
+$activeMapArtifacts = Join-Path $RunRoot "active-map-artifacts"
+Write-Json ([pscustomobject]@{
+        source = [pscustomobject]@{ mapStore = [pscustomobject]@{ availability = "measured" } }
+        maps = @([pscustomobject]@{ id = "map-active" })
+        nodes = @(
+            [pscustomobject]@{ id = "root"; title = "Root"; status = "in_flight"; results = @() },
+            [pscustomobject]@{ id = "inspect"; title = "Inspect"; status = "in_flight"; results = @() },
+            [pscustomobject]@{ id = "finish"; title = "Finish"; status = "waiting"; results = @() }
+        )
+        edges = @(
+            [pscustomobject]@{ from = "root"; to = "inspect" },
+            [pscustomobject]@{ from = "inspect"; to = "finish" }
+        )
+        tasks = @([pscustomobject]@{ id = "task-active"; status = "active" })
+    }) (Join-Path $activeMapArtifacts "observability/action-map-observability.json")
+$activeMapWarnings = New-Object System.Collections.Generic.List[string]
+$activeMapFacts = Get-PerformanceMapFacts $activeMapArtifacts ([pscustomobject]@{ open_leaf_nodes = 0 }) $activeMapWarnings
+Assert-True ($activeMapFacts.node_count -eq 3) "active map fixture was not read"
+Assert-True (-not @($activeMapWarnings).Contains("root_task_active_after_nodes_closed")) "active nodes were misreported as a fully closed map"
 
 if ($failures.Count -gt 0) {
     $failures | ForEach-Object { Write-Error $_ }

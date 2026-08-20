@@ -1,0 +1,185 @@
+{
+  "record_id": "WAR-20260820-050331-R8-BASE307-TYPE-R5",
+  "subject_commit": "e246ca6a2",
+  "candidate": {
+    "base_version": "3.0.7",
+    "base_sha256": "4fba63157655f2f71208891fddac2220d20dedbd5adb1fc1769901870315b34b",
+    "change": "Require every taskspace_exec call to provide its top-level legal-sequence type."
+  },
+  "scenario": "release-dispatch-repair",
+  "model": "deepseek-v4-flash",
+  "execution": "docker",
+  "planned_matrix": {
+    "standard": 1,
+    "base-3.0.7-map-request": 5
+  },
+  "actual_matrix": {
+    "standard": 3,
+    "base-3.0.7-map-request": 3,
+    "reason": "The pair runner alternated logical modes across physical sides. No extra run was started after the deviation was found."
+  },
+  "runs": [
+    {
+      "arm": "standard",
+      "run_root": "target/whale-agent-runs/WAR-20260820-050331-R8-BASE307-TYPE-R5/arm-a/release-dispatch-repair/20260820-050744-753/pair-001/left/artifacts",
+      "requests": 8,
+      "input": 111597,
+      "cached_input": 108288,
+      "uncached_input": 3309,
+      "output": 3171,
+      "request_2_plus_input": 100505,
+      "request_2_plus_cached_input": 97408,
+      "agent_wall_time_ms": 27934,
+      "business_passed": true,
+      "public_tests_passed": true,
+      "hidden_oracle_passed": true
+    },
+    {
+      "arm": "base-3.0.7-map-request",
+      "run_root": "target/whale-agent-runs/WAR-20260820-050331-R8-BASE307-TYPE-R5/arm-b/release-dispatch-repair/20260820-051043-738/pair-001/right/artifacts",
+      "requests": 7,
+      "input": 114926,
+      "cached_input": 94464,
+      "uncached_input": 20462,
+      "output": 3711,
+      "request_2_plus_input": 102029,
+      "request_2_plus_cached_input": 90496,
+      "agent_wall_time_ms": 27296,
+      "taskspace_exec_calls": 6,
+      "missing_type": 0,
+      "exec_rejections": 0,
+      "business_passed": true,
+      "public_tests_passed": true,
+      "hidden_oracle_passed": true,
+      "map_closed": true
+    },
+    {
+      "arm": "base-3.0.7-map-request",
+      "run_root": "target/whale-agent-runs/WAR-20260820-050331-R8-BASE307-TYPE-R5/arm-c/release-dispatch-repair/20260820-051334-182/pair-001/right/artifacts",
+      "requests": 8,
+      "input": 129674,
+      "cached_input": 117888,
+      "uncached_input": 11786,
+      "output": 3998,
+      "request_2_plus_input": 116775,
+      "request_2_plus_cached_input": 105088,
+      "agent_wall_time_ms": 30367,
+      "taskspace_exec_calls": 7,
+      "missing_type": 0,
+      "exec_rejections": 0,
+      "business_passed": true,
+      "public_tests_passed": true,
+      "hidden_oracle_passed": true,
+      "map_closed": true
+    },
+    {
+      "arm": "standard",
+      "run_root": "target/whale-agent-runs/WAR-20260820-050331-R8-BASE307-TYPE-R5/arm-c/release-dispatch-repair/20260820-051334-182/pair-002/right/artifacts",
+      "requests": 9,
+      "input": 132808,
+      "cached_input": 129536,
+      "uncached_input": 3272,
+      "output": 3795,
+      "request_2_plus_input": 121716,
+      "request_2_plus_cached_input": 118528,
+      "agent_wall_time_ms": 28971,
+      "business_passed": true,
+      "public_tests_passed": true,
+      "hidden_oracle_passed": true,
+      "ordinary_tool_failures": 1
+    },
+    {
+      "arm": "base-3.0.7-map-request",
+      "run_root": "target/whale-agent-runs/WAR-20260820-050331-R8-BASE307-TYPE-R5/arm-c/release-dispatch-repair/20260820-051334-182/pair-003/right/artifacts",
+      "requests": 6,
+      "input": 98760,
+      "cached_input": 87680,
+      "uncached_input": 11080,
+      "output": 3699,
+      "request_2_plus_input": 85864,
+      "request_2_plus_cached_input": 74880,
+      "agent_wall_time_ms": 28161,
+      "taskspace_exec_calls": 5,
+      "missing_type": 0,
+      "exec_rejections": 0,
+      "business_passed": true,
+      "public_tests_passed": true,
+      "hidden_oracle_passed": true,
+      "map_closed": true
+    },
+    {
+      "arm": "standard",
+      "run_root": "target/whale-agent-runs/WAR-20260820-050331-R8-BASE307-TYPE-R5/arm-c/release-dispatch-repair/20260820-051334-182/pair-004/right/artifacts",
+      "requests": 7,
+      "input": 90174,
+      "cached_input": 86016,
+      "uncached_input": 4158,
+      "output": 2716,
+      "request_2_plus_input": 79082,
+      "request_2_plus_cached_input": 75008,
+      "agent_wall_time_ms": 22221,
+      "business_passed": true,
+      "public_tests_passed": true,
+      "hidden_oracle_passed": true
+    }
+  ],
+  "aggregate": {
+    "all": {
+      "runs": 6,
+      "requests": 45,
+      "input": 677939,
+      "cached_input": 623872,
+      "uncached_input": 54067,
+      "output": 21090,
+      "agent_wall_time_ms": 164950,
+      "estimated_cost_cny": 0.10872444
+    },
+    "standard": {
+      "runs": 3,
+      "requests": 24,
+      "input": 334579,
+      "cached_input": 323840,
+      "uncached_input": 10739,
+      "output": 9682,
+      "request_2_plus_cache_rate": 0.965619,
+      "agent_wall_time_ms": 79126,
+      "estimated_cost_cny": 0.0365798
+    },
+    "base-3.0.7-map-request": {
+      "runs": 3,
+      "requests": 21,
+      "input": 343360,
+      "cached_input": 300032,
+      "uncached_input": 43328,
+      "output": 11408,
+      "request_2_plus_cache_rate": 0.887734,
+      "agent_wall_time_ms": 85824,
+      "estimated_cost_cny": 0.07214464,
+      "taskspace_exec_calls": 18,
+      "missing_type": 0,
+      "exec_rejections": 0,
+      "business_passed": 3,
+      "map_closed": 3
+    }
+  },
+  "conclusion": {
+    "candidate_supported": true,
+    "i03_closed": false,
+    "cache_baseline_promoted": false,
+    "reason": "Base 3.0.7 eliminated missing type in 18 observed calls without correctness regression, but only three TaskSpace runs were produced and the actual matrix differed from the approved plan."
+  },
+  "observer_findings": [
+    {
+      "fixed_commit": "f31ea64e8",
+      "problem": "Graph observer treated id-less placeholders as real nodes."
+    },
+    {
+      "fixed_commit": "4c9d5cf3d",
+      "problem": "Audit report did not preserve singleton collections as arrays."
+    },
+    {
+      "status": "open_under_I07",
+      "problem": "Final sample-timing aggregation still fails on a malformed or non-object timing item after all Provider runs complete."
+    }
+  ]
+}

@@ -66,10 +66,12 @@ impl Session {
                         && cache_sha256 == record.canonical_sha256
                 })
         };
-        if !cache_is_current {
+        let cache_refreshed = if !cache_is_current {
             let runtime = runtime_from_record(&record).map_err(|error| error.to_string())?;
-            self.install_store_record(&record, runtime).await?;
-        }
+            self.install_store_record(&record, runtime).await?
+        } else {
+            false
+        };
         tracing::debug!(
             target: "codex_core::taskspace",
             event_name = "taskspace.map_store_read",
@@ -78,8 +80,11 @@ impl Session {
             owner_thread_id = %record.owner_thread_id,
             relation = binding.relation.as_str(),
             store_revision = record.store_revision,
-            map_revision = record.map_revision,
-            cache_refreshed = !cache_is_current,
+            map_revision = record
+                .canonical_map
+                .as_ref()
+                .map_or(0, |map| map.revision),
+            cache_refreshed,
             canonical_sha256 = record.canonical_sha256,
             operation,
             "read canonical TaskSpace Map"

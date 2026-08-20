@@ -207,17 +207,19 @@ impl ChatStreamState {
     async fn finish(self, tx_event: mpsc::Sender<Result<ResponseEvent, ApiError>>) {
         if self.reasoning_started {
             let _ = tx_event
-                .send(Ok(ResponseEvent::OutputItemDone(reasoning_item(
-                    self.reasoning_text,
-                ))))
+                .send(Ok(ResponseEvent::OutputItemDone(
+                    reasoning_item(self.reasoning_text),
+                    None,
+                )))
                 .await;
         }
 
         if self.assistant_started {
             let _ = tx_event
-                .send(Ok(ResponseEvent::OutputItemDone(assistant_message(
-                    self.assistant_text,
-                ))))
+                .send(Ok(ResponseEvent::OutputItemDone(
+                    assistant_message(self.assistant_text),
+                    None,
+                )))
                 .await;
         }
 
@@ -239,6 +241,7 @@ impl ChatStreamState {
                         arguments: call.arguments,
                         call_id,
                     },
+                    None,
                 )))
                 .await;
         }
@@ -497,8 +500,8 @@ mod tests {
         assert!(matches!(events[2], ResponseEvent::OutputItemAdded(_)));
         assert!(matches!(&events[3], ResponseEvent::OutputTextDelta(delta) if delta == "hello"));
         assert!(matches!(&events[4], ResponseEvent::OutputTextDelta(delta) if delta == " world"));
-        assert!(matches!(events[5], ResponseEvent::OutputItemDone(_)));
-        assert!(matches!(events[6], ResponseEvent::OutputItemDone(_)));
+        assert!(matches!(events[5], ResponseEvent::OutputItemDone(_, _)));
+        assert!(matches!(events[6], ResponseEvent::OutputItemDone(_, _)));
         assert!(matches!(
             &events[7],
             ResponseEvent::OutputItemDone(ResponseItem::FunctionCall {
@@ -506,7 +509,7 @@ mod tests {
                 arguments,
                 call_id,
                 ..
-            }) if name == "shell" && arguments == "{\"cmd\":\"ls\"}" && call_id == "call-1"
+            }, _) if name == "shell" && arguments == "{\"cmd\":\"ls\"}" && call_id == "call-1"
         ));
         assert!(matches!(
             &events[8],

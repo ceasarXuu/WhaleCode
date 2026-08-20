@@ -4,8 +4,8 @@ use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use sha2::Digest;
 use sha2::Sha256;
 
-const PROJECTION_START: &str = "TaskSpaceMapProjectionR7V1:";
-const PROJECTION_END: &str = "TaskSpaceMapProjectionR7V1 end.";
+use super::projection::TASKSPACE_MAP_PROJECTION_END;
+use super::projection::TASKSPACE_MAP_PROJECTION_MARKER;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProjectionTrigger {
@@ -50,9 +50,9 @@ impl ProjectionCursor {
 }
 
 pub(crate) fn projection_identity_from_context(context: &str) -> Option<ProjectionIdentity> {
-    let start = context.rfind(PROJECTION_START)?;
+    let start = context.rfind(TASKSPACE_MAP_PROJECTION_MARKER)?;
     let candidate = &context[start..];
-    let end = candidate.find(PROJECTION_END)? + PROJECTION_END.len();
+    let end = candidate.find(TASKSPACE_MAP_PROJECTION_END)? + TASKSPACE_MAP_PROJECTION_END.len();
     let block = &candidate[..end];
     let map_id = projection_field(block, "map_id").map(str::to_string);
     let revision = projection_field(block, "revision").and_then(|value| value.parse().ok());
@@ -289,7 +289,9 @@ mod tests {
             id: None,
             role: "developer".into(),
             content: vec![ContentItem::InputText {
-                text: "TaskSpaceMapProjectionR7V1:\n- projection_kind: request_snapshot\n- map_id: map-1\n- revision: 4\n- canonical_sha256: canonical-4\nTaskSpaceMapProjectionR7V1 end.\n".into(),
+                text: format!(
+                    "{TASKSPACE_MAP_PROJECTION_MARKER}\n- projection_kind: request_snapshot\n- map_id: map-1\n- revision: 4\n- canonical_sha256: canonical-4\n{TASKSPACE_MAP_PROJECTION_END}\n"
+                ),
             }],
             end_turn: None,
             phase: None,

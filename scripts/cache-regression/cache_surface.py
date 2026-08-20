@@ -18,6 +18,8 @@ CACHE_CONTROL_PLANE_EXACT_PATHS = frozenset(
         "benchmarks/taskspace/container-runtime-contract.json",
         "scripts/taskspace-benchmark/build-v005-non-agent-gates.ps1",
         "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1",
+        "scripts/taskspace-benchmark/run-taskspace-benchmark-pairs.ps1",
+        "scripts/taskspace-benchmark/invoke-provider-route-preflight.ps1",
         "scripts/taskspace-benchmark/docker/Dockerfile",
         "scripts/taskspace-benchmark/docker/taskspace-container-entrypoint.sh",
         "scripts/taskspace-benchmark/lib/bootstrap.ps1",
@@ -37,6 +39,7 @@ CACHE_CONTROL_PLANE_GLOBS = (
     "scripts/taskspace-benchmark/lib/*.ps1",
     "third_party/codex-cli/codex-rs/core/tests/common/cache_payload.rs",
     "third_party/codex-cli/codex-rs/core/tests/suite/cache_final_wire.rs",
+    "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_final_wire__taskspace_production_tool_wire.snap",
     "third_party/codex-cli/codex-rs/core/tests/suite/cache_payload*_contract.rs",
 )
 

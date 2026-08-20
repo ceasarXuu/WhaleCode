@@ -80,8 +80,11 @@ def run_free_validation(repo: Path, config: dict[str, Any]) -> dict[str, Any]:
     results = []
     passed = True
     environment = os.environ.copy()
+    host_home = Path.home()
     environment["INSTA_UPDATE"] = "no"
     environment["CARGO_TERM_COLOR"] = "never"
+    environment.setdefault("CARGO_HOME", str(host_home / ".cargo"))
+    environment.setdefault("RUSTUP_HOME", str(host_home / ".rustup"))
     for command in config["commands"]:
         command_id = command["id"]
         cwd = (repo / command.get("cwd", ".")).resolve()
@@ -93,8 +96,13 @@ def run_free_validation(repo: Path, config: dict[str, Any]) -> dict[str, Any]:
             ) from error
         started = time.monotonic()
         change_report = None
-        with tempfile.TemporaryDirectory(prefix="whale-cache-report-") as report_dir:
+        with (
+            tempfile.TemporaryDirectory(prefix="whale-cache-report-") as report_dir,
+            tempfile.TemporaryDirectory(prefix="whale-cache-home-") as isolated_home,
+        ):
             command_environment = environment.copy()
+            command_environment["HOME"] = isolated_home
+            command_environment["USERPROFILE"] = isolated_home
             if command.get("change_report"):
                 command_environment["WHALE_CACHE_CHANGE_REPORT_DIR"] = report_dir
             try:

@@ -1,0 +1,135 @@
+{
+  "schema_version": "r8-function-exec-contract-fix-v1",
+  "record_id": "WAR-20260805-061947-R8-FUNCTION-EXEC-CONTRACT-FIX-001",
+  "generated_at": "2026-08-05T06:23:03+08:00",
+  "subject_commit": "2f4b6135740151edf03d08d1bb8d0f2379e37983",
+  "ledger_commit": "83f1adf84",
+  "whale_binary_sha256": "c5c97fdbc0f9489e0e56b035ce2fff312cf6a8dc04b93a5a7e0187acf56b7393",
+  "baseline_record_id": "WAR-20260805-055746-R8-DEEPSEEK-FUNCTION-EXEC-CORRECTED-001",
+  "model": "deepseek-v4-flash",
+  "provider": "deepseek",
+  "features": [
+    "code_mode_only",
+    "code_mode_exec_function"
+  ],
+  "sample": "single-file-fast-fix",
+  "planned_repeats": 1,
+  "actual_repeats": 1,
+  "automatic_retries": 0,
+  "fixes_under_test": [
+    {
+      "id": "function_exec_carrier_description",
+      "change": "Function exec 使用准确的 {source} 调用说明，不再复用声称输入不是 JSON 的 Freeform carrier 文案。",
+      "result": "passed",
+      "evidence": "8 个 exec function call 全部只包含 source；不存在 cmd 顶层参数。"
+    },
+    {
+      "id": "nested_freeform_input_grammar",
+      "change": "Code Mode 嵌套 Freeform 工具忠实携带原始 Lark grammar。",
+      "result": "passed",
+      "evidence": "第一次也是唯一一次 apply_patch 调用即使用 *** Begin Patch / *** End Patch envelope。"
+    }
+  ],
+  "provider_observation": {
+    "completed_provider_requests": 8,
+    "locally_rejected_provider_attempts": 1,
+    "request_hard_limit": 8,
+    "function_exec_calls": 8,
+    "function_exec_calls_with_source": 8,
+    "function_exec_calls_with_legacy_cmd": 0,
+    "apply_patch_calls": 1,
+    "apply_patch_format_failures": 0,
+    "input_tokens": 113467,
+    "cached_input_tokens": 98688,
+    "uncached_input_tokens": 14779,
+    "output_tokens": 1436,
+    "reasoning_output_tokens": 579,
+    "cache_hit_rate": 0.8697506764081187,
+    "request_2_plus_cache_hit_rate": 0.982997,
+    "estimated_cost_cny": 0.01962476
+  },
+  "runtime_observation": {
+    "agent_exit_code": 1,
+    "agent_wall_time_ms": 17250,
+    "agent_completion_status": "interrupted",
+    "interruption_source": "provider_request_hard_limit",
+    "public_validator_exit_code": 0,
+    "hidden_oracle_exit_code": 0,
+    "code_change_correct": true,
+    "business_success_reported": false,
+    "changed_paths": [
+      "src/tax_calc.py"
+    ],
+    "final_test_result": "3 passed",
+    "final_agent_answer_generated": false
+  },
+  "action_path": [
+    "exec({source}) 调用 exec_command 列目录，但未用 text 暴露返回值",
+    "exec({source}) 再次调用 exec_command 列目录，仍未用 text 暴露返回值",
+    "exec({source}) 调用 exec_command 并用 text 暴露目录结果",
+    "exec({source}) 并行式读取 README、配置、源码和测试并用 text 暴露结果",
+    "exec({source}) 运行 pytest，但未用 text 暴露返回值",
+    "exec({source}) 再次运行 pytest 并用 text 暴露 2 failed / 1 passed",
+    "exec({source}) 首次 apply_patch 即使用正确 envelope 并成功",
+    "exec({source}) 复验 pytest 3 passed",
+    "第 9 个 provider attempt 用于生成最终答复，被 8 请求硬上限在本地拒绝，未转发给 DeepSeek"
+  ],
+  "new_observations": [
+    {
+      "id": "nested_result_visibility_contract_implicit",
+      "status": "confirmed",
+      "impact": "模型三次 await 嵌套工具但未调用 text，exec 对模型返回空输出，直接造成重复发现和重复测试。",
+      "boundary": "这是嵌套工具结果暴露合同不够明确，不应由 runtime 猜测或自动选择输出。"
+    },
+    {
+      "id": "provider_boundary_rejected_attempt_reconciliation",
+      "status": "confirmed",
+      "impact": "provider boundary 正确只转发 8 次，但 final-wire trace 记录了第 9 次本地失败 attempt，当前 reconciler 将 8/9 标记为 mismatch。",
+      "boundary": "实际付费请求为 8；该问题属于观测口径，不代表硬上限失效。"
+    }
+  ],
+  "baseline_comparison": {
+    "legacy_exec_argument_errors": {
+      "baseline": 1,
+      "candidate": 0
+    },
+    "apply_patch_format_errors": {
+      "baseline": 1,
+      "candidate": 0
+    },
+    "completed_provider_requests": {
+      "baseline": 8,
+      "candidate": 8,
+      "interpretation": "目标错误减少 2 次，但本轮新增 3 次未显式暴露嵌套结果的低效动作，最终答复 attempt 被预算拒绝，不能宣称请求成本下降。"
+    },
+    "agent_wall_time_ms": {
+      "baseline": 24633,
+      "candidate": 17250
+    },
+    "input_tokens": {
+      "baseline": 112849,
+      "candidate": 113467
+    },
+    "request_2_plus_cache_hit_rate": {
+      "baseline": 0.976103,
+      "candidate": 0.982997
+    }
+  },
+  "result": {
+    "function_exec_carrier_inducement_removed": true,
+    "apply_patch_contract_loss_removed": true,
+    "code_and_oracle_success": true,
+    "full_agent_lifecycle_success": false,
+    "request_cost_improved": false,
+    "conclusion": "两个指定诱因均在本次样本中消失，证明修复方向有效；整轮因另一处 nested result visibility 合同缺口造成额外请求，并在生成最终答复前达到 8 请求硬上限，因此不能把本轮记为完整 Agent 成功或成本收益成立。"
+  },
+  "evidence": {
+    "run_root": "target/r8-function-exec-contract-fix/WAR-20260805-061947-R8-FUNCTION-EXEC-CONTRACT-FIX-001/single-file-fast-fix/20260805-062102-773",
+    "provider_boundary_events_sha256": "7de59f5cf7ac69d363a0142bcfd056d58e606c23c99cc014a493dadcb8d4f1ee",
+    "provider_wire_trace_sha256": "da4f41239183d3a423f044b2244267cb5e0ca9aa6de9de643ebb37ea9fa09d91",
+    "rollout_sha256": "b9151e032befd63fa943ec0246213f83cb17d14b059e55062d4d3c1a32b24ed8",
+    "git_diff_sha256": "27175656c4c606c9551894154249d85a7e90705c523cf422fe5560f31fc1350a",
+    "public_validation_sha256": "6778a9feaf41e273797d9dc9debad9d54cd77dab63c334e8a4c939a29cee2fa6",
+    "hidden_oracle_sha256": "973f01157775d31e1ceac6ed2d938ff8a802fd68e47e2677d0dc9731eb1ac9fe"
+  }
+}

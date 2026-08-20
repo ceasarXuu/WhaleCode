@@ -8,7 +8,16 @@ use crate::tools::context::ToolPayload;
 use crate::tools::registry::AnyToolResult;
 use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::registry::ToolRegistry;
+use crate::tools::registry::ToolRegistryBuilder;
 use crate::tools::spec::build_specs_with_discoverable_tools;
+use crate::tools::taskspace_exec::TASKSPACE_EXEC_TOOL_NAME;
+use crate::tools::taskspace_exec::TaskSpaceExecCatalog;
+use crate::tools::taskspace_exec::TaskSpaceExecCatalogError;
+use crate::tools::taskspace_exec::TaskSpaceExecHandler;
+use crate::tools::taskspace_exec::TaskSpaceExecResponseScope;
+use crate::tools::taskspace_exec::TaskSpaceExecSelfHeal;
+use crate::tools::taskspace_exec::retain_available_deferred_specs;
+use crate::tools::taskspace_exec::self_heal_taskspace_exec_response_item;
 use codex_mcp::ToolInfo;
 use codex_protocol::dynamic_tools::DynamicToolSpec;
 use codex_protocol::models::LocalShellAction;
@@ -55,6 +64,8 @@ pub struct ToolRouter {
     specs: Vec<ConfiguredToolSpec>,
     model_visible_specs: Vec<ToolSpec>,
     parallel_mcp_server_names: HashSet<String>,
+    taskspace_response_scope: Option<Arc<TaskSpaceExecResponseScope>>,
+    taskspace_catalog: Option<Arc<TaskSpaceExecCatalog>>,
 }
 
 pub(crate) struct ToolRouterParams<'a> {
@@ -67,6 +78,21 @@ pub(crate) struct ToolRouterParams<'a> {
 }
 
 impl ToolRouter {
+    #[cfg(test)]
+    pub(crate) fn from_builder_for_test(builder: ToolRegistryBuilder) -> Self {
+        let (specs, registry) = builder.build();
+        let model_visible_specs: Vec<ToolSpec> =
+            specs.iter().map(|item| item.spec.clone()).collect();
+        Self {
+            registry,
+            specs,
+            model_visible_specs,
+            parallel_mcp_server_names: HashSet::new(),
+            taskspace_response_scope: None,
+            taskspace_catalog: None,
+        }
+    }
+
     pub fn from_config(config: &ToolsConfig, params: ToolRouterParams<'_>) -> Self {
         let ToolRouterParams {
             mcp_tools,
@@ -108,7 +134,78 @@ impl ToolRouter {
             specs,
             model_visible_specs,
             parallel_mcp_server_names,
+            taskspace_response_scope: None,
+            taskspace_catalog: None,
         }
+    }
+
+    pub(crate) fn into_taskspace(
+        self,
+        loaded_deferred_specs: &[ToolSpec],
+    ) -> Result<Self, TaskSpaceExecCatalogError> {
+        let loaded_deferred_specs =
+            retain_available_deferred_specs(loaded_deferred_specs, |name| {
+                self.registry.has_handler(name)
+            });
+        let client_router = Arc::new(self);
+        let catalog = Arc::new(TaskSpaceExecCatalog::build_with_loaded_deferred(
+            &client_router.taskspace_capability_specs(),
+            &loaded_deferred_specs,
+        )?);
+        let response_scope = Arc::new(TaskSpaceExecResponseScope::new(
+            catalog.capability_identity_arc(),
+            catalog.hosted_tool_identities(),
+        ));
+        let mut builder = ToolRegistryBuilder::new();
+        builder.push_spec(ToolSpec::Function(catalog.declaration().clone()));
+        for spec in client_router
+            .model_visible_specs()
+            .into_iter()
+            .filter(|spec| {
+                matches!(
+                    spec,
+                    ToolSpec::WebSearch { .. } | ToolSpec::ImageGeneration { .. }
+                )
+            })
+        {
+            builder.push_spec_with_parallel_support(spec, true);
+        }
+        builder.register_handler(
+            TASKSPACE_EXEC_TOOL_NAME,
+            Arc::new(TaskSpaceExecHandler::new(
+                Arc::clone(&catalog),
+                client_router,
+                Arc::clone(&response_scope),
+            )),
+        );
+        let (specs, registry) = builder.build();
+        let model_visible_specs = specs.iter().map(|item| item.spec.clone()).collect();
+        Ok(Self {
+            registry,
+            specs,
+            model_visible_specs,
+            parallel_mcp_server_names: HashSet::new(),
+            taskspace_response_scope: Some(response_scope),
+            taskspace_catalog: Some(catalog),
+        })
+    }
+
+    pub(crate) fn taskspace_response_scope(&self) -> Option<Arc<TaskSpaceExecResponseScope>> {
+        self.taskspace_response_scope.clone()
+    }
+
+    pub(crate) fn taskspace_capability_identity(&self) -> Option<Arc<str>> {
+        self.taskspace_response_scope
+            .as_ref()
+            .map(|scope| scope.capability_identity())
+    }
+
+    pub(crate) fn self_heal_taskspace_response_item(
+        &self,
+        item: &mut ResponseItem,
+    ) -> Option<TaskSpaceExecSelfHeal> {
+        let catalog = self.taskspace_catalog.as_deref()?;
+        self_heal_taskspace_exec_response_item(item, catalog)
     }
 
     pub fn specs(&self) -> Vec<ToolSpec> {
@@ -120,6 +217,13 @@ impl ToolRouter {
 
     pub fn model_visible_specs(&self) -> Vec<ToolSpec> {
         self.model_visible_specs.clone()
+    }
+
+    pub(crate) fn taskspace_capability_specs(&self) -> Vec<ToolSpec> {
+        self.specs
+            .iter()
+            .map(|configured| configured.native_spec.clone())
+            .collect()
     }
 
     pub fn find_spec(&self, tool_name: &ToolName) -> Option<ToolSpec> {

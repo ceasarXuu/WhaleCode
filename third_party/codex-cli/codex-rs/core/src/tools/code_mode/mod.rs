@@ -24,6 +24,8 @@ use crate::tools::ToolRouter;
 use crate::tools::context::FunctionToolOutput;
 use crate::tools::context::SharedTurnDiffTracker;
 use crate::tools::context::ToolPayload;
+use crate::tools::nested_call::build_native_nested_tool_call;
+use crate::tools::nested_call::serialize_function_tool_arguments;
 use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::router::ToolCall;
 use crate::tools::router::ToolCallSource;
@@ -31,7 +33,6 @@ use crate::tools::router::ToolRouterParams;
 use crate::unified_exec::resolve_max_tokens;
 use codex_features::Feature;
 use codex_tools::ToolName;
-use codex_tools::ToolSpec;
 use codex_tools::collect_code_mode_tool_definitions;
 use codex_utils_output_truncation::TruncationPolicy;
 use codex_utils_output_truncation::formatted_truncate_text_content_items_with_policy;
@@ -323,34 +324,30 @@ async fn call_nested_tool(
             "{PUBLIC_TOOL_NAME} cannot invoke itself"
         )));
     }
-    let provider_tool_name = tool_name.clone();
-
-    let (tool_call_name, payload) =
-        if let Some(tool_info) = exec.session.resolve_mcp_tool_info(&tool_name).await {
-            let raw_arguments = match serialize_function_tool_arguments(&tool_name, input) {
-                Ok(raw_arguments) => raw_arguments,
-                Err(error) => return Err(FunctionCallError::RespondToModel(error)),
-            };
-            (
-                tool_info.canonical_tool_name(),
-                ToolPayload::Mcp {
-                    server: tool_info.server_name,
-                    tool: tool_info.tool.name.to_string(),
-                    raw_arguments,
-                },
-            )
-        } else {
-            match build_nested_tool_payload(tool_runtime.find_spec(&tool_name), &tool_name, input) {
-                Ok(payload) => (tool_name, payload),
-                Err(error) => return Err(FunctionCallError::RespondToModel(error)),
-            }
+    let call_id = format!("{PUBLIC_TOOL_NAME}-{}", uuid::Uuid::new_v4());
+    let call = if let Some(tool_info) = exec.session.resolve_mcp_tool_info(&tool_name).await {
+        let raw_arguments = match serialize_function_tool_arguments(&tool_name, input) {
+            Ok(raw_arguments) => raw_arguments,
+            Err(error) => return Err(FunctionCallError::RespondToModel(error)),
         };
-
-    let call = ToolCall {
-        provider_tool_name,
-        dispatch_tool_name: tool_call_name,
-        call_id: format!("{PUBLIC_TOOL_NAME}-{}", uuid::Uuid::new_v4()),
-        payload,
+        ToolCall {
+            provider_tool_name: tool_name,
+            dispatch_tool_name: tool_info.canonical_tool_name(),
+            call_id,
+            payload: ToolPayload::Mcp {
+                server: tool_info.server_name,
+                tool: tool_info.tool.name.to_string(),
+                raw_arguments,
+            },
+        }
+    } else {
+        let spec = tool_runtime.find_spec(&tool_name).ok_or_else(|| {
+            FunctionCallError::RespondToModel(format!(
+                "tool `{tool_name}` is not enabled in {PUBLIC_TOOL_NAME}"
+            ))
+        })?;
+        build_native_nested_tool_call(&spec, tool_name, call_id, input)
+            .map_err(FunctionCallError::RespondToModel)?
     };
     let result = tool_runtime
         .handle_tool_call_with_source(
@@ -363,69 +360,4 @@ async fn call_nested_tool(
         )
         .await?;
     Ok(result.code_mode_result())
-}
-
-fn tool_kind_for_spec(spec: &ToolSpec) -> codex_code_mode::CodeModeToolKind {
-    if matches!(spec, ToolSpec::Freeform(_)) {
-        codex_code_mode::CodeModeToolKind::Freeform
-    } else {
-        codex_code_mode::CodeModeToolKind::Function
-    }
-}
-
-fn tool_kind_for_name(
-    spec: Option<ToolSpec>,
-    tool_name: &ToolName,
-) -> Result<codex_code_mode::CodeModeToolKind, String> {
-    spec.as_ref()
-        .map(tool_kind_for_spec)
-        .ok_or_else(|| format!("tool `{tool_name}` is not enabled in {PUBLIC_TOOL_NAME}"))
-}
-
-fn build_nested_tool_payload(
-    spec: Option<ToolSpec>,
-    tool_name: &ToolName,
-    input: Option<JsonValue>,
-) -> Result<ToolPayload, String> {
-    let actual_kind = tool_kind_for_name(spec, tool_name)?;
-    match actual_kind {
-        codex_code_mode::CodeModeToolKind::Function => {
-            build_function_tool_payload(tool_name, input)
-        }
-        codex_code_mode::CodeModeToolKind::Freeform => {
-            build_freeform_tool_payload(tool_name, input)
-        }
-    }
-}
-
-fn build_function_tool_payload(
-    tool_name: &ToolName,
-    input: Option<JsonValue>,
-) -> Result<ToolPayload, String> {
-    let arguments = serialize_function_tool_arguments(tool_name, input)?;
-    Ok(ToolPayload::Function { arguments })
-}
-
-fn serialize_function_tool_arguments(
-    tool_name: &ToolName,
-    input: Option<JsonValue>,
-) -> Result<String, String> {
-    match input {
-        None => Ok("{}".to_string()),
-        Some(JsonValue::Object(map)) => serde_json::to_string(&JsonValue::Object(map))
-            .map_err(|err| format!("failed to serialize tool `{tool_name}` arguments: {err}")),
-        Some(_) => Err(format!(
-            "tool `{tool_name}` expects a JSON object for arguments"
-        )),
-    }
-}
-
-fn build_freeform_tool_payload(
-    tool_name: &ToolName,
-    input: Option<JsonValue>,
-) -> Result<ToolPayload, String> {
-    match input {
-        Some(JsonValue::String(input)) => Ok(ToolPayload::Custom { input }),
-        _ => Err(format!("tool `{tool_name}` expects a string input")),
-    }
 }

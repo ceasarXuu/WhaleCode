@@ -13,8 +13,6 @@ use std::time::UNIX_EPOCH;
 use crate::action_map::ActionMapExactPayloadScanEventInput;
 use crate::action_map::ActionMapProviderRequestBudgetEventInput;
 use crate::action_map::ActionMapProviderRequestBudgetSnapshot;
-use crate::action_map::ActionMapProviderResponseActionabilityInput;
-use crate::action_map::TaskSpaceEvent;
 use crate::agent::AgentControl;
 use crate::agent::AgentStatus;
 use crate::agent::Mailbox;
@@ -201,12 +199,15 @@ mod review;
 mod rollout_reconstruction;
 #[allow(clippy::module_inception)]
 pub(crate) mod session;
-mod taskspace_response;
+#[cfg(test)]
+mod taskspace_action_settlement_output_ref_tests;
+#[cfg(test)]
+mod taskspace_action_settlement_tests;
+mod taskspace_provider_tools;
 mod taskspace_store;
 mod taskspace_store_read;
 #[cfg(test)]
 mod taskspace_store_tests;
-mod taskspace_terminal;
 pub(crate) mod turn;
 pub(crate) mod turn_context;
 #[cfg(test)]
@@ -217,7 +218,8 @@ use self::session::AppServerClientMetadata;
 use self::session::Session;
 use self::session::SessionConfiguration;
 pub(crate) use self::session::SessionSettingsUpdate;
-pub(crate) use self::taskspace_terminal::FinishActionMapError;
+pub(crate) use self::taskspace_store::TaskSpaceActionSettlementFact;
+use self::taskspace_store::TaskSpaceActionSettlementQueue;
 #[cfg(test)]
 use self::turn::AssistantMessageStreamParsers;
 #[cfg(test)]
@@ -288,6 +290,8 @@ use crate::SkillsManager;
 use crate::action_map::ProjectionEmission;
 use crate::action_map::ProjectionEnvelope;
 use crate::action_map::ProjectionTrigger;
+use crate::action_map::TASKSPACE_MAP_HANDLE_MARKER;
+use crate::action_map::TASKSPACE_MAP_PROJECTION_MARKER;
 use crate::action_map::decide_projection_emission;
 use crate::action_map::projection_identity_from_context;
 use crate::agents_md::AgentsMdManager;
@@ -379,7 +383,6 @@ use codex_protocol::protocol::SkillToolDependency as ProtocolSkillToolDependency
 use codex_protocol::protocol::StreamErrorEvent;
 use codex_protocol::protocol::Submission;
 use codex_protocol::protocol::TaskSpaceProjectionPolicy;
-use codex_protocol::protocol::TaskSpaceSkillSnapshotIdentity;
 use codex_protocol::protocol::TokenCountEvent;
 use codex_protocol::protocol::TokenUsage;
 use codex_protocol::protocol::TokenUsageInfo;
@@ -513,16 +516,10 @@ impl Codex {
         let skills_input = skills_load_input_from_config(&config, effective_skill_roots);
         let taskspace_projection_policy = match &conversation_history {
             InitialHistory::New | InitialHistory::Cleared => config.taskspace_projection_policy,
-            InitialHistory::Resumed(_) | InitialHistory::Forked(_) => {
-                conversation_history.taskspace_projection_policy()
-            }
+            InitialHistory::Resumed(_) | InitialHistory::Forked(_) => config
+                .taskspace_projection_policy
+                .or_else(|| conversation_history.taskspace_projection_policy()),
         };
-        let taskspace_skill_snapshot = crate::taskspace_skill::resolve_session_snapshot(
-            taskspace_projection_policy,
-            &conversation_history,
-            &config.codex_home,
-        )
-        .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
         let loaded_skills = skills_manager.skills_for_config(&skills_input, fs).await;
         for err in &loaded_skills.errors {
             error!(
@@ -659,7 +656,6 @@ impl Codex {
             model_reasoning_summary: config.model_reasoning_summary,
             service_tier,
             taskspace_projection_policy,
-            taskspace_skill_snapshot,
             developer_instructions: config.developer_instructions.clone(),
             user_instructions,
             personality: config.personality,
@@ -901,6 +897,13 @@ async fn thread_title_from_state_db(
 pub(crate) struct PreparedProviderPromptItems {
     pub(crate) items: Vec<ResponseItem>,
     pub(crate) projection_identity: Option<ProviderProjectionIdentityExpectation>,
+    pub(crate) taskspace_request_map: Option<ProviderTaskSpaceRequestMap>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProviderTaskSpaceRequestMap {
+    pub(crate) map_id: String,
+    pub(crate) revision: Option<u64>,
 }
 
 impl Session {
@@ -1034,7 +1037,7 @@ impl Session {
             .collect::<Vec<_>>();
         let result = self
             .mutate_canonical_action_map("record_provider_request_budget", |runtime, _| {
-                match runtime.record_provider_request_budget_events(&snapshot, inputs) {
+                match runtime.record_provider_request_budget_events(&snapshot, inputs.clone()) {
                     Some(events) => (true, events),
                     None => (false, Vec::new()),
                 }
@@ -1046,59 +1049,6 @@ impl Session {
         } else if let Err(error) = result {
             warn!(%error, "failed to persist TaskSpace provider request budget");
         }
-    }
-
-    pub(crate) async fn record_action_map_provider_response_actionability(
-        &self,
-        turn_context: &TurnContext,
-        snapshot: ActionMapProviderRequestBudgetSnapshot,
-        input: ActionMapProviderResponseActionabilityInput,
-    ) {
-        if Self::should_emit_provider_response_actionability_warning(&snapshot, &input) {
-            self.send_event(
-                turn_context,
-                EventMsg::Warning(WarningEvent {
-                    message: format!(
-                        "TaskSpaceProviderResponseActionabilityV1 actionability={} recovery_action={} request_count={}/{} phase={} node_role={} assistant_message_present={} saw_actionable_output={} end_turn={} preview={}",
-                        input.response_actionability,
-                        input.recovery_action,
-                        snapshot.request_count,
-                        snapshot.max_requests,
-                        snapshot.request_phase.as_deref().unwrap_or("unknown"),
-                        snapshot.node_role.as_deref().unwrap_or("unknown"),
-                        input.assistant_message_present,
-                        input.saw_actionable_output,
-                        input.end_turn
-                            .map(|value| value.to_string())
-                            .unwrap_or_else(|| "unknown".to_string()),
-                        input.last_agent_message_preview.as_deref().unwrap_or(""),
-                    ),
-                }),
-            )
-            .await;
-        }
-        let result =
-            self.mutate_canonical_action_map("record_provider_actionability", |runtime, _| {
-                match runtime.record_provider_response_actionability(&snapshot, input) {
-                    Some(events) => (true, events),
-                    None => (false, Vec::new()),
-                }
-            })
-            .await;
-        if let Ok((true, runtime_events)) = result {
-            self.emit_action_map_events_for_turn(turn_context, runtime_events)
-                .await;
-        } else if let Err(error) = result {
-            warn!(%error, "failed to persist TaskSpace provider response actionability");
-        }
-    }
-
-    pub(crate) async fn action_map_control_state(
-        &self,
-        map_id_hint: Option<&str>,
-    ) -> Option<crate::action_map::ActionMapControlState> {
-        let state = self.state.lock().await;
-        state.action_map_runtime.control_state(map_id_hint)
     }
 
     #[cfg(test)]
@@ -1137,15 +1087,6 @@ impl Session {
         ) || event.budget_state_before != "normal"
             || event.budget_state_after != "normal"
             || event.request_count_after.saturating_mul(2) >= event.max_requests
-    }
-
-    fn should_emit_provider_response_actionability_warning(
-        snapshot: &ActionMapProviderRequestBudgetSnapshot,
-        input: &ActionMapProviderResponseActionabilityInput,
-    ) -> bool {
-        input.recovery_action != "none"
-            || input.response_actionability != "turn_complete"
-            || snapshot.request_count.saturating_mul(2) >= snapshot.max_requests
     }
 
     fn managed_network_proxy_active_for_sandbox_policy(sandbox_policy: &SandboxPolicy) -> bool {
@@ -1467,7 +1408,7 @@ impl Session {
             InitialHistory::Resumed(resumed_history) => {
                 let rollout_items = resumed_history.history;
                 let previous_turn_settings = self
-                    .apply_rollout_reconstruction(&turn_context, &rollout_items, false)
+                    .apply_rollout_reconstruction(&turn_context, &rollout_items)
                     .await?;
 
                 // If resuming, warn when the last recorded model differs from the current one.
@@ -1503,7 +1444,7 @@ impl Session {
                 }
             }
             InitialHistory::Forked(rollout_items) => {
-                self.apply_rollout_reconstruction(&turn_context, &rollout_items, is_subagent)
+                self.apply_rollout_reconstruction(&turn_context, &rollout_items)
                     .await?;
 
                 // Seed usage info from the recorded rollout so UIs can show token counts
@@ -1537,7 +1478,6 @@ impl Session {
         &self,
         turn_context: &TurnContext,
         rollout_items: &[RolloutItem],
-        linearize_taskspace_for_subagent: bool,
     ) -> Result<Option<PreviousTurnSettings>, rollout_reconstruction::RolloutReconstructionError>
     {
         let reconstructed_rollout = self
@@ -1546,19 +1486,10 @@ impl Session {
         let previous_turn_settings = reconstructed_rollout.previous_turn_settings.clone();
         {
             let mut state = self.state.lock().await;
-            if linearize_taskspace_for_subagent {
-                state.restore_subagent_fork_context(
-                    reconstructed_rollout.history,
-                    reconstructed_rollout.taskspace_events,
-                    reconstructed_rollout.reference_context_item,
-                );
-            } else {
-                state.restore_context(
-                    reconstructed_rollout.history,
-                    reconstructed_rollout.taskspace_events,
-                    reconstructed_rollout.reference_context_item,
-                );
-            }
+            state.restore_context(
+                reconstructed_rollout.history,
+                reconstructed_rollout.reference_context_item,
+            );
         }
         self.set_previous_turn_settings(previous_turn_settings.clone())
             .await;
@@ -2681,26 +2612,14 @@ impl Session {
         }
     }
 
-    /// Records provider items in the active canonical context backend and persists them once.
+    /// Records provider items in the standard context backend and persists them once.
     pub(crate) async fn record_conversation_items(
         &self,
         turn_context: &TurnContext,
         items: &[ResponseItem],
     ) {
-        let taskspace_events = self.record_into_context(items, turn_context).await;
-        if taskspace_events.is_empty() {
-            self.persist_rollout_response_items(items).await;
-        } else {
-            let rollout_items = taskspace_events
-                .into_iter()
-                .map(|event| {
-                    RolloutItem::EventMsg(EventMsg::MapRuntime(
-                        MapRuntimeEvent::TaskContextEventRecorded(event.to_protocol()),
-                    ))
-                })
-                .collect::<Vec<_>>();
-            self.persist_rollout_items(&rollout_items).await;
-        }
+        self.record_into_context(items, turn_context).await;
+        self.persist_rollout_response_items(items).await;
         self.send_raw_response_items(turn_context, items).await;
     }
 
@@ -2710,14 +2629,10 @@ impl Session {
         items: &[ResponseItem],
         turn_context: &TurnContext,
     ) {
-        let _ = self.record_into_context(items, turn_context).await;
+        self.record_into_context(items, turn_context).await;
     }
 
-    async fn record_into_context(
-        &self,
-        items: &[ResponseItem],
-        turn_context: &TurnContext,
-    ) -> Vec<TaskSpaceEvent> {
+    async fn record_into_context(&self, items: &[ResponseItem], turn_context: &TurnContext) {
         let mut state = self.state.lock().await;
         state.record_items(items.iter(), turn_context.truncation_policy)
     }
@@ -2808,28 +2723,10 @@ impl Session {
         reference_context_item: Option<TurnContextItem>,
         compacted_item: CompactedItem,
     ) {
-        let checkpoint_events = {
-            let mut state = self.state.lock().await;
-            state.replace_compacted_history(items, reference_context_item.clone())
-        };
-
-        let taskspace_compacted = !checkpoint_events.is_empty();
-        if taskspace_compacted {
-            let rollout_items = checkpoint_events
-                .into_iter()
-                .map(|event| {
-                    RolloutItem::EventMsg(EventMsg::MapRuntime(
-                        MapRuntimeEvent::TaskContextEventRecorded(event.to_protocol()),
-                    ))
-                })
-                .collect::<Vec<_>>();
-            self.persist_rollout_items(&rollout_items).await;
-        }
-
-        if !taskspace_compacted {
-            self.persist_rollout_items(&[RolloutItem::Compacted(compacted_item)])
-                .await;
-        }
+        self.replace_history(items, reference_context_item.clone())
+            .await;
+        self.persist_rollout_items(&[RolloutItem::Compacted(compacted_item)])
+            .await;
         if let Some(turn_context_item) = reference_context_item {
             self.persist_rollout_items(&[RolloutItem::TurnContext(turn_context_item)])
                 .await;
@@ -2886,24 +2783,16 @@ impl Session {
             collaboration_mode,
             base_instructions,
             session_source,
-            map_runtime_mode,
-            taskspace_skill_snapshot,
         ) = {
             let state = self.state.lock().await;
-            let map_runtime_mode = state.action_map_runtime.mode();
             (
                 state.reference_context_item(),
                 state.previous_turn_settings(),
                 state.session_configuration.collaboration_mode.clone(),
                 state.session_configuration.base_instructions.clone(),
                 state.session_configuration.session_source.clone(),
-                map_runtime_mode,
-                state.session_configuration.taskspace_skill_snapshot.clone(),
             )
         };
-        if let Some(core_protocol) = crate::context::taskspace_core_protocol(map_runtime_mode) {
-            developer_sections.push(core_protocol.to_string());
-        }
         if let Some(model_switch_message) =
             crate::context_manager::updates::build_model_instructions_update_item(
                 previous_turn_settings.as_ref(),
@@ -3002,18 +2891,6 @@ impl Session {
             );
             if let Some(available_skills) = available_skills {
                 let warning_message = available_skills.warning_message.clone();
-                if map_runtime_mode == MapRuntimeMode::Experiment
-                    && let Some(identity) = taskspace_skill_snapshot.as_ref()
-                {
-                    let rendered_catalog =
-                        AvailableSkillsInstructions::from(available_skills.clone()).render();
-                    crate::taskspace_skill::log_catalog_render(
-                        identity,
-                        &turn_context.turn_skills.outcome,
-                        Some(&available_skills),
-                        Some(&rendered_catalog),
-                    );
-                }
                 let skills_instructions = AvailableSkillsInstructions::from(available_skills);
                 if let Some(warning_message) = warning_message {
                     self.send_event_raw(Event {
@@ -3025,25 +2902,7 @@ impl Session {
                     .await;
                 }
                 developer_sections.push(skills_instructions.render());
-            } else if map_runtime_mode == MapRuntimeMode::Experiment
-                && let Some(identity) = taskspace_skill_snapshot.as_ref()
-            {
-                crate::taskspace_skill::log_catalog_render(
-                    identity,
-                    &turn_context.turn_skills.outcome,
-                    None,
-                    None,
-                );
             }
-        } else if map_runtime_mode == MapRuntimeMode::Experiment
-            && let Some(identity) = taskspace_skill_snapshot.as_ref()
-        {
-            crate::taskspace_skill::log_catalog_render(
-                identity,
-                &turn_context.turn_skills.outcome,
-                None,
-                None,
-            );
         }
         let loaded_plugins = self
             .services
@@ -3345,6 +3204,7 @@ impl Session {
                 return Ok(PreparedProviderPromptItems {
                     items,
                     projection_identity: None,
+                    taskspace_request_map: None,
                 });
             }
             state
@@ -3354,6 +3214,10 @@ impl Session {
                     "TaskSpace mode requires an immutable projection policy.".to_string()
                 })?
         };
+        self.recover_taskspace_action_settlements().await?;
+        self.await_taskspace_action_settlements()
+            .await
+            .map_err(|error| format!("TaskSpace settlement barrier failed: {error}"))?;
         let context = match policy {
             TaskSpaceProjectionPolicy::MapRequest => None,
             TaskSpaceProjectionPolicy::MapAlways | TaskSpaceProjectionPolicy::MapAppend => {
@@ -3489,9 +3353,11 @@ impl Session {
                 })
             }
         };
+        let taskspace_request_map = provider_visible_taskspace_map(policy, &items)?;
         Ok(PreparedProviderPromptItems {
             items,
             projection_identity,
+            taskspace_request_map: Some(taskspace_request_map),
         })
     }
 
@@ -4159,7 +4025,7 @@ fn is_action_map_projection_developer_item(item: &ResponseItem) -> bool {
         matches!(
             entry,
             ContentItem::InputText { text }
-                if text.contains("TaskSpaceMapProjectionR7V1:")
+                if text.contains(TASKSPACE_MAP_PROJECTION_MARKER)
         )
     })
 }
@@ -4194,7 +4060,7 @@ fn taskspace_projection_context(item: Option<&ResponseItem>) -> Option<&str> {
     }
     content.iter().rev().find_map(|entry| match entry {
         ContentItem::InputText { text } | ContentItem::OutputText { text }
-            if text.contains("TaskSpaceMapProjectionR7V1:") =>
+            if text.contains(TASKSPACE_MAP_PROJECTION_MARKER) =>
         {
             Some(text.as_str())
         }
@@ -4211,12 +4077,66 @@ fn taskspace_map_handle_context(item: Option<&ResponseItem>) -> Option<&str> {
     }
     content.iter().rev().find_map(|entry| match entry {
         ContentItem::InputText { text } | ContentItem::OutputText { text }
-            if text.contains("TaskSpaceMapHandleR7V1:") =>
+            if text.contains(TASKSPACE_MAP_HANDLE_MARKER) =>
         {
             Some(text.as_str())
         }
         _ => None,
     })
+}
+
+fn provider_visible_taskspace_map(
+    policy: TaskSpaceProjectionPolicy,
+    items: &[ResponseItem],
+) -> Result<ProviderTaskSpaceRequestMap, String> {
+    match policy {
+        TaskSpaceProjectionPolicy::MapAlways | TaskSpaceProjectionPolicy::MapAppend => {
+            let context = latest_taskspace_projection_context(items).ok_or_else(|| {
+                "TaskSpace provider request has no visible Map projection.".to_string()
+            })?;
+            let identity = projection_identity_from_context(context).ok_or_else(|| {
+                "TaskSpace provider request has an invalid Map projection identity.".to_string()
+            })?;
+            Ok(ProviderTaskSpaceRequestMap {
+                map_id: identity.map_id.ok_or_else(|| {
+                    "TaskSpace provider projection has no Map identity.".to_string()
+                })?,
+                revision: identity.revision,
+            })
+        }
+        TaskSpaceProjectionPolicy::MapRequest => {
+            let context = items
+                .iter()
+                .rev()
+                .find_map(|item| taskspace_map_handle_context(Some(item)))
+                .ok_or_else(|| {
+                    "TaskSpace provider request has no visible Map handle.".to_string()
+                })?;
+            let map_id = taskspace_context_field(context, "map_id")
+                .ok_or_else(|| "TaskSpace provider Map handle has no Map identity.".to_string())?;
+            let revision = match taskspace_context_field(context, "revision") {
+                Some("none") => None,
+                Some(value) => Some(value.parse::<u64>().map_err(|_| {
+                    "TaskSpace provider Map handle has an invalid revision.".to_string()
+                })?),
+                None => {
+                    return Err("TaskSpace provider Map handle has no revision field.".to_string());
+                }
+            };
+            Ok(ProviderTaskSpaceRequestMap {
+                map_id: map_id.to_string(),
+                revision,
+            })
+        }
+    }
+}
+
+fn taskspace_context_field<'a>(context: &'a str, field: &str) -> Option<&'a str> {
+    let prefix = format!("- {field}: ");
+    context
+        .lines()
+        .find_map(|line| line.strip_prefix(&prefix))
+        .filter(|value| !value.is_empty())
 }
 
 fn rewrite_taskspace_projection_items_for_append(items: &mut [ResponseItem]) {

@@ -1,0 +1,115 @@
+{
+  "schema_version": "r8-deepseek-function-exec-v1",
+  "record_id": "WAR-20260805-055746-R8-DEEPSEEK-FUNCTION-EXEC-CORRECTED-001",
+  "generated_at": "2026-08-05T06:03:37+08:00",
+  "subject_commit": "e8c4ce1a0d9cd4151f84ce04fb47d33b4969adfd",
+  "ledger_commit": "613fd1360242ca2e4968188ec428c62d5259e394",
+  "whale_binary_sha256": "22b1f23625498d8eb1f610a72cd0d86e7cccbe971668a607752a049e7a5b9a38",
+  "model": "deepseek-v4-flash",
+  "provider": "deepseek",
+  "features": [
+    "code_mode_only",
+    "code_mode_exec_function"
+  ],
+  "sample": "single-file-fast-fix",
+  "planned_repeats": 1,
+  "actual_repeats": 1,
+  "automatic_retries": 0,
+  "harness_preflight": {
+    "provider_requests": 0,
+    "attempts": [
+      {
+        "run_id": "20260805-055917-896",
+        "result": "invalid_harness",
+        "reason": "whale_binary_attestation_invalid",
+        "resolution": "使用既有 writer 重新生成与当前二进制和 Codex source commit 匹配的 build attestation。"
+      },
+      {
+        "run_id": "20260805-060039-845",
+        "result": "invalid_harness",
+        "reason": "provider_credential_missing",
+        "resolution": "从受 gitignore 保护的 .env.local 注入 runner 进程环境；Key 未写入命令、日志或证据。"
+      }
+    ]
+  },
+  "provider_observation": {
+    "function_exec_schema_accepted": true,
+    "provider_request_count": 8,
+    "provider_request_count_source": "provider-boundary-evidence",
+    "request_hard_limit": 12,
+    "function_exec_calls": 7,
+    "function_exec_calls_with_source": 6,
+    "function_exec_calls_with_legacy_cmd": 1,
+    "input_tokens": 112849,
+    "cached_input_tokens": 103424,
+    "uncached_input_tokens": 9425,
+    "output_tokens": 1444,
+    "cache_hit_rate": 0.9164813157405028,
+    "request_2_plus_cache_hit_rate": 0.976103,
+    "estimated_cost_cny": 0.01438148
+  },
+  "runtime_observation": {
+    "agent_exit_code": 0,
+    "agent_wall_time_ms": 24633,
+    "public_validator_exit_code": 0,
+    "hidden_oracle_exit_code": 0,
+    "business_success": true,
+    "model_generated_function_exec": true,
+    "function_exec_arguments_parsed": true,
+    "javascript_runtime_started": true,
+    "nested_tools_dispatched": true,
+    "nested_tools_succeeded": true,
+    "changed_paths": [
+      "src/tax_calc.py"
+    ],
+    "final_test_result": "3 passed"
+  },
+  "action_path": [
+    "exec({cmd}) 被 Function 参数 schema 拒绝",
+    "exec({source}) 调用 exec_command 列目录成功",
+    "exec({source}) 调用 exec_command 读取 README、配置、源码和测试成功",
+    "exec({source}) 调用 exec_command 运行 pytest，观测 2 failed / 1 passed",
+    "exec({source}) 调用 apply_patch，因使用 unified diff 格式失败",
+    "exec({source}) 调用 apply_patch，改用 *** Begin Patch 格式成功",
+    "exec({source}) 调用 exec_command，pytest 3 passed 且 git diff 正确"
+  ],
+  "observed_issues": [
+    {
+      "id": "function_exec_legacy_argument_first_call",
+      "impact": "增加 1 次 provider 请求；模型首次仍沿用普通 shell exec 的 cmd 参数习惯。",
+      "recovered": true
+    },
+    {
+      "id": "nested_apply_patch_format_first_call",
+      "impact": "增加 1 次 provider 请求；模型首次使用 unified diff，而嵌套 apply_patch 要求 Codex patch envelope。",
+      "recovered": true
+    },
+    {
+      "id": "request_summary_double_counts_rollout_snapshots",
+      "impact": "request-summary 报告 15 次，但 provider boundary 和 final-wire trace 均证明实际为 8 次；若直接采用报告值会扭曲成本与效率判断。",
+      "recovered": false
+    }
+  ],
+  "result": {
+    "provider_protocol_supported": true,
+    "model_can_generate_function_exec": true,
+    "nested_tool_runtime_supported": true,
+    "full_task_success": true,
+    "stability_assessable": false,
+    "conclusion": "Function 形态 exec 在 DeepSeek V4 Flash 上完成了真实编码任务的端到端闭环，证明方案可行；单次样本只能证明可行性，不能证明跨样本稳定性。"
+  },
+  "runner_interpretation": {
+    "run_validity": "valid",
+    "runner_run_status_exit_code": 0,
+    "outer_command_exit_code": 1,
+    "outer_command_exit_reason": "单臂 repeat=1 不满足 E2 aggregate 的 repeats>=3 和双臂比较条件；不代表 agent 或业务样本失败。"
+  },
+  "evidence": {
+    "run_root": "target/r8-deepseek-function-exec-corrected/WAR-20260805-055746-R8-DEEPSEEK-FUNCTION-EXEC-CORRECTED-001/single-file-fast-fix/20260805-060108-636",
+    "provider_boundary_sha256": "dcb7eb82b488c1248273eb3130b023a0681eef8e337a83153f360eb373659c36",
+    "rollout_sha256": "77a99321c8bc444a5202825841c36395aeca6d9f831c458935f60819793e861e",
+    "git_diff_sha256": "27175656c4c606c9551894154249d85a7e90705c523cf422fe5560f31fc1350a",
+    "public_validation_sha256": "6778a9feaf41e273797d9dc9debad9d54cd77dab63c334e8a4c939a29cee2fa6",
+    "hidden_oracle_sha256": "973f01157775d31e1ceac6ed2d938ff8a802fd68e47e2677d0dc9731eb1ac9fe"
+  }
+}

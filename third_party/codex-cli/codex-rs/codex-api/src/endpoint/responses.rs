@@ -520,10 +520,10 @@ mod tests {
     #[test]
     fn chat_completions_body_preserves_named_tool_choice() {
         let mut request = chat_request(None);
-        request.tool_choice = crate::common::ToolChoice::function("taskspace_control");
+        request.tool_choice = crate::common::ToolChoice::function("example_tool");
         request.tools = vec![json!({
             "type": "function",
-            "name": "taskspace_control",
+            "name": "example_tool",
             "description": "Control state",
             "parameters": { "type": "object", "properties": {} }
         })];
@@ -534,7 +534,7 @@ mod tests {
             body["tool_choice"],
             json!({
                 "type": "function",
-                "function": { "name": "taskspace_control" }
+                "function": { "name": "example_tool" }
             })
         );
     }
@@ -548,7 +548,7 @@ mod tests {
         request.input = vec![
             ResponseItem::FunctionCall {
                 id: None,
-                name: "taskspace_control".to_string(),
+                name: "example_tool".to_string(),
                 namespace: None,
                 arguments: r#"{"action":"initialize_map"}"#.to_string(),
                 call_id: "call_init".to_string(),

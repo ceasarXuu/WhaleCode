@@ -16,6 +16,72 @@ New-Item -ItemType Directory -Path $artifactDir -Force | Out-Null
 $jsonlPath = Join-Path $RunRoot "whale-exec.jsonl"
 $obsPath = Join-Path $RunRoot "action-map-observability.json"
 
+$canonicalFacts = [pscustomobject]@{
+    analyzer_version = "fixture"
+    sources = [pscustomobject]@{ rollout = [pscustomobject]@{ status = "read" } }
+    availability = [pscustomobject]@{ usage = "measured" }
+    findings = @()
+    summary = [pscustomobject]@{
+        usage_record_count = 2
+        state_snapshot_count = 1
+        usage = [pscustomobject]@{
+            input_tokens = 30; output_tokens = 7; cached_input_tokens = 20
+            distribution = [pscustomobject]@{
+                max_input_tokens = 20; p95_input_tokens = 20; first_input_tokens = 10; last_input_tokens = 20
+                max_output_tokens = 4; p95_output_tokens = 4; first_output_tokens = 3; last_output_tokens = 4
+                max_cached_input_tokens = 15; p95_cached_input_tokens = 15
+            }
+        }
+    }
+}
+$legacyTokenSummaryWithoutCount = [pscustomobject]@{ model_request_count = $null; parse_status = "ok"; parse_errors = 0 }
+$canonicalRequestSummary = New-TaskspaceRequestSummary "fixture.jsonl" $legacyTokenSummaryWithoutCount "rollout.jsonl" $canonicalFacts
+Assert-True ([int]$canonicalRequestSummary.token_usage_record_count -eq 2) "request summary did not use canonical request-facts usage count"
+
+$wireProjectionEvents = @(
+    [pscustomobject]@{
+        request_id = "request-1"
+        section_cost = [pscustomobject]@{
+            active_projection_identity = [pscustomobject]@{
+                count = 1; kind = "bootstrap"; projection_sha256 = ("a" * 64)
+                map_id_sha256 = $null; revision = $null
+            }
+            sections = @([pscustomobject]@{ kind = "active_projection"; estimated_tokens = 80 })
+        }
+    },
+    [pscustomobject]@{
+        request_id = "request-2"
+        section_cost = [pscustomobject]@{
+            active_projection_identity = [pscustomobject]@{
+                count = 2; kind = "active"; projection_sha256 = ("b" * 64)
+                map_id_sha256 = ("c" * 64); revision = 4
+            }
+            sections = @([pscustomobject]@{ kind = "active_projection"; estimated_tokens = 220 })
+        }
+    }
+)
+$wireProjectionSummary = New-TaskspaceContextProjectionSummary `
+    -ProviderCacheTraceEvents $wireProjectionEvents
+Assert-True ([string]$wireProjectionSummary.availability -eq "measured") "final-wire projection was not authoritative"
+Assert-True ([int]$wireProjectionSummary.projection_count -eq 3) "append projection instances were not counted"
+Assert-True ([int]$wireProjectionSummary.projection_observed_request_count -eq 2) "projection request count drifted"
+Assert-True ([int]$wireProjectionSummary.bootstrap_projection_count -eq 1) "bootstrap projection request was not counted"
+Assert-True ([int]$wireProjectionSummary.active_projection_count -eq 1) "active projection request was not counted"
+Assert-True ([int]$wireProjectionSummary.projection_tokens_total -eq 300) "final-wire projection tokens drifted"
+Assert-True ([string]$wireProjectionSummary.events[0].source -eq "provider_final_wire") "projection source was not final wire"
+
+$wireAbsentSummary = New-TaskspaceContextProjectionSummary -ProviderCacheTraceEvents @(
+    [pscustomobject]@{
+        request_id = "request-3"
+        section_cost = [pscustomobject]@{
+            active_projection_identity = [pscustomobject]@{ count = 0; kind = "unavailable" }
+            sections = @([pscustomobject]@{ kind = "active_projection"; estimated_tokens = 0 })
+        }
+    }
+)
+Assert-True ([string]$wireAbsentSummary.availability -eq "measured_absent") "measured projection absence was reported unavailable"
+Assert-True ([int]$wireAbsentSummary.projection_absent_request_count -eq 1) "projection absence request count drifted"
+
 (@(
     [pscustomobject]@{ type = "response.completed"; response = [pscustomobject]@{ usage = [pscustomobject]@{ input_tokens = 10; output_tokens = 5; cached_input_tokens = 2 } } }
 ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 8 }) | Set-Content -LiteralPath $jsonlPath -Encoding UTF8
@@ -531,8 +597,8 @@ Assert-True ([int64]$providerEvents[0].model_request_duration_ms -eq 615 -and [i
 Assert-True ([bool]$providerEvents[0].request_reason_schema_present -and [string]$providerEvents[0].trigger_kind -eq "model_sampling" -and [string]$providerEvents[0].request_reason_delta -eq "initial_request") "provider request events did not preserve request reason fields"
 Assert-True ([string]$providerEvents[1].response_actionability_previous -eq "tool_feedback_recovery" -and [string]$providerEvents[1].latest_tool_result_refs -eq "result-1" -and [string]$providerEvents[1].model_visible_feedback_refs -eq "result-1|trace-response-1") "provider request events did not preserve feedback refs"
 Assert-True ([int]$providerEvents[2].repeated_same_reason_count -eq 1 -and [string]$providerEvents[2].request_reason_delta -eq "none") "provider request events did not preserve repeated same-reason detector fields"
-Assert-True ($cacheTraceEvents.Count -eq 3 -and [string]$cacheTraceEvents[0].schema_version -eq "TaskSpaceProviderCacheTraceV1" -and [double]$cacheTraceEvents[0].hit_rate -eq 0.2) "provider cache trace events were not derived from terminal provider requests"
-Assert-True ([int]$cacheTraceSummary.native_tools_schema_hot_path_count -eq 1 -and [int]$cacheTraceSummary.tool_free_action_contract_count -eq 2 -and [double]$cacheTraceSummary.trace_coverage -eq 1.0) "provider cache trace summary did not classify completed request shapes"
+Assert-True ($cacheTraceEvents.Count -eq 0 -and [string]$cacheTraceSummary.source -eq "request_facts_without_wire_shape") "budget events without canonical request identity should not synthesize cache requests"
+Assert-True ([int]$cacheTraceSummary.provider_request_count -eq 0 -and [double]$cacheTraceSummary.trace_coverage -eq 0.0) "cache trace without canonical request facts should be explicitly unavailable"
 Assert-True ([bool]$replacement.exact_payload_scan_passed -and [bool]$replacement.replacement_confirmed) "active replacement report did not use exact payload scan"
 Assert-True ([int]$replacement.active_projection_count_max -eq 1 -and [int]$replacement.active_projection_uniqueness_violation_count -eq 0) "active replacement report did not enforce projection uniqueness"
 Assert-True ([string]$replacement.runtime_boundary_forbidden_markers -eq "none") "active replacement report did not preserve boundary marker proof"
@@ -802,8 +868,7 @@ $rolloutControlJsonl = Join-Path $RunRoot "rollout-control-whale-exec.jsonl"
     '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-1","output":"{\"schema_version\":\"ToolSequencePreflightResultV3\",\"status\":\"protocol_failed\",\"success\":false,\"error\":{\"class\":\"protocol\",\"code\":\"taskspace_action_tool_mismatch\",\"message\":\"missing paired action\"},\"request\":{\"executed_tool_call_count\":0}}"}}',
     '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-2","output":"{\"schema_version\":\"TaskSpaceResponseCommitFailureV3\",\"action\":\"execute\",\"success\":false,\"status\":\"state_rejected\",\"state_commit\":false,\"canonical_revision\":4,\"error\":{\"class\":\"state_machine\",\"code\":\"taskspace_response_state_commit_failed\",\"detail\":\"invalid\"}}"}}',
     '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-3","output":"{\"schema_version\":\"TaskSpaceControlResultV2\",\"action\":\"initialize_and_execute\",\"success\":false,\"status\":\"argument_failed\",\"state_commit\":false,\"error\":{\"class\":\"argument\",\"code\":\"TASKSPACE_INVALID_ARGUMENT\",\"message\":\"invalid\"}}"}}',
-    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-4","output":"{\"schema_version\":\"TaskSpaceResponseCommitV1\",\"action\":\"initialize_and_execute\",\"success\":true,\"status\":\"accepted\",\"state_commit\":true,\"revision_before\":4,\"revision_after\":5}"}}',
-    '{"type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"{\"schema_version\":\"TaskSpaceResponseFinalReceiptV1\",\"status\":\"complete\",\"success\":true,\"receipt_only\":true,\"map_id\":\"map-1\",\"control_call_id\":\"native-control-4\",\"reservation_revision_after\":5,\"canonical_revision\":6,\"prepared_action_count\":1,\"attributed_result_count\":1,\"outstanding_reservation_count\":0}"}]}}',
+    '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-4","output":"{\"schema_version\":\"TaskSpaceResponseResultV2\",\"action\":\"initialize_and_execute\",\"success\":true,\"status\":\"settled\",\"state_commit\":true,\"canonical_revision\":6,\"settlement\":{\"prepared_action_count\":1,\"attributed_result_count\":1,\"outstanding_reservation_count\":0}}"}}',
     '{"type":"response_item","payload":{"type":"function_call_output","call_id":"native-control-5","output":"{\"schema_version\":\"ToolSequencePreflightResultV3\",\"status\":\"protocol_failed\",\"success\":false,\"state_commit\":false,\"error\":{\"class\":\"protocol\",\"code\":\"taskspace_action_tool_mismatch\",\"message\":\"TaskSpace action tool did not match sibling Tool\"},\"request\":{\"executed_tool_call_count\":0}}"}}',
     '{"type":"event_msg","payload":{"type":"map_runtime","map_event_type":"store_committed","mapId":"map-1","mapRevision":4}}',
     '{"type":"event_msg","payload":{"type":"map_runtime","map_event_type":"store_committed","mapId":"map-1","mapRevision":5}}',
@@ -832,13 +897,13 @@ Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.control_argument_failure_count -eq 1) "argument control failure was not classified"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.nested_action_failure_count -eq 0) "removed nested action contract reappeared"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.ordinary_gate_failure_count -eq 0) "ordinary-tool gate logic reappeared"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.committed_control_count -eq 1) "committed response prepare was not counted"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.state_commit_count -eq 1) "state_commit_count does not reflect the current response commit schema"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.committed_control_count -eq 1) "committed final control result was not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.state_commit_count -eq 1) "state_commit_count does not reflect the current final control result schema"
 Assert-True ([string]$rolloutControlInstrumentation.taskspace_control_usage.state_commit_count_source -eq "control_result_state_commit") "state commit source is ambiguous"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.graph_revision_commit_count -eq 3) "raw graph revision commits were not counted"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.response_final_receipt_count -eq 1) "response-final receipt was not counted"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.response_final_receipt_complete_count -eq 1) "complete response-final receipt was not counted"
-Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.response_final_receipt_incomplete_count -eq 0) "complete receipt was classified as incomplete"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.response_final_control_result_count -eq 1) "response-final control result was not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.response_final_control_result_settled_count -eq 1) "settled response-final control result was not counted"
+Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.response_final_control_result_incomplete_count -eq 0) "settled control result was classified as incomplete"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.latest_response_final_revision -eq 6) "response-final canonical revision was not retained"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.read_map_request_count -eq 2) "map read requests were not measured"
 Assert-True ([int]$rolloutControlInstrumentation.taskspace_control_usage.read_map_completion_count -eq 2) "map read completions were not measured"
@@ -856,16 +921,17 @@ New-Item -ItemType Directory -Path $wireTraceDir -Force | Out-Null
 $wireTraceJsonl = Join-Path $RunRoot "provider-wire-trace-whale-exec.jsonl"
 '{"type":"turn.completed","usage":{"input_tokens":300,"cached_input_tokens":200,"output_tokens":20}}' | Set-Content -LiteralPath $wireTraceJsonl -Encoding UTF8
 @(
-    '{"schema_version":"provider-chat-wire-trace-v10","event_name":"provider.chat_wire_shape_recorded","request_id":"wire-1","epoch_id":"epoch-1","request_index":1,"provider_wire_api":"ChatCompletions","pre_wire_payload_sha256":"pre-1","provider_payload_sha256":"wire-hash-1","provider_payload_bytes":100,"messages_hash":"messages-1","tools_hash":"tools-1","cache_shape_hash":"shape-named","tools_count":2,"tool_choice_kind":"named_function","tool_choice_name":"taskspace_control","message_count":2,"message_shapes":[{"index":0,"role":"system","bytes":40,"message_sha256":"m0","content_sha256":"c0"},{"index":1,"role":"user","bytes":20,"message_sha256":"m1","content_sha256":"c1"}],"previous_request_id":null,"lcp_message_count":0,"lcp_message_bytes":0,"message_prefix_preserved":null,"tool_choice_preserved":null,"tool_choice_changed":null,"prefix_preserved":null,"first_diff_index":null,"first_diff_path":null,"status":"payload_captured"}',
-    '{"schema_version":"provider-chat-wire-trace-v10","event_name":"provider.chat_wire_request_terminal","request_id":"wire-1","status":"response_completed","input_tokens":100,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":1,"total_tokens":110}',
-    '{"schema_version":"provider-chat-wire-trace-v10","event_name":"provider.chat_wire_prefix_broken","request_id":"wire-2","epoch_id":"epoch-1","request_index":2,"provider_wire_api":"ChatCompletions","pre_wire_payload_sha256":"pre-2","provider_payload_sha256":"wire-hash-2","provider_payload_bytes":140,"messages_hash":"messages-2","tools_hash":"tools-1","cache_shape_hash":"shape-auto","tools_count":2,"tool_choice_kind":"auto","tool_choice_name":null,"message_count":3,"message_shapes":[{"index":0,"role":"system","bytes":40,"message_sha256":"m0","content_sha256":"c0"},{"index":1,"role":"user","bytes":20,"message_sha256":"m1","content_sha256":"c1"},{"index":2,"role":"assistant","bytes":30,"message_sha256":"m2","content_sha256":"c2"}],"previous_request_id":"wire-1","lcp_message_count":2,"lcp_message_bytes":60,"message_prefix_preserved":true,"tool_choice_preserved":false,"tool_choice_changed":true,"prefix_preserved":false,"first_diff_index":null,"first_diff_path":"tool_choice","status":"payload_captured"}',
-    '{"schema_version":"provider-chat-wire-trace-v10","event_name":"provider.chat_wire_request_terminal","request_id":"wire-2","status":"response_completed","input_tokens":200,"cached_input_tokens":180,"output_tokens":10,"reasoning_output_tokens":1,"total_tokens":210}'
+    '{"schema_version":"provider-chat-wire-trace-v11","event_name":"provider.chat_wire_shape_recorded","request_id":"wire-1","logical_request_id":"wire-logical-1","attempt_seq":1,"epoch_id":"epoch-1","request_index":1,"provider_wire_api":"ChatCompletions","pre_wire_payload_sha256":"pre-1","provider_payload_sha256":"0000000000000000000000000000000000000000000000000000000000000001","provider_payload_bytes":100,"messages_hash":"messages-1","tools_hash":"tools-1","cache_shape_hash":"shape-named","tools_count":2,"tool_choice_kind":"named_function","tool_choice_name":"taskspace_control","message_count":2,"message_shapes":[{"index":0,"role":"system","bytes":40,"message_sha256":"m0","content_sha256":"c0"},{"index":1,"role":"user","bytes":20,"message_sha256":"m1","content_sha256":"c1"}],"previous_request_id":null,"lcp_message_count":0,"lcp_message_bytes":0,"message_prefix_preserved":null,"tool_choice_preserved":null,"tool_choice_changed":null,"prefix_preserved":null,"first_diff_index":null,"first_diff_path":null,"status":"payload_captured"}',
+    '{"schema_version":"provider-chat-wire-trace-v11","event_name":"provider.chat_wire_request_terminal","request_id":"wire-1","logical_request_id":"wire-logical-1","attempt_seq":1,"status":"response_completed","input_tokens":100,"cached_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":1,"total_tokens":110}',
+    '{"schema_version":"provider-chat-wire-trace-v11","event_name":"provider.chat_wire_prefix_broken","request_id":"wire-2","logical_request_id":"wire-logical-2","attempt_seq":1,"epoch_id":"epoch-1","request_index":2,"provider_wire_api":"ChatCompletions","pre_wire_payload_sha256":"pre-2","provider_payload_sha256":"0000000000000000000000000000000000000000000000000000000000000002","provider_payload_bytes":140,"messages_hash":"messages-2","tools_hash":"tools-1","cache_shape_hash":"shape-auto","tools_count":2,"tool_choice_kind":"auto","tool_choice_name":null,"message_count":3,"message_shapes":[{"index":0,"role":"system","bytes":40,"message_sha256":"m0","content_sha256":"c0"},{"index":1,"role":"user","bytes":20,"message_sha256":"m1","content_sha256":"c1"},{"index":2,"role":"assistant","bytes":30,"message_sha256":"m2","content_sha256":"c2"}],"previous_request_id":"wire-1","lcp_message_count":2,"lcp_message_bytes":60,"message_prefix_preserved":true,"tool_choice_preserved":false,"tool_choice_changed":true,"prefix_preserved":false,"first_diff_index":null,"first_diff_path":"tool_choice","status":"payload_captured"}',
+    '{"schema_version":"provider-chat-wire-trace-v11","event_name":"provider.chat_wire_request_terminal","request_id":"wire-2","logical_request_id":"wire-logical-2","attempt_seq":1,"status":"response_completed","input_tokens":200,"cached_input_tokens":180,"output_tokens":10,"reasoning_output_tokens":1,"total_tokens":210}'
 ) | Set-Content -LiteralPath (Join-Path $wireTraceDir "provider-wire-trace.jsonl") -Encoding UTF8
 $wireTraceInstrumentation = Write-TaskspaceCostInstrumentationArtifacts -ArtifactDir $wireTraceDir -JsonlPath $wireTraceJsonl -ObservabilityJsonPath ""
 $wireTraceSummary = $wireTraceInstrumentation.provider_cache_trace_summary
 $wireTraceEvents = @($wireTraceInstrumentation.provider_cache_trace_events)
 Assert-True ([string]$wireTraceSummary.schema_version -eq "TaskSpaceProviderCacheTraceSummaryV4" -and [string]$wireTraceSummary.source -eq "provider_final_wire_trace") "provider final-wire trace was not selected as cache source"
-Assert-True ([int]$wireTraceSummary.provider_request_count -eq 2 -and [double]$wireTraceSummary.trace_coverage -eq 1.0) "provider final-wire trace coverage was not complete"
+Assert-True ($null -eq $wireTraceSummary.provider_request_count -and [string]$wireTraceSummary.provider_request_source -eq "request_facts_unavailable") "provider request count was inferred without boundary evidence"
+Assert-True ([int]$wireTraceSummary.provider_attempt_count -eq 2 -and [int]$wireTraceSummary.shape_observation_count -eq 2 -and [double]$wireTraceSummary.trace_coverage -eq 1.0) "provider attempt trace coverage was not complete"
 Assert-True ([double]$wireTraceSummary.request_2_plus_hit_rate -eq 0.9) "provider final-wire request-2+ cache usage was not aggregated"
 Assert-True ([int]$wireTraceSummary.prefix_preserved_count -eq 0 -and [double]$wireTraceSummary.prefix_preserved_rate -eq 0.0) "tool-choice transition was incorrectly reported as full prefix preservation"
 Assert-True ([int]$wireTraceSummary.zero_cache_hit_count -eq 1 -and [int]$wireTraceSummary.cache_warmup_candidate_count -eq 1 -and [int]$wireTraceSummary.same_shape_zero_hit_count -eq 0) "cache warmup classification was not aggregated"
@@ -876,6 +942,58 @@ Assert-True ([int]$wireTraceSummary.section_cost_summary.unavailable_reason_coun
 Assert-True (@($wireTraceEvents | Where-Object { $_.section_cost.availability -eq "unavailable" -and $_.section_cost.unavailable_reason -eq "provider_wire_v3_section_cost_missing" }).Count -eq 2) "provider wire without section cost cache events omitted section-cost provenance"
 Assert-True ([int]$wireTraceSummary.section_cost_summary.active_projection_identity_summary.unavailable_count -eq 2 -and [int]$wireTraceSummary.section_cost_summary.active_projection_identity_summary.unique_projection_sha256_count -eq 0) "provider wire without section cost projection identity should be explicitly unavailable"
 
+$localOnlyTracePath = Join-Path $wireTraceDir "provider-wire-local-only.jsonl"
+Copy-Item -LiteralPath (Join-Path $wireTraceDir "provider-wire-trace.jsonl") -Destination $localOnlyTracePath
+$localOnlyShape = (Get-Content -Encoding UTF8 -LiteralPath $localOnlyTracePath | Select-Object -First 1) | ConvertFrom-Json
+$localOnlyShape.request_id = "wire-3"
+$localOnlyShape.logical_request_id = "wire-logical-3"
+$localOnlyShape.request_index = 3
+$localOnlyShape.provider_payload_sha256 = "0000000000000000000000000000000000000000000000000000000000000003"
+$localOnlyShape.pre_wire_payload_sha256 = "pre-3"
+$localOnlyShape.previous_request_id = "wire-2"
+$localOnlyTerminal = [pscustomobject]@{
+    schema_version = "provider-chat-wire-trace-v11"
+    event_name = "provider.chat_wire_request_terminal"
+    request_id = "wire-3"
+    logical_request_id = "wire-logical-3"
+    attempt_seq = 1
+    status = "response_failed"
+}
+@($localOnlyShape, $localOnlyTerminal) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 20 } | Add-Content -LiteralPath $localOnlyTracePath -Encoding UTF8
+$localOnlyFacts = Invoke-TaskspaceRequestFactsGenerator -WireTracePath $localOnlyTracePath
+$localOnlyFacts.availability.boundary = "measured"
+$localOnlyFacts.summary.boundary_request_count = 2
+foreach ($row in @($localOnlyFacts.rows)) {
+    $row.boundary_status = if ([string]$row.request_id -eq "wire-3") { "not_observed" } else { "observed" }
+}
+$localOnlyCache = New-TaskspaceProviderWireCacheTraceArtifacts $localOnlyTracePath $localOnlyFacts
+Assert-True ([bool]$localOnlyCache.provider_cache_trace_summary.comparison_eligible) "a local-only failed attempt invalidated complete provider cache evidence"
+Assert-True ([int]$localOnlyCache.provider_cache_trace_summary.provider_request_count -eq 2 -and [int]$localOnlyCache.provider_cache_trace_summary.provider_attempt_count -eq 3) "provider boundary count and local attempt count were conflated"
+Assert-True (@($localOnlyCache.provider_cache_trace_events).Count -eq 2 -and [double]$localOnlyCache.provider_cache_trace_summary.request_2_plus_hit_rate -eq 0.9) "local-only attempt entered provider cache aggregation"
+
+$conflictFacts = Invoke-TaskspaceRequestFactsGenerator -WireTracePath (Join-Path $wireTraceDir "provider-wire-trace.jsonl")
+$conflictFacts.availability.usage = "incomparable"
+$conflictFacts.findings = @([pscustomobject]@{ code = "usage_source_conflict"; source = "reconcile" })
+$conflictSummary = (New-TaskspaceProviderWireCacheTraceArtifacts `
+        (Join-Path $wireTraceDir "provider-wire-trace.jsonl") $conflictFacts).provider_cache_trace_summary
+Assert-True (-not [bool]$conflictSummary.comparison_eligible -and $null -eq $conflictSummary.request_2_plus_hit_rate) "incomparable canonical usage still produced a cache rate"
+Assert-True ($null -eq $conflictSummary.request_2_plus_cached_input_tokens -and $null -eq $conflictSummary.zero_cache_hit_count) "incomparable canonical usage still produced precise cache totals"
+Assert-True (@($conflictSummary.request_facts_findings) -contains "usage_source_conflict") "cache summary omitted canonical conflict findings"
+$rolloutOnlyFacts = Invoke-TaskspaceRequestFactsGenerator -WireTracePath (Join-Path $wireTraceDir "provider-wire-trace.jsonl")
+$rolloutOnlyFacts.sources.wire.status = "unavailable"
+$rolloutOnlyFacts.sources.wire.path = $null
+$rolloutOnlyFacts.sources.wire.sha256 = $null
+foreach ($row in @($rolloutOnlyFacts.rows)) { $row.usage_source = "rollout" }
+$rolloutOnlySummary = (New-TaskspaceProviderWireCacheTraceArtifacts `
+        (Join-Path $wireTraceDir "provider-wire-trace.jsonl") $rolloutOnlyFacts).provider_cache_trace_summary
+Assert-True (-not [bool]$rolloutOnlySummary.comparison_eligible -and $null -eq $rolloutOnlySummary.request_2_plus_hit_rate) "rollout-only usage became provider final-wire cache evidence"
+Assert-True ($null -eq $rolloutOnlySummary.request_2_plus_cached_input_tokens -and $null -eq $rolloutOnlySummary.zero_cache_hit_count) "rollout-only usage produced exact provider cache totals"
+$noWireFacts = Invoke-TaskspaceRequestFactsGenerator -WireTracePath (Join-Path $wireTraceDir "provider-wire-trace.jsonl")
+$noWireFacts.sources.wire.status = "missing"
+$noWireSummary = (New-TaskspaceProviderCacheTraceArtifacts @() "" $noWireFacts).provider_cache_trace_summary
+Assert-True (-not [bool]$noWireSummary.comparison_eligible -and $null -eq $noWireSummary.request_2_plus_hit_rate) "rollout fallback reported cache evidence without a measured wire source"
+Assert-True ($null -eq $noWireSummary.request_2_plus_cached_input_tokens -and $null -eq $noWireSummary.cache_usage_missing_count) "rollout fallback fabricated cache totals without a measured wire source"
+
 $v3WireTraceDir = Join-Path $RunRoot "provider-wire-trace-v3-artifacts"
 New-Item -ItemType Directory -Path $v3WireTraceDir -Force | Out-Null
 $v3WireTraceJsonl = Join-Path $RunRoot "provider-wire-trace-v3-whale-exec.jsonl"
@@ -884,19 +1002,19 @@ $v3Sections = @(
     [pscustomobject]@{ kind = "system_messages"; count = 1; bytes = 100; estimated_tokens = 25; sha256 = "system-hash" },
     [pscustomobject]@{ kind = "natural_history"; count = 3; bytes = 200; estimated_tokens = 50; sha256 = "history-hash" },
     [pscustomobject]@{ kind = "active_projection"; count = 1; bytes = 30; estimated_tokens = 8; sha256 = "projection-hash" },
-    [pscustomobject]@{ kind = "taskspace_control_feedback"; count = 1; bytes = 20; estimated_tokens = 5; sha256 = "control-hash" },
     [pscustomobject]@{ kind = "ordinary_tool_feedback"; count = 2; bytes = 40; estimated_tokens = 10; sha256 = "feedback-hash" },
+    [pscustomobject]@{ kind = "base_instructions"; count = 1; bytes = 20; estimated_tokens = 5; sha256 = "base-hash" },
     [pscustomobject]@{ kind = "tools"; count = 2; bytes = 50; estimated_tokens = 13; sha256 = "tools-hash" },
     [pscustomobject]@{ kind = "tool_choice"; count = 1; bytes = 10; estimated_tokens = 3; sha256 = "choice-hash" },
     [pscustomobject]@{ kind = "other_payload"; count = 2; bytes = 50; estimated_tokens = 12; sha256 = "other-hash" }
 )
 $v3Shape = [pscustomobject]@{
-    schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_shape_recorded"
+    schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_shape_recorded"
     request_id = "wire-v3-1"; request_index = 1; provider_wire_api = "ChatCompletions"; status = "payload_captured"
     provider_payload_sha256 = "wire-v3-hash"; provider_payload_bytes = 500; cache_shape_hash = "wire-v3-shape"
     messages_hash = "wire-v3-messages"; tools_hash = "wire-v3-tools"; tools_count = 2; message_count = 4
     section_cost = [pscustomobject]@{
-        schema_version = "provider-wire-section-cost-v1"; availability = "measured"; unavailable_reason = $null
+        schema_version = "provider-wire-section-cost-v2"; availability = "measured"; unavailable_reason = $null
         section_bytes_total = 500
         active_projection_identity = [pscustomobject]@{
             count = 1; kind = "current_projection"
@@ -911,7 +1029,7 @@ $v3Shape = [pscustomobject]@{
 }
 @(
     $v3Shape,
-    [pscustomobject]@{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_request_terminal"; request_id = "wire-v3-1"; status = "response_completed"; input_tokens = 500; cached_input_tokens = 0; output_tokens = 20 }
+    [pscustomobject]@{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_request_terminal"; request_id = "wire-v3-1"; status = "response_completed"; input_tokens = 500; cached_input_tokens = 0; output_tokens = 20 }
 ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 12 } | Set-Content -LiteralPath (Join-Path $v3WireTraceDir "provider-wire-trace.jsonl") -Encoding UTF8
 $v3Instrumentation = Write-TaskspaceCostInstrumentationArtifacts -ArtifactDir $v3WireTraceDir -JsonlPath $v3WireTraceJsonl -ObservabilityJsonPath ""
 $v3Summary = $v3Instrumentation.provider_cache_trace_summary.section_cost_summary
@@ -927,7 +1045,7 @@ Assert-True ([int]$v3ProjectionSection.request_sample_count -eq 1 -and [double]$
 $v5WireTraceDir = Join-Path $RunRoot "provider-wire-trace-v5-artifacts"
 New-Item -ItemType Directory -Path $v5WireTraceDir -Force | Out-Null
 $v5Shape = $v3Shape | ConvertTo-Json -Depth 12 | ConvertFrom-Json
-$v5Shape.schema_version = "provider-chat-wire-trace-v10"
+$v5Shape.schema_version = "provider-chat-wire-trace-v11"
 $v5Shape.request_id = "wire-v5-1"
 $v5Shape | Add-Member -NotePropertyName base_instructions_identity -NotePropertyValue ([pscustomobject]@{
     count = 1; message_index = 0; wire_role = "system"; message_bytes = 21727; estimated_tokens = 5432
@@ -937,7 +1055,7 @@ $v5Shape | Add-Member -NotePropertyName base_instructions_identity -NoteProperty
 })
 @(
     $v5Shape,
-    [pscustomobject]@{ schema_version = "provider-chat-wire-trace-v10"; event_name = "provider.chat_wire_request_terminal"; request_id = "wire-v5-1"; status = "response_completed"; input_tokens = 6000; cached_input_tokens = 0; output_tokens = 20 }
+    [pscustomobject]@{ schema_version = "provider-chat-wire-trace-v11"; event_name = "provider.chat_wire_request_terminal"; request_id = "wire-v5-1"; status = "response_completed"; input_tokens = 6000; cached_input_tokens = 0; output_tokens = 20 }
 ) | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 12 } | Set-Content -LiteralPath (Join-Path $v5WireTraceDir "provider-wire-trace.jsonl") -Encoding UTF8
 $v5Instrumentation = Write-TaskspaceCostInstrumentationArtifacts -ArtifactDir $v5WireTraceDir -JsonlPath $v3WireTraceJsonl -ObservabilityJsonPath ""
 $v5BaseEvent = @($v5Instrumentation.provider_cache_trace_events)[0].base_instructions_identity
@@ -960,10 +1078,27 @@ $leftArtifacts = Join-Path $aggregateCacheRoot "pair-001\left\artifacts"
 $rightArtifacts = Join-Path $aggregateCacheRoot "pair-001\right\artifacts"
 New-Item -ItemType Directory -Path $leftArtifacts, $rightArtifacts -Force | Out-Null
 ([pscustomobject]@{ logical_mode = "standard"; model_request_count = 1 }) | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $leftArtifacts "metrics.json") -Encoding UTF8
-([pscustomobject]@{ logical_mode = "taskspace"; model_request_count = 2 }) | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $rightArtifacts "metrics.json") -Encoding UTF8
+'{' | Set-Content -LiteralPath (Join-Path $rightArtifacts "metrics.json") -Encoding UTF8
+([pscustomobject]@{ repeat = 1; left = "standard"; right = "taskspace" }) | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $aggregateCacheRoot "pair-001/logical-mode-map.json") -Encoding UTF8
+function New-AggregateContractSection {
+    param([string]$Kind, [int64]$Count, [int64[]]$RequestBytes, [int64[]]$RequestTokens)
+    $bytes = [int64](($RequestBytes | Measure-Object -Sum).Sum)
+    $tokens = [int64](($RequestTokens | Measure-Object -Sum).Sum)
+    [pscustomobject]@{
+        kind = $Kind; count = $Count; bytes = $bytes; estimated_tokens = $tokens
+        request_sample_count = $RequestBytes.Count
+        bytes_per_request_mean = [Math]::Round([double]$bytes / $RequestBytes.Count, 6)
+        bytes_per_request_median = Get-TaskspaceProviderSectionMedian $RequestBytes
+        estimated_tokens_per_request_mean = [Math]::Round([double]$tokens / $RequestTokens.Count, 6)
+        estimated_tokens_per_request_median = Get-TaskspaceProviderSectionMedian $RequestTokens
+        request_bytes = $RequestBytes; request_estimated_tokens = $RequestTokens
+    }
+}
 ([pscustomobject]@{
     schema_version = "TaskSpaceProviderCacheTraceSummaryV4"
     provider_request_count = 1
+    provider_attempt_count = 1
+    comparison_eligible = $true
     trace_coverage = 1.0
     cache_usage_missing_count = 0
     request_shape_counts = [pscustomobject]@{ native_tools_schema_hot_path = 1 }
@@ -977,7 +1112,17 @@ New-Item -ItemType Directory -Path $leftArtifacts, $rightArtifacts -Force | Out-
 }) | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $leftArtifacts "provider-cache-trace-summary.json") -Encoding UTF8
 ([pscustomobject]@{
     schema_version = "TaskSpaceProviderCacheTraceSummaryV4"
+    source = "provider_final_wire_trace"
+    provider_request_source = "request_facts_boundary"
+    request_facts_availability = [pscustomobject]@{ boundary = "measured"; attempt = "measured"; completion = "measured"; usage = "measured" }
     provider_request_count = 2
+    provider_attempt_count = 2
+    completed_response_count = 2
+    failed_or_cancelled_attempt_count = 0
+    shape_observation_count = 2
+    request_facts_analyzer_version = "fixture"
+    request_facts_findings = @()
+    comparison_eligible = $true
     trace_coverage = 1.0
     cache_usage_missing_count = 0
     request_shape_counts = [pscustomobject]@{ tool_free_action_contract = 2 }
@@ -988,6 +1133,10 @@ New-Item -ItemType Directory -Path $leftArtifacts, $rightArtifacts -Force | Out-
     request_2_plus_cached_input_tokens = 950
     request_2_plus_uncached_input_tokens = 50
     request_2_plus_hit_rate = 0.95
+    prefix_comparison_count = 1
+    prefix_preserved_count = 1
+    prefix_preserved_rate = 1.0
+    first_diff_path_counts = [pscustomobject]@{}
     zero_cache_hit_count = 1
     cache_warmup_candidate_count = 1
     same_shape_zero_hit_count = 0
@@ -1009,19 +1158,32 @@ New-Item -ItemType Directory -Path $leftArtifacts, $rightArtifacts -Force | Out-
             unique_projection_sha256_count = 2; unique_revision_count = 1
         }
         sections = @(
-            [pscustomobject]@{ kind = "system_messages"; count = 2; bytes = 100; estimated_tokens = 25; request_bytes = @(50, 50); request_estimated_tokens = @(12, 13) },
-            [pscustomobject]@{ kind = "natural_history"; count = 2; bytes = 50; estimated_tokens = 12; request_bytes = @(25, 25); request_estimated_tokens = @(6, 6) },
-            [pscustomobject]@{ kind = "active_projection"; count = 2; bytes = 40; estimated_tokens = 10; request_bytes = @(20, 20); request_estimated_tokens = @(5, 5) },
-            [pscustomobject]@{ kind = "taskspace_control_feedback"; count = 2; bytes = 30; estimated_tokens = 8; request_bytes = @(15, 15); request_estimated_tokens = @(4, 4) },
-            [pscustomobject]@{ kind = "ordinary_tool_feedback"; count = 2; bytes = 20; estimated_tokens = 5; request_bytes = @(10, 10); request_estimated_tokens = @(2, 3) },
-            [pscustomobject]@{ kind = "tools"; count = 2; bytes = 30; estimated_tokens = 8; request_bytes = @(15, 15); request_estimated_tokens = @(4, 4) },
-            [pscustomobject]@{ kind = "tool_choice"; count = 2; bytes = 10; estimated_tokens = 2; request_bytes = @(5, 5); request_estimated_tokens = @(1, 1) },
-            [pscustomobject]@{ kind = "other_payload"; count = 2; bytes = 20; estimated_tokens = 5; request_bytes = @(10, 10); request_estimated_tokens = @(2, 3) }
+            New-AggregateContractSection "system_messages" 2 @(50, 50) @(12, 13)
+            New-AggregateContractSection "natural_history" 2 @(25, 25) @(6, 6)
+            New-AggregateContractSection "active_projection" 2 @(20, 20) @(5, 5)
+            New-AggregateContractSection "ordinary_tool_feedback" 2 @(10, 10) @(2, 3)
+            New-AggregateContractSection "base_instructions" 2 @(15, 15) @(4, 4)
+            New-AggregateContractSection "tools" 2 @(15, 15) @(4, 4)
+            New-AggregateContractSection "tool_choice" 2 @(5, 5) @(1, 1)
+            New-AggregateContractSection "other_payload" 2 @(10, 10) @(2, 3)
         )
+    }
+    base_instructions_identity_summary = [pscustomobject]@{
+        schema_version = "WhaleCodeBaseInstructionsIdentitySummaryV1"
+        request_count = 2; present_count = 0; absent_count = 0; invalid_count = 0; unavailable_count = 2
+        current_contract_match_count = 0; current_contract_match_rate = $null
+        message_bytes_total = 0; message_bytes_per_present_request_mean = $null
+        estimated_tokens_total = 0; estimated_tokens_per_present_request_mean = $null
+        profile_counts = [pscustomobject]@{}; version_counts = [pscustomobject]@{}
+        sha256_counts = [pscustomobject]@{}; message_index_counts = [pscustomobject]@{}
+        wire_role_counts = [pscustomobject]@{}
+        unavailable_reason_counts = [pscustomobject]@{ trace_without_base_instructions_identity = 2 }
     }
 }) | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $rightArtifacts "provider-cache-trace-summary.json") -Encoding UTF8
 ([pscustomobject]@{ schema_version = "TaskSpaceProviderCacheTraceV1"; request_id = "left-1"; request_shape_classifier = "native_tools_schema_hot_path" } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $leftArtifacts "provider-cache-trace.jsonl") -Encoding UTF8
 ([pscustomobject]@{ schema_version = "TaskSpaceProviderCacheTraceV1"; request_id = "right-1"; request_shape_classifier = "tool_free_action_contract" } | ConvertTo-Json -Compress -Depth 8) | Set-Content -LiteralPath (Join-Path $rightArtifacts "provider-cache-trace.jsonl") -Encoding UTF8
+$validSideContract = Test-TaskspaceProviderCacheSummaryContract (Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $rightArtifacts "provider-cache-trace-summary.json") | ConvertFrom-Json)
+Assert-True ([bool]$validSideContract.valid) "valid provider cache fixture failed contract: $(@($validSideContract.invalid_fields) -join ', ')"
 $aggregateCache = Write-TaskspaceCostAggregateArtifacts -RootDir $aggregateCacheRoot -Scope "sample"
 $aggregateCacheSummary = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $aggregateCacheRoot "provider-cache-trace-summary.json") | ConvertFrom-Json
 $aggregateCacheEvents = @(Get-Content -Encoding UTF8 -LiteralPath (Join-Path $aggregateCacheRoot "provider-cache-trace.jsonl") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_ | ConvertFrom-Json })
@@ -1037,6 +1199,69 @@ Assert-True ([int64]$aggregateCacheSummary.section_cost_summary.section_bytes_to
 Assert-True ([int]$aggregateActiveProjection.request_sample_count -eq 2 -and [double]$aggregateActiveProjection.bytes_per_request_mean -eq 20 -and [double]$aggregateActiveProjection.bytes_per_request_median -eq 20) "aggregate provider section request statistics are incorrect"
 Assert-True ([int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.bootstrap_count -eq 1 -and [int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.active_count -eq 1) "aggregate provider projection identity counts are incorrect"
 Assert-True ([int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.unique_projection_sha256_count -eq 2 -and [int]$aggregateCacheSummary.section_cost_summary.active_projection_identity_summary.unique_revision_count -eq 1) "aggregate provider projection freshness evidence is incorrect"
+
+$rightSummaryPath = Join-Path $rightArtifacts "provider-cache-trace-summary.json"
+$validRightSummaryJson = Get-Content -Raw -Encoding UTF8 -LiteralPath $rightSummaryPath
+$contradictorySummary = $validRightSummaryJson | ConvertFrom-Json -Depth 20
+$contradictorySummary.base_instructions_identity_summary.present_count = $true
+$contradictorySummary.base_instructions_identity_summary.absent_count = -99
+$contradictorySummary.base_instructions_identity_summary.current_contract_match_rate = 2.5
+$contradictorySection = @($contradictorySummary.section_cost_summary.sections | Where-Object kind -eq "system_messages")[0]
+$contradictorySection.request_bytes = @(0, 0)
+$contradictorySection.request_estimated_tokens = @(999, 999)
+$contradictorySummary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $rightSummaryPath -Encoding UTF8
+$contradictoryAggregate = (New-TaskspaceProviderCacheTraceAggregateArtifacts $aggregateCacheRoot).provider_cache_trace_summary
+Assert-True ($null -eq $contradictoryAggregate.provider_request_count -and -not [bool]$contradictoryAggregate.comparison_eligible) "contradictory V4 side summary produced exact aggregate facts"
+Assert-True (@($contradictoryAggregate.aggregate_findings) -contains "cache_summary_contract_invalid:base_instructions_identity_summary.present_count" -and @($contradictoryAggregate.aggregate_findings) -contains "cache_summary_contract_invalid:section_cost_summary.sections.system_messages.request_bytes.total") "contradictory V4 side summary did not expose precise contract findings"
+[IO.File]::WriteAllText($rightSummaryPath, $validRightSummaryJson, [Text.UTF8Encoding]::new($false))
+
+$modeMapPath = Join-Path $aggregateCacheRoot "pair-001/logical-mode-map.json"
+$validModeMapJson = Get-Content -Raw -Encoding UTF8 -LiteralPath $modeMapPath
+[IO.File]::WriteAllText($modeMapPath, '{"repeat":1,"left":"taskspace","left":"standard","right":"taskspace"}', [Text.UTF8Encoding]::new($false))
+$duplicateModeCacheAggregate = (New-TaskspaceProviderCacheTraceAggregateArtifacts $aggregateCacheRoot).provider_cache_trace_summary
+$duplicateModeCostAggregate = Write-TaskspaceCostAggregateArtifacts -RootDir $aggregateCacheRoot -Scope "sample"
+Assert-True ($null -eq $duplicateModeCacheAggregate.provider_request_count -and @($duplicateModeCacheAggregate.aggregate_findings) -contains "logical_mode_map_invalid") "duplicate logical mode key remained cache-comparison eligible"
+Assert-True ([string]$duplicateModeCostAggregate.gate.status -eq "FAIL" -and [string]$duplicateModeCostAggregate.gate.reason -eq "logical_mode_map_invalid") "duplicate logical mode key passed the cost gate"
+[IO.File]::WriteAllText($modeMapPath, $validModeMapJson, [Text.UTF8Encoding]::new($false))
+
+$pair2Left = Join-Path $aggregateCacheRoot "pair-002/left/artifacts"
+New-Item -ItemType Directory -Path $pair2Left -Force | Out-Null
+([pscustomobject]@{ repeat = 2; left = "taskspace"; right = "standard" }) | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $aggregateCacheRoot "pair-002/logical-mode-map.json") -Encoding UTF8
+'{' | Set-Content -LiteralPath (Join-Path $pair2Left "metrics.json") -Encoding UTF8
+Copy-Item -LiteralPath (Join-Path $rightArtifacts "provider-cache-trace-summary.json") -Destination (Join-Path $pair2Left "provider-cache-trace-summary.json")
+$alternatingAggregate = (New-TaskspaceProviderCacheTraceAggregateArtifacts $aggregateCacheRoot).provider_cache_trace_summary
+Assert-True ([int]$alternatingAggregate.provider_request_count -eq 4 -and [int]$alternatingAggregate.expected_summary_count -eq 2) "logical mode map did not discover a left-side TaskSpace artifact"
+Assert-True ([bool]$alternatingAggregate.comparison_eligible -and @($alternatingAggregate.aggregate_findings).Count -eq 0) "malformed side metrics overrode the authoritative logical mode map"
+
+$rightIncomparable = Get-Content -Raw -Encoding UTF8 -LiteralPath $rightSummaryPath | ConvertFrom-Json -Depth 20
+$rightIncomparable.comparison_eligible = $false
+foreach ($field in @("cache_usage_missing_count", "request_2_plus_count", "request_2_plus_cached_input_tokens", "request_2_plus_uncached_input_tokens", "request_2_plus_hit_rate", "zero_cache_hit_count", "cache_warmup_candidate_count", "same_shape_zero_hit_count")) {
+    $rightIncomparable.$field = $null
+}
+$rightIncomparable | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $rightSummaryPath -Encoding UTF8
+$incomparableAggregate = (New-TaskspaceProviderCacheTraceAggregateArtifacts $aggregateCacheRoot).provider_cache_trace_summary
+Assert-True (-not [bool]$incomparableAggregate.comparison_eligible -and $null -eq $incomparableAggregate.request_2_plus_hit_rate) "aggregate restored a cache rate from an incomparable side"
+Assert-True ($null -eq $incomparableAggregate.request_2_plus_cached_input_tokens -and $null -eq $incomparableAggregate.cache_usage_missing_count) "aggregate coerced incomparable cache totals to zero"
+$rightInvalidContract = $rightIncomparable.PSObject.Copy()
+$rightInvalidContract.PSObject.Properties.Remove("source")
+$rightInvalidContract.PSObject.Properties.Remove("request_facts_availability")
+$rightInvalidContract.native_tools_schema_hot_path_count = $true
+$rightInvalidContract.tool_choice_transition_count = -1
+$rightInvalidContract.comparison_eligible = $true
+$rightInvalidContract | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $rightSummaryPath -Encoding UTF8
+$contractInvalidAggregate = (New-TaskspaceProviderCacheTraceAggregateArtifacts $aggregateCacheRoot).provider_cache_trace_summary
+Assert-True ($null -eq $contractInvalidAggregate.provider_request_count -and $null -eq $contractInvalidAggregate.provider_attempt_count -and -not [bool]$contractInvalidAggregate.comparison_eligible) "invalid side summary contract produced exact aggregate facts"
+Assert-True ($null -eq $contractInvalidAggregate.native_tools_schema_hot_path_count -and $null -eq $contractInvalidAggregate.tool_choice_transition_count -and $null -eq $contractInvalidAggregate.request_shape_counts) "invalid side summary contract retained partial exact diagnostics"
+Assert-True (@($contractInvalidAggregate.aggregate_findings) -contains "cache_summary_contract_invalid") "invalid side summary contract did not emit an aggregate finding"
+'{' | Set-Content -LiteralPath $rightSummaryPath -Encoding UTF8
+$invalidAggregate = (New-TaskspaceProviderCacheTraceAggregateArtifacts $aggregateCacheRoot).provider_cache_trace_summary
+Assert-True ($null -eq $invalidAggregate.provider_request_count -and $null -eq $invalidAggregate.provider_attempt_count -and -not [bool]$invalidAggregate.comparison_eligible) "malformed side summary produced a partial exact aggregate"
+Assert-True (@($invalidAggregate.aggregate_findings) -contains "cache_summary_invalid") "malformed side summary did not emit an aggregate finding"
+$emptyAggregateRoot = Join-Path $RunRoot "empty-cache-aggregate"
+New-Item -ItemType Directory -Path $emptyAggregateRoot -Force | Out-Null
+$emptyAggregate = (New-TaskspaceProviderCacheTraceAggregateArtifacts $emptyAggregateRoot).provider_cache_trace_summary
+Assert-True ($null -eq $emptyAggregate.provider_request_count -and $null -eq $emptyAggregate.provider_attempt_count -and -not [bool]$emptyAggregate.comparison_eligible) "empty cache aggregate was reported as measured zero"
+Assert-True (@($emptyAggregate.aggregate_findings) -contains "cache_summary_scope_empty") "empty cache aggregate did not expose missing scope"
 
 if ($failures.Count -gt 0) {
     $failures | ForEach-Object { Write-Error $_ }

@@ -313,6 +313,7 @@ mod tests {
             history_entry_count: 0,
             network_proxy: None,
             rollout_path: Some(PathBuf::new()),
+            taskspace_active: false,
         }
     }
 

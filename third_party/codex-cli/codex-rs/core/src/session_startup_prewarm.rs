@@ -11,8 +11,7 @@ use tracing::warn;
 use crate::client::ModelClientSession;
 use crate::session::INITIAL_SUBMIT_ID;
 use crate::session::session::Session;
-use crate::session::turn::TaskspaceProviderToolVisibility;
-use crate::session::turn::build_prompt_with_tool_visibility;
+use crate::session::turn::build_prompt;
 use crate::session::turn::built_tools;
 use codex_otel::STARTUP_PREWARM_AGE_AT_FIRST_TURN_METRIC;
 use codex_otel::STARTUP_PREWARM_DURATION_METRIC;
@@ -201,7 +200,6 @@ impl Session {
 
 async fn schedule_startup_prewarm_inner(session: Arc<Session>) -> CodexResult<ModelClientSession> {
     let resolved_base_instructions = session.get_resolved_base_instructions().await;
-    let taskspace_active = resolved_base_instructions.profile.is_taskspace();
     info!(
         target = "codex_core::taskspace",
         event_name = "base_instructions.prewarm_profile_selected",
@@ -225,16 +223,11 @@ async fn schedule_startup_prewarm_inner(session: Arc<Session>) -> CodexResult<Mo
         &startup_cancellation_token,
     )
     .await?;
-    let startup_prompt = build_prompt_with_tool_visibility(
+    let startup_prompt = build_prompt(
         Vec::new(),
         startup_router.as_ref(),
         startup_turn_context.as_ref(),
         resolved_base_instructions.instructions,
-        if taskspace_active {
-            TaskspaceProviderToolVisibility::TaskspaceNative
-        } else {
-            TaskspaceProviderToolVisibility::Standard
-        },
     );
     let startup_turn_metadata_header = startup_turn_context
         .turn_metadata_state

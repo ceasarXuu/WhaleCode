@@ -71,6 +71,16 @@ fn code_mode_only_requires_code_mode() {
 }
 
 #[test]
+fn code_mode_exec_function_requires_code_mode() {
+    let mut features = Features::with_defaults();
+    features.enable(Feature::CodeModeExecFunction);
+    features.normalize_dependencies();
+
+    assert_eq!(features.enabled(Feature::CodeModeExecFunction), true);
+    assert_eq!(features.enabled(Feature::CodeMode), true);
+}
+
+#[test]
 fn guardian_approval_is_stable_and_enabled_by_default() {
     let spec = Feature::GuardianApproval.info();
 

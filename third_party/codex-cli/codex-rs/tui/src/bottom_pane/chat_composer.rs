@@ -383,6 +383,7 @@ pub(crate) struct ChatComposer {
     audio_device_selection_enabled: bool,
     windows_degraded_sandbox_active: bool,
     side_conversation_active: bool,
+    taskspace_active: bool,
     is_zellij: bool,
     status_line_value: Option<Line<'static>>,
     status_line_enabled: bool,
@@ -453,6 +454,7 @@ impl ChatComposer {
             audio_device_selection_enabled: self.audio_device_selection_enabled,
             allow_elevate_sandbox: self.windows_degraded_sandbox_active,
             side_conversation_active: self.side_conversation_active,
+            taskspace_active: self.taskspace_active,
         }
     }
 
@@ -540,6 +542,7 @@ impl ChatComposer {
             audio_device_selection_enabled: false,
             windows_degraded_sandbox_active: false,
             side_conversation_active: false,
+            taskspace_active: false,
             is_zellij: matches!(
                 codex_terminal_detection::terminal_info().multiplexer,
                 Some(codex_terminal_detection::Multiplexer::Zellij {})
@@ -651,6 +654,10 @@ impl ChatComposer {
 
     pub fn set_side_conversation_active(&mut self, active: bool) {
         self.side_conversation_active = active;
+    }
+
+    pub fn set_taskspace_active(&mut self, active: bool) {
+        self.taskspace_active = active;
     }
 
     /// Compatibility shim for tests that still toggle the removed steer mode flag.
@@ -3514,6 +3521,7 @@ impl ChatComposer {
                         audio_device_selection_enabled,
                         windows_degraded_sandbox_active: self.windows_degraded_sandbox_active,
                         side_conversation_active: self.side_conversation_active,
+                        taskspace_active: self.taskspace_active,
                     });
                     command_popup.on_composer_text_change(first_line.to_string());
                     self.active_popup = ActivePopup::Command(command_popup);

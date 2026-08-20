@@ -13,7 +13,8 @@ from typing import Any
 from cache_budget import selection_matrix
 from cache_cost import settled_monetary_cost
 from cache_evidence import file_sha256
-from cache_json import strict_json_loads
+from cache_json import exact_json_equal, strict_json_loads
+from cache_provider_route import validate_route_profile_binding, validate_route_summary
 from cache_request_accounting import summarize_request_accounting
 from cache_result_integrity import validate_completed_result_integrity
 
@@ -177,6 +178,7 @@ def planned_entry(
     authorization_path: Path,
     repo: Path,
     run_root: Path,
+    provider_route: dict[str, Any],
 ) -> dict[str, Any]:
     selection = proposal["selection"]
     pricing = proposal["pricing_snapshot"]
@@ -195,11 +197,19 @@ def planned_entry(
             "status": "granted",
             "id": authorization["authorization_id"],
             "reference": authorization["approval_reference"],
-            "budget_summary": proposal["maximums"],
+            "budget_summary": proposal.get(
+                "approved_maximums", proposal.get("maximums")
+            ),
             "note": f"严格绑定预算提案 {proposal['proposal_id']}。",
         },
         "execution": {
-            "provider": "deepseek",
+            "provider": provider_route["provider_routing"]["logical_provider_id"],
+            "transport_provider": provider_route["provider_routing"][
+                "transport_provider_id"
+            ],
+            "provider_descriptor_sha256": provider_route[
+                "provider_descriptor_sha256"
+            ],
             "model": selection["model"],
             "batch_count": 1,
             "sample_ids": selection["samples"],
@@ -235,6 +245,8 @@ def planned_entry(
             "evidence_boundary": proposal["evidence_boundary"],
             "stop_conditions": selection["stop_conditions"],
             "usage_evidence_status": "pending",
+            "provider_route_attestation_path": provider_route["artifact_path"],
+            "provider_route_attestation_sha256": provider_route["artifact_sha256"],
         },
     }
 
@@ -246,6 +258,34 @@ def settle_entry(entry: dict[str, Any], result: dict[str, Any]) -> None:
         else None
     )
     validate_completed_result_integrity(result, expected_matrix)
+    route = validate_route_summary(
+        result.get("provider_route_attestation"), entry["execution"]["model"]
+    )
+    route_identity = route["provider_routing"]
+    route_matches = (
+        entry["execution"].get("provider") == route_identity["logical_provider_id"]
+        and entry["execution"].get("transport_provider")
+        == route_identity["transport_provider_id"]
+        and entry["execution"].get("provider_descriptor_sha256")
+        == route["provider_descriptor_sha256"]
+        and entry["evidence"].get("provider_route_attestation_path")
+        == route["artifact_path"]
+        and entry["evidence"].get("provider_route_attestation_sha256")
+        == route["artifact_sha256"]
+        and isinstance(result.get("observations"), list)
+        and all(
+            isinstance(observation, dict)
+            and exact_json_equal(observation.get("provider_routing"), route_identity)
+            and validate_route_profile_binding(
+                observation.get("provider_route_profile"),
+                route,
+                observation.get("arm"),
+            )
+            for observation in result["observations"]
+        )
+    )
+    if not route_matches:
+        raise ValueError("cache ledger provider route evidence is inconsistent")
     observations = result.get("observations", [])
     attempts = result.get("attempts", [])
     authoritative_request_total, request_accounting_status = (

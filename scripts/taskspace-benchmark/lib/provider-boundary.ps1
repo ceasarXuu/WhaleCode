@@ -11,9 +11,13 @@ function Start-TaskspaceProviderBoundary {
         [string]$ProviderSecret,
         [int]$RequestHardLimit,
         [string]$Model,
-        [string]$ProviderBaseUrl = 'https://api.deepseek.com'
+        [string]$ProviderBaseUrl = 'https://api.deepseek.com',
+        [hashtable]$BudgetLimits = @{}
     )
     if ($RequestHardLimit -lt 1) { throw 'provider_boundary_limit_invalid: hard limit must be positive' }
+    if ($Model -notmatch '^deepseek-') {
+        throw "provider_boundary_model_mismatch: provider boundary requires a DeepSeek model, got $Model"
+    }
     $suffix = [guid]::NewGuid().ToString('N').Substring(0, 8)
     $prefix = "whale-provider-$RunId-$PairId-$($Side.Name)-$suffix" -replace '[^a-zA-Z0-9_.-]', '-'
     $internalNetwork = "$prefix-internal"
@@ -43,6 +47,13 @@ function Start-TaskspaceProviderBoundary {
         $createArgs += @(Get-TaskspaceContainerMountArg $secretPath '/run/secrets/deepseek_api_key' -ReadOnly)
         $createArgs += @(
             '--env', "PROVIDER_REQUEST_HARD_LIMIT=$RequestHardLimit",
+            '--env', "PROVIDER_INPUT_TOKEN_HARD_LIMIT=$([int64]$BudgetLimits.input_token_limit)",
+            '--env', "PROVIDER_OUTPUT_TOKEN_HARD_LIMIT=$([int64]$BudgetLimits.output_token_limit)",
+            '--env', "PROVIDER_ESTIMATED_COST_HARD_LIMIT=$([double]$BudgetLimits.estimated_cost_limit)",
+            '--env', "PROVIDER_BUDGET_CURRENCY=$([string]$BudgetLimits.currency)",
+            '--env', "PROVIDER_CACHED_INPUT_RATE_PER_MILLION=$([double]$BudgetLimits.cached_input_rate_per_million)",
+            '--env', "PROVIDER_UNCACHED_INPUT_RATE_PER_MILLION=$([double]$BudgetLimits.uncached_input_rate_per_million)",
+            '--env', "PROVIDER_OUTPUT_RATE_PER_MILLION=$([double]$BudgetLimits.output_rate_per_million)",
             '--env', "PROVIDER_ALLOWED_MODEL=$Model",
             '--env', "PROVIDER_UPSTREAM_BASE_URL=$ProviderBaseUrl",
             '--env', 'PROVIDER_BOUNDARY_EVENTS_PATH=/supervisor/events.jsonl',
@@ -72,6 +83,7 @@ function Start-TaskspaceProviderBoundary {
             secret_path = $secretPath
             proxy_base_url = 'http://provider-proxy:8080'
             request_hard_limit = $RequestHardLimit
+            budget_limits = $BudgetLimits
             expected_model = $Model
         }
     } catch {
@@ -87,8 +99,10 @@ function Stop-TaskspaceProviderBoundary {
     if ($null -eq $Boundary) { return $null }
     $stdoutPath = Join-Path $Boundary.supervisor_dir 'container.stdout.log'
     $stderrPath = Join-Path $Boundary.supervisor_dir 'container.stderr.log'
+    $stop = Invoke-TaskspaceDocker @('stop', '--time', '10', $Boundary.container_id)
     [void](Invoke-TaskspaceDocker @('logs', $Boundary.container_id) -StdoutPath $stdoutPath -StderrPath $stderrPath)
-    $remove = Invoke-TaskspaceDocker @('rm', '--force', $Boundary.container_id)
+    $removeArgs = if ($stop.exit_code -eq 0) { @('rm', $Boundary.container_id) } else { @('rm', '--force', $Boundary.container_id) }
+    $remove = Invoke-TaskspaceDocker $removeArgs
     $networkResults = @()
     foreach ($network in @($Boundary.internal_network, $Boundary.egress_network)) {
         $networkResults += Invoke-TaskspaceDocker @('network', 'rm', $network)
@@ -98,8 +112,6 @@ function Stop-TaskspaceProviderBoundary {
     $supervisorEventsPath = Join-Path $Boundary.supervisor_dir 'events.jsonl'
     if (Test-Path -LiteralPath $supervisorEventsPath) {
         Copy-Item -LiteralPath $supervisorEventsPath -Destination $eventsPath -Force
-    } else {
-        [System.IO.File]::WriteAllText($eventsPath, '', [System.Text.UTF8Encoding]::new($false))
     }
     $evidencePath = Join-Path $ArtifactDir 'provider-boundary-evidence.json'
     $wirePath = Join-Path $ArtifactDir 'provider-wire-trace.jsonl'
@@ -107,10 +119,13 @@ function Stop-TaskspaceProviderBoundary {
     $reconcileExit = $LASTEXITCODE
     $result = [pscustomobject]@{
         schema_version = 1
-        status = if ($remove.exit_code -eq 0 -and @($networkResults | Where-Object { $_.exit_code -ne 0 }).Count -eq 0) { 'removed' } else { 'cleanup_failed' }
+        status = if ($stop.exit_code -eq 0 -and $remove.exit_code -eq 0 -and @($networkResults | Where-Object { $_.exit_code -ne 0 }).Count -eq 0) { 'removed' } else { 'cleanup_failed' }
         container_id = [string]$Boundary.container_id
         request_hard_limit = [int]$Boundary.request_hard_limit
+        stop_exit_code = [int]$stop.exit_code
         events_path = [string]$eventsPath
+        events_copied = [bool](Test-Path -LiteralPath $eventsPath -PathType Leaf)
+        events_bytes = if (Test-Path -LiteralPath $eventsPath -PathType Leaf) { [int64](Get-Item -LiteralPath $eventsPath).Length } else { $null }
         evidence_path = [string]$evidencePath
         evidence_status = if ($reconcileExit -eq 0) { 'reconciled' } else { 'mismatch' }
         stdout_path = [string]$stdoutPath

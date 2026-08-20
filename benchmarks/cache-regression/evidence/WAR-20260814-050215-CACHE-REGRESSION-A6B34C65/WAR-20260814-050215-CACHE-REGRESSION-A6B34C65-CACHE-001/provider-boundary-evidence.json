@@ -1,0 +1,42 @@
+{
+  "schema_version": "whalecode-provider-boundary-evidence-v2",
+  "request_facts_analyzer_version": "i07-review-fixes-v3",
+  "status": "reconciled",
+  "boundary_availability": "measured",
+  "boundary_correlation_availability": "measured",
+  "expected_model": "deepseek-v4-flash",
+  "allowed_method": "POST",
+  "allowed_path": "/responses",
+  "boundary_request_count": 1,
+  "wire_request_count": 1,
+  "local_attempt_count": 1,
+  "local_only_attempt_count": 0,
+  "boundary_requests": [
+    {
+      "count": 1,
+      "method": "POST",
+      "path": "/responses",
+      "model": "deepseek-v4-flash",
+      "body_sha256": "fc73a2170ca29552a73fda217980ed169cf1dcb55239f354715be2259e36df77"
+    }
+  ],
+  "wire_requests": [
+    {
+      "request_id": "provider-wire:019ffcef-0b9b-71d1-b3bc-834f143c4ae7:0:logical-1:attempt-1",
+      "request_count_after": 1,
+      "provider_payload_sha256": "fc73a2170ca29552a73fda217980ed169cf1dcb55239f354715be2259e36df77"
+    }
+  ],
+  "local_attempts": [
+    {
+      "request_id": "provider-wire:019ffcef-0b9b-71d1-b3bc-834f143c4ae7:0:logical-1:attempt-1",
+      "logical_request_id": "provider-wire:019ffcef-0b9b-71d1-b3bc-834f143c4ae7:0:logical-1",
+      "attempt_seq": 1,
+      "request_index": 1,
+      "provider_payload_sha256": "fc73a2170ca29552a73fda217980ed169cf1dcb55239f354715be2259e36df77",
+      "boundary_status": "observed",
+      "terminal_status": "response_completed"
+    }
+  ],
+  "errors": []
+}

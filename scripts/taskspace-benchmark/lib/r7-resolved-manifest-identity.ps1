@@ -113,7 +113,7 @@ function Get-R7ResolvedManifestIdentityCheck {
     }
     if ($null -eq $profile -or
         [string](Get-R7ResolvedIdentityProperty $WireCapability "schema_version" "") -ne
-            "provider-chat-wire-trace-v10" -or
+            "provider-chat-wire-trace-v11" -or
         [string](Get-R7ResolvedIdentityProperty $WireCapability "provider_wire_api" "") -ne
             [string]$Authority.provider_wire_api -or
         [string](Get-R7ResolvedIdentityProperty $WireCapability "transport" "") -ne

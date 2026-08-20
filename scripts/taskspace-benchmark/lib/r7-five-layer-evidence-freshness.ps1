@@ -6,6 +6,10 @@ function Resolve-R7EvidencePath {
     [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $Path))
 }
 
+. (Join-Path $PSScriptRoot "request-facts.ps1")
+. (Join-Path $PSScriptRoot "r7-request-facts-provenance.ps1")
+. (Join-Path $PSScriptRoot "logical-mode-map.ps1")
+
 function Get-R7EvidenceSha256 {
     param([string]$Path)
     (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
@@ -253,6 +257,8 @@ function Test-R7FiveLayerEvidenceFreshness {
         complete_then_continue_calls = 0; finish_map_calls = 0
         transition_node_calls = 0; read_map_calls = 0; bind_node_calls = 0
     }
+    $standardTotalMeasured = $true
+    $taskspaceTotalMeasured = $true
     foreach ($runRootInput in $RunRoots) {
         $runRoot = Resolve-R7EvidencePath $repo $runRootInput
         $healthPath = Join-Path $runRoot "whale-binary-preflight-health.json"
@@ -263,14 +269,39 @@ function Test-R7FiveLayerEvidenceFreshness {
         }
         $standardRequests = 0
         $taskspaceRequests = 0
+        $standardRequestsMeasured = $true
+        $taskspaceRequestsMeasured = $true
+        $standardSideCount = 0
+        $taskspaceSideCount = 0
         $control = $null
-        foreach ($pairDir in @(Get-ChildItem -LiteralPath $runRoot -Directory -Filter "pair-*" -ErrorAction SilentlyContinue)) {
+        $pairDirs = @(Get-ChildItem -LiteralPath $runRoot -Directory -Filter "pair-*" -ErrorAction SilentlyContinue)
+        if ($pairDirs.Count -eq 0) { $standardRequestsMeasured = $false; $taskspaceRequestsMeasured = $false }
+        foreach ($pairDir in $pairDirs) {
             $modePath = Join-Path $pairDir.FullName "logical-mode-map.json"
-            $modeMap = Read-R7EvidenceJson $modePath $findings "logical_mode_map_missing" "logical_mode_map_invalid"
-            if (-not $modeMap) { continue }
+            $modeResult = Read-TaskspaceLogicalModeMap $modePath
+            if (-not $modeResult.valid) {
+                if ($modeResult.status -eq "missing") {
+                    Add-R7EvidenceFinding $findings "logical_mode_map_missing" "Logical mode map is missing." $modePath
+                } else {
+                    Add-R7EvidenceFinding $findings "logical_mode_map_invalid" "Logical mode map does not satisfy the strict comparison contract." $modePath
+                }
+                $standardRequestsMeasured = $false; $taskspaceRequestsMeasured = $false
+                continue
+            }
+            $modeMap = $modeResult.map
+            $standardSideCount = @(@("left", "right") | Where-Object { [string]$modeMap.$_ -eq "standard" }).Count
+            $taskspaceSideCount = @(@("left", "right") | Where-Object { [string]$modeMap.$_ -eq "taskspace" }).Count
+            if ($standardSideCount -ne 1 -or $taskspaceSideCount -ne 1) {
+                Add-R7EvidenceFinding $findings "logical_mode_map_invalid" "Logical mode map must identify exactly one Standard side and one TaskSpace side." $modePath
+                $standardRequestsMeasured = $false; $taskspaceRequestsMeasured = $false
+                continue
+            }
             foreach ($side in @("left", "right")) {
                 $mode = [string]$modeMap.$side
-                $tracePath = Join-Path $pairDir.FullName "$side/artifacts/provider-wire-trace.jsonl"
+                if ($mode -eq "standard") { $standardSideCount++ }
+                elseif ($mode -eq "taskspace") { $taskspaceSideCount++ }
+                $artifactDir = Join-Path $pairDir.FullName "$side/artifacts"
+                $tracePath = Join-Path $artifactDir "provider-wire-trace.jsonl"
                 $traces = @(Read-R7EvidenceJsonLines $tracePath $findings)
                 $payloadTraces = @($traces | Where-Object { [string]$_.status -eq "payload_captured" })
                 if ($payloadTraces.Count -eq 0) {
@@ -278,14 +309,30 @@ function Test-R7FiveLayerEvidenceFreshness {
                 }
                 foreach ($trace in $payloadTraces) {
                     if ($mode -eq "standard") {
-                        $standardRequests++
                         Test-R7StandardTraceIdentity $trace $baseContract.profiles.standard $tracePath $findings
                     } elseif ($mode -eq "taskspace") {
-                        $taskspaceRequests++
                         Test-R7TaskspaceTraceIdentity $trace $baseContract.profiles.taskspace $baseContract.taskspace_core_protocol ([string]$manifest.manifest_version) $manifestSha $tracePath $findings
                     } else {
                         Add-R7EvidenceFinding $findings "logical_mode_unknown" "Unsupported logical mode: $mode" $modePath
+                        $standardRequestsMeasured = $false; $taskspaceRequestsMeasured = $false
                     }
+                }
+                $requestFacts = Test-R7RequestFactsFreshness $artifactDir $findings
+                if ($requestFacts) {
+                    $requestCount = if ([string]$requestFacts.availability.boundary -eq "measured") {
+                        [int64]$requestFacts.summary.boundary_request_count
+                    } else {
+                        Add-R7EvidenceFinding $findings "request_facts_count_unavailable" "Canonical Provider request count is unavailable." (Join-Path $artifactDir "request-facts.json")
+                        $null
+                    }
+                    if ($null -ne $requestCount -and $mode -eq "standard") { $standardRequests += $requestCount }
+                    elseif ($null -ne $requestCount -and $mode -eq "taskspace") { $taskspaceRequests += $requestCount }
+                    elseif ($mode -eq "standard") { $standardRequestsMeasured = $false }
+                    elseif ($mode -eq "taskspace") { $taskspaceRequestsMeasured = $false }
+                } elseif ($mode -eq "standard") {
+                    $standardRequestsMeasured = $false
+                } elseif ($mode -eq "taskspace") {
+                    $taskspaceRequestsMeasured = $false
                 }
             }
             $taskspaceSide = if ([string]$modeMap.left -eq "taskspace") { "left" } elseif ([string]$modeMap.right -eq "taskspace") { "right" } else { "" }
@@ -300,20 +347,24 @@ function Test-R7FiveLayerEvidenceFreshness {
                 }
             }
         }
-        if ($standardRequests -eq 0 -or $taskspaceRequests -eq 0) {
+        if ($standardSideCount -eq 0) { $standardRequestsMeasured = $false }
+        if ($taskspaceSideCount -eq 0) { $taskspaceRequestsMeasured = $false }
+        if ($standardSideCount -eq 0 -or $taskspaceSideCount -eq 0) {
             Add-R7EvidenceFinding $findings "paired_trace_coverage_missing" "Run does not contain both Standard and TaskSpace provider traces." $runRoot
         }
+        $standardRequestFact = if ($standardRequestsMeasured) { [int64]$standardRequests } else { $null }
+        $taskspaceRequestFact = if ($taskspaceRequestsMeasured) { [int64]$taskspaceRequests } else { $null }
         if ($null -eq $control) { $control = [pscustomobject]@{} }
         $matchingResultRuns = if ($result) { @($result.runs | Where-Object { (Resolve-R7EvidencePath $repo ([string]$_.run_root)) -eq $runRoot }) } else { @() }
         if ($matchingResultRuns.Count -ne 1) {
             Add-R7EvidenceFinding $findings "result_run_root_mismatch" "Result does not reference this run root exactly once." $resultFullPath
         } else {
             $resultRun = $matchingResultRuns[0]
-            if ([int]$resultRun.standard.provider_requests -ne $standardRequests) {
-                Add-R7EvidenceFinding $findings "result_standard_request_count_mismatch" "Result Standard request count differs from raw provider trace." $resultFullPath
+            if ($null -ne $standardRequestFact -and [int]$resultRun.standard.provider_requests -ne $standardRequestFact) {
+                Add-R7EvidenceFinding $findings "result_standard_request_count_mismatch" "Result Standard request count differs from canonical request facts." $resultFullPath
             }
-            if ([int]$resultRun.taskspace.provider_requests -ne $taskspaceRequests) {
-                Add-R7EvidenceFinding $findings "result_taskspace_request_count_mismatch" "Result TaskSpace request count differs from raw provider trace." $resultFullPath
+            if ($null -ne $taskspaceRequestFact -and [int]$resultRun.taskspace.provider_requests -ne $taskspaceRequestFact) {
+                Add-R7EvidenceFinding $findings "result_taskspace_request_count_mismatch" "Result TaskSpace request count differs from canonical request facts." $resultFullPath
             }
             foreach ($field in @("control_calls", "control_failures", "preflight_failures", "ordinary_gate_failures", "committed_controls", "state_commit_count")) {
                 if ($null -eq $resultRun.taskspace.PSObject.Properties[$field] -or [int]$resultRun.taskspace.$field -ne [int]$control.$field) {
@@ -321,19 +372,21 @@ function Test-R7FiveLayerEvidenceFreshness {
                 }
             }
         }
-        $totals.standard_provider_requests += $standardRequests
-        $totals.taskspace_provider_requests += $taskspaceRequests
+        if ($null -eq $standardRequestFact) { $standardTotalMeasured = $false } else { $totals.standard_provider_requests += $standardRequestFact }
+        if ($null -eq $taskspaceRequestFact) { $taskspaceTotalMeasured = $false } else { $totals.taskspace_provider_requests += $taskspaceRequestFact }
         foreach ($field in @($totals.Keys | Where-Object { $_ -notmatch "provider_requests" })) {
             $totals.$field += [int]$control.$field
         }
         $runSummaries.Add([pscustomobject]@{
                 run_root = $runRootInput
-                standard_provider_requests = $standardRequests
-                taskspace_provider_requests = $taskspaceRequests
+                standard_provider_requests = $standardRequestFact
+                taskspace_provider_requests = $taskspaceRequestFact
                 control = $control
             }) | Out-Null
     }
     if ($result) {
+        if (-not $standardTotalMeasured) { $totals.standard_provider_requests = $null }
+        if (-not $taskspaceTotalMeasured) { $totals.taskspace_provider_requests = $null }
         $acceptance = $result.repair_acceptance
         $aggregateChecks = [ordered]@{
             "b1_static_system_handle.taskspace_requests" = $totals.taskspace_provider_requests
@@ -358,7 +411,7 @@ function Test-R7FiveLayerEvidenceFreshness {
         foreach ($path in $aggregateChecks.Keys) {
             $segments = $path -split "\."
             $actual = $acceptance.($segments[0]).($segments[1])
-            if ($null -eq $actual -or [int]$actual -ne [int]$aggregateChecks[$path]) {
+            if ($null -ne $aggregateChecks[$path] -and ($null -eq $actual -or [int]$actual -ne [int]$aggregateChecks[$path])) {
                 Add-R7EvidenceFinding $findings "result_aggregate_count_mismatch" "Result aggregate $path differs from raw evidence." $resultFullPath
             }
         }

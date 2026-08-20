@@ -1,0 +1,65 @@
+{
+  "schema_version": "cache-usage-diagnostic-reconciliation-v1",
+  "record_id": "WAR-20260802-165454-CACHE-REGRESSION-2723DE14",
+  "run_id": "WAR-20260802-165454-CACHE-REGRESSION-2723DE14-CACHE-001",
+  "arm": "standard",
+  "provider_terminal": {
+    "request_count": 5,
+    "input_tokens": 60617,
+    "cached_input_tokens": 48128,
+    "output_tokens": 810,
+    "request_2_plus_hit_rate": 0.970812,
+    "records": [
+      {
+        "input_tokens": 11042,
+        "cached_input_tokens": 0,
+        "output_tokens": 119
+      },
+      {
+        "input_tokens": 11722,
+        "cached_input_tokens": 11136,
+        "output_tokens": 109
+      },
+      {
+        "input_tokens": 12307,
+        "cached_input_tokens": 11776,
+        "output_tokens": 343
+      },
+      {
+        "input_tokens": 12714,
+        "cached_input_tokens": 12544,
+        "output_tokens": 54
+      },
+      {
+        "input_tokens": 12832,
+        "cached_input_tokens": 12672,
+        "output_tokens": 185
+      }
+    ]
+  },
+  "rollout_summary": {
+    "request_count": 9,
+    "input_tokens": 108402.0,
+    "cached_input_tokens": 83584.0,
+    "output_tokens": 1435.0,
+    "cumulative_input_sequence": [
+      11042,
+      11042,
+      22764,
+      22764,
+      35071,
+      35071,
+      47785,
+      47785,
+      60617
+    ]
+  },
+  "source_sha256": {
+    "provider_wire_trace": "cce26c557a21af6a6bcf3373c594f9e8b0f1026681847e9eb0a9b7de9606b55b",
+    "request_summary": "9dcd75b7b82d399b063c06ba5c4a3970a84b157d4da17f2bfd984d2cc9cbbbb0",
+    "provider_cache_trace_summary": "9941cb02dc86f7555137b0962f92c4e50ea0e023ce3a47f3f8e598f0a0b7cedb",
+    "metrics": "61a80d94f22caeeeb5ab79e9457a20914e4006d08dd920680d2a417d91c88090",
+    "rollout": "946cbe3e26eb0061a3d1578a618d3e539f3851c8c33ab04ce66f72d1d61678df"
+  },
+  "conclusion": "The provider usage evidence is complete. The cache runner rejected an incompatible rollout-derived aggregate after mixing evidence boundaries."
+}

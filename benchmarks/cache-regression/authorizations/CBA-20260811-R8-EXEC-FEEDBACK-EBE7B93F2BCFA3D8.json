@@ -1,0 +1,38 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "approved_at": "2026-08-11T04:24:04+08:00",
+  "authorization_id": "CBA-20260811-R8-EXEC-FEEDBACK-EBE7B93F2BCFA3D8",
+  "approval_reference": "用户于 2026-08-11 在收到完整预算说明后明确回复‘批准’：single-file-fast-fix × map-request × repeat=1，共 1 个 sample run，最多 8 个 Provider 请求，150K input、10K output、USD 0.0238 观察停止线，6 分钟总时限，不允许自动重试；同时已披露 USD 1.98016 Provider 协议级理论极端上限。",
+  "proposal_id": "CBP-EBE7B93F2BCFA3D8",
+  "proposal_sha256": "a469200a2d14820846be27285240f06f0e8906a26b633bd542dd7690f8ac373c",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 1,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 1,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "Revalidate the corrected TaskSpace Exec syntax/contract rejection feedback on the previously failing map-request sample, with no retry."
+  },
+  "approved_maximums": {
+    "provider_requests": 8,
+    "input_tokens": 8000000,
+    "output_tokens": 3072000,
+    "elapsed_seconds": 360,
+    "estimated_cost": 1.98016,
+    "currency": "USD"
+  }
+}

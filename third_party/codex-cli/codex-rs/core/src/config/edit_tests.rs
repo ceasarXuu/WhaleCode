@@ -52,6 +52,21 @@ fn builder_with_edits_applies_custom_paths() {
 }
 
 #[test]
+fn taskspace_projection_policy_is_persisted_globally() {
+    let tmp = tempdir().expect("tmpdir");
+    let codex_home = tmp.path();
+
+    ConfigEditsBuilder::new(codex_home)
+        .with_profile(Some("work"))
+        .set_taskspace_projection_policy(TaskSpaceProjectionPolicy::MapAppend)
+        .apply_blocking()
+        .expect("persist projection policy");
+
+    let contents = std::fs::read_to_string(codex_home.join(CONFIG_TOML_FILE)).expect("read config");
+    assert_eq!(contents, "taskspace_projection_policy = \"map-append\"\n");
+}
+
+#[test]
 fn set_project_permission_selection_writes_project_scoped_permissions() {
     let tmp = tempdir().expect("tmpdir");
     let codex_home = tmp.path();

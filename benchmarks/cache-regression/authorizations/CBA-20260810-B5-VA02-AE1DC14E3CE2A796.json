@@ -1,0 +1,38 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "approved_at": "2026-08-10T17:43:55+08:00",
+  "authorization_id": "CBA-20260810-B5-VA02-AE1DC14E3CE2A796",
+  "approval_reference": "用户于 2026-08-10 明确回复‘批准预算’，批准新 map/client wire 的最小 VA-02 复验：single-file-fast-fix × map-request × repeat=1，最多 2 个 Provider 请求，50K input、12K output 和 USD 0.02 观察上限，最长 12 分钟，不允许重试。",
+  "proposal_id": "CBP-AE1DC14E3CE2A796",
+  "proposal_sha256": "7a292424aa5653e3ade1f9d2b0098f4d8370018350ccbebbb742dcd56f23a4e8",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 1,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 1,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "Validate the new TaskSpace Exec map/client wire on one minimal map-request sample without retries."
+  },
+  "approved_maximums": {
+    "provider_requests": 2,
+    "input_tokens": 2000000,
+    "output_tokens": 768000,
+    "elapsed_seconds": 840,
+    "estimated_cost": 0.49504,
+    "currency": "USD"
+  }
+}

@@ -68,7 +68,7 @@ function Test-TaskspaceAuditPending {
 function Test-TaskspaceAuditReviewInvalid {
     param($AuditReview = $null)
     if (-not $AuditReview -or -not ($AuditReview.PSObject.Properties.Name -contains "failures")) { return $false }
-    $failures = @($AuditReview.failures) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
+    $failures = @(@($AuditReview.failures) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
     if ($failures.Count -eq 0) { return $false }
     @($failures | Where-Object { [string]$_ -notin @("audit_review_missing", "e3_human_review_not_completed") }).Count -gt 0
 }
@@ -181,10 +181,10 @@ function Get-TaskspaceFailureTaxonomy {
     $taskspaceExecTimeout = ($TaskspaceMetrics -and $TaskspaceMetrics.PSObject.Properties.Name -contains "exec_timed_out" -and [bool]$TaskspaceMetrics.exec_timed_out)
     $standardEnvironmentFailures = @(Get-TaskspaceMetricArray $StandardMetrics "validator_environment_failures")
     $taskspaceEnvironmentFailures = @(Get-TaskspaceMetricArray $TaskspaceMetrics "validator_environment_failures")
-    $hardReasons = @(
+    $hardReasons = @(@(
         @(Get-TaskspaceEngineeringUncleanReasons $StandardMetrics $Evidence $AuditReview $VariableControl) +
         @(Get-TaskspaceEngineeringUncleanReasons $TaskspaceMetrics $Evidence $AuditReview $VariableControl)
-    ) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Sort-Object -Unique
+    ) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Sort-Object -Unique)
     if ($hardReasons.Count -gt 0) {
         Add-TaskspaceFailureClass $classes "engineering_unclean"
     }

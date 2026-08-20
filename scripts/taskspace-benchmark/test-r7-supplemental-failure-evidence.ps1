@@ -17,6 +17,7 @@ function New-TokenBoundary([string]$RequestId) {
             provider_request_id = $RequestId
             provider_logical_request_id = "$RequestId-logical"
             provider_attempt_seq = 1
+            info = @{ last_token_usage = @{ input_tokens = 10; cached_input_tokens = 0; output_tokens = 2; reasoning_output_tokens = 1; total_tokens = 12 } }
         }
     }
 }
@@ -329,7 +330,7 @@ try {
         "reserved-call" = $reservedCall
     }
     $reservationPayload =
-        '{"schema_version":"TaskSpaceResponseCommitV1",' +
+        '{"schema_version":"TaskSpaceResponseResultV2",' +
         '"reserved_actions":[{"call_index":0,"call_id":"reserved-call",' +
         '"node_id":"work","tool":"exec_command",' +
         '"reservation_id":"reservation:reserved-call"}]}' |

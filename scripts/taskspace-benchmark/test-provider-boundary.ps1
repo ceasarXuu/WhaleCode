@@ -7,6 +7,22 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 . (Join-Path $PSScriptRoot 'lib/container-benchmark-runner.ps1')
 
 $contract = Read-TaskspaceContainerContract $repoRoot
+$modelRejected = $false
+try {
+    Start-TaskspaceProviderBoundary 'guard' 'offline' 'pair-000' $null $null 'secret' 1 'gpt-5'
+} catch {
+    if ([string]$_.Exception.Message -notmatch '^provider_boundary_model_mismatch:') { throw }
+    $modelRejected = $true
+}
+if (-not $modelRejected) { throw 'Provider boundary accepted a non-DeepSeek model' }
+
+$runnerOutput = & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'run-taskspace-benchmark.ps1') `
+    -ProviderRequestHardLimit 1 -Model 'gpt-5' -ScenarioPath '/definitely/missing' -PlanOnly 2>&1
+$runnerExit = $LASTEXITCODE
+if ($runnerExit -eq 0 -or ($runnerOutput -join "`n") -notmatch 'provider_boundary_model_mismatch:') {
+    throw 'Benchmark entrypoint did not reject a non-DeepSeek boundary model before scenario setup'
+}
+
 $routeOverrides = @(Get-TaskspaceProviderBoundaryConfigOverrides $contract)
 $expectedRouteOverrides = @(
     'model_provider="deepseek-boundary"',
@@ -21,6 +37,22 @@ if (($routeOverrides -join "`n") -cne ($expectedRouteOverrides -join "`n")) {
 }
 if (@($routeOverrides | Where-Object { $_ -like 'model_providers.deepseek.*' }).Count -ne 0) {
     throw "Provider boundary config overrides a reserved built-in provider"
+}
+$hostKey = '/host/descriptor.key'
+$containerKey = '/run/secrets/deepseek_api_key'
+$validMount = Get-TaskspaceProviderSecretMountEvidence @(
+    [pscustomobject]@{ Source = $hostKey; Destination = $containerKey; RW = $false }
+) $hostKey $containerKey
+if (-not $validMount.destination_unique -or -not $validMount.source_unique -or
+    -not $validMount.identity_confirmed -or -not $validMount.read_only) {
+    throw 'Valid provider secret mount did not satisfy the identity contract'
+}
+$splitMount = Get-TaskspaceProviderSecretMountEvidence @(
+    [pscustomobject]@{ Source = '/host/wrong.key'; Destination = $containerKey; RW = $false },
+    [pscustomobject]@{ Source = $hostKey; Destination = '/tmp/unrelated'; RW = $true }
+) $hostKey $containerKey
+if ($splitMount.identity_confirmed -or $splitMount.read_only) {
+    throw 'Split provider secret mounts forged one mount identity'
 }
 $image = Resolve-TaskspaceContainerImage $repoRoot $contract
 $root = New-Dir (Join-Path $repoRoot ("target/provider-boundary-selftest/{0}" -f ([guid]::NewGuid().ToString('N'))))

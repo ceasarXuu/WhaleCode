@@ -163,24 +163,15 @@ const RESPONSES_WEBSOCKETS_V2_BETA_HEADER_VALUE: &str = "responses_websockets=20
 const RESPONSES_ENDPOINT: &str = "/responses";
 const RESPONSES_COMPACT_ENDPOINT: &str = "/responses/compact";
 const REALTIME_CALLS_ENDPOINT: &str = "/realtime/calls";
-const TASKSPACE_PROJECTION_MARKER: &str = "TaskSpaceMapProjectionR7V1:";
-const TASKSPACE_PROJECTION_END_MARKER: &str = "TaskSpaceMapProjectionR7V1 end.";
+const TASKSPACE_PROJECTION_MARKER: &str = "TaskSpaceMapProjectionR8V1:";
+const TASKSPACE_PROJECTION_END_MARKER: &str = "TaskSpaceMapProjectionR8V1 end.";
 const TASKSPACE_PROJECTION_REQUIRED_SECTIONS: &[&str] = &[
     "schema_version",
     "projection_kind",
     "map_id",
     "revision",
     "canonical_sha256",
-    "root_node_id",
-    "finish_node_id",
-    "complete",
-    "current_terminal",
-    "terminal_history",
-    "root_source_event_ids",
-    "active_frontier",
-    "map_nodes",
-    "map_edges",
-    "node_details",
+    "map",
 ];
 // `/responses/compact` is unary, so the timeout covers the full response rather than one idle
 // period between stream events.
@@ -1053,8 +1044,8 @@ fn scan_provider_payload_text(
     text: &str,
     value: &serde_json::Value,
 ) -> ExactPayloadScanEventV1 {
-    let projection_required = provider_payload_has_tool(value, "taskspace_control");
     let projection_blocks = provider_projection_blocks(value);
+    let projection_required = !projection_blocks.is_empty();
     let active_projection_count = projection_blocks.len();
     let active_projection_present = active_projection_count > 0;
     let projection_is_message_tail = provider_projection_is_message_tail(value);
@@ -1121,8 +1112,8 @@ fn scan_provider_payload_text(
         scan_event_id: format!("scan:{request_id}:{sha256}"),
         request_id: request_id.to_string(),
         provider_payload_sha256: sha256.to_string(),
-        scanner_version: "r7-exact-scan-1".to_string(),
-        matcher_version: "r7-projection-checks-1".to_string(),
+        scanner_version: "r8-exact-scan-1".to_string(),
+        matcher_version: "r8-projection-checks-1".to_string(),
         checked_byte_ranges: vec![(0, text.len())],
         negative_checks_performed: vec![
             "current_projection_uniqueness".to_string(),
@@ -1421,7 +1412,7 @@ fn projection_block_is_valid(block: &str) -> bool {
     let normalized = block.replace("\\r\\n", "\n").replace("\\n", "\n");
     if !normalized
         .lines()
-        .any(|line| line.trim() == "- schema_version: taskspace-map-projection-r7-v1")
+        .any(|line| line.trim() == "- schema_version: taskspace-map-projection-r8-v1")
     {
         return false;
     }
@@ -1443,33 +1434,7 @@ fn projection_block_is_valid(block: &str) -> bool {
     if !projection_block_contains_required_sections(&normalized) {
         return false;
     }
-    if projection_mechanical_field(&normalized, "projection_kind") == Some("request_snapshot") {
-        return projection_mechanical_field(&normalized, "supersedes_all_prior_projections")
-            == Some("true")
-            && projection_mechanical_field(&normalized, "current_state_rule")
-                == Some("last_projection_only");
-    }
     true
-}
-
-fn provider_payload_has_tool(value: &serde_json::Value, expected: &str) -> bool {
-    value
-        .get("tools")
-        .and_then(serde_json::Value::as_array)
-        .is_some_and(|tools| {
-            tools
-                .iter()
-                .any(|tool| provider_tool_name(tool) == Some(expected))
-        })
-}
-
-fn provider_tool_name(tool: &serde_json::Value) -> Option<&str> {
-    tool.get("name")
-        .or_else(|| {
-            tool.get("function")
-                .and_then(|function| function.get("name"))
-        })
-        .and_then(serde_json::Value::as_str)
 }
 
 fn projection_block_contains_required_sections(block: &str) -> bool {
@@ -2910,6 +2875,7 @@ impl ModelClientSession {
                 provider_wire_api,
                 &request,
                 None,
+                prompt.taskspace_capability_identity.as_deref(),
             );
             if let Some(payload) =
                 provider_payload_digest_for_wire_value(&wire_value, provider_wire_api)
@@ -3103,6 +3069,7 @@ impl ModelClientSession {
                         .as_ref()
                         .expect("websocket request source is retained"),
                     Some(wire_value),
+                    prompt.taskspace_capability_identity.as_deref(),
                 );
             }
             if let Some(payload) = provider_payload_digest_for_wire(&ws_request, provider_wire_api)
@@ -3435,10 +3402,10 @@ where
         let mut api_stream = api_stream;
         while let Some(event) = api_stream.next().await {
             match event {
-                Ok(ResponseEvent::OutputItemDone(item)) => {
+                Ok(ResponseEvent::OutputItemDone(item, output_index)) => {
                     items_added.push(item.clone());
                     if tx_event
-                        .send(Ok(ResponseEvent::OutputItemDone(item)))
+                        .send(Ok(ResponseEvent::OutputItemDone(item, output_index)))
                         .await
                         .is_err()
                     {

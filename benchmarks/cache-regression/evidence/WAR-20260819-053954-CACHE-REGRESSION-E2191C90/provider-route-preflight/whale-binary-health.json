@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "run_validity": "valid",
+  "whale_bin_requested": "/home/zhangxu/.whale/bin/whale",
+  "whale_bin_resolved": "/home/zhangxu/.whale/bin/whale",
+  "whale_binary_exists": true,
+  "whale_binary_last_write_utc": "2026-08-18T21:38:21.2970217Z",
+  "whale_binary_sha256": "7044a1bf9492224d08736689b4e29a35614499a65baf9147205c2d1d8dfea3bd",
+  "whale_binary_epoch": 1787089101,
+  "current_git_head": "5c8f428533e306581f62d5bb7b5179fc0f396fe6",
+  "codex_source_latest_commit": {
+    "hash": "5c8f428533e306581f62d5bb7b5179fc0f396fe6",
+    "epoch": 1787087527,
+    "time_utc": "2026-08-18T21:12:07.0000000Z",
+    "pathspec": "third_party/codex-cli"
+  },
+  "stale_for_codex_source": false,
+  "stale_allowed": false,
+  "build_attestation_path": "/home/zhangxu/.whale/bin/whale.build-attestation.json",
+  "build_attestation_status": "pass",
+  "build_attestation_reason": "",
+  "findings": [],
+  "generated_at": "2026-08-19T05:39:55.2243447+08:00"
+}

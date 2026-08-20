@@ -9,27 +9,24 @@ use tracing::Instrument;
 use tracing::instrument;
 use tracing::trace_span;
 
-use crate::action_map::ActionMapPreparedCall;
 use crate::function_tool::FunctionCallError;
 use crate::session::session::Session;
 use crate::session::turn_context::TurnContext;
 use crate::tools::context::AbortedToolOutput;
+use crate::tools::context::NestedToolResult;
 use crate::tools::context::SharedTurnDiffTracker;
-use crate::tools::context::TaskSpaceTerminalCarrier;
 use crate::tools::context::ToolPayload;
-use crate::tools::failure_provenance::exact_failure_cause;
-use crate::tools::failure_provenance::skipped_call_failure_provenance;
-use crate::tools::failure_provenance::tool_execution_failure_provenance;
-use crate::tools::handlers::taskspace_control_args::TaskSpaceControlArgs;
 use crate::tools::registry::AnyToolResult;
 use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::router::ToolCall;
 use crate::tools::router::ToolCallSource;
 use crate::tools::router::ToolRouter;
-use crate::tools::sequence_preflight::TaskSpaceDeclaredCall;
+use crate::tools::taskspace_exec::TASKSPACE_EXEC_TOOL_NAME;
+use crate::tools::taskspace_exec::TaskSpaceExecResponseScope;
+use crate::tools::taskspace_exec::TaskSpaceExecSelfHeal;
 use codex_protocol::error::CodexErr;
-use codex_protocol::models::ContentItem;
 use codex_protocol::models::ResponseInputItem;
+use codex_protocol::models::ResponseItem;
 use codex_tools::ToolSpec;
 
 #[derive(Clone)]
@@ -41,11 +38,22 @@ pub(crate) struct ToolCallRuntime {
     parallel_execution: Arc<RwLock<()>>,
 }
 
-pub(crate) struct ToolCallExecution {
-    pub(crate) response: ResponseInputItem,
-    pub(crate) supplemental_responses: Vec<ResponseInputItem>,
-    pub(crate) succeeded: bool,
-    pub(crate) taskspace_terminal_carrier: Option<TaskSpaceTerminalCarrier>,
+pub(crate) struct ToolCallResponse {
+    pub(crate) response: Result<ResponseInputItem, CodexErr>,
+    pub(crate) cancelled: bool,
+    pub(crate) execution_failed: bool,
+}
+
+pub(crate) struct NestedToolCallResponse {
+    pub(crate) result: Option<NestedToolResult>,
+    pub(crate) error: Option<String>,
+    pub(crate) cancelled: bool,
+    pub(crate) execution_failed: bool,
+}
+
+struct RoutedToolResult {
+    result: AnyToolResult,
+    cancelled: bool,
 }
 
 impl ToolCallRuntime {
@@ -75,198 +83,153 @@ impl ToolCallRuntime {
         self.router.create_diff_consumer(tool_name)
     }
 
-    pub(crate) async fn taskspace_canonical_revision(&self) -> Option<u64> {
-        self.session
-            .action_map_control_state(None)
-            .await
-            .map(|state| state.revision)
+    pub(crate) fn taskspace_response_scope(&self) -> Option<Arc<TaskSpaceExecResponseScope>> {
+        self.router.taskspace_response_scope()
     }
 
-    pub(crate) async fn taskspace_active(&self) -> bool {
-        self.session.taskspace_active().await
+    pub(crate) fn taskspace_capability_identity(&self) -> Option<Arc<str>> {
+        self.router.taskspace_capability_identity()
     }
 
-    pub(crate) async fn prepare_taskspace_response(
+    pub(crate) fn self_heal_taskspace_response_item(
         &self,
-        control_call_id: &str,
-        args: TaskSpaceControlArgs,
-        declared_calls: Vec<TaskSpaceDeclaredCall>,
-    ) -> Result<
-        crate::action_map::ActionMapPreparedResponse,
-        crate::action_map::ActionMapResponsePrepareError,
-    > {
-        self.session
-            .prepare_taskspace_response(&self.turn_context, control_call_id, args, declared_calls)
-            .await
+        item: &mut codex_protocol::models::ResponseItem,
+    ) -> Option<TaskSpaceExecSelfHeal> {
+        self.router.self_heal_taskspace_response_item(item)
     }
 
-    pub(crate) async fn taskspace_response_final_receipt(
+    pub(crate) fn reject_taskspace_top_level_client_item(
         &self,
-        prepared: &crate::action_map::ActionMapPreparedResponse,
-        control_call_id: &str,
-    ) -> Result<crate::action_map::ActionMapResponseFinalReceipt, String> {
-        self.session
-            .taskspace_response_final_receipt(prepared, control_call_id)
-            .await
-    }
-
-    pub(crate) fn provider_response_rejection_responses(
-        call: &ToolCall,
-        message: impl Into<String>,
-    ) -> Vec<ResponseInputItem> {
-        let error = FunctionCallError::RespondToModel(message.into());
-        vec![Self::failure_response_for_error(call, &error)]
-    }
-
-    #[instrument(level = "trace", skip_all)]
-    pub(crate) fn handle_tool_call_for_sequence(
-        self,
-        call: ToolCall,
-        cancellation_token: CancellationToken,
-    ) -> impl std::future::Future<Output = Result<ToolCallExecution, CodexErr>> {
-        self.handle_native_tool_call_for_sequence(call, cancellation_token)
-    }
-
-    #[instrument(level = "trace", skip_all)]
-    pub(crate) fn handle_taskspace_bound_tool_call_for_sequence(
-        self,
-        call: ToolCall,
-        prepared_call: ActionMapPreparedCall,
-        cancellation_token: CancellationToken,
-    ) -> impl std::future::Future<Output = Result<ToolCallExecution, CodexErr>> {
-        async move {
-            tracing::info!(
-                target: "codex_core::taskspace",
-                event_name = "taskspace_native_tool_dispatched",
-                call_id = prepared_call.call_id,
-                call_index = prepared_call.call_index,
-                tool_name = prepared_call.tool_name,
-                map_id = prepared_call.map_id,
-                revision = prepared_call.revision,
-                node_id = prepared_call.node_id,
-                reservation_id = prepared_call.reservation_id,
-                "dispatched Agent-declared native tool action"
-            );
-            let execution = self
-                .clone()
-                .handle_native_tool_call_for_sequence(call, cancellation_token)
-                .await;
-            let mut execution = match execution {
-                Ok(execution) => execution,
-                Err(error) => {
-                    match self
-                        .record_taskspace_failed_tool_result(&prepared_call)
-                        .await
-                    {
-                        Ok(()) => {
-                            tracing::warn!(
-                                target: "codex_core::taskspace",
-                                event_name = "taskspace_native_tool_dispatch_failed_and_released",
-                                call_id = prepared_call.call_id,
-                                call_index = prepared_call.call_index,
-                                tool_name = prepared_call.tool_name,
-                                map_id = prepared_call.map_id,
-                                node_id = prepared_call.node_id,
-                                reservation_id = prepared_call.reservation_id,
-                                state_commit = true,
-                                error = %error,
-                                "recorded failed native dispatch and released its reservation"
-                            );
-                            return Err(error);
-                        }
-                        Err(release_error) => {
-                            tracing::error!(
-                                target: "codex_core::taskspace",
-                                event_name =
-                                    "taskspace_native_tool_dispatch_failure_release_failed",
-                                call_id = prepared_call.call_id,
-                                call_index = prepared_call.call_index,
-                                tool_name = prepared_call.tool_name,
-                                map_id = prepared_call.map_id,
-                                node_id = prepared_call.node_id,
-                                reservation_id = prepared_call.reservation_id,
-                                state_commit = false,
-                                error = %error,
-                                release_error = %release_error,
-                                "failed to release reservation after native dispatch failure"
-                            );
-                            return Err(CodexErr::Fatal(format!(
-                                "{error}; TaskSpace reservation release failed: {release_error}"
-                            )));
-                        }
-                    }
-                }
-            };
-            match self
-                .record_taskspace_bound_tool_result(
-                    &prepared_call,
-                    execution.succeeded,
-                    &execution.response,
-                )
-                .await
-            {
-                Ok(()) => {
-                    tracing::info!(
-                        target: "codex_core::taskspace",
-                        event_name = "taskspace_native_tool_result_attributed",
-                        call_id = prepared_call.call_id,
-                        call_index = prepared_call.call_index,
-                        tool_name = prepared_call.tool_name,
-                        map_id = prepared_call.map_id,
-                        node_id = prepared_call.node_id,
-                        reservation_id = prepared_call.reservation_id,
-                        tool_success = execution.succeeded,
-                        state_commit = true,
-                        "attributed native tool result to Agent-declared map node"
-                    );
-                }
-                Err(error) => {
-                    Self::apply_failed_bound_result_commit(&mut execution, &prepared_call, error);
-                }
+        item: &ResponseItem,
+    ) -> Option<ResponseInputItem> {
+        self.router.taskspace_response_scope().as_ref()?;
+        let (call_id, tool, custom) = match item {
+            ResponseItem::FunctionCall {
+                name,
+                namespace,
+                call_id,
+                ..
+            } if namespace.is_some() || name != TASKSPACE_EXEC_TOOL_NAME => (
+                call_id.clone(),
+                namespace
+                    .as_ref()
+                    .map_or_else(|| name.clone(), |value| format!("{value}.{name}")),
+                false,
+            ),
+            ResponseItem::CustomToolCall { call_id, name, .. } => {
+                (call_id.clone(), name.clone(), true)
             }
-            Ok(execution)
+            ResponseItem::LocalShellCall { call_id, id, .. } => (
+                call_id.as_ref().or(id.as_ref())?.clone(),
+                "local_shell".to_string(),
+                false,
+            ),
+            _ => return None,
+        };
+        let output = codex_protocol::models::FunctionCallOutputPayload {
+            body: codex_protocol::models::FunctionCallOutputBody::Text(
+                taskspace_top_level_client_rejection(&tool),
+            ),
+            success: Some(false),
+        };
+        if custom {
+            Some(ResponseInputItem::CustomToolCallOutput {
+                call_id,
+                name: Some(tool),
+                output,
+            })
+        } else {
+            Some(ResponseInputItem::FunctionCallOutput { call_id, output })
+        }
+    }
+
+    #[instrument(level = "trace", skip_all)]
+    pub(crate) fn handle_tool_call(
+        self,
+        call: ToolCall,
+        cancellation_token: CancellationToken,
+    ) -> impl std::future::Future<Output = Result<ResponseInputItem, CodexErr>> {
+        async move {
+            self.handle_tool_call_with_status(call, cancellation_token)
+                .await
+                .response
         }
         .in_current_span()
     }
 
-    fn handle_native_tool_call_for_sequence(
+    pub(crate) fn handle_tool_call_with_status(
         self,
         call: ToolCall,
         cancellation_token: CancellationToken,
-    ) -> impl std::future::Future<Output = Result<ToolCallExecution, CodexErr>> {
+    ) -> impl std::future::Future<Output = ToolCallResponse> {
         async move {
             let error_call = call.clone();
-            let future = self.clone().handle_tool_call_with_source(
+            if self.router.taskspace_response_scope().is_some()
+                && (call.provider_tool_name.namespace.is_some()
+                    || call.provider_tool_name.name != TASKSPACE_EXEC_TOOL_NAME)
+            {
+                let tool = call.provider_tool_name.display();
+                let error =
+                    FunctionCallError::RespondToModel(taskspace_top_level_client_rejection(&tool));
+                return ToolCallResponse {
+                    response: Ok(Self::failure_response(error_call, error)),
+                    cancelled: false,
+                    execution_failed: true,
+                };
+            }
+            let future = self.handle_tool_call_with_source_and_status(
                 call,
                 ToolCallSource::Direct,
                 cancellation_token,
             );
             match future.await {
-                Ok(response) => {
-                    let taskspace_terminal_carrier = response.taskspace_terminal_carrier().cloned();
-                    let succeeded = response.result.success_for_logging();
-                    let response = response.into_response();
-                    Ok(ToolCallExecution {
-                        response,
-                        supplemental_responses: Vec::new(),
-                        succeeded,
-                        taskspace_terminal_carrier,
-                    })
-                }
-                Err(FunctionCallError::Fatal(message)) => Err(CodexErr::Fatal(message)),
-                Err(other) => {
-                    let supplemental_responses =
-                        Self::tool_execution_failure_response(&error_call, &other)
-                            .into_iter()
-                            .collect::<Vec<_>>();
-                    let response = Self::failure_response(error_call, other);
-                    Ok(ToolCallExecution {
-                        response,
-                        supplemental_responses,
-                        succeeded: false,
-                        taskspace_terminal_carrier: None,
-                    })
-                }
+                Ok(response) => ToolCallResponse {
+                    response: Ok(response.result.into_response()),
+                    cancelled: response.cancelled,
+                    execution_failed: false,
+                },
+                Err(FunctionCallError::Fatal(message)) => ToolCallResponse {
+                    response: Err(CodexErr::Fatal(message)),
+                    cancelled: false,
+                    execution_failed: true,
+                },
+                Err(other) => ToolCallResponse {
+                    response: Ok(Self::failure_response(error_call, other)),
+                    cancelled: false,
+                    execution_failed: true,
+                },
+            }
+        }
+        .in_current_span()
+    }
+
+    pub(crate) fn handle_tool_call_with_nested_result_and_status(
+        self,
+        call: ToolCall,
+        source: ToolCallSource,
+        cancellation_token: CancellationToken,
+    ) -> impl std::future::Future<Output = NestedToolCallResponse> {
+        let future = self.handle_tool_call_with_source_and_status(call, source, cancellation_token);
+        async move {
+            match future.await {
+                Ok(response) => NestedToolCallResponse {
+                    result: Some(response.result.into_nested_result()),
+                    error: None,
+                    cancelled: response.cancelled,
+                    execution_failed: false,
+                },
+                Err(FunctionCallError::Fatal(message)) => NestedToolCallResponse {
+                    result: None,
+                    error: Some(CodexErr::Fatal(message).to_string()),
+                    cancelled: false,
+                    execution_failed: true,
+                },
+                Err(other) => NestedToolCallResponse {
+                    result: None,
+                    error: Some(function_call_error_model_visible_message(&other)),
+                    cancelled: false,
+                    execution_failed: true,
+                },
             }
         }
         .in_current_span()
@@ -279,6 +242,20 @@ impl ToolCallRuntime {
         source: ToolCallSource,
         cancellation_token: CancellationToken,
     ) -> impl std::future::Future<Output = Result<AnyToolResult, FunctionCallError>> {
+        async move {
+            self.handle_tool_call_with_source_and_status(call, source, cancellation_token)
+                .await
+                .map(|response| response.result)
+        }
+        .in_current_span()
+    }
+
+    fn handle_tool_call_with_source_and_status(
+        self,
+        call: ToolCall,
+        source: ToolCallSource,
+        cancellation_token: CancellationToken,
+    ) -> impl std::future::Future<Output = Result<RoutedToolResult, FunctionCallError>> {
         let supports_parallel = self.router.tool_supports_parallel(&call);
         let router = Arc::clone(&self.router);
         let session = Arc::clone(&self.session);
@@ -299,23 +276,25 @@ impl ToolCallRuntime {
             aborted = false,
         );
 
-        let handle: AbortOnDropHandle<Result<AnyToolResult, FunctionCallError>> =
+        let handle: AbortOnDropHandle<Result<RoutedToolResult, FunctionCallError>> =
             AbortOnDropHandle::new(tokio::spawn(async move {
                 tokio::select! {
                     _ = cancellation_token.cancelled() => {
                         let secs = started.elapsed().as_secs_f32().max(0.1);
                         dispatch_span.record("aborted", true);
-                        let response = Self::aborted_response(&call, secs);
-                        Ok(response)
+                        Ok(RoutedToolResult {
+                            result: Self::aborted_response(&call, secs),
+                            cancelled: true,
+                        })
                     },
-                    res = async {
+                    result = async {
                         let _guard = if supports_parallel {
                             Either::Left(lock.read().await)
                         } else {
                             Either::Right(lock.write().await)
                         };
 
-                        let result = router
+                        router
                             .dispatch_tool_call_with_code_mode_result(
                                 Arc::clone(&session),
                                 Arc::clone(&turn),
@@ -325,37 +304,34 @@ impl ToolCallRuntime {
                                 source,
                             )
                             .instrument(dispatch_span.clone())
-                            .await;
-                        result
-                    } => res,
+                            .await
+                            .map(|result| RoutedToolResult {
+                                result,
+                                cancelled: false,
+                            })
+                    } => result,
                 }
             }));
 
         async move {
-            handle.await.map_err(|err| {
-                FunctionCallError::Fatal(format!("tool task failed to receive: {err:?}"))
+            handle.await.map_err(|error| {
+                FunctionCallError::Fatal(format!("tool task failed to receive: {error:?}"))
             })?
         }
         .in_current_span()
     }
-}
 
-impl ToolCallRuntime {
-    fn failure_response(call: ToolCall, err: FunctionCallError) -> ResponseInputItem {
-        Self::failure_response_for_error(&call, &err)
-    }
-
-    fn failure_response_for_error(call: &ToolCall, err: &FunctionCallError) -> ResponseInputItem {
-        let message = function_call_error_model_visible_message(err);
-        match &call.payload {
+    fn failure_response(call: ToolCall, error: FunctionCallError) -> ResponseInputItem {
+        let message = function_call_error_model_visible_message(&error);
+        match call.payload {
             ToolPayload::ToolSearch { .. } => ResponseInputItem::ToolSearchOutput {
-                call_id: call.call_id.clone(),
+                call_id: call.call_id,
                 status: "completed".to_string(),
                 execution: "client".to_string(),
                 tools: Vec::new(),
             },
             ToolPayload::Custom { .. } => ResponseInputItem::CustomToolCallOutput {
-                call_id: call.call_id.clone(),
+                call_id: call.call_id,
                 name: None,
                 output: codex_protocol::models::FunctionCallOutputPayload {
                     body: codex_protocol::models::FunctionCallOutputBody::Text(message),
@@ -363,7 +339,7 @@ impl ToolCallRuntime {
                 },
             },
             _ => ResponseInputItem::FunctionCallOutput {
-                call_id: call.call_id.clone(),
+                call_id: call.call_id,
                 output: codex_protocol::models::FunctionCallOutputPayload {
                     body: codex_protocol::models::FunctionCallOutputBody::Text(message),
                     success: Some(false),
@@ -372,126 +348,6 @@ impl ToolCallRuntime {
         }
     }
 
-    fn tool_execution_failure_response(
-        call: &ToolCall,
-        err: &FunctionCallError,
-    ) -> Option<ResponseInputItem> {
-        if !matches!(call.payload, ToolPayload::ToolSearch { .. }) {
-            return None;
-        }
-        let message = function_call_error_model_visible_message(err);
-        let cause = exact_failure_cause(&message);
-        let failure_provenance = tool_execution_failure_provenance(&call.call_id);
-        Some(Self::factual_message(serde_json::json!({
-            "schema_version": "ToolSearchFailureV3",
-            "status": "failed",
-            "success": false,
-            "call_id": call.call_id,
-            "tool": call.provider_tool_name_display(),
-            "pairing_status": "completed",
-            "execution_status": "failed",
-            "failure_provenance": failure_provenance,
-            "error": {
-                "class": "tool",
-                "code": "tool_search_failed",
-                "cause": cause,
-            },
-        })))
-    }
-
-    pub(crate) fn skipped_responses(
-        call: &ToolCall,
-        prior_call_id: &str,
-    ) -> Vec<ResponseInputItem> {
-        Self::skipped_responses_with_status(
-            call,
-            "skipped_due_to_prior_failure",
-            "prior_call_id",
-            prior_call_id,
-        )
-    }
-
-    pub(crate) fn terminal_completion_skipped_responses(
-        call: &ToolCall,
-        terminal_call_id: &str,
-    ) -> Vec<ResponseInputItem> {
-        Self::skipped_responses_with_status(
-            call,
-            "skipped_due_to_terminal_completion",
-            "terminal_call_id",
-            terminal_call_id,
-        )
-    }
-
-    fn skipped_responses_with_status(
-        call: &ToolCall,
-        status: &str,
-        cause_field: &str,
-        cause_call_id: &str,
-    ) -> Vec<ResponseInputItem> {
-        let failure_provenance = skipped_call_failure_provenance(&call.call_id, cause_call_id);
-        let payload = serde_json::json!({
-            "schema_version": "TaskSpaceToolSkippedV2",
-            "status": status,
-            "success": false,
-            "call_id": call.call_id,
-            "tool": call.provider_tool_name_display(),
-            "failure_provenance": failure_provenance,
-            "error": {
-                "class": "tool",
-                "code": status,
-            },
-            "cause": {
-                "field": cause_field,
-                "call_id": cause_call_id,
-            },
-        });
-        let message = payload.to_string();
-        let response = match &call.payload {
-            ToolPayload::ToolSearch { .. } => ResponseInputItem::ToolSearchOutput {
-                call_id: call.call_id.clone(),
-                status: "completed".to_string(),
-                execution: "client".to_string(),
-                tools: Vec::new(),
-            },
-            ToolPayload::Mcp { .. } => ResponseInputItem::McpToolCallOutput {
-                call_id: call.call_id.clone(),
-                output: codex_protocol::mcp::CallToolResult::from_error_text(message),
-            },
-            ToolPayload::Custom { .. } => ResponseInputItem::CustomToolCallOutput {
-                call_id: call.call_id.clone(),
-                name: None,
-                output: codex_protocol::models::FunctionCallOutputPayload {
-                    body: codex_protocol::models::FunctionCallOutputBody::Text(message),
-                    success: Some(false),
-                },
-            },
-            ToolPayload::Function { .. } | ToolPayload::LocalShell { .. } => {
-                ResponseInputItem::FunctionCallOutput {
-                    call_id: call.call_id.clone(),
-                    output: codex_protocol::models::FunctionCallOutputPayload {
-                        body: codex_protocol::models::FunctionCallOutputBody::Text(message),
-                        success: Some(false),
-                    },
-                }
-            }
-        };
-        let mut responses = vec![response];
-        responses.push(Self::factual_message(payload));
-        responses
-    }
-
-    pub(crate) fn factual_message(value: serde_json::Value) -> ResponseInputItem {
-        ResponseInputItem::Message {
-            role: "developer".to_string(),
-            content: vec![ContentItem::InputText {
-                text: value.to_string(),
-            }],
-        }
-    }
-}
-
-impl ToolCallRuntime {
     fn aborted_response(call: &ToolCall, secs: f32) -> AnyToolResult {
         AnyToolResult {
             call_id: call.call_id.clone(),
@@ -520,342 +376,20 @@ impl ToolCallRuntime {
             format!("aborted by user after {secs:.1}s")
         }
     }
-
-    async fn record_taskspace_bound_tool_result(
-        &self,
-        prepared: &ActionMapPreparedCall,
-        success: bool,
-        response: &ResponseInputItem,
-    ) -> Result<(), String> {
-        self.session
-            .record_taskspace_bound_tool_result(
-                &self.turn_context,
-                prepared,
-                success,
-                result_ref_id(response),
-            )
-            .await
-    }
-
-    pub(crate) async fn record_taskspace_skipped_tool_result(
-        &self,
-        prepared: &ActionMapPreparedCall,
-    ) -> Result<(), String> {
-        self.record_taskspace_failed_tool_result(prepared).await
-    }
-
-    async fn record_taskspace_failed_tool_result(
-        &self,
-        prepared: &ActionMapPreparedCall,
-    ) -> Result<(), String> {
-        self.session
-            .record_taskspace_bound_tool_result(
-                &self.turn_context,
-                prepared,
-                false,
-                result_ref_id_for_call_id(&prepared.call_id),
-            )
-            .await
-    }
-
-    pub(crate) fn taskspace_bound_result_commit_failure_response(
-        prepared: &ActionMapPreparedCall,
-        error: String,
-    ) -> ResponseInputItem {
-        Self::factual_message(serde_json::json!({
-            "schema_version": "TaskSpaceBoundResultCommitFailureV2",
-            "status": "failed",
-            "success": false,
-            "state_commit": false,
-            "call_id": prepared.call_id,
-            "reservation_id": prepared.reservation_id,
-            "failure_provenance": {
-                "scope": "tool_result_attribution",
-                "copy_group_id": format!("tool_result_attribution:{}", prepared.call_id),
-                "zero_dispatch": false,
-                "affected_call_ids": [prepared.call_id.clone()],
-            },
-            "error": {
-                "class": "resource",
-                "code": "taskspace_bound_result_commit_failed",
-                "detail": error,
-            },
-        }))
-    }
-
-    fn apply_failed_bound_result_commit(
-        execution: &mut ToolCallExecution,
-        prepared: &ActionMapPreparedCall,
-        error: String,
-    ) {
-        tracing::warn!(
-            target: "codex_core::taskspace",
-            event_name = "taskspace_native_tool_result_attribution_failed",
-            call_id = prepared.call_id,
-            node_id = prepared.node_id,
-            reservation_id = prepared.reservation_id,
-            state_commit = false,
-            error = %error,
-            "taskspace_bound_tool_result_record_failed"
-        );
-        execution.succeeded = false;
-        execution.supplemental_responses.push(
-            Self::taskspace_bound_result_commit_failure_response(prepared, error),
-        );
-    }
 }
 
-fn result_ref_id(response: &ResponseInputItem) -> String {
-    let call_id = match response {
-        ResponseInputItem::FunctionCallOutput { call_id, .. }
-        | ResponseInputItem::McpToolCallOutput { call_id, .. }
-        | ResponseInputItem::CustomToolCallOutput { call_id, .. }
-        | ResponseInputItem::ToolSearchOutput { call_id, .. } => call_id,
-        ResponseInputItem::Message { .. } => "unknown",
-    };
-    result_ref_id_for_call_id(call_id)
+fn taskspace_top_level_client_rejection(tool: &str) -> String {
+    format!(
+        "TaskSpace rejects top-level client Tool `{tool}`. This client Tool was not executed. Submit client work inside one `taskspace_exec` sequence and bind each action to its `node_id`."
+    )
 }
 
-fn result_ref_id_for_call_id(call_id: &str) -> String {
-    format!("tool-result://call/{call_id}")
-}
-
-fn function_call_error_model_visible_message(err: &FunctionCallError) -> String {
-    match err {
+fn function_call_error_model_visible_message(error: &FunctionCallError) -> String {
+    match error {
         FunctionCallError::RespondToModel(message) => message.clone(),
         FunctionCallError::MissingLocalShellCallId => {
             "Tool call failed because the shell call id was missing.".to_string()
         }
         FunctionCallError::Fatal(_) => "Tool call failed with a fatal runtime error.".to_string(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::ToolCallExecution;
-    use super::ToolCallRuntime;
-    use crate::action_map::ActionMapPreparedCall;
-    use crate::function_tool::FunctionCallError;
-    use crate::tools::context::ToolPayload;
-    use crate::tools::context::response_input_model_visible_preview;
-    use crate::tools::router::ToolCall;
-    use codex_protocol::models::SearchToolCallParams;
-    use codex_tools::ToolName;
-
-    fn failure_response_preview(err: FunctionCallError) -> String {
-        let call = ToolCall {
-            provider_tool_name: ToolName::plain("apply_patch"),
-            dispatch_tool_name: ToolName::plain("apply_patch"),
-            call_id: "call-test".to_string(),
-            payload: ToolPayload::Function {
-                arguments: "{}".to_string(),
-            },
-        };
-        let response = ToolCallRuntime::failure_response_for_error(&call, &err);
-        response_input_model_visible_preview(&response)
-    }
-
-    #[test]
-    fn failure_response_preview_records_model_visible_error_text() {
-        let preview = failure_response_preview(FunctionCallError::RespondToModel(
-            "failed to parse apply_patch: missing field `action`".to_string(),
-        ));
-
-        assert!(preview.contains("failed to parse apply_patch"));
-        assert!(preview.contains("missing field `action`"));
-    }
-
-    #[test]
-    fn failure_response_preview_bounds_model_visible_error_text() {
-        let long_error = format!("apply_patch failed\n{}", "line\n".repeat(128));
-        let preview = failure_response_preview(FunctionCallError::RespondToModel(long_error));
-
-        assert!(preview.contains("apply_patch failed"));
-        assert!(preview.contains("telemetry preview truncated"));
-    }
-
-    #[test]
-    fn failure_response_preview_preserves_local_infra_error() {
-        let nul_separated = "Bash/Service/CreateInstance/E_ACCESSDENIED"
-            .chars()
-            .flat_map(|ch| [ch, '\0'])
-            .collect::<String>();
-        let preview = failure_response_preview(FunctionCallError::RespondToModel(format!(
-            "garbled host output: {nul_separated}"
-        )));
-
-        assert!(preview.contains("garbled host output"));
-        assert!(preview.contains('\0'));
-        assert!(!preview.contains("local_validator_infra_failure"));
-    }
-
-    #[test]
-    fn tool_search_failure_keeps_pairing_output_and_exact_error_fact() {
-        let call = ToolCall {
-            provider_tool_name: ToolName::plain("tool_search"),
-            dispatch_tool_name: ToolName::plain("tool_search"),
-            call_id: "search-1".to_string(),
-            payload: ToolPayload::ToolSearch {
-                arguments: SearchToolCallParams {
-                    query: String::new(),
-                    limit: None,
-                },
-            },
-        };
-        let error = FunctionCallError::RespondToModel("query must not be empty".to_string());
-        let response = ToolCallRuntime::failure_response_for_error(&call, &error);
-        let supplemental =
-            ToolCallRuntime::tool_execution_failure_response(&call, &error).expect("error fact");
-
-        let codex_protocol::models::ResponseInputItem::ToolSearchOutput { status, tools, .. } =
-            response
-        else {
-            panic!("expected tool_search output");
-        };
-        assert_eq!(status, "completed");
-        assert!(tools.is_empty());
-        let codex_protocol::models::ResponseInputItem::Message { content, .. } = supplemental
-        else {
-            panic!("expected supplemental factual message");
-        };
-        let text = content
-            .into_iter()
-            .map(|item| match item {
-                codex_protocol::models::ContentItem::InputText { text }
-                | codex_protocol::models::ContentItem::OutputText { text } => text,
-                codex_protocol::models::ContentItem::InputImage { .. } => String::new(),
-            })
-            .collect::<String>();
-        let value: serde_json::Value =
-            serde_json::from_str(&text).expect("production ToolSearch failure JSON");
-        assert_eq!(value["schema_version"], "ToolSearchFailureV3");
-        assert_eq!(value["success"], false);
-        assert_eq!(value["pairing_status"], "completed");
-        assert_eq!(value["execution_status"], "failed");
-        assert_eq!(value["failure_provenance"]["scope"], "tool_execution");
-        assert_eq!(value["failure_provenance"]["zero_dispatch"], false);
-        assert_eq!(
-            value["failure_provenance"]["affected_call_ids"],
-            serde_json::json!(["search-1"])
-        );
-        assert_eq!(value["failure_provenance"]["cause_call_id"], "search-1");
-        assert_eq!(
-            value["error"]["cause"],
-            serde_json::json!({"format": "text", "text": "query must not be empty"})
-        );
-    }
-
-    #[test]
-    fn tool_search_execution_origin_does_not_depend_on_error_text() {
-        let call = ToolCall {
-            provider_tool_name: ToolName::plain("tool_search"),
-            dispatch_tool_name: ToolName::plain("tool_search"),
-            call_id: "search-typed-origin".to_string(),
-            payload: ToolPayload::ToolSearch {
-                arguments: SearchToolCallParams {
-                    query: "read_file".to_string(),
-                    limit: None,
-                },
-            },
-        };
-        let embedded_provider_fact = serde_json::json!({
-            "failure_provenance": {
-                "scope": "provider_response",
-                "zero_dispatch": true,
-            }
-        })
-        .to_string();
-        let error = FunctionCallError::RespondToModel(embedded_provider_fact);
-        let supplemental = ToolCallRuntime::tool_execution_failure_response(&call, &error)
-            .expect("native ToolSearch failure must keep its typed execution origin");
-        let codex_protocol::models::ResponseInputItem::Message { content, .. } = supplemental
-        else {
-            panic!("expected supplemental factual message");
-        };
-        let text = content
-            .into_iter()
-            .find_map(|item| match item {
-                codex_protocol::models::ContentItem::InputText { text }
-                | codex_protocol::models::ContentItem::OutputText { text } => Some(text),
-                codex_protocol::models::ContentItem::InputImage { .. } => None,
-            })
-            .expect("factual JSON");
-        let value: serde_json::Value = serde_json::from_str(&text).expect("failure JSON");
-        assert_eq!(
-            value["failure_provenance"]["scope"],
-            serde_json::json!("tool_execution")
-        );
-        assert_eq!(
-            value["failure_provenance"]["zero_dispatch"],
-            serde_json::json!(false)
-        );
-    }
-
-    #[test]
-    fn bound_result_commit_failure_is_factual_and_marks_execution_failed() {
-        let prepared = ActionMapPreparedCall {
-            map_id: "map-1".to_string(),
-            revision: 8,
-            call_id: "call-1".to_string(),
-            call_index: 0,
-            node_id: "inspect".to_string(),
-            tool_name: "read_file".to_string(),
-            reservation_id: "reservation-1".to_string(),
-        };
-        let original_error = "reservation release rejected: revision mismatch";
-        let native_response = codex_protocol::models::ResponseInputItem::FunctionCallOutput {
-            call_id: prepared.call_id.clone(),
-            output: codex_protocol::models::FunctionCallOutputPayload {
-                body: codex_protocol::models::FunctionCallOutputBody::Text(
-                    "native output".to_string(),
-                ),
-                success: Some(true),
-            },
-        };
-        let mut execution = ToolCallExecution {
-            response: native_response.clone(),
-            supplemental_responses: Vec::new(),
-            succeeded: true,
-            taskspace_terminal_carrier: None,
-        };
-
-        ToolCallRuntime::apply_failed_bound_result_commit(
-            &mut execution,
-            &prepared,
-            original_error.to_string(),
-        );
-
-        assert!(!execution.succeeded);
-        assert_eq!(execution.response, native_response);
-        let codex_protocol::models::ResponseInputItem::Message { content, .. } = execution
-            .supplemental_responses
-            .pop()
-            .expect("supplemental failure")
-        else {
-            panic!("expected factual supplemental message");
-        };
-        let text = content
-            .into_iter()
-            .map(|item| match item {
-                codex_protocol::models::ContentItem::InputText { text }
-                | codex_protocol::models::ContentItem::OutputText { text } => text,
-                codex_protocol::models::ContentItem::InputImage { .. } => String::new(),
-            })
-            .collect::<String>();
-        let fact: serde_json::Value = serde_json::from_str(&text).expect("valid fact JSON");
-        assert_eq!(fact["state_commit"], false);
-        assert_eq!(fact["success"], false);
-        assert_eq!(fact["call_id"], prepared.call_id);
-        assert_eq!(fact["reservation_id"], prepared.reservation_id);
-        assert_eq!(fact["error"]["class"], "resource");
-        assert_eq!(
-            fact["error"]["code"],
-            "taskspace_bound_result_commit_failed"
-        );
-        assert_eq!(fact["error"]["detail"], original_error);
-        assert_eq!(
-            fact["failure_provenance"]["affected_call_ids"],
-            serde_json::json!([prepared.call_id])
-        );
     }
 }

@@ -65,7 +65,7 @@ function ConvertTo-R7CallDescriptor {
         submitted_expected_revision = $submittedExpectedRevision
         submitted_expected_revision_present = $submittedExpectedRevisionPresent
         carrier_action = ""
-        carrier_revision_before = $null
+        carrier_canonical_revision = $null
         reservation_mutated = $false
         declared_node_id = ""
         declared_actions = $declaredActions
@@ -417,7 +417,7 @@ function Set-R7CallOutcome {
     foreach ($name in @(
             "success", "failure_class", "failure_code", "failure_schema_version",
             "carrier_schema", "reason_code", "carrier_action",
-            "carrier_revision_before",
+            "carrier_canonical_revision",
             "failure_provenance_scope", "failure_copy_group_id",
             "failure_affected_call_ids", "zero_dispatch", "parse_status", "evidence_valid",
             "violation_codes", "violation_contexts", "state_commit"

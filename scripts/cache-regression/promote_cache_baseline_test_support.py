@@ -12,12 +12,14 @@ from pathlib import Path
 from cache_budget import build_budget_proposal
 from cache_baseline_test_support import (
     write_provider_boundary_evidence,
-    write_settled_ledger,
+    write_provider_wire_trace,
 )
+from cache_ledger_test_support import write_settled_ledger
 from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256, file_sha256
 from cache_arm_identity import fixture_arm_identity
 from cache_run_analysis import analyze_artifacts
 from cache_run_contract import AUTHORIZATION_SCHEMA_VERSION, execution_matrix
+from cache_provider_route_test_support import bind_route, materialize_route_summary
 from cache_surface import load_contract, surface_snapshot, write_json
 from accepted_cache_baseline import ACCEPTANCE_SCHEMA_VERSION
 from promote_cache_baseline import (
@@ -41,6 +43,9 @@ class PromoteCacheBaselineFixture:
         runner = self.repo / "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1"
         runner.parent.mkdir(parents=True)
         runner.write_text("runner\n", encoding="utf-8")
+        runner.with_name("invoke-provider-route-preflight.ps1").write_text(
+            "preflight\n", encoding="utf-8"
+        )
         scenario = self.repo / "benchmarks/taskspace/scenarios/simple"
         scenario.mkdir(parents=True)
         (scenario / "scenario.json").write_text("{}\n", encoding="utf-8")
@@ -157,7 +162,7 @@ class PromoteCacheBaselineFixture:
             "proposal_id": self.proposal["proposal_id"],
             "proposal_sha256": self.proposal["proposal_sha256"],
             "approved_selection": self.proposal["selection"],
-            "approved_maximums": self.proposal["maximums"],
+            "approved_maximums": self.proposal["approved_maximums"],
         }
         self.authorization_path = (
             self.repo / "benchmarks/cache-regression/authorization.json"
@@ -236,6 +241,16 @@ class PromoteCacheBaselineFixture:
         self.result_path.parent.mkdir()
         self.result["result_path"] = self.result_path.relative_to(self.repo).as_posix()
         self.result["runner_exit_code"] = 0
+        route = materialize_route_summary(
+            self.repo,
+            self.repo
+            / (
+                "benchmarks/cache-regression/evidence/WAR-FIXTURE/"
+                "provider-route-preflight/provider-route-preflight.json"
+            ),
+            self.proposal["selection"]["model"],
+        )
+        bind_route({}, self.result, route)
         write_json(self.result_path, self.result)
         self.write_ledger()
         self.acceptance = self.make_acceptance()
@@ -253,6 +268,7 @@ class PromoteCacheBaselineFixture:
         )
         artifacts.mkdir(parents=True)
         cache = artifacts / "provider-cache-trace-summary.json"
+        provider_wire = artifacts / "provider-wire-trace.jsonl"
         request = artifacts / "request-summary.json"
         metrics = artifacts / "metrics.json"
         boundary = artifacts / "provider-boundary-evidence.json"
@@ -280,6 +296,15 @@ class PromoteCacheBaselineFixture:
                 }
             },
         )
+        write_provider_wire_trace(
+            provider_wire,
+            [
+                {"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0},
+                {"input_tokens": 50, "cached_input_tokens": 45, "output_tokens": 5},
+                {"input_tokens": 50, "cached_input_tokens": 45, "output_tokens": 5},
+            ],
+            identity=arm,
+        )
         write_json(
             metrics,
             {
@@ -292,7 +317,13 @@ class PromoteCacheBaselineFixture:
         write_json(execution_argv, argv_value)
         write_json(logical_mode_map, mode_map_value)
         observation = analyze_artifacts(
-            cache, request, metrics, boundary, arm, "deepseek-v4-flash"
+            cache,
+            provider_wire,
+            request,
+            metrics,
+            boundary,
+            arm,
+            "deepseek-v4-flash",
         )
         observation["artifacts"] = {
             key: Path(path).relative_to(self.repo).as_posix()

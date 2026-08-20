@@ -12,6 +12,7 @@ use crate::memories::usage::emit_metric_for_tool_read;
 use crate::sandbox_tags::sandbox_tag;
 use crate::session::turn_context::TurnContext;
 use crate::tools::context::FunctionToolOutput;
+use crate::tools::context::NestedToolResult;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
@@ -112,12 +113,6 @@ pub(crate) struct AnyToolResult {
 }
 
 impl AnyToolResult {
-    pub(crate) fn taskspace_terminal_carrier(
-        &self,
-    ) -> Option<&crate::tools::context::TaskSpaceTerminalCarrier> {
-        self.result.taskspace_terminal_carrier()
-    }
-
     pub(crate) fn into_response(self) -> ResponseInputItem {
         let Self {
             call_id,
@@ -133,6 +128,13 @@ impl AnyToolResult {
             payload, result, ..
         } = self;
         result.code_mode_result(&payload)
+    }
+
+    pub(crate) fn into_nested_result(self) -> NestedToolResult {
+        let Self {
+            payload, result, ..
+        } = self;
+        result.nested_result(&payload)
     }
 }
 
@@ -244,7 +246,6 @@ impl ToolRegistry {
         self.handlers.get(name).map(Arc::clone)
     }
 
-    #[cfg(test)]
     pub(crate) fn has_handler(&self, name: &ToolName) -> bool {
         self.handler(name).is_some()
     }
@@ -540,6 +541,10 @@ impl ToolRegistryBuilder {
     ) {
         self.specs
             .push(ConfiguredToolSpec::new(spec, supports_parallel_tool_calls));
+    }
+
+    pub fn push_configured_spec(&mut self, spec: ConfiguredToolSpec) {
+        self.specs.push(spec);
     }
 
     pub fn register_handler<H>(&mut self, name: impl Into<ToolName>, handler: Arc<H>)

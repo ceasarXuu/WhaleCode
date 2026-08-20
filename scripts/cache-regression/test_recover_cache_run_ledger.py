@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from cache_evidence import RESULT_SCHEMA_VERSION
+from cache_provider_route_test_support import bind_route
 from cache_surface import write_json
 from recover_cache_run_ledger import mark_unsettled, recover
 
@@ -135,6 +136,8 @@ class RecoverCacheRunLedgerTest(unittest.TestCase):
                 }
             ],
         }
+        bind_route(entry, result)
+        write_json(self.ledger, {"updated_at": None, "entries": [entry]})
         write_json(self.result, result)
 
     def tearDown(self) -> None:

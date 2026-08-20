@@ -116,6 +116,7 @@ use codex_protocol::protocol::ReviewRequest;
 use codex_protocol::protocol::ReviewTarget as CoreReviewTarget;
 use codex_protocol::protocol::SandboxPolicy;
 use codex_protocol::protocol::SessionNetworkProxyRuntime;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use color_eyre::eyre::ContextCompat;
 use color_eyre::eyre::Result;
@@ -175,6 +176,7 @@ pub(crate) struct ThreadSessionState {
     pub(crate) history_entry_count: u64,
     pub(crate) network_proxy: Option<SessionNetworkProxyRuntime>,
     pub(crate) rollout_path: Option<PathBuf>,
+    pub(crate) taskspace_active: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -373,7 +375,9 @@ impl AppServerSession {
             })
             .await
             .wrap_err("thread/start failed during TUI bootstrap")?;
-        started_thread_from_start_response(response, config).await
+        let mut started = started_thread_from_start_response(response, config).await?;
+        self.load_taskspace_active(&mut started).await;
+        Ok(started)
     }
 
     pub(crate) async fn resume_thread(
@@ -400,6 +404,7 @@ impl AppServerSession {
             .await;
         let mut started = started_thread_from_resume_response(response, &config).await?;
         started.session.fork_parent_title = fork_parent_title;
+        self.load_taskspace_active(&mut started).await;
         Ok(started)
     }
 
@@ -427,7 +432,20 @@ impl AppServerSession {
             .await;
         let mut started = started_thread_from_fork_response(response, &config).await?;
         started.session.fork_parent_title = fork_parent_title;
+        self.load_taskspace_active(&mut started).await;
         Ok(started)
+    }
+
+    async fn load_taskspace_active(&mut self, started: &mut AppServerStartedThread) {
+        match self.thread_taskspace_read(started.session.thread_id).await {
+            Ok(response) => {
+                started.session.taskspace_active =
+                    response.snapshot.mode == MapRuntimeMode::Experiment;
+            }
+            Err(err) => {
+                tracing::warn!("failed to read TaskSpace mode during TUI attach: {err}");
+            }
+        }
     }
 
     fn thread_params_mode(&self) -> ThreadParamsMode {
@@ -670,6 +688,7 @@ impl AppServerSession {
         &mut self,
         thread_id: ThreadId,
         mode: MapRuntimeMode,
+        projection_policy: Option<TaskSpaceProjectionPolicy>,
     ) -> Result<()> {
         let request_id = self.next_request_id();
         let _: ThreadMapRuntimeModeSetResponse = self
@@ -679,6 +698,7 @@ impl AppServerSession {
                 params: ThreadMapRuntimeModeSetParams {
                     thread_id: thread_id.to_string(),
                     mode,
+                    projection_policy,
                 },
             })
             .await
@@ -1450,6 +1470,7 @@ async fn thread_session_state_from_thread_response(
         history_entry_count,
         network_proxy: None,
         rollout_path,
+        taskspace_active: false,
     })
 }
 

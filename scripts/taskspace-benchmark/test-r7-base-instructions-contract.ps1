@@ -68,6 +68,6 @@ Assert-BaseInstructionsContract ($wireTraceSource.Contains('schema_version: "pro
 Assert-BaseInstructionsContract ($wireTraceSource.Contains("base_instructions_identity")) "wire trace base identity observer is missing"
 Assert-BaseInstructionsContract ($wireTraceSource.Contains("taskspace_core_protocol_identity")) "wire trace core protocol identity observer is missing"
 Assert-BaseInstructionsContract ($wireTraceSource.Contains("taskspace_wire_contract_identity")) "wire trace complete TaskSpace message-shape observer is missing"
-Assert-BaseInstructionsContract ($wireTraceSource.Contains("taskspace_final_receipt_identity")) "wire trace final receipt identity observer is missing"
+Assert-BaseInstructionsContract ($wireTraceSource.Contains("taskspace_final_control_result_identity")) "wire trace final control result identity observer is missing"
 
 Write-Output "R7 dual base instructions contract tests passed."

@@ -6,7 +6,9 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from cache_provider_route_test_support import route_summary
 from cache_surface import write_json
 
 
@@ -69,16 +71,18 @@ class CacheRunExecutionFixture(unittest.TestCase):
                 "elapsed_seconds": 60,
                 "cleanup_grace_seconds": 120,
             },
-            "per_sample_run_observation_thresholds": {
+            "per_sample_run_budget_limits": {
                 "input_tokens": 1000,
                 "output_tokens": 100,
+                "estimated_cost": 0.5,
+                "currency": "USD",
             },
-            "maximums": {
+            "approved_maximums": {
                 "provider_requests": 20,
-                "input_tokens": 20_000_000,
-                "output_tokens": 7_680_000,
+                "input_tokens": 2000,
+                "output_tokens": 200,
                 "elapsed_seconds": 360,
-                "estimated_cost": 4.9504,
+                "estimated_cost": 1.0,
                 "currency": "USD",
             },
             "provider_hard_limits": {
@@ -94,6 +98,19 @@ class CacheRunExecutionFixture(unittest.TestCase):
         }
         write_json(self.proposal_path, self.proposal)
         write_json(self.authorization_path, self.authorization)
+        self.provider_route = route_summary()
+        self.binary_health_patcher = patch(
+            "run_cache_hit_regression.run_whale_binary_health_preflight",
+            return_value={"status": "passed"},
+        )
+        self.binary_health_mock = self.binary_health_patcher.start()
+        self.addCleanup(self.binary_health_patcher.stop)
+        self.route_preflight_patcher = patch(
+            "run_cache_hit_regression.run_provider_route_preflight",
+            return_value=self.provider_route,
+        )
+        self.route_preflight_mock = self.route_preflight_patcher.start()
+        self.addCleanup(self.route_preflight_patcher.stop)
 
     def tearDown(self) -> None:
         self.temp.cleanup()

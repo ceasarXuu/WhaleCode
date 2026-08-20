@@ -182,7 +182,6 @@ $currentHeadForRelease = (& git -C $repoRootForRelease rev-parse HEAD 2>$null)
 $costPath = Join-Path $runRoot "suite-cost-gate.json"
 $aggregatePath = Join-Path $runRoot "aggregate.json"
 $projectionPath = Join-Path $runRoot "context-projection-summary.json"
-$mapPath = Join-Path $runRoot "suite-map-management-summary.json"
 $routingPath = Join-Path $runRoot "suite-routing-summary.json"
 $costDiagnosticsPath = Join-Path $runRoot "cost-diagnostics.json"
 $runStatusPath = Join-Path $runRoot "run-status.json"
@@ -211,10 +210,8 @@ $requiredArtifacts = @(
     "taskspace-control-usage.json",
     "projection-events.jsonl",
     "output-ref-events.jsonl",
-    "compaction-events.jsonl",
     "routing-decision.json",
     "suite-cost-gate.json",
-    "suite-map-management-summary.json",
     "provider-request-events.jsonl",
     "budget-events.jsonl",
     "budget-quality-impact-events.jsonl",
@@ -236,7 +233,6 @@ $requiredArtifacts = @(
 $cost = Read-ReleaseJson $costPath
 $aggregate = Read-ReleaseJson $aggregatePath
 $projection = Read-ReleaseJson $projectionPath
-$map = Read-ReleaseJson $mapPath
 $routing = Read-ReleaseJson $routingPath
 $costDiagnostics = Read-ReleaseJson $costDiagnosticsPath
 $runStatus = Read-ReleaseJson $runStatusPath
@@ -630,7 +626,6 @@ $evidence = [ordered]@{
     cost_gate_path = $costPath
     aggregate_path = $aggregatePath
     projection_summary_path = $projectionPath
-    map_summary_path = $mapPath
     routing_summary_path = $routingPath
     cost_diagnostics_path = $costDiagnosticsPath
     run_status_path = $runStatusPath
@@ -658,7 +653,6 @@ $projectionPass = ($projection `
     -and (Get-ReleaseInt $projection "taskspace_projection_protected_miss_count" 0) -eq 0 `
     -and (Get-ReleaseInt $projection "active_projection_count" 0) -gt 0 `
     -and (Get-ReleaseInt $projection "shadow_projection_count" 0) -eq 0)
-$mapPass = ($map -and (Get-ReleaseString $map "availability") -eq "measured" -and (Get-ReleaseInt $map "protected_miss_count" 0) -eq 0)
 $routingPass = ($routing -and (Get-ReleaseString $routing "availability") -eq "measured" -and (Get-ReleaseInt $routing "routing_mistake_count" 0) -eq 0)
 $outputRefPass = ($maxLargeReplay -eq 0 -and $runtimeOutputRefs -gt 0 -and $validOutputRefCreatedEvents.Count -gt 0 -and $validOutputRefPairEvidence.Count -eq $completedPairs)
 $providerRequestPass = (@($providerRequestEvents | Where-Object {
@@ -836,7 +830,6 @@ if (-not $qualityPass) { Add-ReleaseLine $blockers "quality_gate_failed" }
 if ($costStatus -eq "MISSING") { Add-ReleaseLine $blockers "cost_gate_missing" }
 elseif ($costStatus -eq "FAIL") { Add-ReleaseLine $blockers "cost_gate_failed" }
 if (-not $projectionPass) { Add-ReleaseLine $blockers "projection_gate_failed" }
-if (-not $mapPass) { Add-ReleaseLine $blockers "map_gate_failed" }
 if (-not $routingPass) { Add-ReleaseLine $blockers "routing_gate_failed" }
 if (-not $outputRefPass) { Add-ReleaseLine $blockers "output_ref_replay_failed" }
 if (-not $runProvenancePass) { Add-ReleaseLine $blockers "run_provenance_gate_failed" }
@@ -864,7 +857,7 @@ if ($aggregate -and (Get-ReleaseInt $aggregate "excluded_pairs" 0) -gt 0) { Add-
 
 $decision = "fail"
 $closeable = $false
-if ($qualityPass -and $projectionPass -and $mapPass -and $routingPass -and $outputRefPass -and $runProvenancePass -and $formalE3IdentityPass -and $suiteProvenancePass -and $suiteReceiptPass -and $suiteRunnerAttestationPass -and $codeCompleteMarkerPass -and $userApprovalMarkerPass -and $providerRequestPass -and $budgetResponsePass -and $budgetQualityImpactPass -and $requestPhasePass -and $providerCacheTracePass -and $activeReplacementPass -and $stateCommitDisplacementPass -and $spawnNodeBudgetPass -and $v005NonAgentGatesPass) {
+if ($qualityPass -and $projectionPass -and $routingPass -and $outputRefPass -and $runProvenancePass -and $formalE3IdentityPass -and $suiteProvenancePass -and $suiteReceiptPass -and $suiteRunnerAttestationPass -and $codeCompleteMarkerPass -and $userApprovalMarkerPass -and $providerRequestPass -and $budgetResponsePass -and $budgetQualityImpactPass -and $requestPhasePass -and $providerCacheTracePass -and $activeReplacementPass -and $stateCommitDisplacementPass -and $spawnNodeBudgetPass -and $v005NonAgentGatesPass) {
     if ($costStatus -eq "PASS" -and $formalP0CostCleanPass -and $blockers.Count -eq 0) {
         $decision = "release_pass"
         $closeable = $true
@@ -881,7 +874,6 @@ $summary = [pscustomobject]@{
     cost_status = $costStatus
     quality_gate_pass = [bool]$qualityPass
     projection_gate_pass = [bool]$projectionPass
-    map_gate_pass = [bool]$mapPass
     routing_gate_pass = [bool]$routingPass
     output_ref_gate_pass = [bool]$outputRefPass
     run_provenance_gate_pass = [bool]$runProvenancePass
@@ -992,7 +984,6 @@ Add-ReleaseLine $lines "- run_dir: $runRoot"
 Add-ReleaseLine $lines "- cost_status: $costStatus"
 Add-ReleaseLine $lines "- quality_gate_pass: $qualityPass"
 Add-ReleaseLine $lines "- projection_gate_pass: $projectionPass"
-Add-ReleaseLine $lines "- map_gate_pass: $mapPass"
 Add-ReleaseLine $lines "- routing_gate_pass: $routingPass"
 Add-ReleaseLine $lines "- output_ref_gate_pass: $outputRefPass"
 Add-ReleaseLine $lines "- run_provenance_gate_pass: $runProvenancePass"

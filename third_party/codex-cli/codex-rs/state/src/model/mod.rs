@@ -30,6 +30,7 @@ pub use memories::Stage1StartupClaimParams;
 pub use taskspace_map::BindTaskSpaceMapRequest;
 pub use taskspace_map::CommitTaskSpaceMapRequest;
 pub use taskspace_map::CreateTaskSpaceMapRequest;
+pub use taskspace_map::SettleTaskSpaceActionRequest;
 pub use taskspace_map::TaskSpaceMapBindingRecord;
 pub use taskspace_map::TaskSpaceMapRecord;
 pub use taskspace_map::TaskSpaceMapRelation;

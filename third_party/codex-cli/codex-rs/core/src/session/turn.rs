@@ -5,8 +5,6 @@ use std::sync::atomic::Ordering;
 
 use crate::SkillInjections;
 use crate::SkillLoadOutcome;
-use crate::action_map::ActionMapControlState;
-use crate::action_map::ActionMapProviderResponseActionabilityInput;
 use crate::build_skill_injections;
 use crate::client::ModelClientSession;
 use crate::client::ProviderRequestAttribution;
@@ -58,10 +56,9 @@ use crate::stream_events_utils::record_completed_response_item;
 use crate::tools::ToolRouter;
 use crate::tools::context::SharedTurnDiffTracker;
 use crate::tools::parallel::ToolCallRuntime;
-use crate::tools::provider_tool_declaration::ProviderToolDeclaration;
 use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::router::ToolRouterParams;
-use crate::tools::sequence::execute_provider_response_tool_sequence;
+use crate::tools::taskspace_exec::TaskSpaceExecResponseIdentity;
 use crate::turn_diff_tracker::TurnDiffTracker;
 use crate::turn_timing::record_turn_ttft_metric;
 use crate::unavailable_tool::collect_unavailable_called_tools;
@@ -113,9 +110,9 @@ use codex_utils_stream_parser::AssistantTextStreamParser;
 use codex_utils_stream_parser::ProposedPlanSegment;
 use codex_utils_stream_parser::extract_proposed_plan_text;
 use codex_utils_stream_parser::strip_citations;
+use futures::future::BoxFuture;
 use futures::prelude::*;
-use sha2::Digest;
-use sha2::Sha256;
+use futures::stream::FuturesOrdered;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 use tracing::error;
@@ -125,46 +122,6 @@ use tracing::instrument;
 use tracing::trace;
 use tracing::trace_span;
 use tracing::warn;
-
-const TASKSPACE_GATE_RECOVERY_MARKER: &str = "\"schema_version\":\"TaskSpaceGateResultV1\"";
-const TASKSPACE_TERMINAL_PROTOCOL_VIOLATION: &str = "taskspace_terminal_protocol_violation";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TaskspaceProviderResponseActionability {
-    Actionable,
-    NoActionFollowUp,
-    ToolFeedbackRecovery,
-    EmptyFollowUp,
-    ProtocolViolation,
-    TurnComplete,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TaskspaceProviderToolVisibility {
-    Standard,
-    TaskspaceNative,
-}
-
-impl TaskspaceProviderResponseActionability {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Actionable => "actionable",
-            Self::NoActionFollowUp => "no_action_follow_up",
-            Self::ToolFeedbackRecovery => "tool_feedback_recovery",
-            Self::EmptyFollowUp => "empty_follow_up",
-            Self::ProtocolViolation => "protocol_violation",
-            Self::TurnComplete => "turn_complete",
-        }
-    }
-
-    #[cfg(test)]
-    fn needs_recovery(self) -> bool {
-        matches!(
-            self,
-            Self::NoActionFollowUp | Self::ToolFeedbackRecovery | Self::EmptyFollowUp
-        )
-    }
-}
 
 /// Takes a user message as input and runs a loop where, at each sampling request, the model
 /// replies with either:
@@ -300,7 +257,7 @@ pub(crate) async fn run_turn(
     let SkillInjections {
         items: skill_injections,
         warnings: skill_warnings,
-        failures: skill_failures,
+        failures: _,
     } = build_skill_injections(
         &mentioned_skills,
         skills_outcome,
@@ -313,81 +270,6 @@ pub(crate) async fn run_turn(
     for message in skill_warnings {
         sess.send_event(&turn_context, EventMsg::Warning(WarningEvent { message }))
             .await;
-    }
-
-    let mut taskspace_skill_failure_items = Vec::new();
-    for failure in &skill_failures {
-        if failure.name != crate::skills::TASKSPACE_ADVANCED_SKILL_NAME {
-            continue;
-        }
-        let Some(skill) = mentioned_skills
-            .iter()
-            .find(|skill| skill.path_to_skills_md.to_string_lossy() == failure.path)
-        else {
-            continue;
-        };
-        let Some(body_sha256) =
-            skills_outcome.and_then(|outcome| outcome.expected_body_sha256(skill))
-        else {
-            continue;
-        };
-        let fact = crate::taskspace_skill::explicit_load_failure_fact(
-            &failure.name,
-            &failure.path,
-            body_sha256,
-            &failure.message,
-        );
-        tracing::info!(
-            target: "codex_core::taskspace",
-            event_name = "taskspace.skill_load_completed",
-            load_trigger = "explicit_mention",
-            carrier = "host_skill_injection",
-            name = failure.name,
-            skill_version = crate::skills::TASKSPACE_ADVANCED_SKILL_VERSION,
-            body_sha256,
-            immutable_snapshot_path = failure.path,
-            body_bytes = 0,
-            skill_load_status = fact.status,
-            reason_code = fact.reason_code,
-            "TaskSpace advanced skill load failed"
-        );
-        taskspace_skill_failure_items.push(ResponseItem::Message {
-            id: None,
-            role: "user".to_string(),
-            content: vec![ContentItem::InputText { text: fact.text }],
-            end_turn: None,
-            phase: None,
-        });
-    }
-    for injection in &skill_injections {
-        if injection.name != crate::skills::TASKSPACE_ADVANCED_SKILL_NAME {
-            continue;
-        }
-        let Some(skill) = mentioned_skills
-            .iter()
-            .find(|skill| skill.path_to_skills_md.to_string_lossy() == injection.path)
-        else {
-            continue;
-        };
-        let Some(body_sha256) =
-            skills_outcome.and_then(|outcome| outcome.expected_body_sha256(skill))
-        else {
-            continue;
-        };
-        tracing::info!(
-            target: "codex_core::taskspace",
-            event_name = "taskspace.skill_load_completed",
-            load_trigger = "explicit_mention",
-            carrier = "host_skill_injection",
-            name = injection.name,
-            skill_version = crate::skills::TASKSPACE_ADVANCED_SKILL_VERSION,
-            body_sha256,
-            immutable_snapshot_path = injection.path,
-            body_bytes = injection.contents.len(),
-            skill_load_status = "loaded",
-            reason_code = "",
-            "TaskSpace advanced skill loaded"
-        );
     }
 
     let skill_items: Vec<ResponseItem> = skill_injections
@@ -473,10 +355,6 @@ pub(crate) async fn run_turn(
     }
     if !skill_items.is_empty() {
         sess.record_conversation_items(&turn_context, &skill_items)
-            .await;
-    }
-    if !taskspace_skill_failure_items.is_empty() {
-        sess.record_conversation_items(&turn_context, &taskspace_skill_failure_items)
             .await;
     }
     if !plugin_items.is_empty() {
@@ -1075,142 +953,6 @@ pub(crate) fn build_prompt(
     turn_context: &TurnContext,
     base_instructions: BaseInstructions,
 ) -> Prompt {
-    build_prompt_with_tool_visibility(
-        input,
-        router,
-        turn_context,
-        base_instructions,
-        TaskspaceProviderToolVisibility::Standard,
-    )
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TaskspaceProviderControlMode {
-    BootstrapRequired,
-    WorkActive,
-    TerminalControlRequired,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct TaskspaceProviderResponseContract {
-    control_mode: TaskspaceProviderControlMode,
-    map_id: Option<String>,
-    revision: Option<u64>,
-    projection_identity: Option<crate::client::ProviderProjectionIdentityExpectation>,
-}
-
-impl TaskspaceProviderControlMode {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::BootstrapRequired => "bootstrap_required",
-            Self::WorkActive => "work_active",
-            Self::TerminalControlRequired => "terminal_control_required",
-        }
-    }
-}
-
-fn taskspace_provider_control_mode(
-    map_requires_initialization: bool,
-    control_state: Option<&ActionMapControlState>,
-) -> TaskspaceProviderControlMode {
-    if map_requires_initialization {
-        TaskspaceProviderControlMode::BootstrapRequired
-    } else if control_state.is_some_and(ActionMapControlState::requires_named_taskspace_control) {
-        TaskspaceProviderControlMode::TerminalControlRequired
-    } else {
-        TaskspaceProviderControlMode::WorkActive
-    }
-}
-
-fn taskspace_terminal_protocol_violation(
-    contract: Option<&TaskspaceProviderResponseContract>,
-    terminal_committed: bool,
-    needs_follow_up: bool,
-) -> bool {
-    contract.is_some() && !terminal_committed && !needs_follow_up
-}
-
-fn taskspace_nonterminal_assistant_message(item: &ResponseItem) -> Option<ResponseItem> {
-    let ResponseItem::Message {
-        id, role, content, ..
-    } = item
-    else {
-        return None;
-    };
-    (role == "assistant").then(|| ResponseItem::Message {
-        id: id.clone(),
-        role: role.clone(),
-        content: content.clone(),
-        end_turn: Some(false),
-        phase: Some(MessagePhase::Commentary),
-    })
-}
-
-fn should_preempt_response_for_mailbox(
-    preemptible_item: bool,
-    mailbox_has_pending: bool,
-    pending_tool_call_count: usize,
-) -> bool {
-    preemptible_item && mailbox_has_pending && pending_tool_call_count == 0
-}
-
-fn apply_provider_tool_visibility(
-    tools: Vec<ToolSpec>,
-    tool_visibility: TaskspaceProviderToolVisibility,
-) -> Vec<ToolSpec> {
-    match tool_visibility {
-        TaskspaceProviderToolVisibility::Standard => tools
-            .into_iter()
-            .filter(|spec| spec.name() != "taskspace_control")
-            .collect(),
-        TaskspaceProviderToolVisibility::TaskspaceNative => {
-            trace!(
-                target = "codex_core::taskspace",
-                "taskspace_linear_plan_tool_hidden"
-            );
-            let visible = tools
-                .into_iter()
-                .filter(|spec| spec.name() != "update_plan")
-                .collect::<Vec<_>>();
-            trace_taskspace_provider_tool_schema_profile(&visible);
-            visible
-        }
-    }
-}
-
-fn trace_taskspace_provider_tool_schema_profile(tools: &[ToolSpec]) {
-    let mut tool_set_hasher = Sha256::new();
-    let mut total_schema_bytes = 0;
-    let entries = tools
-        .iter()
-        .map(|tool| {
-            let encoded = serde_json::to_vec(tool).unwrap_or_default();
-            tool_set_hasher.update(&encoded);
-            tool_set_hasher.update([0xff]);
-            let bytes = encoded.len();
-            total_schema_bytes += bytes;
-            format!("{}:{bytes}", tool.name())
-        })
-        .collect::<Vec<_>>();
-    tracing::info!(
-        target: "codex_core::taskspace",
-        tool_count = tools.len(),
-        total_schema_bytes,
-        tool_set_sha256 = format!("{:x}", tool_set_hasher.finalize()),
-        package_version = env!("CARGO_PKG_VERSION"),
-        build_identity = option_env!("WHALECODE_BUILD_ID").unwrap_or("unavailable"),
-        tool_schema_bytes = entries.join(","),
-        "taskspace.provider_tool_schema_profile"
-    );
-}
-
-pub(crate) fn build_prompt_with_tool_visibility(
-    input: Vec<ResponseItem>,
-    router: &ToolRouter,
-    turn_context: &TurnContext,
-    base_instructions: BaseInstructions,
-    tool_visibility: TaskspaceProviderToolVisibility,
-) -> Prompt {
     let deferred_dynamic_tools = turn_context
         .dynamic_tools
         .iter()
@@ -1226,13 +968,13 @@ pub(crate) fn build_prompt_with_tool_visibility(
             .filter_map(|spec| filter_deferred_dynamic_tool_spec(spec, &deferred_dynamic_tools))
             .collect()
     };
-    let tools = apply_provider_tool_visibility(tools, tool_visibility);
 
     Prompt {
         input,
         tools,
         parallel_tool_calls: turn_context.model_info.supports_parallel_tool_calls,
         tool_choice: ToolChoice::Auto,
+        taskspace_capability_identity: router.taskspace_capability_identity(),
         base_instructions,
         personality: turn_context.personality,
         output_schema: turn_context.final_output_json_schema.clone(),
@@ -1242,56 +984,12 @@ pub(crate) fn build_prompt_with_tool_visibility(
     }
 }
 
-fn taskspace_message_has_gate_recovery(message: Option<&str>) -> bool {
-    message.is_some_and(|message| message.contains(TASKSPACE_GATE_RECOVERY_MARKER))
-}
-
-fn classify_taskspace_provider_response_actionability(
-    needs_follow_up: bool,
-    saw_actionable_output: bool,
-    assistant_message_present: bool,
-    gate_recovery_message_present: bool,
-    tool_failure_recovery_message_present: bool,
-    _provider_budget_exhausted_followup: bool,
-) -> TaskspaceProviderResponseActionability {
-    if saw_actionable_output
-        && (gate_recovery_message_present || tool_failure_recovery_message_present)
-    {
-        TaskspaceProviderResponseActionability::ToolFeedbackRecovery
-    } else if gate_recovery_message_present {
-        TaskspaceProviderResponseActionability::NoActionFollowUp
-    } else if tool_failure_recovery_message_present {
-        TaskspaceProviderResponseActionability::NoActionFollowUp
-    } else if saw_actionable_output {
-        TaskspaceProviderResponseActionability::Actionable
-    } else if needs_follow_up && assistant_message_present {
-        TaskspaceProviderResponseActionability::NoActionFollowUp
-    } else if needs_follow_up {
-        TaskspaceProviderResponseActionability::EmptyFollowUp
-    } else {
-        TaskspaceProviderResponseActionability::TurnComplete
-    }
-}
-
-fn taskspace_bound_node_empty_response_requires_follow_up(
-    node_role: Option<&str>,
-    saw_actionable_output: bool,
-    assistant_message_present: bool,
+fn should_preempt_response_for_mailbox(
+    preemptible_item: bool,
+    mailbox_has_pending: bool,
+    pending_tool_call_count: usize,
 ) -> bool {
-    node_role.is_some() && !saw_actionable_output && !assistant_message_present
-}
-
-fn taskspace_last_message_preview(message: Option<&str>) -> Option<String> {
-    let message = message?.trim();
-    if message.is_empty() {
-        return None;
-    }
-    let preview = message
-        .chars()
-        .take(160)
-        .collect::<String>()
-        .replace(['\r', '\n', '\t'], " ");
-    Some(preview)
+    preemptible_item && mailbox_has_pending && pending_tool_call_count == 0
 }
 
 fn filter_deferred_dynamic_tool_spec(
@@ -1372,7 +1070,6 @@ async fn run_sampling_request(
     let mut retries = 0;
     let mut initial_input = Some(input);
     loop {
-        let provider_budget_snapshot = sess.action_map_provider_request_budget_snapshot().await;
         let prompt_source = if let Some(input) = initial_input.take() {
             input
         } else {
@@ -1381,7 +1078,6 @@ async fn run_sampling_request(
                 .for_prompt(&turn_context.model_info.input_modalities)
         };
         let resolved_base_instructions = sess.get_resolved_base_instructions().await;
-        let taskspace_context_visible = resolved_base_instructions.profile.is_taskspace();
         info!(
             target = "codex_core::taskspace",
             event_name = "base_instructions.profile_selected",
@@ -1397,55 +1093,14 @@ async fn run_sampling_request(
             .prepare_provider_visible_prompt_items(&turn_context, prompt_source)
             .await
             .map_err(CodexErr::Fatal)?;
+        let projection_identity = prepared_prompt.projection_identity;
+        let taskspace_request_map = prepared_prompt.taskspace_request_map;
         let prompt_input = prepared_prompt.items;
-        let tool_visibility = if taskspace_context_visible {
-            TaskspaceProviderToolVisibility::TaskspaceNative
-        } else {
-            TaskspaceProviderToolVisibility::Standard
-        };
-        let action_map_control_state = if taskspace_context_visible {
-            sess.action_map_control_state(None).await
-        } else {
-            None
-        };
-        let taskspace_response_contract = taskspace_context_visible.then(|| {
-            let control_mode = taskspace_provider_control_mode(
-                provider_budget_snapshot
-                    .as_ref()
-                    .is_some_and(|snapshot| snapshot.map_requires_initialization),
-                action_map_control_state.as_ref(),
-            );
-            TaskspaceProviderResponseContract {
-                control_mode,
-                map_id: action_map_control_state
-                    .as_ref()
-                    .map(|state| state.map_id.clone())
-                    .or_else(|| {
-                        provider_budget_snapshot
-                            .as_ref()
-                            .map(|snapshot| snapshot.map_id.clone())
-                    }),
-                revision: action_map_control_state
-                    .as_ref()
-                    .map(|state| state.revision),
-                projection_identity: prepared_prompt.projection_identity,
-            }
-        });
-        if let Some(contract) = taskspace_response_contract.as_ref() {
-            info!(
-                target = "codex_core::taskspace",
-                control_mode = contract.control_mode.as_str(),
-                map_id = contract.map_id.as_deref(),
-                revision = ?contract.revision,
-                "taskspace_provider_control_mode_selected"
-            );
-        }
-        let prompt = build_prompt_with_tool_visibility(
+        let prompt = build_prompt(
             prompt_input,
             router.as_ref(),
             turn_context.as_ref(),
             base_instructions,
-            tool_visibility,
         );
         let err = match try_run_sampling_request(
             tool_runtime.clone(),
@@ -1455,7 +1110,8 @@ async fn run_sampling_request(
             turn_metadata_header,
             Arc::clone(&turn_diff_tracker),
             &prompt,
-            taskspace_response_contract.as_ref(),
+            projection_identity.as_ref(),
+            taskspace_request_map.as_ref(),
             cancellation_token.child_token(),
         )
         .await
@@ -1663,7 +1319,7 @@ pub(crate) async fn built_tools(
         })
         .collect::<HashSet<_>>();
 
-    Ok(Arc::new(ToolRouter::from_config(
+    let router = ToolRouter::from_config(
         &turn_context.tools_config,
         ToolRouterParams {
             mcp_tools,
@@ -1673,7 +1329,16 @@ pub(crate) async fn built_tools(
             discoverable_tools,
             dynamic_tools: turn_context.dynamic_tools.as_slice(),
         },
-    )))
+    );
+    if sess.taskspace_active().await {
+        let loaded_deferred_specs = crate::tools::taskspace_exec::loaded_deferred_specs(input);
+        router
+            .into_taskspace(&loaded_deferred_specs)
+            .map(Arc::new)
+            .map_err(|error| CodexErr::Fatal(format!("TaskSpace Tool catalog failed: {error:?}")))
+    } else {
+        Ok(Arc::new(router))
+    }
 }
 
 #[cfg(test)]
@@ -1681,338 +1346,11 @@ mod active_context_replacement_tests {
     use super::*;
 
     #[test]
-    fn taskspace_native_tools_hide_linear_plan_but_keep_map_control() {
-        let tools = vec![
-            codex_tools::create_update_plan_tool(),
-            codex_tools::create_taskspace_control_tool(),
-        ];
-
-        let filtered =
-            apply_provider_tool_visibility(tools, TaskspaceProviderToolVisibility::TaskspaceNative);
-        let names = filtered.iter().map(ToolSpec::name).collect::<Vec<_>>();
-
-        assert_eq!(names, vec!["taskspace_control"]);
-    }
-
-    #[test]
     fn mailbox_preemption_never_takes_ownership_of_pending_tool_calls() {
         assert!(should_preempt_response_for_mailbox(true, true, 0));
         assert!(!should_preempt_response_for_mailbox(true, true, 1));
         assert!(!should_preempt_response_for_mailbox(true, false, 0));
         assert!(!should_preempt_response_for_mailbox(false, true, 0));
-    }
-
-    #[test]
-    fn ordinary_tool_schema_is_identical_in_standard_and_taskspace() {
-        let ordinary = codex_tools::create_exec_command_tool(codex_tools::CommandToolOptions {
-            allow_login_shell: true,
-            exec_permission_approvals_enabled: false,
-        });
-        let standard = apply_provider_tool_visibility(
-            vec![ordinary.clone()],
-            TaskspaceProviderToolVisibility::Standard,
-        );
-        let taskspace = apply_provider_tool_visibility(
-            vec![ordinary],
-            TaskspaceProviderToolVisibility::TaskspaceNative,
-        );
-
-        assert_eq!(
-            serde_json::to_value(&standard[0]).expect("serialize Standard Tool"),
-            serde_json::to_value(&taskspace[0]).expect("serialize TaskSpace Tool")
-        );
-    }
-
-    #[test]
-    fn taskspace_visibility_preserves_native_tool_shapes() {
-        let tools = vec![
-            ToolSpec::LocalShell {},
-            ToolSpec::ImageGeneration {
-                output_format: "png".into(),
-            },
-            codex_tools::create_taskspace_control_tool(),
-        ];
-
-        let visible =
-            apply_provider_tool_visibility(tools, TaskspaceProviderToolVisibility::TaskspaceNative);
-
-        assert_eq!(
-            visible.iter().map(ToolSpec::name).collect::<Vec<_>>(),
-            vec!["local_shell", "image_generation", "taskspace_control"]
-        );
-    }
-
-    #[test]
-    fn taskspace_hides_linear_plan_but_keeps_control() {
-        let visible = apply_provider_tool_visibility(
-            vec![
-                codex_tools::create_update_plan_tool(),
-                codex_tools::create_taskspace_control_tool(),
-            ],
-            TaskspaceProviderToolVisibility::TaskspaceNative,
-        );
-        assert_eq!(
-            visible.iter().map(ToolSpec::name).collect::<Vec<_>>(),
-            vec!["taskspace_control"]
-        );
-    }
-
-    #[test]
-    fn standard_native_tools_hide_map_control_but_keep_linear_plan() {
-        let tools = vec![
-            codex_tools::create_update_plan_tool(),
-            codex_tools::create_taskspace_control_tool(),
-        ];
-
-        let visible =
-            apply_provider_tool_visibility(tools, TaskspaceProviderToolVisibility::Standard);
-        let names = visible.iter().map(ToolSpec::name).collect::<Vec<_>>();
-
-        assert_eq!(names, vec!["update_plan"]);
-    }
-
-    fn terminal_control_state() -> ActionMapControlState {
-        ActionMapControlState {
-            map_id: "map-1".into(),
-            owner_session_id: None,
-            revision: 7,
-            complete: false,
-            ready_work_node_count: 0,
-            inflight_work_node_count: 0,
-            finish_ready: true,
-            completed_work_node_count: 3,
-        }
-    }
-
-    fn terminal_response_contract() -> TaskspaceProviderResponseContract {
-        TaskspaceProviderResponseContract {
-            control_mode: TaskspaceProviderControlMode::TerminalControlRequired,
-            map_id: Some("map-1".into()),
-            revision: Some(7),
-            projection_identity: None,
-        }
-    }
-
-    #[test]
-    fn taskspace_control_modes_preserve_state_with_one_stable_central_contract() {
-        let visible = vec![
-            codex_tools::create_list_dir_tool(),
-            codex_tools::create_taskspace_control_tool(),
-        ];
-        let tool_contract = serde_json::to_string(&visible).expect("serialize lifecycle tools");
-        assert_eq!(
-            visible.iter().map(ToolSpec::name).collect::<Vec<_>>(),
-            vec!["list_dir", "taskspace_control"]
-        );
-        assert!(tool_contract.contains("initialize_and_execute"));
-        assert!(tool_contract.contains("\"execute\""));
-        assert!(tool_contract.contains("read_map"));
-        assert!(tool_contract.contains("read_output_ref"));
-        assert!(tool_contract.contains("finish_map"));
-        assert!(!tool_contract.contains("bind_node"));
-        assert!(!tool_contract.contains("complete_then_continue"));
-        assert!(!tool_contract.contains("current_node"));
-
-        let bootstrap_mode = taskspace_provider_control_mode(true, None);
-        assert_eq!(
-            bootstrap_mode,
-            TaskspaceProviderControlMode::BootstrapRequired
-        );
-
-        let mut work_state = terminal_control_state();
-        work_state.finish_ready = false;
-        work_state.ready_work_node_count = 1;
-        let work_mode = taskspace_provider_control_mode(false, Some(&work_state));
-        assert_eq!(work_mode, TaskspaceProviderControlMode::WorkActive);
-
-        let terminal_state = terminal_control_state();
-        let terminal_mode = taskspace_provider_control_mode(false, Some(&terminal_state));
-        assert_eq!(
-            terminal_mode,
-            TaskspaceProviderControlMode::TerminalControlRequired
-        );
-        assert_eq!(
-            serde_json::to_string(&visible).expect("serialize lifecycle tools"),
-            tool_contract
-        );
-    }
-
-    #[test]
-    fn provider_response_actionability_classifies_no_action_follow_up() {
-        let classification = classify_taskspace_provider_response_actionability(
-            true, false, true, false, false, false,
-        );
-
-        assert_eq!(
-            classification,
-            TaskspaceProviderResponseActionability::NoActionFollowUp
-        );
-        assert!(classification.needs_recovery());
-    }
-
-    #[test]
-    fn provider_response_actionability_delivers_plain_final_without_follow_up() {
-        let classification = classify_taskspace_provider_response_actionability(
-            false, false, true, false, false, false,
-        );
-
-        assert_eq!(
-            classification,
-            TaskspaceProviderResponseActionability::TurnComplete
-        );
-        assert!(!classification.needs_recovery());
-    }
-
-    #[test]
-    fn taskspace_completion_requires_a_committed_terminal_carrier() {
-        let contract = terminal_response_contract();
-        assert!(taskspace_terminal_protocol_violation(
-            Some(&contract),
-            false,
-            false
-        ));
-        assert!(!taskspace_terminal_protocol_violation(
-            Some(&contract),
-            true,
-            false
-        ));
-        assert!(!taskspace_terminal_protocol_violation(
-            Some(&contract),
-            false,
-            true
-        ));
-        assert!(!taskspace_terminal_protocol_violation(None, false, false));
-    }
-
-    #[test]
-    fn taskspace_provider_text_is_presented_as_nonterminal_without_rewriting_text() {
-        let original = ResponseItem::Message {
-            id: Some("message-1".into()),
-            role: "assistant".into(),
-            content: vec![ContentItem::OutputText {
-                text: "exact provider text".into(),
-            }],
-            end_turn: Some(true),
-            phase: Some(MessagePhase::FinalAnswer),
-        };
-
-        let presented =
-            taskspace_nonterminal_assistant_message(&original).expect("assistant message");
-        let ResponseItem::Message {
-            content,
-            end_turn,
-            phase,
-            ..
-        } = presented
-        else {
-            panic!("expected assistant message");
-        };
-        assert_eq!(
-            content,
-            vec![ContentItem::OutputText {
-                text: "exact provider text".into(),
-            }]
-        );
-        assert_eq!(end_turn, Some(false));
-        assert_eq!(phase, Some(MessagePhase::Commentary));
-    }
-
-    #[test]
-    fn provider_response_actionability_treats_empty_active_node_response_as_recovery() {
-        let needs_follow_up = taskspace_bound_node_empty_response_requires_follow_up(
-            Some("inspect_code_context"),
-            false,
-            false,
-        );
-        let classification = classify_taskspace_provider_response_actionability(
-            needs_follow_up,
-            false,
-            false,
-            false,
-            false,
-            false,
-        );
-
-        assert_eq!(
-            classification,
-            TaskspaceProviderResponseActionability::EmptyFollowUp
-        );
-        assert!(classification.needs_recovery());
-    }
-
-    #[test]
-    fn provider_response_actionability_allows_empty_response_without_bound_node() {
-        let needs_follow_up =
-            taskspace_bound_node_empty_response_requires_follow_up(None, false, false);
-        let classification = classify_taskspace_provider_response_actionability(
-            needs_follow_up,
-            false,
-            false,
-            false,
-            false,
-            false,
-        );
-
-        assert_eq!(
-            classification,
-            TaskspaceProviderResponseActionability::TurnComplete
-        );
-        assert!(!classification.needs_recovery());
-    }
-
-    #[test]
-    fn provider_response_actionability_keeps_actionable_response_out_of_recovery() {
-        let classification = classify_taskspace_provider_response_actionability(
-            true, true, true, false, false, false,
-        );
-
-        assert_eq!(
-            classification,
-            TaskspaceProviderResponseActionability::Actionable
-        );
-        assert!(!classification.needs_recovery());
-    }
-
-    #[test]
-    fn provider_response_actionability_treats_gate_recovery_as_recovery() {
-        let classification = classify_taskspace_provider_response_actionability(
-            true, true, true, true, false, false,
-        );
-
-        assert_eq!(
-            classification,
-            TaskspaceProviderResponseActionability::ToolFeedbackRecovery
-        );
-        assert!(classification.needs_recovery());
-        assert_eq!(classification.as_str(), "tool_feedback_recovery");
-    }
-
-    #[test]
-    fn provider_response_actionability_treats_gate_recovery_without_tool_output_as_no_action() {
-        let classification = classify_taskspace_provider_response_actionability(
-            true, false, true, true, false, false,
-        );
-
-        assert_eq!(
-            classification,
-            TaskspaceProviderResponseActionability::NoActionFollowUp
-        );
-        assert!(classification.needs_recovery());
-        assert_eq!(classification.as_str(), "no_action_follow_up");
-    }
-
-    #[test]
-    fn provider_response_actionability_treats_tool_failure_feedback_as_tool_feedback_recovery() {
-        let classification = classify_taskspace_provider_response_actionability(
-            true, true, true, false, true, false,
-        );
-
-        assert_eq!(
-            classification,
-            TaskspaceProviderResponseActionability::ToolFeedbackRecovery
-        );
-        assert!(classification.needs_recovery());
-        assert_eq!(classification.as_str(), "tool_feedback_recovery");
     }
 }
 
@@ -2548,6 +1886,27 @@ async fn handle_assistant_item_done_in_plan_mode(
     false
 }
 
+async fn drain_in_flight(
+    in_flight: &mut FuturesOrdered<BoxFuture<'static, CodexResult<ResponseInputItem>>>,
+    sess: Arc<Session>,
+    turn_context: Arc<TurnContext>,
+) -> CodexResult<()> {
+    while let Some(result) = in_flight.next().await {
+        match result {
+            Ok(response_input) => {
+                record_response_input_item(sess.as_ref(), turn_context.as_ref(), response_input)
+                    .await;
+            }
+            Err(error) => {
+                error_or_panic(format!(
+                    "in-flight tool future failed during drain: {error}"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn record_response_input_item(
     sess: &Session,
     turn_context: &TurnContext,
@@ -2558,70 +1917,6 @@ async fn record_response_input_item(
         .await;
     mark_thread_memory_mode_polluted_if_external_context(sess, turn_context, &response_item).await;
     response_item
-}
-
-async fn publish_taskspace_terminal_agent_message(
-    sess: &Session,
-    turn_context: &TurnContext,
-    call_id: &str,
-    carrier: &crate::tools::context::TaskSpaceTerminalCarrier,
-) {
-    let item = ResponseItem::Message {
-        id: None,
-        role: "assistant".to_string(),
-        content: vec![ContentItem::OutputText {
-            text: carrier.summary.clone(),
-        }],
-        end_turn: Some(true),
-        phase: Some(MessagePhase::FinalAnswer),
-    };
-    if let Some(turn_item) =
-        handle_non_tool_response_item(sess, turn_context, &item, /*plan_mode*/ false).await
-    {
-        sess.emit_turn_item_started(turn_context, &turn_item).await;
-        sess.emit_turn_item_completed(turn_context, turn_item).await;
-    }
-    record_completed_response_item(sess, turn_context, &item).await;
-    tracing::info!(
-        target: "codex_core::taskspace",
-        call_id,
-        map_id = carrier.map_id,
-        revision = carrier.revision,
-        candidate_bytes = carrier.summary.len(),
-        "taskspace_agent_final_released"
-    );
-}
-
-async fn publish_taskspace_nonterminal_provider_messages(
-    sess: &Session,
-    turn_context: &TurnContext,
-    messages: Vec<ResponseItem>,
-) {
-    let mut published_count = 0usize;
-    let mut published_bytes = 0usize;
-    for item in messages {
-        let Some(item) = taskspace_nonterminal_assistant_message(&item) else {
-            continue;
-        };
-        published_bytes += raw_assistant_output_text_from_item(&item)
-            .map(|text| text.len())
-            .unwrap_or_default();
-        if let Some(turn_item) =
-            handle_non_tool_response_item(sess, turn_context, &item, /*plan_mode*/ false).await
-        {
-            sess.emit_turn_item_started(turn_context, &turn_item).await;
-            sess.emit_turn_item_completed(turn_context, turn_item).await;
-            published_count += 1;
-        }
-    }
-    if published_count > 0 {
-        tracing::info!(
-            target: "codex_core::taskspace",
-            published_count,
-            published_bytes,
-            "taskspace_provider_assistant_text_published_nonterminal"
-        );
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2640,9 +1935,35 @@ async fn try_run_sampling_request(
     turn_metadata_header: Option<&str>,
     turn_diff_tracker: SharedTurnDiffTracker,
     prompt: &Prompt,
-    taskspace_response_contract: Option<&TaskspaceProviderResponseContract>,
+    projection_identity: Option<&crate::client::ProviderProjectionIdentityExpectation>,
+    taskspace_request_map: Option<&crate::session::ProviderTaskSpaceRequestMap>,
     cancellation_token: CancellationToken,
 ) -> CodexResult<SamplingRequestResult> {
+    if let Some(scope) = tool_runtime.taskspace_response_scope() {
+        let capability_identity =
+            tool_runtime
+                .taskspace_capability_identity()
+                .ok_or_else(|| {
+                    CodexErr::Fatal(
+                        "TaskSpace provider request is missing its capability identity".to_string(),
+                    )
+                })?;
+        let snapshot = taskspace_request_map.ok_or_else(|| {
+            CodexErr::Fatal(
+                "TaskSpace provider request is missing its visible Map snapshot".to_string(),
+            )
+        })?;
+        scope
+            .begin_request(snapshot.map_id.clone(), snapshot.revision)
+            .map_err(CodexErr::Fatal)?;
+        tracing::info!(
+            target: "codex_core::taskspace_exec",
+            event_name = "taskspace.exec.request_started",
+            map_id = %snapshot.map_id,
+            request_revision = ?snapshot.revision,
+            capability_identity = capability_identity.as_ref(),
+        );
+    }
     feedback_tags!(
         model = turn_context.model_info.slug.clone(),
         approval_policy = turn_context.approval_policy.value(),
@@ -2669,8 +1990,7 @@ async fn try_run_sampling_request(
                     budget_state: snapshot.budget_state.clone(),
                 },
                 ProviderRequestAttribution::from_snapshot(snapshot, turn_context.sub_id.as_str()),
-                taskspace_response_contract
-                    .and_then(|contract| contract.projection_identity.clone()),
+                projection_identity.cloned(),
             )
         })
         .unwrap_or_else(ProviderRequestBudgetContext::disabled);
@@ -2699,24 +2019,24 @@ async fn try_run_sampling_request(
         .await;
     }
     let mut stream = stream_result??;
-    let mut pending_tool_declarations: Vec<ProviderToolDeclaration> = Vec::new();
+    let mut in_flight: FuturesOrdered<BoxFuture<'static, CodexResult<ResponseInputItem>>> =
+        FuturesOrdered::new();
     let mut needs_follow_up = false;
     let mut last_agent_message: Option<String> = None;
-    let mut saw_actionable_output = false;
     let mut active_item: Option<TurnItem> = None;
     let mut active_tool_argument_diff_consumer: Option<(
         String,
         Box<dyn ToolArgumentDiffConsumer>,
     )> = None;
     let mut should_emit_turn_diff = false;
-    let mut taskspace_assistant_item_active = false;
-    let mut provider_assistant_message_present = false;
-    let mut deferred_taskspace_assistant_messages = Vec::new();
+    let taskspace_response_scope = tool_runtime.taskspace_response_scope();
+    let mut response_completed = false;
+    let mut taskspace_response_identity = None;
     let plan_mode = turn_context.collaboration_mode.mode == ModeKind::Plan;
     let mut assistant_message_stream_parsers = AssistantMessageStreamParsers::new(plan_mode);
     let mut plan_mode_state = plan_mode.then(|| PlanModeStreamState::new(&turn_context.sub_id));
     let receiving_span = trace_span!("receiving_stream");
-    let outcome: CodexResult<SamplingRequestResult> = loop {
+    let mut outcome: CodexResult<SamplingRequestResult> = loop {
         let handle_responses = trace_span!(
             parent: &receiving_span,
             "handle_responses",
@@ -2790,25 +2110,17 @@ async fn try_run_sampling_request(
 
         match event {
             ResponseEvent::Created => {}
-            ResponseEvent::OutputItemDone(item) => {
+            ResponseEvent::OutputItemDone(mut item, _output_index) => {
+                self_heal_completed_response_item(&tool_runtime, &mut item);
+                if let Some(scope) = taskspace_response_scope.as_ref() {
+                    scope.record_completed_item(&item);
+                }
                 if let Some((_, mut consumer)) = active_tool_argument_diff_consumer.take()
                     && let Ok(Some(event)) = consumer.finish()
                 {
                     sess.send_event(&turn_context, event).await;
                 }
                 let previously_active_item = active_item.take();
-                if taskspace_response_contract.is_some()
-                    && taskspace_nonterminal_assistant_message(&item).is_some()
-                {
-                    taskspace_assistant_item_active = false;
-                    provider_assistant_message_present |=
-                        raw_assistant_output_text_from_item(&item)
-                            .is_some_and(|text| !text.trim().is_empty());
-                    record_completed_response_item(sess.as_ref(), turn_context.as_ref(), &item)
-                        .await;
-                    deferred_taskspace_assistant_messages.push(item);
-                    continue;
-                }
                 if let Some(previous) = previously_active_item.as_ref()
                     && matches!(previous, TurnItem::AgentMessage(_))
                 {
@@ -2839,6 +2151,8 @@ async fn try_run_sampling_request(
                 let mut ctx = HandleOutputCtx {
                     sess: sess.clone(),
                     turn_context: turn_context.clone(),
+                    tool_runtime: tool_runtime.clone(),
+                    cancellation_token: cancellation_token.clone(),
                 };
 
                 let preempt_for_mailbox_mail = match &item {
@@ -2869,16 +2183,8 @@ async fn try_run_sampling_request(
                         Ok(output_result) => output_result,
                         Err(err) => break Err(err),
                     };
-                if let Some(tool_declaration) = output_result.tool_declaration {
-                    saw_actionable_output = true;
-                    let identity = tool_declaration.identity_key();
-                    if !tool_declaration.deduplicates_stream_events()
-                        || !pending_tool_declarations
-                            .iter()
-                            .any(|pending| pending.identity_key() == identity)
-                    {
-                        pending_tool_declarations.push(tool_declaration);
-                    }
+                if let Some(tool_future) = output_result.tool_future {
+                    in_flight.push_back(tool_future);
                 }
                 if let Some(agent_message) = output_result.last_agent_message {
                     last_agent_message = Some(agent_message);
@@ -2894,52 +2200,16 @@ async fn try_run_sampling_request(
                     if should_preempt_response_for_mailbox(
                         preempt_for_mailbox_mail,
                         mailbox_has_pending,
-                        pending_tool_declarations.len(),
+                        in_flight.len(),
                     ) {
                         break Ok(SamplingRequestResult {
                             needs_follow_up: true,
                             last_agent_message,
                         });
                     }
-                    if mailbox_has_pending && !pending_tool_declarations.is_empty() {
-                        tracing::info!(
-                            target: "codex_core::taskspace",
-                            pending_tool_call_count = pending_tool_declarations.len(),
-                            zero_dispatch = true,
-                            state_commit = false,
-                            "taskspace.response_mailbox_preemption_deferred_until_completed"
-                        );
-                    }
                 }
             }
             ResponseEvent::OutputItemAdded(item) => {
-                if taskspace_response_contract.is_some()
-                    && let Some(declaration) =
-                        ProviderToolDeclaration::rejected_taskspace_native(&item)
-                {
-                    saw_actionable_output = true;
-                    let identity = declaration.identity_key();
-                    if !pending_tool_declarations
-                        .iter()
-                        .any(|pending| pending.identity_key() == identity)
-                    {
-                        pending_tool_declarations.push(declaration);
-                    }
-                    tracing::warn!(
-                        target: "codex_core::taskspace",
-                        event_name = "taskspace.provider_native_tool_added_rejected",
-                        zero_dispatch = true,
-                        state_commit = false,
-                        "TaskSpace rejected a hidden provider-native tool before item processing"
-                    );
-                    continue;
-                }
-                if taskspace_response_contract.is_some()
-                    && taskspace_nonterminal_assistant_message(&item).is_some()
-                {
-                    taskspace_assistant_item_active = true;
-                    continue;
-                }
                 if let ResponseItem::CustomToolCall { call_id, name, .. } = &item {
                     let tool_name = ToolName::plain(name.as_str());
                     active_tool_argument_diff_consumer = tool_runtime
@@ -3040,10 +2310,11 @@ async fn try_run_sampling_request(
                 sess.services.models_manager.refresh_if_new_etag(etag).await;
             }
             ResponseEvent::Completed {
-                response_id: _,
+                response_id,
                 token_usage,
                 end_turn,
             } => {
+                response_completed = true;
                 flush_assistant_text_segments_all(
                     &sess,
                     &turn_context,
@@ -3053,6 +2324,18 @@ async fn try_run_sampling_request(
                 .await;
                 let provider_request_identity = client_session
                     .record_provider_wire_terminal("response_completed", token_usage.as_ref());
+                taskspace_response_identity = Some(TaskSpaceExecResponseIdentity {
+                    provider_response_id: response_id,
+                    provider_request_id: provider_request_identity
+                        .as_ref()
+                        .map(|identity| identity.request_id.clone()),
+                    provider_logical_request_id: provider_request_identity
+                        .as_ref()
+                        .map(|identity| identity.logical_request_id.clone()),
+                    provider_attempt_seq: provider_request_identity
+                        .as_ref()
+                        .map(|identity| identity.attempt_seq),
+                });
                 sess.update_token_usage_info_for_provider(
                     &turn_context,
                     token_usage.as_ref(),
@@ -3078,121 +2361,8 @@ async fn try_run_sampling_request(
                     .await;
                 }
                 should_emit_turn_diff = true;
-                let tool_outcome = execute_provider_response_tool_sequence(
-                    tool_runtime.clone(),
-                    std::mem::take(&mut pending_tool_declarations),
-                    cancellation_token.child_token(),
-                )
-                .await?;
-                for output in tool_outcome.outputs {
-                    record_response_input_item(sess.as_ref(), turn_context.as_ref(), output).await;
-                }
-                let terminal_candidate_released =
-                    if let Some(terminal) = tool_outcome.terminal_completion {
-                        publish_taskspace_terminal_agent_message(
-                            sess.as_ref(),
-                            turn_context.as_ref(),
-                            &terminal.call_id,
-                            &terminal.carrier,
-                        )
-                        .await;
-                        last_agent_message = Some(terminal.carrier.summary);
-                        needs_follow_up = false;
-                        true
-                    } else {
-                        false
-                    };
-                if terminal_candidate_released {
-                    if !deferred_taskspace_assistant_messages.is_empty() {
-                        tracing::info!(
-                            target: "codex_core::taskspace",
-                            suppressed_count = deferred_taskspace_assistant_messages.len(),
-                            "taskspace_provider_assistant_text_suppressed_by_terminal_carrier"
-                        );
-                        deferred_taskspace_assistant_messages.clear();
-                    }
-                } else {
-                    publish_taskspace_nonterminal_provider_messages(
-                        sess.as_ref(),
-                        turn_context.as_ref(),
-                        std::mem::take(&mut deferred_taskspace_assistant_messages),
-                    )
-                    .await;
-                }
-                if !terminal_candidate_released && let Some(false) = end_turn {
+                if let Some(false) = end_turn {
                     needs_follow_up = true;
-                }
-                let assistant_message_present = provider_assistant_message_present
-                    || last_agent_message
-                        .as_deref()
-                        .is_some_and(|message| !message.trim().is_empty());
-                let current_budget_snapshot =
-                    sess.action_map_provider_request_budget_snapshot().await;
-                let terminal_protocol_violation = taskspace_terminal_protocol_violation(
-                    taskspace_response_contract,
-                    terminal_candidate_released,
-                    needs_follow_up,
-                );
-                if !terminal_protocol_violation
-                    && taskspace_bound_node_empty_response_requires_follow_up(
-                        current_budget_snapshot
-                            .as_ref()
-                            .and_then(|snapshot| snapshot.node_role.as_deref()),
-                        saw_actionable_output,
-                        assistant_message_present,
-                    )
-                {
-                    needs_follow_up = true;
-                }
-                let response_actionability = if terminal_protocol_violation {
-                    TaskspaceProviderResponseActionability::ProtocolViolation
-                } else {
-                    classify_taskspace_provider_response_actionability(
-                        needs_follow_up,
-                        saw_actionable_output,
-                        assistant_message_present,
-                        taskspace_message_has_gate_recovery(last_agent_message.as_deref()),
-                        false,
-                        false,
-                    )
-                };
-                if let Some(snapshot) = current_budget_snapshot.as_ref() {
-                    sess.record_action_map_provider_response_actionability(
-                        &turn_context,
-                        snapshot.clone(),
-                        ActionMapProviderResponseActionabilityInput {
-                            response_actionability: response_actionability.as_str().to_string(),
-                            end_turn,
-                            saw_actionable_output,
-                            assistant_message_present,
-                            recovery_action: "none".to_string(),
-                            last_agent_message_preview: taskspace_last_message_preview(
-                                last_agent_message.as_deref(),
-                            ),
-                        },
-                    )
-                    .await;
-                }
-                if terminal_protocol_violation {
-                    let Some(contract) = taskspace_response_contract else {
-                        break Err(CodexErr::Fatal(
-                            TASKSPACE_TERMINAL_PROTOCOL_VIOLATION.to_string(),
-                        ));
-                    };
-                    tracing::error!(
-                        target: "codex_core::taskspace",
-                        reason_code = TASKSPACE_TERMINAL_PROTOCOL_VIOLATION,
-                        control_mode = contract.control_mode.as_str(),
-                        map_id = contract.map_id.as_deref(),
-                        revision = ?contract.revision,
-                        provider_assistant_message_present,
-                        saw_actionable_output,
-                        end_turn = ?end_turn,
-                        "taskspace_terminal_protocol_violation"
-                    );
-                    break Err(CodexErr::Fatal(
-                        TASKSPACE_TERMINAL_PROTOCOL_VIOLATION.to_string(),
-                    ));
                 }
                 break Ok(SamplingRequestResult {
                     needs_follow_up,
@@ -3200,9 +2370,6 @@ async fn try_run_sampling_request(
                 });
             }
             ResponseEvent::OutputTextDelta(delta) => {
-                if taskspace_assistant_item_active {
-                    continue;
-                }
                 // In review child threads, suppress assistant text deltas; the
                 // UI will show a selection popup from the final ReviewOutput.
                 if let Some(active) = active_item.as_ref() {
@@ -3308,18 +2475,48 @@ async fn try_run_sampling_request(
     )
     .await;
 
-    if outcome.is_ok() && !pending_tool_declarations.is_empty() {
-        tracing::error!(
-            target: "codex_core::taskspace",
-            pending_tool_call_count = pending_tool_declarations.len(),
-            zero_dispatch = true,
-            state_commit = false,
-            "taskspace.response_ended_without_completion_with_pending_tools"
+    let mut recoverable_taskspace_rejection = None;
+    let provider_actions = if let Some(scope) = taskspace_response_scope.as_ref() {
+        match scope.finalize(response_completed, taskspace_response_identity) {
+            Ok(actions) => actions,
+            Err(message) => {
+                if let Some(rejection) = scope.recoverable_rejection(&message) {
+                    let actions = scope
+                        .provider_actions_for_recoverable_rejection(&message)
+                        .map_err(taskspace_response_reconciliation_error)?;
+                    recoverable_taskspace_rejection = Some((message, rejection));
+                    actions
+                } else {
+                    return Err(taskspace_response_reconciliation_error(message));
+                }
+            }
+        }
+    } else {
+        Vec::new()
+    };
+
+    drain_in_flight(&mut in_flight, sess.clone(), turn_context.clone()).await?;
+
+    sess.record_provider_actions(provider_actions)
+        .await
+        .map_err(taskspace_response_reconciliation_error)?;
+
+    if let Some((message, rejection)) = recoverable_taskspace_rejection {
+        warn!(
+            event_name = "taskspace.exec.response_rejected",
+            reason_code = rejection.reason_code(),
+            reason = %message,
+            "TaskSpace response rejected; model may correct the request"
         );
-        return Err(CodexErr::Fatal(
-            "provider response ended without response.completed while tool calls were pending"
-                .to_string(),
-        ));
+        if let Ok(result) = outcome.as_mut() {
+            result.needs_follow_up = true;
+        }
+    } else {
+        if let Some(scope) = taskspace_response_scope.as_ref() {
+            scope
+                .ensure_reconciled()
+                .map_err(taskspace_response_reconciliation_error)?;
+        }
     }
 
     if cancellation_token.is_cancelled() {
@@ -3338,6 +2535,38 @@ async fn try_run_sampling_request(
     }
 
     outcome
+}
+
+pub(super) fn self_heal_completed_response_item(
+    tool_runtime: &ToolCallRuntime,
+    item: &mut ResponseItem,
+) -> bool {
+    let Some(repair) = tool_runtime.self_heal_taskspace_response_item(item) else {
+        return false;
+    };
+    tracing::info!(
+        target: "codex_core::taskspace_exec",
+        event_name = "taskspace.exec.arguments_self_healed",
+        call_id = %repair.call_id,
+        repair_operation = repair.operation,
+        repair_token = repair.repair_token,
+        byte_index = repair.byte_index,
+        original_arguments_sha256 = %repair.original_arguments_sha256,
+        repaired_arguments_sha256 = %repair.repaired_arguments_sha256,
+    );
+    true
+}
+
+fn taskspace_response_reconciliation_error(message: String) -> CodexErr {
+    warn!(
+        event_name = "taskspace.exec.response_rejected",
+        reason_code = "response_reconciliation_failed",
+        reason = %message,
+        "TaskSpace response reconciliation failed"
+    );
+    CodexErr::Fatal(format!(
+        "TaskSpace response reconciliation failed: {message}"
+    ))
 }
 
 pub(crate) fn get_last_assistant_message_from_turn(responses: &[ResponseItem]) -> Option<String> {

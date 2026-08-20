@@ -9,7 +9,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from cache_baseline_test_support import write_provider_boundary_evidence
+from cache_baseline_test_support import (
+    write_provider_boundary_evidence,
+    write_provider_wire_trace,
+)
 from cache_usage_contract import (
     aggregate_usage_records,
     load_provider_usage_fixture,
@@ -21,6 +24,7 @@ from cache_run_analysis import (
     analyze_artifacts,
     budget_observation_exceeded,
     validate_provider_boundary_accounting,
+    validate_provider_boundary_evidence,
 )
 from run_cache_hit_regression import (
     ensure_deepseek_api_key,
@@ -37,6 +41,57 @@ PROVIDER_USAGE_FIXTURE = (
 
 
 class CacheHitRegressionAnalysisTest(unittest.TestCase):
+    def test_historical_v1_provider_boundary_evidence_remains_readable(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            boundary_path = Path(root) / "provider-boundary-evidence.json"
+            write_provider_boundary_evidence(boundary_path, 1)
+            boundary = json.loads(boundary_path.read_text(encoding="utf-8"))
+            boundary["schema_version"] = "whalecode-provider-boundary-evidence-v1"
+            boundary["wire_requests"][0]["request_count_after"] = None
+
+            self.assertEqual(
+                validate_provider_boundary_evidence(
+                    boundary, 1, "deepseek-v4-flash"
+                ),
+                None,
+            )
+
+    def test_rejects_boolean_provider_boundary_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            boundary_path = Path(root) / "provider-boundary-evidence.json"
+            write_provider_boundary_evidence(boundary_path, 1)
+            original = json.loads(boundary_path.read_text(encoding="utf-8"))
+
+            boundary = json.loads(json.dumps(original))
+            boundary["boundary_request_count"] = True
+            with self.assertRaisesRegex(ValueError, "request count"):
+                validate_provider_boundary_accounting(
+                    boundary, "deepseek-v4-flash"
+                )
+
+            boundary = json.loads(json.dumps(original))
+            boundary["boundary_requests"][0]["count"] = True
+            with self.assertRaisesRegex(ValueError, "request contract"):
+                validate_provider_boundary_accounting(
+                    boundary, "deepseek-v4-flash"
+                )
+
+            boundary = json.loads(json.dumps(original))
+            boundary["wire_request_count"] = True
+            with self.assertRaisesRegex(ValueError, "wire request count"):
+                validate_provider_boundary_evidence(
+                    boundary, 1, "deepseek-v4-flash"
+                )
+
+            for invalid_ordinal in (True, 1.5, -1):
+                boundary = json.loads(json.dumps(original))
+                boundary["wire_requests"][0]["request_count_after"] = invalid_ordinal
+                with self.subTest(invalid_ordinal=invalid_ordinal):
+                    with self.assertRaisesRegex(ValueError, "wire request ordinal"):
+                        validate_provider_boundary_evidence(
+                            boundary, 1, "deepseek-v4-flash"
+                        )
+
     def test_loads_only_deepseek_key_from_env_local(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             repo = Path(root)
@@ -64,6 +119,7 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
             run_dir = Path(root)
             artifacts = run_dir / "pair-001/left/artifacts"
             artifacts.mkdir(parents=True)
+            provider_wire = artifacts / "provider-wire-trace.jsonl"
             (artifacts / "provider-cache-trace-summary.json").write_text(
                 json.dumps(
                     {
@@ -82,13 +138,33 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
                 json.dumps(
                     {
                         "rollout_trace": {
-                            "input_tokens": 1000,
-                            "cached_input_tokens": 900,
-                            "output_tokens": 25,
+                            "input_tokens": 1800.0,
+                            "cached_input_tokens": 1500.0,
+                            "output_tokens": 40.0,
                         }
                     }
                 ),
                 encoding="utf-8",
+            )
+            write_provider_wire_trace(
+                provider_wire,
+                [
+                    {
+                        "input_tokens": 100,
+                        "cached_input_tokens": 81,
+                        "output_tokens": 5,
+                    },
+                    {
+                        "input_tokens": 450,
+                        "cached_input_tokens": 410,
+                        "output_tokens": 10,
+                    },
+                    {
+                        "input_tokens": 450,
+                        "cached_input_tokens": 409,
+                        "output_tokens": 10,
+                    },
+                ],
             )
             (artifacts / "metrics.json").write_text(
                 json.dumps({"logical_mode": "standard", "business_success": True}),
@@ -100,6 +176,7 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
             arm = analyze_arm(run_dir, "left", "standard", "deepseek-v4-flash")
             self.assertEqual(arm["uncached_input_tokens"], 100)
             self.assertEqual(arm["request_2_plus_hit_rate"], 0.91)
+            self.assertEqual(arm["input_tokens"], 1000)
 
     def test_rust_fixture_has_one_cross_language_usage_contract(self) -> None:
         fixture = load_provider_usage_fixture(PROVIDER_USAGE_FIXTURE)
@@ -118,6 +195,92 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
             self.assertEqual(aggregate["request_2_plus_cached_input_tokens"], 80)
             self.assertEqual(aggregate["request_2_plus_uncached_input_tokens"], 20)
             self.assertEqual(aggregate["request_2_plus_hit_rate"], 0.8)
+
+    def test_real_rollout_duplicate_blocker_uses_provider_terminal_truth(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            artifacts = Path(root)
+            cache = artifacts / "provider-cache-trace-summary.json"
+            provider_wire = artifacts / "provider-wire-trace.jsonl"
+            request = artifacts / "request-summary.json"
+            metrics = artifacts / "metrics.json"
+            boundary = artifacts / "provider-boundary-evidence.json"
+            cache.write_text(
+                json.dumps(
+                    {
+                        "provider_request_count": 5,
+                        "request_2_plus_count": 4,
+                        "request_2_plus_cached_input_tokens": 48128,
+                        "request_2_plus_uncached_input_tokens": 1447,
+                        "request_2_plus_hit_rate": 0.970812,
+                        "trace_coverage": 1.0,
+                        "cache_usage_missing_count": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            write_provider_wire_trace(
+                provider_wire,
+                [
+                    {
+                        "input_tokens": 11042,
+                        "cached_input_tokens": 0,
+                        "output_tokens": 119,
+                    },
+                    {
+                        "input_tokens": 11722,
+                        "cached_input_tokens": 11136,
+                        "output_tokens": 109,
+                    },
+                    {
+                        "input_tokens": 12307,
+                        "cached_input_tokens": 11776,
+                        "output_tokens": 343,
+                    },
+                    {
+                        "input_tokens": 12714,
+                        "cached_input_tokens": 12544,
+                        "output_tokens": 54,
+                    },
+                    {
+                        "input_tokens": 12832,
+                        "cached_input_tokens": 12672,
+                        "output_tokens": 185,
+                    },
+                ],
+            )
+            request.write_text(
+                json.dumps(
+                    {
+                        "rollout_trace": {
+                            "model_request_count": 9,
+                            "input_tokens": 108402.0,
+                            "cached_input_tokens": 83584.0,
+                            "output_tokens": 1435.0,
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            metrics.write_text(
+                json.dumps({"logical_mode": "standard", "business_success": True}),
+                encoding="utf-8",
+            )
+            write_provider_boundary_evidence(boundary, 5)
+
+            observation = analyze_artifacts(
+                cache,
+                provider_wire,
+                request,
+                metrics,
+                boundary,
+                "standard",
+                "deepseek-v4-flash",
+            )
+
+            self.assertEqual(observation["provider_requests"], 5)
+            self.assertEqual(observation["input_tokens"], 60617)
+            self.assertEqual(observation["cached_input_tokens"], 48128)
+            self.assertEqual(observation["output_tokens"], 810)
 
     def test_missing_or_invalid_usage_is_not_comparable(self) -> None:
         fixture = load_provider_usage_fixture(PROVIDER_USAGE_FIXTURE)
@@ -145,6 +308,7 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
             artifacts = Path(root)
             cache_path = artifacts / "cache.json"
             request_path = artifacts / "request.json"
+            provider_wire_path = artifacts / "provider-wire.jsonl"
             metrics_path = artifacts / "metrics.json"
             boundary_path = artifacts / "provider-boundary-evidence.json"
             cache_path.write_text(
@@ -173,6 +337,17 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            write_provider_wire_trace(
+                provider_wire_path,
+                [
+                    {"input_tokens": 90, "cached_input_tokens": 0, "output_tokens": 10},
+                    {
+                        "input_tokens": 100,
+                        "cached_input_tokens": 80,
+                        "output_tokens": 20,
+                    },
+                ],
+            )
             metrics_path.write_text(
                 json.dumps({"logical_mode": "standard", "business_success": True}),
                 encoding="utf-8",
@@ -181,6 +356,7 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "does not match token evidence"):
                 analyze_artifacts(
                     cache_path,
+                    provider_wire_path,
                     request_path,
                     metrics_path,
                     boundary_path,
@@ -193,6 +369,7 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
             artifacts = Path(root)
             cache = artifacts / "cache.json"
             request = artifacts / "request.json"
+            provider_wire = artifacts / "provider-wire.jsonl"
             metrics = artifacts / "metrics.json"
             boundary = artifacts / "provider-boundary-evidence.json"
             cache.write_text(
@@ -221,6 +398,17 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            write_provider_wire_trace(
+                provider_wire,
+                [
+                    {"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0},
+                    {
+                        "input_tokens": 100,
+                        "cached_input_tokens": 80,
+                        "output_tokens": 10,
+                    },
+                ],
+            )
             metrics.write_text(
                 json.dumps({"logical_mode": "standard", "business_success": True}),
                 encoding="utf-8",
@@ -245,6 +433,7 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "request count"):
                 analyze_artifacts(
                     cache,
+                    provider_wire,
                     request,
                     metrics,
                     boundary,

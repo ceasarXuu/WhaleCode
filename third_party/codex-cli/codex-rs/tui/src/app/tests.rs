@@ -3765,6 +3765,7 @@ fn test_thread_session(thread_id: ThreadId, cwd: PathBuf) -> ThreadSessionState 
         history_entry_count: 0,
         network_proxy: None,
         rollout_path: Some(PathBuf::new()),
+        taskspace_active: false,
     }
 }
 
@@ -4909,7 +4910,6 @@ async fn interrupt_without_active_turn_is_treated_as_handled() {
     assert_eq!(handled, true);
 }
 
-#[cfg(windows)]
 #[test]
 fn action_map_commands_are_routed_through_app_server_in_tui() {
     std::thread::Builder::new()
@@ -4927,14 +4927,13 @@ fn action_map_commands_are_routed_through_app_server_in_tui() {
         .expect("test thread should not panic");
 }
 
-#[cfg(not(windows))]
-#[tokio::test]
-async fn action_map_commands_are_routed_through_app_server_in_tui() {
-    action_map_commands_are_routed_through_app_server_in_tui_impl().await;
-}
-
 async fn action_map_commands_are_routed_through_app_server_in_tui_impl() {
     let mut app = make_test_app().await;
+    std::fs::write(
+        app.config.codex_home.join("config.toml"),
+        "taskspace_projection_policy = \"map-request\"\n",
+    )
+    .expect("write TaskSpace policy for embedded app server");
     let mut app_server = crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref())
         .await
         .expect("embedded app server");

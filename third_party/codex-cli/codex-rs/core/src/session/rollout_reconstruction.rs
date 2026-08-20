@@ -1,9 +1,8 @@
-// This module reconstructs provider history and TaskSpace context events only.
-// The canonical Map aggregate is loaded from Map Store before this code runs and
-// must never be restored, replaced, or derived from rollout items here.
+// This module reconstructs provider history only. The canonical Map aggregate is
+// loaded from Map Store before this code runs and must never be restored, replaced,
+// or derived from rollout items here.
 
 use super::*;
-use crate::action_map::TaskSpaceEventStore;
 use crate::context_manager::is_user_turn_boundary;
 use std::fmt;
 
@@ -11,15 +10,6 @@ use std::fmt;
 pub(super) struct RolloutReconstructionError {
     pub(super) phase: &'static str,
     pub(super) message: String,
-}
-
-impl RolloutReconstructionError {
-    fn new(phase: &'static str, message: impl Into<String>) -> Self {
-        Self {
-            phase,
-            message: message.into(),
-        }
-    }
 }
 
 impl fmt::Display for RolloutReconstructionError {
@@ -35,7 +25,6 @@ impl std::error::Error for RolloutReconstructionError {}
 #[derive(Debug)]
 pub(super) struct RolloutReconstruction {
     pub(super) history: Vec<ResponseItem>,
-    pub(super) taskspace_events: Vec<TaskSpaceEvent>,
     pub(super) previous_turn_settings: Option<PreviousTurnSettings>,
     pub(super) reference_context_item: Option<TurnContextItem>,
 }
@@ -178,18 +167,6 @@ impl Session {
                     pending_rollback_turns = pending_rollback_turns
                         .saturating_add(usize::try_from(rollback.num_turns).unwrap_or(usize::MAX));
                 }
-                RolloutItem::EventMsg(EventMsg::MapRuntime(
-                    MapRuntimeEvent::TaskContextEventRecorded(event),
-                )) if event.event_type == "compaction" => {
-                    let active_segment =
-                        active_segment.get_or_insert_with(ActiveReplaySegment::default);
-                    if matches!(
-                        active_segment.reference_context_item,
-                        TurnReferenceContextItem::NeverSet
-                    ) {
-                        active_segment.reference_context_item = TurnReferenceContextItem::Cleared;
-                    }
-                }
                 RolloutItem::EventMsg(EventMsg::TurnComplete(event)) => {
                     let active_segment =
                         active_segment.get_or_insert_with(ActiveReplaySegment::default);
@@ -283,8 +260,6 @@ impl Session {
         }
 
         let mut history = ContextManager::new();
-        let mut taskspace_events = Vec::new();
-        let mut taskspace_context_active = false;
         let mut saw_legacy_compaction_without_replacement_history = false;
         if let Some(base_replacement_history) = base_replacement_history {
             history.replace(base_replacement_history.to_vec());
@@ -295,17 +270,12 @@ impl Session {
         for item in &rollout_items[rollout_suffix_start..] {
             match item {
                 RolloutItem::ResponseItem(response_item) => {
-                    if !taskspace_context_active {
-                        history.record_items(
-                            std::iter::once(response_item),
-                            turn_context.truncation_policy,
-                        );
-                    }
+                    history.record_items(
+                        std::iter::once(response_item),
+                        turn_context.truncation_policy,
+                    );
                 }
                 RolloutItem::Compacted(compacted) => {
-                    if taskspace_context_active {
-                        continue;
-                    }
                     if let Some(replacement_history) = &compacted.replacement_history {
                         // This should actually never happen, because the reverse loop above (to build rollout_suffix)
                         // should stop before any compaction that has Some replacement_history
@@ -330,76 +300,7 @@ impl Session {
                     }
                 }
                 RolloutItem::EventMsg(EventMsg::ThreadRolledBack(rollback)) => {
-                    if taskspace_context_active {
-                        let mut store =
-                            TaskSpaceEventStore::restore(taskspace_events).map_err(|error| {
-                                RolloutReconstructionError::new(
-                                    "taskspace_rollback_restore",
-                                    error.to_string(),
-                                )
-                            })?;
-                        store.drop_last_n_user_turns(rollback.num_turns);
-                        taskspace_events = store.events().to_vec();
-                    } else {
-                        history.drop_last_n_user_turns(rollback.num_turns);
-                    }
-                }
-                RolloutItem::EventMsg(EventMsg::MapRuntime(
-                    MapRuntimeEvent::TaskContextOwnershipChanged(event),
-                )) => {
-                    if event.active {
-                        taskspace_events = event
-                            .events
-                            .iter()
-                            .cloned()
-                            .map(TaskSpaceEvent::from_protocol)
-                            .collect::<Result<Vec<_>, _>>()
-                            .map_err(|error| {
-                                RolloutReconstructionError::new(
-                                    "taskspace_ownership_checkpoint",
-                                    error.to_string(),
-                                )
-                            })?;
-                        TaskSpaceEventStore::restore(taskspace_events.clone()).map_err(
-                            |error| {
-                                RolloutReconstructionError::new(
-                                    "taskspace_ownership_checkpoint",
-                                    error.to_string(),
-                                )
-                            },
-                        )?;
-                        history.replace(Vec::new());
-                        taskspace_context_active = true;
-                    } else {
-                        let mut store =
-                            TaskSpaceEventStore::restore(taskspace_events).map_err(|error| {
-                                RolloutReconstructionError::new(
-                                    "taskspace_ownership_checkpoint",
-                                    error.to_string(),
-                                )
-                            })?;
-                        history.replace(store.take_linearized());
-                        taskspace_events = Vec::new();
-                        taskspace_context_active = false;
-                    }
-                }
-                RolloutItem::EventMsg(EventMsg::MapRuntime(
-                    MapRuntimeEvent::TaskContextEventRecorded(event),
-                )) if taskspace_context_active => {
-                    taskspace_events.push(TaskSpaceEvent::from_protocol(event.clone()).map_err(
-                        |error| {
-                            RolloutReconstructionError::new(
-                                "taskspace_event_sequence",
-                                error.to_string(),
-                            )
-                        },
-                    )?);
-                    TaskSpaceEventStore::restore(taskspace_events.clone()).map_err(|error| {
-                        RolloutReconstructionError::new(
-                            "taskspace_event_sequence",
-                            error.to_string(),
-                        )
-                    })?;
+                    history.drop_last_n_user_turns(rollback.num_turns);
                 }
                 RolloutItem::EventMsg(_)
                 | RolloutItem::TurnContext(_)
@@ -421,7 +322,6 @@ impl Session {
 
         Ok(RolloutReconstruction {
             history: history.raw_items().to_vec(),
-            taskspace_events,
             previous_turn_settings,
             reference_context_item,
         })

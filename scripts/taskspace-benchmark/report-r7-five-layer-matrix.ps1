@@ -83,13 +83,13 @@ function Get-AggregateRow {
         total_tokens_total = $tokenTotal
         total_tokens_mean = if ($Rows.Count) { [Math]::Round($tokenTotal / $Rows.Count, 3) } else { $null }
         request_2_plus_cache_hit_rate = if ($request2Input -gt 0) { [Math]::Round($request2Cached / $request2Input, 6) } else { $null }
-        receipt_before_requests_total = Get-R7ExactPropertyInt64Sum $Rows "receipt_before_requests" "matrix aggregate"
-        receipt_before_input_tokens_total = Get-R7ExactPropertyInt64Sum $Rows "receipt_before_input_tokens" "matrix aggregate"
-        receipt_before_cached_input_tokens_total = Get-R7ExactPropertyInt64Sum $Rows "receipt_before_cached_input_tokens" "matrix aggregate"
-        no_receipt_before_requests_total = Get-R7ExactPropertyInt64Sum $Rows "no_receipt_before_requests" "matrix aggregate"
-        no_receipt_before_input_tokens_total = Get-R7ExactPropertyInt64Sum $Rows "no_receipt_before_input_tokens" "matrix aggregate"
-        no_receipt_before_cached_input_tokens_total = Get-R7ExactPropertyInt64Sum $Rows "no_receipt_before_cached_input_tokens" "matrix aggregate"
-        receipt_wire_role_unresolved_count_total = Get-R7ExactPropertyInt64Sum $Rows "receipt_wire_role_unresolved_count" "matrix aggregate"
+        final_control_result_before_requests_total = Get-R7ExactPropertyInt64Sum $Rows "final_control_result_before_requests" "matrix aggregate"
+        final_control_result_before_input_tokens_total = Get-R7ExactPropertyInt64Sum $Rows "final_control_result_before_input_tokens" "matrix aggregate"
+        final_control_result_before_cached_input_tokens_total = Get-R7ExactPropertyInt64Sum $Rows "final_control_result_before_cached_input_tokens" "matrix aggregate"
+        no_final_control_result_before_requests_total = Get-R7ExactPropertyInt64Sum $Rows "no_final_control_result_before_requests" "matrix aggregate"
+        no_final_control_result_before_input_tokens_total = Get-R7ExactPropertyInt64Sum $Rows "no_final_control_result_before_input_tokens" "matrix aggregate"
+        no_final_control_result_before_cached_input_tokens_total = Get-R7ExactPropertyInt64Sum $Rows "no_final_control_result_before_cached_input_tokens" "matrix aggregate"
+        final_control_result_item_kind_unresolved_count_total = Get-R7ExactPropertyInt64Sum $Rows "final_control_result_item_kind_unresolved_count" "matrix aggregate"
         wall_time_ms_total = $wallTotal
         wall_time_ms_mean = if ($Rows.Count) { [Math]::Round($wallTotal / $Rows.Count, 3) } else { $null }
         wall_time_ms_median = Get-Median @($Rows.wall_time_ms)
@@ -161,9 +161,21 @@ foreach ($run in @($manifest.runs)) {
     $wireTracePath = Join-Path ([string]$row.artifact_dir) "provider-wire-trace.jsonl"
     $rolloutPath = Join-Path ([string]$row.artifact_dir) "rollout.jsonl"
     $requestSummary = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path ([string]$row.artifact_dir) "request-summary.json") | ConvertFrom-Json -Depth 50
+    $requestFacts = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path ([string]$row.artifact_dir) "request-facts.json") | ConvertFrom-Json -Depth 100
     $sectionSummary = Get-R7WireSectionSummary $wireTracePath
-    $wireInventory = @(Get-R7WireRequestInventory $wireTracePath)
-    $wireAttemptSummary = Get-R7WireAttemptSummary $wireInventory
+    $wireInventory = @(Get-R7WireRequestInventory $wireTracePath $requestFacts)
+    if ([string]$requestFacts.schema_version -ne "whalecode-request-facts-v1" -or
+        [string]$requestFacts.availability.attempt -ne "measured" -or
+        [string]$requestFacts.availability.completion -ne "measured") {
+        throw "Canonical request facts are unavailable for $($run.sample) repeat $($run.repeat) $($run.arm)"
+    }
+    $wireAttemptSummary = [pscustomobject]@{
+        physical_attempt_count = [int64]$requestFacts.summary.local_attempt_count
+        logical_request_count = [int64]$requestFacts.summary.logical_request_count
+        completed_response_count = [int64]$requestFacts.summary.completed_response_count
+        failed_or_cancelled_attempt_count = [int64]$requestFacts.summary.failed_or_cancelled_attempt_count
+        retried_logical_request_count = [int64]$requestFacts.summary.retried_logical_request_count
+    }
     $completedProviderResponses = Get-R7RequiredNonnegativeInt64Fact `
         $requestSummary "model_request_count" "request summary"
     if ($completedProviderResponses -lt 1) {
@@ -180,6 +192,8 @@ foreach ($run in @($manifest.runs)) {
         business_success = [bool]$row.result.business_success
         agent_completion_status = [string]$row.result.agent_completion_status
         provider_requests = Get-R7RequiredNonnegativeInt64Fact $row.actions "provider_requests" "performance observation"
+        provider_local_attempts = [int64]$wireAttemptSummary.physical_attempt_count
+        provider_logical_requests = [int64]$wireAttemptSummary.logical_request_count
         completed_provider_responses = $completedProviderResponses
         failed_or_cancelled_provider_attempts = Get-R7RequiredNonnegativeInt64Fact $wireAttemptSummary "failed_or_cancelled_attempt_count" "wire attempt summary"
         retried_logical_requests = Get-R7RequiredNonnegativeInt64Fact $wireAttemptSummary "retried_logical_request_count" "wire attempt summary"
@@ -231,19 +245,20 @@ foreach ($run in @($manifest.runs)) {
         Add-R7WireFactsToRequestPath `
             @($requestPath) `
             $wireTracePath `
-            ([int]$flat.provider_requests)
+            ([int]$flat.provider_local_attempts) `
+            $requestFacts
     )
     $requestObservability = Get-R7RequestObservabilitySummary @($requestPath)
     if (-not [bool]$requestObservability.classification_reconciled) {
         throw "Request failure taxonomy does not reconcile for $($run.sample) repeat $($run.repeat) $($run.arm)"
     }
     $requestInputTokens = Get-R7ExactInt64Sum @(
-        $requestObservability.receipt_before_input_tokens,
-        $requestObservability.no_receipt_before_input_tokens
+        $requestObservability.final_control_result_before_input_tokens,
+        $requestObservability.no_final_control_result_before_input_tokens
     ) "input_tokens"
     $requestCachedTokens = Get-R7ExactInt64Sum @(
-        $requestObservability.receipt_before_cached_input_tokens,
-        $requestObservability.no_receipt_before_cached_input_tokens
+        $requestObservability.final_control_result_before_cached_input_tokens,
+        $requestObservability.no_final_control_result_before_cached_input_tokens
     ) "cached_input_tokens"
     if ($requestInputTokens -ne [int64]$flat.input_tokens -or
         $requestCachedTokens -ne [int64]$flat.cached_input_tokens -or
@@ -269,17 +284,16 @@ foreach ($run in @($manifest.runs)) {
     $flat | Add-Member -NotePropertyName ordinary_failure_requests -NotePropertyValue ([int64]$requestObservability.primary_failure_counts.ordinary_tool)
     $flat | Add-Member -NotePropertyName sibling_failure_copy_count -NotePropertyValue ([int64]$requestObservability.sibling_failure_copy_count)
     $flat | Add-Member -NotePropertyName classification_reconciled -NotePropertyValue ([bool]$requestObservability.classification_reconciled)
-    $flat | Add-Member -NotePropertyName receipt_before_requests -NotePropertyValue ([int64]$requestObservability.receipt_before_requests)
-    $flat | Add-Member -NotePropertyName receipt_before_input_tokens -NotePropertyValue ([int64]$requestObservability.receipt_before_input_tokens)
-    $flat | Add-Member -NotePropertyName receipt_before_cached_input_tokens -NotePropertyValue ([int64]$requestObservability.receipt_before_cached_input_tokens)
-    $flat | Add-Member -NotePropertyName receipt_before_cache_hit_rate -NotePropertyValue $requestObservability.receipt_before_cache_hit_rate
-    $flat | Add-Member -NotePropertyName no_receipt_before_requests -NotePropertyValue ([int64]$requestObservability.no_receipt_before_requests)
-    $flat | Add-Member -NotePropertyName no_receipt_before_input_tokens -NotePropertyValue ([int64]$requestObservability.no_receipt_before_input_tokens)
-    $flat | Add-Member -NotePropertyName no_receipt_before_cached_input_tokens -NotePropertyValue ([int64]$requestObservability.no_receipt_before_cached_input_tokens)
-    $flat | Add-Member -NotePropertyName no_receipt_before_cache_hit_rate -NotePropertyValue $requestObservability.no_receipt_before_cache_hit_rate
-    $flat | Add-Member -NotePropertyName receipt_original_roles -NotePropertyValue (@($requestObservability.receipt_original_roles) -join ",")
-    $flat | Add-Member -NotePropertyName receipt_wire_roles -NotePropertyValue (@($requestObservability.receipt_wire_roles) -join ",")
-    $flat | Add-Member -NotePropertyName receipt_wire_role_unresolved_count -NotePropertyValue ([int64]$requestObservability.receipt_wire_role_unresolved_count)
+    $flat | Add-Member -NotePropertyName final_control_result_before_requests -NotePropertyValue ([int64]$requestObservability.final_control_result_before_requests)
+    $flat | Add-Member -NotePropertyName final_control_result_before_input_tokens -NotePropertyValue ([int64]$requestObservability.final_control_result_before_input_tokens)
+    $flat | Add-Member -NotePropertyName final_control_result_before_cached_input_tokens -NotePropertyValue ([int64]$requestObservability.final_control_result_before_cached_input_tokens)
+    $flat | Add-Member -NotePropertyName final_control_result_before_cache_hit_rate -NotePropertyValue $requestObservability.final_control_result_before_cache_hit_rate
+    $flat | Add-Member -NotePropertyName no_final_control_result_before_requests -NotePropertyValue ([int64]$requestObservability.no_final_control_result_before_requests)
+    $flat | Add-Member -NotePropertyName no_final_control_result_before_input_tokens -NotePropertyValue ([int64]$requestObservability.no_final_control_result_before_input_tokens)
+    $flat | Add-Member -NotePropertyName no_final_control_result_before_cached_input_tokens -NotePropertyValue ([int64]$requestObservability.no_final_control_result_before_cached_input_tokens)
+    $flat | Add-Member -NotePropertyName no_final_control_result_before_cache_hit_rate -NotePropertyValue $requestObservability.no_final_control_result_before_cache_hit_rate
+    $flat | Add-Member -NotePropertyName final_control_result_item_kinds -NotePropertyValue (@($requestObservability.final_control_result_item_kinds) -join ",")
+    $flat | Add-Member -NotePropertyName final_control_result_item_kind_unresolved_count -NotePropertyValue ([int64]$requestObservability.final_control_result_item_kind_unresolved_count)
     $firstRequestInitialization = if ($requestPath.Count) {
         @($requestPath[0].calls | Where-Object {
                 $_.tool -eq "taskspace_control" -and $_.control_action -eq "initialize_and_execute"
@@ -405,16 +419,16 @@ foreach ($row in $overall) {
     $lines.Add("| $($row.arm) | $($row.tool_action_requests_total) / $($row.assistant_only_requests_total) | $($row.multi_tool_requests_total) | $($row.no_failure_requests_total) | $($row.tool_sequence_protocol_failure_requests_total) | $($row.taskspace_protocol_failure_requests_total) | $($row.taskspace_state_failure_requests_total) | $($row.taskspace_resource_failure_requests_total) | $($row.ordinary_failure_requests_total) | $($row.sibling_failure_copy_count_total) | $($row.classification_unreconciled_runs) | $($row.multi_patch_attempts_total) | $($row.map_nodes_mean) / $($row.map_edges_mean) |")
 }
 $lines.Add("")
-$lines.Add("| arm | receipt-before request | receipt input/cached/hit | no-receipt request | no-receipt input/cached/hit | unresolved wire role |")
+$lines.Add("| arm | final-control-before request | final-control input/cached/hit | no-final-control request | no-final-control input/cached/hit | unresolved item kind |")
 $lines.Add("|---|---:|---:|---:|---:|---:|")
 foreach ($row in $overall) {
-    $receiptRate = if ([double]$row.receipt_before_input_tokens_total -gt 0) {
-        "{0:P2}" -f ([double]$row.receipt_before_cached_input_tokens_total / [double]$row.receipt_before_input_tokens_total)
+    $resultRate = if ([double]$row.final_control_result_before_input_tokens_total -gt 0) {
+        "{0:P2}" -f ([double]$row.final_control_result_before_cached_input_tokens_total / [double]$row.final_control_result_before_input_tokens_total)
     } else { "N/A" }
-    $otherRate = if ([double]$row.no_receipt_before_input_tokens_total -gt 0) {
-        "{0:P2}" -f ([double]$row.no_receipt_before_cached_input_tokens_total / [double]$row.no_receipt_before_input_tokens_total)
+    $otherRate = if ([double]$row.no_final_control_result_before_input_tokens_total -gt 0) {
+        "{0:P2}" -f ([double]$row.no_final_control_result_before_cached_input_tokens_total / [double]$row.no_final_control_result_before_input_tokens_total)
     } else { "N/A" }
-    $lines.Add("| $($row.arm) | $($row.receipt_before_requests_total) | $($row.receipt_before_input_tokens_total) / $($row.receipt_before_cached_input_tokens_total) / $receiptRate | $($row.no_receipt_before_requests_total) | $($row.no_receipt_before_input_tokens_total) / $($row.no_receipt_before_cached_input_tokens_total) / $otherRate | $($row.receipt_wire_role_unresolved_count_total) |")
+    $lines.Add("| $($row.arm) | $($row.final_control_result_before_requests_total) | $($row.final_control_result_before_input_tokens_total) / $($row.final_control_result_before_cached_input_tokens_total) / $resultRate | $($row.no_final_control_result_before_requests_total) | $($row.no_final_control_result_before_input_tokens_total) / $($row.no_final_control_result_before_cached_input_tokens_total) / $otherRate | $($row.final_control_result_item_kind_unresolved_count_total) |")
 }
 $lines.Add("")
 $lines.Add("| arm | initialize_and_execute 提交/总/失败 | 首请求初始化 尝试/提交 | 直接 control 初始化 | no_task_path |")

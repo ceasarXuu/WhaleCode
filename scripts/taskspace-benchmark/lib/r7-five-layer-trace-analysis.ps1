@@ -17,25 +17,54 @@ if (-not (Get-Command Get-TaskspaceOrdinaryToolFailureCode -ErrorAction Silently
 . (Join-Path $PSScriptRoot "r7-state-failure-contract.ps1")
 . (Join-Path $PSScriptRoot "r7-call-evidence.ps1")
 . (Join-Path $PSScriptRoot "r7-direct-failure-carrier.ps1")
-. (Join-Path $PSScriptRoot "r7-response-commit-binding.ps1")
+. (Join-Path $PSScriptRoot "r7-final-control-result-binding.ps1")
 . (Join-Path $PSScriptRoot "r7-supplemental-failure.ps1")
+. (Join-Path $PSScriptRoot "request-facts.ps1")
 
 function New-R7RequestRows {
-    param([int]$ProviderRequests)
     $requests = [Collections.Generic.List[object]]::new()
-    foreach ($index in 1..$ProviderRequests) {
-            $requests.Add([pscustomobject]@{
-                request_index = $index
+    Write-Output -NoEnumerate $requests
+}
+
+function Add-R7RequestRowIfMissing {
+    param([Collections.Generic.List[object]]$Requests, [int]$RequestIndex)
+    while ($Requests.Count -lt $RequestIndex) {
+        $Requests.Add([pscustomobject]@{
+                request_index = $Requests.Count + 1
                 calls = [Collections.Generic.List[object]]::new()
-                receipt_before = $false
-                receipt_count = 0
-                receipt_original_role = ""
+                final_control_result_before = $false
+                final_control_result_count = 0
+                final_control_result_item_kind = ""
                 rollout_provider_request_id = ""
                 rollout_provider_logical_request_id = ""
                 rollout_provider_attempt_seq = 0
             })
     }
-    $requests
+}
+
+function Get-R7RolloutRequestBoundaries {
+    param([string]$RolloutPath, [int]$ExpectedProviderRequests)
+    $facts = Invoke-TaskspaceRequestFactsGenerator -RolloutJsonlPath $RolloutPath
+    if ([string]$facts.availability.completion -ne "measured") {
+        $codes = @($facts.findings | ForEach-Object { [string]$_.code }) -join ","
+        throw "Rollout request facts are not comparable: $codes"
+    }
+    $rows = @($facts.rows | Where-Object {
+            $null -ne $_.rollout_line_number -and
+            [string]$_.usage_source -in @("rollout", "wire_and_rollout")
+        })
+    if ($rows.Count -ne $ExpectedProviderRequests) {
+        throw "Rollout request boundary mismatch: observed=$($rows.Count) expected=$ExpectedProviderRequests"
+    }
+    $boundaries = @{}
+    foreach ($row in $rows) {
+        $lineNumber = [int]$row.rollout_line_number
+        if ($boundaries.ContainsKey($lineNumber)) {
+            throw "Duplicate rollout request boundary line: $lineNumber"
+        }
+        $boundaries[$lineNumber] = $row
+    }
+    $boundaries
 }
 
 function Get-R7ResponseItemCallDescriptor {
@@ -195,24 +224,24 @@ function Apply-R7ObservedOutcome {
         -ToolName ([string]$call.tool)
     if ([string]$call.tool -ceq "taskspace_control" -and
         $outcome.success -eq $true -and
-        [string]$outcome.carrier_schema -ceq "TaskSpaceResponseCommitV1") {
-        $bindingError = Get-R7ResponseCommitRequestBindingError `
+        [string]$outcome.carrier_schema -ceq "TaskSpaceResponseResultV2") {
+        $bindingError = Get-R7FinalControlResultRequestBindingError `
             $call `
             $outcome.parsed_payload
-        $bindingReason = "response_commit_request_mismatch"
+        $bindingReason = "final_control_result_request_mismatch"
         if ([string]::IsNullOrWhiteSpace([string]$bindingError)) {
             $bindingError = Set-R7ExpectedReservations `
                 $CallsById `
                 $call `
                 $outcome.parsed_payload
-            $bindingReason = "response_commit_reservation_mismatch"
+            $bindingReason = "final_control_result_reservation_mismatch"
         }
         if (-not [string]::IsNullOrWhiteSpace([string]$bindingError)) {
             $outcome = Complete-R7CallOutcomeFacts (
                 New-R7InvalidCallOutcome `
                     $bindingReason `
                     $bindingReason `
-                    "TaskSpaceResponseCommitV1" `
+                    "TaskSpaceResponseResultV2" `
                     $true
             ) $outcome.parsed_payload
         } else {
@@ -259,11 +288,14 @@ function Complete-R7RequestRows {
 
 function Get-R7TaskspaceRequestPath {
     param([string]$RolloutPath, [int]$ProviderRequests)
-    $requests = New-R7RequestRows $ProviderRequests
+    $requests = New-R7RequestRows
+    $boundaries = Get-R7RolloutRequestBoundaries $RolloutPath $ProviderRequests
     $requestIndex = 1
     $observedRequestCount = 0
     $callsById = @{}
+    $lineNumber = 0
     foreach ($line in Get-Content -Encoding UTF8 -LiteralPath $RolloutPath) {
+        $lineNumber++
         $event = $line | ConvertFrom-Json -Depth 100
         $payload = Get-R7JsonProperty $event "payload"
         if ([string](Get-R7JsonProperty $event "type" "") -eq "event_msg" -and
@@ -273,51 +305,50 @@ function Get-R7TaskspaceRequestPath {
             $eventType = [string](Get-R7JsonProperty $payload "eventType" "")
             $call = Get-R7ResponseItemCallDescriptor $raw ([string]$payload.callId) $eventType
             if ($null -ne $call) {
+                Add-R7RequestRowIfMissing $requests $requestIndex
                 Add-R7ObservedCall $requests $requestIndex $callsById $call
             }
             $observedOutcome = Get-R7ResponseItemOutcome $raw $payload $eventType
             if ($null -ne $observedOutcome) {
                 Apply-R7ObservedOutcome $callsById $observedOutcome
             }
+            $rawType = [string](Get-R7JsonProperty $raw "type" $eventType)
+            if ($rawType -in @(
+                    "function_call_output", "custom_tool_call_output",
+                    "tool_search_output", "tool_search_call_output"
+                )) {
+                $resultText = [string](Get-R7JsonProperty $raw "output" "")
+                $resultFact = $null
+                if (-not [string]::IsNullOrWhiteSpace($resultText)) {
+                    try { $resultFact = $resultText | ConvertFrom-Json } catch {}
+                }
+                if ([string](Get-R7JsonProperty $resultFact "schema_version" "") -eq
+                    "TaskSpaceResponseResultV2") {
+                    Add-R7RequestRowIfMissing $requests $requestIndex
+                    $request = $requests[$requestIndex - 1]
+                    $request.final_control_result_before = $true
+                    $request.final_control_result_count =
+                        [int]$request.final_control_result_count + 1
+                    $request.final_control_result_item_kind = $rawType
+                }
+            }
             foreach ($text in @(Get-R7MessageTexts $raw $eventType)) {
+                Add-R7RequestRowIfMissing $requests $requestIndex
                 Apply-R7SupplementalFailure `
                     $callsById `
                     $requests `
                     $text `
                     ([string](Get-R7JsonProperty $payload "originalRole" ""))
-                if ($text -match '"schema_version"\s*:\s*"TaskSpaceResponseFinalReceiptV1"') {
-                    $request = $requests[$requestIndex - 1]
-                    $request.receipt_before = $true
-                    $request.receipt_count = [int]$request.receipt_count + 1
-                    $request.receipt_original_role =
-                        [string](Get-R7JsonProperty $payload "originalRole" "")
-                }
             }
-            continue
         }
-        if ([string](Get-R7JsonProperty $event "type" "") -eq "event_msg" -and
-            [string](Get-R7JsonProperty $payload "type" "") -eq "token_count") {
-            $providerRequestId = [string](Get-R7JsonProperty $payload "provider_request_id" "")
-            $logicalRequestId =
-                [string](Get-R7JsonProperty $payload "provider_logical_request_id" "")
-            $attemptSeq = [int](Get-R7JsonProperty $payload "provider_attempt_seq" 0)
-            $hasAnyIdentity = -not [string]::IsNullOrWhiteSpace($providerRequestId) -or
-                -not [string]::IsNullOrWhiteSpace($logicalRequestId) -or $attemptSeq -gt 0
-            if (-not $hasAnyIdentity) {
-                continue
-            }
-            if ([string]::IsNullOrWhiteSpace($providerRequestId) -or
-                [string]::IsNullOrWhiteSpace($logicalRequestId) -or $attemptSeq -lt 1) {
-                throw "TaskSpace token_count boundary has incomplete provider request identity"
-            }
+        if ($boundaries.ContainsKey($lineNumber)) {
+            $boundary = $boundaries[$lineNumber]
+            Add-R7RequestRowIfMissing $requests $requestIndex
             $observedRequestCount++
-            if ($observedRequestCount -gt $ProviderRequests) {
-                throw "TaskSpace rollout has more token_count boundaries than provider requests"
-            }
-            $requests[$requestIndex - 1].rollout_provider_request_id = $providerRequestId
-            $requests[$requestIndex - 1].rollout_provider_logical_request_id = $logicalRequestId
-            $requests[$requestIndex - 1].rollout_provider_attempt_seq = $attemptSeq
-            if ($requestIndex -lt $ProviderRequests) { $requestIndex++ }
+            $requests[$requestIndex - 1].rollout_provider_request_id = [string]$boundary.request_id
+            $requests[$requestIndex - 1].rollout_provider_logical_request_id = [string]$boundary.logical_request_id
+            $requests[$requestIndex - 1].rollout_provider_attempt_seq = [int]$boundary.attempt_seq
+            if ($observedRequestCount -lt $ProviderRequests) { $requestIndex++ }
         }
     }
     if ($observedRequestCount -ne $ProviderRequests) {
@@ -332,17 +363,21 @@ function Get-R7TaskspaceRequestPath {
 
 function Get-R7StandardRequestPath {
     param([string]$RolloutPath, [int]$ProviderRequests)
-    $requests = New-R7RequestRows $ProviderRequests
+    $requests = New-R7RequestRows
+    $boundaries = Get-R7RolloutRequestBoundaries $RolloutPath $ProviderRequests
     $requestIndex = 1
     $observedRequestCount = 0
     $callsById = @{}
+    $lineNumber = 0
     foreach ($line in Get-Content -Encoding UTF8 -LiteralPath $RolloutPath) {
+        $lineNumber++
         $event = $line | ConvertFrom-Json -Depth 100
         $type = [string](Get-R7JsonProperty $event "type" "")
         $payload = Get-R7JsonProperty $event "payload"
         if ($type -eq "response_item") {
             $call = Get-R7ResponseItemCallDescriptor $payload
             if ($null -ne $call) {
+                Add-R7RequestRowIfMissing $requests $requestIndex
                 Add-R7ObservedCall $requests $requestIndex $callsById $call
             }
             $observedOutcome = Get-R7ResponseItemOutcome $payload
@@ -350,34 +385,22 @@ function Get-R7StandardRequestPath {
                 Apply-R7ObservedOutcome $callsById $observedOutcome
             }
             foreach ($text in @(Get-R7MessageTexts $payload)) {
+                Add-R7RequestRowIfMissing $requests $requestIndex
                 Apply-R7SupplementalFailure `
                     $callsById `
                     $requests `
                     $text `
                     ([string](Get-R7JsonProperty $payload "role" ""))
             }
-        } elseif ($type -eq "event_msg" -and [string](Get-R7JsonProperty $payload "type" "") -eq "token_count") {
-            $providerRequestId = [string](Get-R7JsonProperty $payload "provider_request_id" "")
-            $logicalRequestId =
-                [string](Get-R7JsonProperty $payload "provider_logical_request_id" "")
-            $attemptSeq = [int](Get-R7JsonProperty $payload "provider_attempt_seq" 0)
-            $hasAnyIdentity = -not [string]::IsNullOrWhiteSpace($providerRequestId) -or
-                -not [string]::IsNullOrWhiteSpace($logicalRequestId) -or $attemptSeq -gt 0
-            if (-not $hasAnyIdentity) {
-                continue
-            }
-            if ([string]::IsNullOrWhiteSpace($providerRequestId) -or
-                [string]::IsNullOrWhiteSpace($logicalRequestId) -or $attemptSeq -lt 1) {
-                throw "Standard token_count boundary has incomplete provider request identity"
-            }
+        }
+        if ($boundaries.ContainsKey($lineNumber)) {
+            $boundary = $boundaries[$lineNumber]
+            Add-R7RequestRowIfMissing $requests $requestIndex
             $observedRequestCount++
-            if ($observedRequestCount -gt $ProviderRequests) {
-                throw "Standard rollout has more token_count boundaries than provider requests"
-            }
-            $requests[$requestIndex - 1].rollout_provider_request_id = $providerRequestId
-            $requests[$requestIndex - 1].rollout_provider_logical_request_id = $logicalRequestId
-            $requests[$requestIndex - 1].rollout_provider_attempt_seq = $attemptSeq
-            if ($requestIndex -lt $ProviderRequests) { $requestIndex++ }
+            $requests[$requestIndex - 1].rollout_provider_request_id = [string]$boundary.request_id
+            $requests[$requestIndex - 1].rollout_provider_logical_request_id = [string]$boundary.logical_request_id
+            $requests[$requestIndex - 1].rollout_provider_attempt_seq = [int]$boundary.attempt_seq
+            if ($observedRequestCount -lt $ProviderRequests) { $requestIndex++ }
         }
     }
     if ($observedRequestCount -ne $ProviderRequests) {

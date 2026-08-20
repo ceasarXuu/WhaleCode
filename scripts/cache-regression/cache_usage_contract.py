@@ -5,8 +5,15 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 from pathlib import Path
 from typing import Any
+
+from cache_json import strict_json_loads
+
+TASKSPACE_BENCHMARK = Path(__file__).resolve().parents[1] / "taskspace-benchmark"
+sys.path.insert(0, str(TASKSPACE_BENCHMARK))
+from request_facts import build_request_facts_from_events  # noqa: E402
 
 
 SCHEMA_VERSION = "whalecode-provider-usage-v1"
@@ -84,6 +91,58 @@ def aggregate_usage_records(records: list[dict[str, int] | None]) -> dict[str, A
             request_2_cached / request_2_input if request_2_input else None
         ),
     }
+
+
+def parse_provider_wire_usage(
+    text: str, provider_request_ids: list[str] | None = None
+) -> dict[str, Any]:
+    events = []
+    for line_number, raw_line in enumerate(text.splitlines(), 1):
+        if not raw_line.strip():
+            continue
+        event = strict_json_loads(raw_line)
+        if not isinstance(event, dict):
+            raise ValueError(f"provider wire event {line_number} must be an object")
+        events.append(event)
+    facts = build_request_facts_from_events(wire_events=events)
+    if not events:
+        raise ValueError("provider wire usage requires at least one request")
+    if any(facts["availability"][name] != "measured" for name in ("attempt", "completion", "usage")):
+        codes = ",".join(sorted({finding["code"] for finding in facts["findings"]}))
+        raise ValueError(f"provider wire request facts are not comparable: {codes}")
+    rows = facts["rows"]
+    if provider_request_ids is not None:
+        if (
+            not provider_request_ids
+            or any(not isinstance(value, str) or not value for value in provider_request_ids)
+            or len(set(provider_request_ids)) != len(provider_request_ids)
+        ):
+            raise ValueError("provider request identity set is invalid")
+        rows_by_id = {row["request_id"]: row for row in rows}
+        if any(request_id not in rows_by_id for request_id in provider_request_ids):
+            raise ValueError("provider boundary request is missing from wire evidence")
+        rows = [rows_by_id[request_id] for request_id in provider_request_ids]
+    if not rows or any(
+        row["terminal_status"] != "response_completed" or row["usage"] is None
+        for row in rows
+    ):
+        raise ValueError("provider wire request did not complete successfully")
+    usage_records = [row["usage"] for row in rows]
+    aggregate = aggregate_usage_records(usage_records)
+    return {
+        **aggregate,
+        "request_ids": [row["request_id"] for row in rows],
+        "provider_payload_sha256": [row["provider_payload_sha256"] for row in rows],
+        "request_facts_analyzer_version": facts["analyzer_version"],
+    }
+
+
+def load_provider_wire_usage(
+    path: Path, provider_request_ids: list[str] | None = None
+) -> dict[str, Any]:
+    return parse_provider_wire_usage(
+        path.read_text(encoding="utf-8-sig"), provider_request_ids
+    )
 
 
 def validate_cache_artifacts(

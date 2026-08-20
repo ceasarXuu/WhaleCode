@@ -56,6 +56,11 @@ pub struct RawTraceEventContext {
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum RawToolCallRequester {
     Model,
+    TaskSpaceExec {
+        outer_call_id: String,
+        call_index: usize,
+        node_id: String,
+    },
     CodeCell {
         /// Runtime-local code-mode cell handle.
         runtime_cell_id: String,

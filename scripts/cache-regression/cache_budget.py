@@ -13,7 +13,8 @@ from cache_surface import surface_snapshot
 from cache_time import now_iso, parse_timestamp, require_not_future
 
 
-BUDGET_PROPOSAL_SCHEMA_VERSION = "whalecode-cache-budget-proposal-v2"
+BUDGET_PROPOSAL_SCHEMA_VERSION = "whalecode-cache-budget-proposal-v3"
+LEGACY_BUDGET_PROPOSAL_SCHEMA_VERSION = "whalecode-cache-budget-proposal-v2"
 RUNNER_CLEANUP_GRACE_SECONDS = 120
 SUPPORTED_ARMS = ("standard", "map-always", "map-append", "map-request")
 SUPPORTED_STOP_CONDITIONS = (
@@ -55,9 +56,18 @@ def validate_gate_trigger(report: dict[str, Any]) -> list[str]:
     commands = validation.get("commands")
     require(isinstance(commands, list), "free validation commands are missing")
     if state == "revalidation_requested":
+        accepted_validation = report.get("accepted_baseline_validation", {})
+        stale_accepted = bool(
+            report.get("baseline_status") == "accepted"
+            and accepted_validation.get("valid")
+            and not accepted_validation.get("manifest_matches_current", True)
+        )
         require(
             validation.get("passed") is True
-            and report.get("baseline_status") == "live_regression_failed"
+            and (
+                report.get("baseline_status") == "live_regression_failed"
+                or stale_accepted
+            )
             and report.get("revalidation_requested") is True
             and report.get("require_live_baseline") is True
             and report.get("require_clean_subject") is True
@@ -226,23 +236,39 @@ def build_budget_proposal(
         and pricing["currency"].strip() != ""
         and all(
             type(pricing.get(key)) in (int, float) and pricing[key] >= 0
-            for key in ("uncached_input_per_million", "output_per_million")
+            for key in (
+                "cached_input_per_million",
+                "uncached_input_per_million",
+                "output_per_million",
+            )
         ),
         "pricing snapshot is incomplete",
     )
     hard_request_maximum = maximum_sample_runs * max_provider_requests_per_run
-    maximum_input_tokens = (
+    capacity_input_tokens = (
         hard_request_maximum * provider_limits["max_input_tokens_per_request"]
     )
-    maximum_output_tokens = (
+    capacity_output_tokens = (
         hard_request_maximum * provider_limits["max_output_tokens_per_request"]
     )
-    maximum_cost = (
-        maximum_input_tokens / 1_000_000 * pricing["uncached_input_per_million"]
-        + maximum_output_tokens / 1_000_000 * pricing["output_per_million"]
+    capacity_cost = (
+        capacity_input_tokens / 1_000_000 * pricing["uncached_input_per_million"]
+        + capacity_output_tokens / 1_000_000 * pricing["output_per_million"]
     )
-    observation_threshold_input = maximum_sample_runs * observed_input_tokens_per_run
-    observation_threshold_output = maximum_sample_runs * observed_output_tokens_per_run
+    approved_input = maximum_sample_runs * observed_input_tokens_per_run
+    approved_output = maximum_sample_runs * observed_output_tokens_per_run
+    approved_token_cost = (
+        approved_input / 1_000_000 * pricing["uncached_input_per_million"]
+        + approved_output / 1_000_000 * pricing["output_per_million"]
+    )
+    per_run_approved_cost = (
+        observed_input_tokens_per_run
+        / 1_000_000
+        * pricing["uncached_input_per_million"]
+        + observed_output_tokens_per_run
+        / 1_000_000
+        * pricing["output_per_million"]
+    )
     surface_sha, _ = surface_snapshot(repo, contract, "worktree")
     require(
         gate_report.get("subject_commit") == subject_commit
@@ -277,36 +303,31 @@ def build_budget_proposal(
             "elapsed_seconds": max_seconds_per_run,
             "cleanup_grace_seconds": RUNNER_CLEANUP_GRACE_SECONDS,
         },
-        "per_sample_run_observation_thresholds": {
+        "per_sample_run_budget_limits": {
             "input_tokens": observed_input_tokens_per_run,
             "output_tokens": observed_output_tokens_per_run,
-        },
-        "maximums": {
-            "provider_requests": hard_request_maximum,
-            "input_tokens": maximum_input_tokens,
-            "output_tokens": maximum_output_tokens,
-            "elapsed_seconds": maximum_sample_runs
-            * (max_seconds_per_run + RUNNER_CLEANUP_GRACE_SECONDS),
-            "estimated_cost": round(maximum_cost, 10),
+            "estimated_cost": round(per_run_approved_cost, 10),
             "currency": pricing["currency"],
         },
-        "observation_threshold_totals": {
-            "input_tokens": observation_threshold_input,
-            "output_tokens": observation_threshold_output,
-            "estimated_cost": round(
-                observation_threshold_input
-                / 1_000_000
-                * pricing["uncached_input_per_million"]
-                + observation_threshold_output
-                / 1_000_000
-                * pricing["output_per_million"],
-                10,
-            ),
+        "approved_maximums": {
+            "provider_requests": hard_request_maximum,
+            "input_tokens": approved_input,
+            "output_tokens": approved_output,
+            "elapsed_seconds": maximum_sample_runs
+            * (max_seconds_per_run + RUNNER_CLEANUP_GRACE_SECONDS),
+            "estimated_cost": round(approved_token_cost, 10),
+            "currency": pricing["currency"],
+        },
+        "provider_capacity_ceiling": {
+            "provider_requests": hard_request_maximum,
+            "input_tokens": capacity_input_tokens,
+            "output_tokens": capacity_output_tokens,
+            "estimated_cost": round(capacity_cost, 10),
             "currency": pricing["currency"],
         },
         "pricing_snapshot": pricing,
         "provider_hard_limits": provider_limits,
-        "cost_assumption": (
+        "capacity_cost_assumption": (
             "hard request count multiplied by provider maximum input/output tokens; "
             "all input priced as cache miss"
         ),
@@ -319,13 +340,17 @@ def build_budget_proposal(
                 "no_automatic_retries",
             ],
             "hard_during_run": ["provider_requests", "elapsed_seconds"],
-            "bounded_cleanup_after_run": ["cleanup_grace_seconds"],
-            "hard_by_provider_per_request": ["input_tokens", "output_tokens"],
-            "observed_after_each_run": [
+            "settled_after_each_provider_response": [
                 "input_tokens",
                 "output_tokens",
                 "estimated_cost",
             ],
+            "reject_before_next_provider_request": [
+                "usage_missing",
+                "approved_budget_reached_or_exceeded",
+            ],
+            "bounded_cleanup_after_run": ["cleanup_grace_seconds"],
+            "provider_per_request_capacity": ["input_tokens", "output_tokens"],
         },
         "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
     }
@@ -335,6 +360,9 @@ def build_budget_proposal(
 
 
 def validate_budget_proposal(proposal: dict[str, Any]) -> None:
+    if proposal.get("schema_version") == LEGACY_BUDGET_PROPOSAL_SCHEMA_VERSION:
+        _validate_legacy_budget_proposal(proposal)
+        return
     require(
         proposal.get("schema_version") == BUDGET_PROPOSAL_SCHEMA_VERSION,
         "invalid budget proposal schema",
@@ -354,7 +382,7 @@ def validate_budget_proposal(proposal: dict[str, Any]) -> None:
     selection = proposal.get("selection", {})
     validate_budget_selection(selection)
     limits = proposal.get("per_sample_run_limits", {})
-    thresholds = proposal.get("per_sample_run_observation_thresholds", {})
+    thresholds = proposal.get("per_sample_run_budget_limits", {})
     provider_limits = proposal.get("provider_hard_limits", {})
     pricing = proposal.get("pricing_snapshot", {})
     sample_runs = selection.get("maximum_sample_runs")
@@ -380,56 +408,91 @@ def validate_budget_proposal(proposal: dict[str, Any]) -> None:
         and pricing["currency"].strip() != ""
         and all(
             type(pricing.get(key)) in (int, float) and pricing[key] >= 0
-            for key in ("uncached_input_per_million", "output_per_million")
+            for key in (
+                "cached_input_per_million",
+                "uncached_input_per_million",
+                "output_per_million",
+            )
         ),
         "budget proposal pricing is incomplete",
     )
     hard_requests = sample_runs * requests_per_run
-    hard_input = hard_requests * provider_limits["max_input_tokens_per_request"]
-    hard_output = hard_requests * provider_limits["max_output_tokens_per_request"]
-    hard_cost = round(
-        hard_input / 1_000_000 * pricing["uncached_input_per_million"]
-        + hard_output / 1_000_000 * pricing["output_per_million"],
+    capacity_input = hard_requests * provider_limits["max_input_tokens_per_request"]
+    capacity_output = hard_requests * provider_limits["max_output_tokens_per_request"]
+    capacity_cost = round(
+        capacity_input / 1_000_000 * pricing["uncached_input_per_million"]
+        + capacity_output / 1_000_000 * pricing["output_per_million"],
         10,
     )
+    approved_input = sample_runs * thresholds["input_tokens"]
+    approved_output = sample_runs * thresholds["output_tokens"]
+    approved_cost = round(sample_runs * thresholds.get("estimated_cost"), 10)
+    require(
+        thresholds.get("currency") == pricing["currency"]
+        and approved_cost
+        >= round(
+            approved_input / 1_000_000 * pricing["uncached_input_per_million"]
+            + approved_output / 1_000_000 * pricing["output_per_million"],
+            10,
+        ),
+        "budget cost limit is inconsistent",
+    )
     require(
         exact_json_equal(
-            proposal.get("maximums"),
+            proposal.get("approved_maximums"),
             {
                 "provider_requests": hard_requests,
-                "input_tokens": hard_input,
-                "output_tokens": hard_output,
+                "input_tokens": approved_input,
+                "output_tokens": approved_output,
                 "elapsed_seconds": sample_runs
                 * (limits["elapsed_seconds"] + limits["cleanup_grace_seconds"]),
-                "estimated_cost": hard_cost,
+                "estimated_cost": approved_cost,
                 "currency": pricing["currency"],
             },
         ),
-        "budget proposal hard maximums are inconsistent",
+        "budget proposal approved maximums are inconsistent",
     )
-    observed_input = sample_runs * thresholds["input_tokens"]
-    observed_output = sample_runs * thresholds["output_tokens"]
     require(
         exact_json_equal(
-            proposal.get("observation_threshold_totals"),
+            proposal.get("provider_capacity_ceiling"),
             {
-                "input_tokens": observed_input,
-                "output_tokens": observed_output,
-                "estimated_cost": round(
-                    observed_input / 1_000_000 * pricing["uncached_input_per_million"]
-                    + observed_output / 1_000_000 * pricing["output_per_million"],
-                    10,
-                ),
+                "provider_requests": hard_requests,
+                "input_tokens": capacity_input,
+                "output_tokens": capacity_output,
+                "estimated_cost": capacity_cost,
                 "currency": pricing["currency"],
             },
         ),
-        "budget proposal observation thresholds are inconsistent",
+        "budget proposal provider capacity ceiling is inconsistent",
     )
     boundary = proposal.get("enforcement_boundary", {})
     require(
         boundary.get("hard_during_run") == ["provider_requests", "elapsed_seconds"]
-        and boundary.get("hard_by_provider_per_request")
+        and boundary.get("settled_after_each_provider_response")
+        == ["input_tokens", "output_tokens", "estimated_cost"]
+        and boundary.get("reject_before_next_provider_request")
+        == ["usage_missing", "approved_budget_reached_or_exceeded"]
+        and boundary.get("provider_per_request_capacity")
         == ["input_tokens", "output_tokens"]
         and boundary.get("bounded_cleanup_after_run") == ["cleanup_grace_seconds"],
         "budget proposal enforcement boundary is incomplete",
+    )
+
+
+def _validate_legacy_budget_proposal(proposal: dict[str, Any]) -> None:
+    """Validate immutable v2 evidence without using it for new authorizations."""
+    expected = dict(proposal)
+    digest = expected.pop("proposal_sha256", None)
+    require(digest == canonical_json_sha256(expected), "budget proposal digest mismatch")
+    require(
+        expected.get("proposal_id")
+        == f"CBP-{canonical_json_sha256({key: value for key, value in expected.items() if key != 'proposal_id'})[:16].upper()}",
+        "budget proposal id mismatch",
+    )
+    validate_budget_selection(proposal.get("selection", {}))
+    require(
+        isinstance(proposal.get("maximums"), dict)
+        and isinstance(proposal.get("per_sample_run_observation_thresholds"), dict)
+        and isinstance(proposal.get("provider_hard_limits"), dict),
+        "legacy budget proposal is incomplete",
     )

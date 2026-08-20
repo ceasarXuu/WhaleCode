@@ -27,45 +27,6 @@ fn json_schema_fixtures_match_generated() -> Result<()> {
 }
 
 #[test]
-fn action_map_result_schema_is_mechanical_and_reservation_linked() -> Result<()> {
-    let schema_root = schema_root()?;
-    let typescript_tree = read_tree(&schema_root, "typescript")?;
-    let result_ts = fixture_utf8(
-        &typescript_tree,
-        Path::new("ActionMapSnapshotResult.ts"),
-        "typescript",
-    )?;
-    assert!(result_ts.contains("actionId: string"));
-    assert!(result_ts.contains("reservationId: string"));
-    assert!(result_ts.contains("isError: boolean"));
-    assert!(!result_ts.contains("evidencePackage"));
-    assert!(!result_ts.contains("assignmentId"));
-
-    for (bundle_path, value) in json_bundles(&schema_root)? {
-        let result = schema(&value, "ActionMapSnapshotResult")
-            .with_context(|| format!("locate ActionMapSnapshotResult in {bundle_path}"))?;
-        let properties = properties(result, "ActionMapSnapshotResult")?;
-        for field in ["actionId", "reservationId", "nodeId", "isError"] {
-            anyhow::ensure!(
-                properties.contains_key(field),
-                "{bundle_path} must expose result {field}"
-            );
-        }
-        anyhow::ensure!(
-            !properties.contains_key("evidencePackage")
-                && !properties.contains_key("assignmentId")
-                && !properties.contains_key("sourceEventRef"),
-            "{bundle_path} must not expose retired result ownership or semantic evidence"
-        );
-        assert_eq!(
-            properties.get("isError"),
-            Some(&serde_json::json!({"type": "boolean"}))
-        );
-    }
-    Ok(())
-}
-
-#[test]
 fn action_map_snapshot_schema_is_one_rooted_revisioned_map() -> Result<()> {
     let schema_root = schema_root()?;
     let typescript_tree = read_tree(&schema_root, "typescript")?;
@@ -95,13 +56,18 @@ fn action_map_snapshot_schema_is_one_rooted_revisioned_map() -> Result<()> {
         "revision: bigint",
         "complete: boolean",
         "nodes: Array<ActionMapSnapshotNode>",
-        "edges: Array<ActionMapSnapshotEdge>",
-        "reservations: Array<ActionMapSnapshotReservation>",
-        "terminalHistorySummaryRefs: Array<string>",
     ] {
         assert!(map_ts.contains(field), "map fixture must expose {field}");
     }
-    for field in ["role: string", "goal: string", "state: string"] {
+    for field in [
+        "role: string",
+        "goal: string",
+        "state: string",
+        "content: string",
+        "parents: Array<string>",
+        "children: Array<string>",
+        "actions: Array<ActionMapSnapshotAction>",
+    ] {
         assert!(node_ts.contains(field), "node fixture must expose {field}");
     }
     assert!(!node_ts.contains("kind:"));
@@ -111,7 +77,7 @@ fn action_map_snapshot_schema_is_one_rooted_revisioned_map() -> Result<()> {
         let snapshot = schema(&value, "ActionMapSnapshot")
             .with_context(|| format!("locate ActionMapSnapshot in {bundle_path}"))?;
         let snapshot_properties = properties(snapshot, "ActionMapSnapshot")?;
-        for field in ["schemaVersion", "mode", "map", "traceEvents"] {
+        for field in ["schemaVersion", "mode", "bootstrapRequired", "map"] {
             anyhow::ensure!(
                 snapshot_properties.contains_key(field),
                 "{bundle_path} must expose snapshot {field}"
@@ -133,10 +99,6 @@ fn action_map_snapshot_schema_is_one_rooted_revisioned_map() -> Result<()> {
             "revision",
             "complete",
             "nodes",
-            "edges",
-            "reservations",
-            "terminalHistorySummaryRefs",
-            "nodeEvents",
         ] {
             anyhow::ensure!(
                 map_properties.contains_key(field),
@@ -147,7 +109,9 @@ fn action_map_snapshot_schema_is_one_rooted_revisioned_map() -> Result<()> {
         let node = schema(&value, "ActionMapSnapshotNode")
             .with_context(|| format!("locate ActionMapSnapshotNode in {bundle_path}"))?;
         let node_properties = properties(node, "ActionMapSnapshotNode")?;
-        for field in ["id", "role", "goal", "state", "sourceRefs"] {
+        for field in [
+            "id", "role", "goal", "state", "content", "parents", "children", "actions",
+        ] {
             anyhow::ensure!(
                 node_properties.contains_key(field),
                 "{bundle_path} must expose node {field}"
@@ -156,8 +120,9 @@ fn action_map_snapshot_schema_is_one_rooted_revisioned_map() -> Result<()> {
         anyhow::ensure!(
             !node_properties.contains_key("kind")
                 && !node_properties.contains_key("status")
-                && !node_properties.contains_key("activeLease"),
-            "{bundle_path} must not expose retired NodeKind or persisted lifecycle fields"
+                && !node_properties.contains_key("activeLease")
+                && !node_properties.contains_key("sourceRefs"),
+            "{bundle_path} must not expose retired node fields"
         );
     }
     Ok(())

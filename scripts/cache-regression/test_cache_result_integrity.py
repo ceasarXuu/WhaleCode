@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import unittest
 
+from cache_provider_route_test_support import bind_route
 from cache_run_ledger import settle_entry
 
 
@@ -83,6 +84,7 @@ class CacheResultIntegrityTest(unittest.TestCase):
                 }
             ],
         }
+        bind_route(self.entry, self.result)
 
     def test_direct_settlement_rejects_missing_or_unauthorized_scope(self) -> None:
         for mutation in ("missing", "unauthorized"):
@@ -98,6 +100,19 @@ class CacheResultIntegrityTest(unittest.TestCase):
                     ValueError, "scope is unauthorized|evidence is inconsistent"
                 ):
                     settle_entry(copy.deepcopy(self.entry), result)
+
+    def test_direct_settlement_rejects_provider_route_drift(self) -> None:
+        result = copy.deepcopy(self.result)
+        result["observations"][0]["provider_routing"][
+            "transport_provider_id"
+        ] = "different-provider"
+        with self.assertRaisesRegex(ValueError, "provider route"):
+            settle_entry(copy.deepcopy(self.entry), result)
+
+        result = copy.deepcopy(self.result)
+        result["observations"][0]["provider_route_profile"]["profile"] = "taskspace"
+        with self.assertRaisesRegex(ValueError, "resolved provider profile"):
+            settle_entry(copy.deepcopy(self.entry), result)
 
 
 if __name__ == "__main__":

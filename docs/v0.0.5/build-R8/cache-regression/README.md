@@ -1,7 +1,7 @@
 # R8 缓存命中回归门禁子主题
 
 - Created: 2026-07-31
-- Status: 离线工程与 fresh closure review 完成；工程问题关闭，真实 accepted 基线待单独预算激活
+- Status: 离线工程完成；MVT-0 真实双臂 accepted baseline 已激活
 - Scope: DeepSeek 请求稳定前缀、缓存 usage 观测、变更门禁与付费复验
 - Related R8 issues: R8-I02、R8-I07、R8-I08
 
@@ -53,6 +53,11 @@ runner 有发现能力，但不证明当前源码指纹门禁的覆盖范围正�
 | [15-authorized-run-budget-boundary.md](15-authorized-run-budget-boundary.md) | 真实回归的硬成本边界、观测阈值与超时回收 | implementation verified |
 | [16-first-authorized-revalidation-result.md](16-first-authorized-revalidation-result.md) | 首次获批 revalidation 的预检失败、成本边界与后续动作 | diagnosed |
 | [17-authorized-replacement-result.md](17-authorized-replacement-result.md) | 获批替代运行暴露的 provider 路由与 RunId 身份链阻塞 | diagnosed |
+| [18-provider-route-preflight-repair.md](18-provider-route-preflight-repair.md) | transport alias 启动前预检、final-wire 等价与证据身份闭环 | closure passed；真实复验待预算 |
+| [19-provider-terminal-usage-repair.md](19-provider-terminal-usage-repair.md) | provider terminal usage 唯一事实源与 binary-health 前置修复 | implementation verified；真实双臂待预算 |
+| [20-single-arm-exit-contract-repair.md](20-single-arm-exit-contract-repair.md) | 单臂 cache smoke 与双臂 E2 退出语义冲突修复 | implementation verified；真实双臂待预算 |
+| [21-mvt0-accepted-baseline-result.md](21-mvt0-accepted-baseline-result.md) | MVT-0 双臂真实结果、trace 与 accepted baseline | accepted |
+| [22-approved-budget-contract-v3.md](22-approved-budget-contract-v3.md) | 用户批准预算与 Provider 理论容量分离、请求间 usage 预算监督 | implementation verified；真实复验待执行 |
 | [对抗性审查](../../../../vs_review/2026-07-31-cache-regression-surface-review.md) | 独立审查漏报、误报和控制面完整性 | historical findings closed |
 | [收尾对抗性审查](../../../../vs_review/2026-08-01-r8-cache-gate-closeout-review.md) | CR-21.2 至 CR-23 多轮独立闭环审查 | closure passed；P0/P1=0 |
 
@@ -89,6 +94,20 @@ runner 有发现能力，但不证明当前源码指纹门禁的覆盖范围正�
 直到独立 accepted 基线提交形成。付费执行启用硬上限时，Agent 无真实 Key 和直接 provider 出口，隔离代理只接受
 批准模型的 Responses 请求并权威记录全部 dispatch；Whale wire 对账只控制性能证据资格。跨平台超时会终止进程树
 并清理容器、网络与 host secret。当前仓库仍是历史 `live_regression_failed`，本轮没有真实 provider 运行。
+
+2026-08-02 的 MVT-0 获批运行新增了 1 个 Standard 真实样本。其业务成功，但旧 runner 因混用 rollout 重复
+快照而拒绝完整 usage；提交 `0076e720a` 已把 provider terminal 设为唯一计量事实，并将 binary-health 前置。
+原始 artifact 已离线复算成功，新的 Standard + map-request 对照仍需单独预算。
+
+第二次获批运行 `WAR-20260802-180016-CACHE-REGRESSION-2E8B3F50` 再次完成一个业务成功且 usage 完整的 Standard，
+request 2+ 命中率为 `97.5422%`。底层 benchmark 却因未运行右臂而无法形成双臂 E2，返回退出码 1；缓存 runner
+按停止条件未启动 map-request。提交 `c2246a6f1` 已让缓存专用单臂命令显式接受非 E2 结果，其他执行、业务、usage、
+预算和清理门禁不变。本次授权同样已经消费，不能复用。
+
+修复后运行 `WAR-20260802-181842-CACHE-REGRESSION-7A794B3A` 完成 Standard 与 map-request 双臂，业务、usage、
+provider boundary 和清理全部通过。request 2+ 命中率分别为 `97.90%` 与 `67.85%`；用户明确接受该结果作为
+MVT-0 当前基线。Promotion 只更新三种 TaskSpace final-wire 快照，Standard 保持不变；性能差距继续作为后续产品
+问题，不因基线接受而关闭。
 
 最终离线验收为 Python `195 passed, 0 skipped`，账本 Schema、PowerShell、容器/provider、non-agent、E3 和 release
 自测全部通过；最终空白审查在 HEAD `bbbf1fc16` 未发现 P0/P1。历史 `live_regression_failed` 只表示尚未获得新的

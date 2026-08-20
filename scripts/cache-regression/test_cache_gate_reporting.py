@@ -44,6 +44,33 @@ class CacheGateReportingTest(unittest.TestCase):
             )
         )
 
+    def test_promotion_allows_only_the_accepted_semantic_policy_overlap(self) -> None:
+        accepted = {
+            "valid": True,
+            "accepted_scenario_paths": ["snapshots/accepted.snap"],
+        }
+        self.assertTrue(
+            is_promotion_transition(
+                baseline_changed=True,
+                semantic_baselines=["snapshots/accepted.snap"],
+                accepted_validation=accepted,
+                policy_changes=["snapshots/accepted.snap"],
+                sensitive_changes=[],
+            )
+        )
+        self.assertFalse(
+            is_promotion_transition(
+                baseline_changed=True,
+                semantic_baselines=["snapshots/accepted.snap"],
+                accepted_validation=accepted,
+                policy_changes=[
+                    "scripts/cache-regression/check_cache_regression_gate.py",
+                    "snapshots/accepted.snap",
+                ],
+                sensitive_changes=[],
+            )
+        )
+
     def test_structured_change_output_replaces_command_log_noise(self) -> None:
         validation = {
             "commands": [

@@ -1,0 +1,1524 @@
+{
+  "schema_version": "whalecode-cache-regression-gate-v1",
+  "status": "blocked",
+  "source": "head",
+  "subject_commit": "a54cae056dbcd881f9c8462df2521d757fc3f2ac",
+  "actual_surface_sha256": "19b2395a7c61547d38d91813fc8238897b119333bcba34c9102b0b9239240af2",
+  "expected_surface_sha256": "204978af2218017fe58f2322973b2a605cce6ec16e1e91f92ef4386aa1e3926b",
+  "baseline_status": "accepted",
+  "accepted_baseline_validation": {
+    "valid": true,
+    "surface_matches_current": false,
+    "manifest_matches_current": false,
+    "accepted_scenario_paths": [
+      "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_contract__taskspace_map_always_two_request_final_wire.snap",
+      "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_contract__taskspace_map_append_two_request_final_wire.snap",
+      "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_contract__taskspace_map_request_two_request_final_wire.snap"
+    ],
+    "evidence_paths": [
+      "benchmarks/cache-regression/acceptances/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A.json",
+      "benchmarks/cache-regression/authorizations/CBA-20260802-SEQUENCE-R1-94C0F4C009ACD2C8.json",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A-CACHE-001/logical-mode-map.json",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A-CACHE-001/metrics.json",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A-CACHE-001/provider-boundary-evidence.json",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A-CACHE-001/provider-cache-trace-summary.json",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A-CACHE-001/provider-wire-trace.jsonl",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A-CACHE-001/request-summary.json",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A-CACHE-001/whale-argv.json",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A-CACHE-002/logical-mode-map.json",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A-CACHE-002/metrics.json",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A-CACHE-002/provider-boundary-evidence.json",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A-CACHE-002/provider-cache-trace-summary.json",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A-CACHE-002/provider-wire-trace.jsonl",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A-CACHE-002/request-summary.json",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A-CACHE-002/whale-argv.json",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/provider-route-preflight/builtin-provider-standard.json",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/provider-route-preflight/builtin-provider-taskspace.json",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/provider-route-preflight/container-inspect-standard-alias.json",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/provider-route-preflight/container-inspect-standard-builtin.json",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/provider-route-preflight/container-inspect-taskspace-alias.json",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/provider-route-preflight/container-inspect-taskspace-builtin.json",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/provider-route-preflight/provider-route-preflight.json",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/provider-route-preflight/resolved-provider-standard.json",
+      "benchmarks/cache-regression/evidence/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A/provider-route-preflight/resolved-provider-taskspace.json",
+      "benchmarks/cache-regression/gate-reports/2026-08-02-r8-sequence-mvt0-round1.json",
+      "benchmarks/cache-regression/proposals/CBP-94C0F4C009ACD2C8.json",
+      "benchmarks/cache-regression/results/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A.json",
+      "benchmarks/whale-agent-run-ledger.json"
+    ]
+  },
+  "promotion_transition": false,
+  "require_live_baseline": true,
+  "contract_matches_worktree": true,
+  "policy_changes": [],
+  "baseline_changed": false,
+  "policy_baseline_conflict": false,
+  "policy_product_conflict": false,
+  "semantic_baseline_changes": [],
+  "baseline_product_conflict": false,
+  "relevant_source_matches_worktree": true,
+  "validation_input_mismatches": [],
+  "free_validation_required": true,
+  "discovery_state": "changed",
+  "candidate_transition": false,
+  "revalidation_requested": false,
+  "free_validation": {
+    "status": "fail",
+    "passed": false,
+    "commands": [
+      {
+        "id": "final_wire_matrix",
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-core",
+          "--test",
+          "all",
+          "standard_request_pair_preserves_the_complete_prefix"
+        ],
+        "cwd": "third_party/codex-cli/codex-rs",
+        "exit_code": 0,
+        "timed_out": false,
+        "duration_ms": 8296,
+        "status": "pass",
+        "output_tail": [
+          "  --> core/src/tools/output_reference.rs:32:17",
+          "   |",
+          "32 | pub(crate) enum OutputSliceMode {",
+          "   |                 ^^^^^^^^^^^^^^^",
+          "",
+          "warning: struct `OutputSliceRequest` is never constructed",
+          "  --> core/src/tools/output_reference.rs:40:19",
+          "   |",
+          "40 | pub(crate) struct OutputSliceRequest {",
+          "   |                   ^^^^^^^^^^^^^^^^^^",
+          "",
+          "warning: struct `OutputSliceResult` is never constructed",
+          "  --> core/src/tools/output_reference.rs:46:19",
+          "   |",
+          "46 | pub(crate) struct OutputSliceResult {",
+          "   |                   ^^^^^^^^^^^^^^^^^",
+          "",
+          "warning: function `read_output_artifact_slice_result` is never used",
+          "   --> core/src/tools/output_reference.rs:218:21",
+          "    |",
+          "218 | pub(crate) async fn read_output_artifact_slice_result(",
+          "    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "",
+          "warning: function `read_output_bytes_slice_result` is never used",
+          "   --> core/src/tools/output_reference.rs:270:15",
+          "    |",
+          "270 | pub(crate) fn read_output_bytes_slice_result(",
+          "    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "",
+          "warning: fields `cancelled` and `execution_failed` are never read",
+          "  --> core/src/tools/parallel.rs:41:16",
+          "   |",
+          "39 | pub(crate) struct ToolCallResponse {",
+          "   |                   ---------------- fields in this struct",
+          "40 |     pub(crate) response: Result<ResponseInputItem, CodexErr>,",
+          "41 |     pub(crate) cancelled: bool,",
+          "   |                ^^^^^^^^^",
+          "42 |     pub(crate) execution_failed: bool,",
+          "   |                ^^^^^^^^^^^^^^^^",
+          ""
+        ],
+        "change_report": {
+          "schema_version": "whalecode-final-wire-change-report-v1",
+          "status": "unchanged",
+          "comparison_policy": "exact_normalized_json_value",
+          "scenario_count": 1,
+          "changed_scenario_count": 0,
+          "uncomparable_scenario_count": 0,
+          "errors": [],
+          "scenarios": [
+            {
+              "scenario_id": "standard_two_request_final_wire",
+              "comparison_object": "normalized_final_wire_snapshot",
+              "baseline_path": "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_contract__standard_two_request_final_wire.snap",
+              "status": "unchanged",
+              "first_difference": null,
+              "before_payload_sha256": "3e6f1602ab3a1a2349420afafca95570b25ce7eca1faad07de1d7c649a956c08",
+              "after_payload_sha256": "3e6f1602ab3a1a2349420afafca95570b25ce7eca1faad07de1d7c649a956c08",
+              "candidate_payload": null
+            }
+          ]
+        }
+      },
+      {
+        "id": "taskspace_final_wire",
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-core",
+          "--test",
+          "all",
+          "taskspace_production_tool_wire"
+        ],
+        "cwd": "third_party/codex-cli/codex-rs",
+        "exit_code": 101,
+        "timed_out": false,
+        "duration_ms": 775,
+        "status": "fail",
+        "output_tail": [
+          "   |",
+          "32 | pub(crate) enum OutputSliceMode {",
+          "   |                 ^^^^^^^^^^^^^^^",
+          "",
+          "warning: struct `OutputSliceRequest` is never constructed",
+          "  --> core/src/tools/output_reference.rs:40:19",
+          "   |",
+          "40 | pub(crate) struct OutputSliceRequest {",
+          "   |                   ^^^^^^^^^^^^^^^^^^",
+          "",
+          "warning: struct `OutputSliceResult` is never constructed",
+          "  --> core/src/tools/output_reference.rs:46:19",
+          "   |",
+          "46 | pub(crate) struct OutputSliceResult {",
+          "   |                   ^^^^^^^^^^^^^^^^^",
+          "",
+          "warning: function `read_output_artifact_slice_result` is never used",
+          "   --> core/src/tools/output_reference.rs:218:21",
+          "    |",
+          "218 | pub(crate) async fn read_output_artifact_slice_result(",
+          "    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "",
+          "warning: function `read_output_bytes_slice_result` is never used",
+          "   --> core/src/tools/output_reference.rs:270:15",
+          "    |",
+          "270 | pub(crate) fn read_output_bytes_slice_result(",
+          "    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "",
+          "warning: fields `cancelled` and `execution_failed` are never read",
+          "  --> core/src/tools/parallel.rs:41:16",
+          "   |",
+          "39 | pub(crate) struct ToolCallResponse {",
+          "   |                   ---------------- fields in this struct",
+          "40 |     pub(crate) response: Result<ResponseInputItem, CodexErr>,",
+          "41 |     pub(crate) cancelled: bool,",
+          "   |                ^^^^^^^^^",
+          "42 |     pub(crate) execution_failed: bool,",
+          "   |                ^^^^^^^^^^^^^^^^",
+          "",
+          "error: test failed, to rerun pass `-p codex-core --test all`"
+        ],
+        "change_report": {
+          "schema_version": "whalecode-final-wire-change-report-v1",
+          "status": "changed",
+          "comparison_policy": "exact_normalized_json_value",
+          "scenario_count": 1,
+          "changed_scenario_count": 1,
+          "uncomparable_scenario_count": 0,
+          "errors": [],
+          "scenarios": [
+            {
+              "scenario_id": "taskspace_production_tool_wire",
+              "comparison_object": "normalized_final_wire_snapshot",
+              "baseline_path": "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_final_wire__taskspace_production_tool_wire.snap",
+              "status": "changed",
+              "first_difference": "/tools/0/description",
+              "before_payload_sha256": "43dae01f8d68f6f05bf3c8039185c9aaa4975d71ef1ef3a44a42d725cbee87ba",
+              "after_payload_sha256": "ce17fe0c23670a16e83457a33d0903602c95d32b0ec13b0fa28945e976bdab1a",
+              "candidate_payload": {
+                "model": "deepseek-v4-flash",
+                "provider_identity": {
+                  "endpoint_path": "/v1/responses",
+                  "provider_id": "deepseek",
+                  "wire_api": "responses"
+                },
+                "tool_choice": "auto",
+                "tools": [
+                  {
+                    "description": "Use `taskspace_exec` as the sole top-level Function Tool for TaskSpace Map operations and client Tool actions. Provider-hosted Tools are the only exception. Treat a native top-level Provider Tool item and its TaskSpace node attribution as one indivisible action: emit both in the same assistant response, never either side alone. Choose exactly one sequence `type` allowed by the schema.\n\nTool contract:\n- Put client and provider-hosted Tool actions in the sequence's single `tools` array.\n- Each client action keeps its native Tool input in `input` and declares one owner `node_id`; namespaced Tools also declare `namespace`.\n- Pairing is an if-and-only-if contract. If this response contains a native provider-hosted Tool item, its one `taskspace_exec` call must contain exactly one matching entry with `execution: \"already_executed\"` and all owner `node_ids`. If this response contains no matching native item, include no such entry. The native item performs the work; the entry only records node ownership. Never emit only one side or defer attribution to another response.\n- Tool array order supplies stable action identity. It does not create Tool dependencies; result-dependent work belongs in a later request.\n\nMap contract:\n- Map fields use the canonical operation input directly. Node readiness derives from `parents`.\n- A Tool action on a Ready owner mechanically starts it; do not also patch that owner to `in_flight` in the same sequence.\n- Tool outcomes do not complete nodes. A batch contains at most one `apply_patch` action.\n- The complete sequence is preflighted before unexecuted side effects. The Runtime does not add, infer, reorder, or repair Agent actions.\n\nFeedback contract:\n- The outer result reports every client and hosted action, preserves native client results and errors without summarization, and returns the complete Map for `read_map`.\n\nFirst-turn initialization and work example:\n```json\n{\"initialize_map\":{\"finish\":{\"content\":\"\",\"goal\":\"Deliver the completed task\",\"node_id\":\"finish\",\"parents\":[\"inspect\"]},\"root\":{\"content\":\"\",\"goal\":\"Complete the user task\",\"node_id\":\"root\",\"parents\":[]},\"work_nodes\":[{\"content\":\"\",\"goal\":\"Inspect the workspace\",\"node_id\":\"inspect\",\"parents\":[\"root\"]}]},\"tools\":[{\"input\":{\"cmd\":\"pwd\"},\"node_id\":\"inspect\",\"tool\":\"exec_command\"}],\"type\":\"initialize_and_work\"}\n```\n\nParent completion and direct-child work example:\n```json\n{\"tools\":[{\"input\":{\"cmd\":\"test -f README.md\"},\"node_id\":\"implement\",\"tool\":\"exec_command\"}],\"type\":\"update_and_work\",\"update_map\":{\"add_work_nodes\":[],\"node_patches\":[{\"content\":\"Inspection complete.\",\"node_id\":\"inspect\",\"state\":\"completed\"}]}}\n```\n\nRead-only example:\n```json\n{\"read_map\":{},\"type\":\"read_map\"}\n```\n\nFinal work-node completion and explicit Map finish example:\n```json\n{\"finish_map\":{\"content\":\"Task completed and verified.\"},\"type\":\"update_and_finish\",\"update_map\":{\"add_work_nodes\":[],\"node_patches\":[{\"content\":\"Implementation and verification complete.\",\"node_id\":\"implement\",\"state\":\"completed\"}]}}\n```\n\nProvider-hosted ToolSpec names, exposed unchanged: web_search.\n\nIndivisible same-response pair: if you emit the native top-level Provider Tool item, emit the `taskspace_exec` attribution below in that same assistant response. If you do not emit the native item, do not emit its attribution. The native item performs the work; the attribution only records node ownership. Never emit either side alone or defer attribution to another response:\n```json\n{\"tools\":[{\"execution\":\"already_executed\",\"node_ids\":[\"research\"],\"tool\":\"web_search\"}],\"type\":\"work\"}\n```",
+                    "name": "taskspace_exec",
+                    "parameters": {
+                      "$defs": {
+                        "finish_map_input": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "content": {
+                              "description": "Final task summary.",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "content"
+                          ],
+                          "type": "object"
+                        },
+                        "initialize_map_input": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "finish": {
+                              "additionalProperties": false,
+                              "description": "Unique Finish node; parents must be non-empty.",
+                              "properties": {
+                                "content": {
+                                  "type": "string"
+                                },
+                                "goal": {
+                                  "type": "string"
+                                },
+                                "node_id": {
+                                  "type": "string"
+                                },
+                                "parents": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                }
+                              },
+                              "required": [
+                                "node_id",
+                                "goal",
+                                "content",
+                                "parents"
+                              ],
+                              "type": "object"
+                            },
+                            "root": {
+                              "additionalProperties": false,
+                              "description": "Root node; parents must be empty.",
+                              "properties": {
+                                "content": {
+                                  "type": "string"
+                                },
+                                "goal": {
+                                  "type": "string"
+                                },
+                                "node_id": {
+                                  "type": "string"
+                                },
+                                "parents": {
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "type": "array"
+                                }
+                              },
+                              "required": [
+                                "node_id",
+                                "goal",
+                                "content",
+                                "parents"
+                              ],
+                              "type": "object"
+                            },
+                            "work_nodes": {
+                              "description": "Initial work nodes.",
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "content": {
+                                    "type": "string"
+                                  },
+                                  "goal": {
+                                    "type": "string"
+                                  },
+                                  "node_id": {
+                                    "type": "string"
+                                  },
+                                  "parents": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "minItems": 1,
+                                    "type": "array"
+                                  }
+                                },
+                                "required": [
+                                  "node_id",
+                                  "goal",
+                                  "content",
+                                  "parents"
+                                ],
+                                "type": "object"
+                              },
+                              "minItems": 1,
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "root",
+                            "work_nodes",
+                            "finish"
+                          ],
+                          "type": "object"
+                        },
+                        "read_map_input": {
+                          "additionalProperties": false,
+                          "properties": {},
+                          "required": [],
+                          "type": "object"
+                        },
+                        "reopen_map_input": {
+                          "additionalProperties": false,
+                          "properties": {},
+                          "required": [],
+                          "type": "object"
+                        },
+                        "tool_action": {
+                          "anyOf": [
+                            {
+                              "additionalProperties": false,
+                              "description": "Use the `apply_patch` tool to edit files. A single apply_patch call can update multiple files. A provider response may contain at most one apply_patch call; include all related file operations in that one patch. This is a FREEFORM tool, so do not wrap the patch in JSON.",
+                              "properties": {
+                                "input": {
+                                  "description": "Freeform grammar input using lark syntax.\nstart: begin_patch hunk+ end_patch\nbegin_patch: \"*** Begin Patch\" LF\nend_patch: \"*** End Patch\" LF?\n\nhunk: add_hunk | delete_hunk | update_hunk\nadd_hunk: \"*** Add File: \" filename LF add_line+\ndelete_hunk: \"*** Delete File: \" filename LF\nupdate_hunk: \"*** Update File: \" filename LF change_move? change?\n\nfilename: /(.+)/\nadd_line: \"+\" /(.*)/ LF -> line\n\nchange_move: \"*** Move to: \" filename LF\nchange: (change_context | change_line)+ eof_line?\nchange_context: (\"@@\" | \"@@ \" /(.+)/) LF\nchange_line: (\"+\" | \"-\" | \" \") /(.*)/ LF\neof_line: \"*** End of File\" LF\n\n%import common.LF\n",
+                                  "type": "string"
+                                },
+                                "node_id": {
+                                  "description": "Agent-declared owner work node.",
+                                  "type": "string"
+                                },
+                                "tool": {
+                                  "enum": [
+                                    "apply_patch"
+                                  ],
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "tool",
+                                "node_id",
+                                "input"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "description": "Close an agent and any open descendants when they are no longer needed, and return the target agent's previous status before shutdown was requested. Don't keep agents open for too long if they are not needed anymore.",
+                              "properties": {
+                                "input": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "target": {
+                                      "description": "Agent id to close (from spawn_agent).",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "target"
+                                  ],
+                                  "type": "object"
+                                },
+                                "node_id": {
+                                  "description": "Agent-declared owner work node.",
+                                  "type": "string"
+                                },
+                                "tool": {
+                                  "enum": [
+                                    "close_agent"
+                                  ],
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "tool",
+                                "node_id",
+                                "input"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "description": "Runs a command in a PTY, returning output or a session ID for ongoing interaction.",
+                              "properties": {
+                                "input": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "cmd": {
+                                      "description": "Shell command to execute.",
+                                      "type": "string"
+                                    },
+                                    "justification": {
+                                      "description": "Only set if sandbox_permissions is \\\"require_escalated\\\".\n                    Request approval from the user to run this command outside the sandbox.\n                    Phrased as a simple question that summarizes the purpose of the\n                    command as it relates to the task at hand - e.g. 'Do you want to\n                    fetch and pull the latest version of this git branch?'",
+                                      "type": "string"
+                                    },
+                                    "login": {
+                                      "description": "Whether to run the shell with -l/-i semantics. Defaults to true.",
+                                      "type": "boolean"
+                                    },
+                                    "max_output_tokens": {
+                                      "description": "Maximum number of tokens to return. Excess output will be truncated.",
+                                      "type": "number"
+                                    },
+                                    "prefix_rule": {
+                                      "description": "Only specify when sandbox_permissions is `require_escalated`.\n                        Suggest a prefix command pattern that will allow you to fulfill similar requests from the user in the future.\n                        Should be a short but reasonable prefix, e.g. [\\\"git\\\", \\\"pull\\\"] or [\\\"uv\\\", \\\"run\\\"] or [\\\"pytest\\\"].",
+                                      "items": {
+                                        "type": "string"
+                                      },
+                                      "type": "array"
+                                    },
+                                    "sandbox_permissions": {
+                                      "description": "Sandbox permissions for the command. Set to \"require_escalated\" to request running without sandbox restrictions; defaults to \"use_default\".",
+                                      "type": "string"
+                                    },
+                                    "shell": {
+                                      "description": "Shell binary to launch. Defaults to the user's default shell.",
+                                      "type": "string"
+                                    },
+                                    "tty": {
+                                      "description": "Whether to allocate a TTY for the command. Defaults to false (plain pipes); set to true to open a PTY and access TTY process.",
+                                      "type": "boolean"
+                                    },
+                                    "workdir": {
+                                      "description": "Optional working directory to run the command in; defaults to the turn cwd.",
+                                      "type": "string"
+                                    },
+                                    "yield_time_ms": {
+                                      "description": "How long to wait (in milliseconds) for output before yielding.",
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "cmd"
+                                  ],
+                                  "type": "object"
+                                },
+                                "node_id": {
+                                  "description": "Agent-declared owner work node.",
+                                  "type": "string"
+                                },
+                                "tool": {
+                                  "enum": [
+                                    "exec_command"
+                                  ],
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "tool",
+                                "node_id",
+                                "input"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "description": "Request user input for one to three short questions and wait for the response. This tool is only available in Plan mode.",
+                              "properties": {
+                                "input": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "questions": {
+                                      "description": "Questions to show the user. Prefer 1 and do not exceed 3",
+                                      "items": {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                          "header": {
+                                            "description": "Short header label shown in the UI (12 or fewer chars).",
+                                            "type": "string"
+                                          },
+                                          "id": {
+                                            "description": "Stable identifier for mapping answers (snake_case).",
+                                            "type": "string"
+                                          },
+                                          "options": {
+                                            "description": "Provide 2-3 mutually exclusive choices. Put the recommended option first and suffix its label with \"(Recommended)\". Do not include an \"Other\" option in this list; the client will add a free-form \"Other\" option automatically.",
+                                            "items": {
+                                              "additionalProperties": false,
+                                              "properties": {
+                                                "description": {
+                                                  "description": "One short sentence explaining impact/tradeoff if selected.",
+                                                  "type": "string"
+                                                },
+                                                "label": {
+                                                  "description": "User-facing label (1-5 words).",
+                                                  "type": "string"
+                                                }
+                                              },
+                                              "required": [
+                                                "label",
+                                                "description"
+                                              ],
+                                              "type": "object"
+                                            },
+                                            "type": "array"
+                                          },
+                                          "question": {
+                                            "description": "Single-sentence prompt shown to the user.",
+                                            "type": "string"
+                                          }
+                                        },
+                                        "required": [
+                                          "id",
+                                          "header",
+                                          "question",
+                                          "options"
+                                        ],
+                                        "type": "object"
+                                      },
+                                      "type": "array"
+                                    }
+                                  },
+                                  "required": [
+                                    "questions"
+                                  ],
+                                  "type": "object"
+                                },
+                                "node_id": {
+                                  "description": "Agent-declared owner work node.",
+                                  "type": "string"
+                                },
+                                "tool": {
+                                  "enum": [
+                                    "request_user_input"
+                                  ],
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "tool",
+                                "node_id",
+                                "input"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "description": "Resume a previously closed agent by id so it can receive send_input and wait_agent calls.",
+                              "properties": {
+                                "input": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "id": {
+                                      "description": "Agent id to resume.",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "id"
+                                  ],
+                                  "type": "object"
+                                },
+                                "node_id": {
+                                  "description": "Agent-declared owner work node.",
+                                  "type": "string"
+                                },
+                                "tool": {
+                                  "enum": [
+                                    "resume_agent"
+                                  ],
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "tool",
+                                "node_id",
+                                "input"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "description": "Send a message to an existing agent. Use interrupt=true to redirect work immediately. You should reuse the agent by send_input if you believe your assigned task is highly dependent on the context of a previous task.",
+                              "properties": {
+                                "input": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "interrupt": {
+                                      "description": "When true, stop the agent's current task and handle this immediately. When false (default), queue this message.",
+                                      "type": "boolean"
+                                    },
+                                    "items": {
+                                      "description": "Structured input items. Use this to pass explicit mentions (for example app:// connector paths).",
+                                      "items": {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                          "image_url": {
+                                            "description": "Image URL when type is image.",
+                                            "type": "string"
+                                          },
+                                          "name": {
+                                            "description": "Display name when type is skill or mention.",
+                                            "type": "string"
+                                          },
+                                          "path": {
+                                            "description": "Path when type is local_image/skill, or structured mention target such as app://<connector-id> or plugin://<plugin-name>@<marketplace-name> when type is mention.",
+                                            "type": "string"
+                                          },
+                                          "text": {
+                                            "description": "Text content when type is text.",
+                                            "type": "string"
+                                          },
+                                          "type": {
+                                            "description": "Input item type: text, image, local_image, skill, or mention.",
+                                            "type": "string"
+                                          }
+                                        },
+                                        "type": "object"
+                                      },
+                                      "type": "array"
+                                    },
+                                    "message": {
+                                      "description": "Legacy plain-text message to send to the agent. Use either message or items.",
+                                      "type": "string"
+                                    },
+                                    "target": {
+                                      "description": "Agent id to message (from spawn_agent).",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "target"
+                                  ],
+                                  "type": "object"
+                                },
+                                "node_id": {
+                                  "description": "Agent-declared owner work node.",
+                                  "type": "string"
+                                },
+                                "tool": {
+                                  "enum": [
+                                    "send_input"
+                                  ],
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "tool",
+                                "node_id",
+                                "input"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "description": "\n        \n        Available model overrides (optional; inherited parent model is preferred):\n- DeepSeek V4 Flash (`deepseek-v4-flash`): Fast Whale coding model for low-latency everyday implementation work. Default reasoning effort: high. Supported reasoning efforts: low (Fast responses with lighter reasoning), high (DeepSeek official high thinking effort), max (DeepSeek official max thinking effort).\n        Spawn a sub-agent for a well-scoped task. Returns the spawned agent id plus the user-facing nickname when available. Spawned agents inherit your current model by default. Omit `model` to use that preferred default; set `model` only when an explicit override is needed.\nThis spawn_agent tool provides you access to sub-agents that inherit your current model by default. Do not set the `model` field unless the user explicitly asks for a different model or there is a clear task-specific reason. You should follow the rules and guidelines below to use this tool.\n\nOnly use `spawn_agent` if and only if the user explicitly asks for sub-agents, delegation, or parallel agent work.\nRequests for depth, thoroughness, research, investigation, or detailed codebase analysis do not count as permission to spawn.\nAgent-role guidance below only helps choose which agent to use after spawning is already authorized; it never authorizes spawning by itself.\n\n### When to delegate vs. do the subtask yourself\n- First, quickly analyze the overall user task and form a succinct high-level plan. Identify which tasks are immediate blockers on the critical path, and which tasks are sidecar tasks that are needed but can run in parallel without blocking the next local step. As part of that plan, explicitly decide what immediate task you should do locally right now. Do this planning step before delegating to agents so you do not hand off the immediate blocking task to a submodel and then waste time waiting on it.\n- Use a subagent when a subtask is easy enough for it to handle and can run in parallel with your local work. Prefer delegating concrete, bounded sidecar tasks that materially advance the main task without blocking your immediate next local step.\n- Do not delegate urgent blocking work when your immediate next step depends on that result. If the very next action is blocked on that task, the main rollout should usually do it locally to keep the critical path moving.\n- Keep work local when the subtask is too difficult to delegate well and when it is tightly coupled, urgent, or likely to block your immediate next step.\n\n### Designing delegated subtasks\n- Subtasks must be concrete, well-defined, and self-contained.\n- Delegated subtasks must materially advance the main task.\n- Do not duplicate work between the main rollout and delegated subtasks.\n- Avoid issuing multiple delegate calls on the same unresolved thread unless the new delegated task is genuinely different and necessary.\n- Narrow the delegated ask to the concrete output you need next.\n- For coding tasks, prefer delegating concrete code-change worker subtasks over read-only explorer analysis when the subagent can make a bounded patch in a clear write scope.\n- When delegating coding work, instruct the submodel to edit files directly in its forked workspace and list the file paths it changed in the final answer.\n- For code-edit subtasks, decompose work so each delegated task has a disjoint write set.\n\n### After you delegate\n- Call wait_agent very sparingly. Only call wait_agent when you need the result immediately for the next critical-path step and you are blocked until it returns.\n- Do not redo delegated subagent tasks yourself; focus on integrating results or tackling non-overlapping work.\n- While the subagent is running in the background, do meaningful non-overlapping work immediately.\n- Do not repeatedly wait by reflex.\n- When a delegated coding task returns, quickly review the uploaded changes, then integrate or refine them.\n\n### Parallel delegation patterns\n- Run multiple independent information-seeking subtasks in parallel when you have distinct questions that can be answered independently.\n- Split implementation into disjoint codebase slices and spawn multiple agents for them in parallel when the write scopes do not overlap.\n- Delegate verification only when it can run in parallel with ongoing implementation and is likely to catch a concrete risk before final integration.\n- The key is to find opportunities to spawn multiple independent subtasks in parallel within the same round, while ensuring each subtask is well-defined, self-contained, and materially advances the main task.",
+                              "properties": {
+                                "input": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "agent_type": {
+                                      "description": "Optional type name for the new agent. If omitted, `default` is used.\nAvailable roles:\ndefault: {\nDefault agent.\n}\nexplorer: {\nUse `explorer` for specific codebase questions.\nExplorers are fast and authoritative.\nThey must be used to ask specific, well-scoped questions on the codebase.\nRules:\n- In order to avoid redundant work, you should avoid exploring the same problem that explorers have already covered. Typically, you should trust the explorer results without additional verification. You are still allowed to inspect the code yourself to gain the needed context!\n- You are encouraged to spawn up multiple explorers in parallel when you have multiple distinct questions to ask about the codebase that can be answered independently. This allows you to get more information faster without waiting for one question to finish before asking the next. While waiting for the explorer results, you can continue working on other local tasks that do not depend on those results. This parallelism is a key advantage of delegation, so use it whenever you have multiple questions to ask.\n- Reuse existing explorers for related questions.\n}\nworker: {\nUse for execution and production work.\nTypical tasks:\n- Implement part of a feature\n- Fix tests or bugs\n- Split large refactors into independent chunks\nRules:\n- Explicitly assign **ownership** of the task (files / responsibility). When the subtask involves code changes, you should clearly specify which files or modules the worker is responsible for. This helps avoid merge conflicts and ensures accountability. For example, you can say \"Worker 1 is responsible for updating the authentication module, while Worker 2 will handle the database layer.\" By defining clear ownership, you can delegate more effectively and reduce coordination overhead.\n- Always tell workers they are **not alone in the codebase**, and they should not revert the edits made by others, and they should adjust their implementation to accommodate the changes made by others. This is important because there may be multiple workers making changes in parallel, and they need to be aware of each other's work to avoid conflicts and ensure a cohesive final product.\n}",
+                                      "type": "string"
+                                    },
+                                    "fork_context": {
+                                      "description": "When true, fork the current thread history into the new agent before sending the initial prompt. This must be used when you want the new agent to have exactly the same context as you.",
+                                      "type": "boolean"
+                                    },
+                                    "items": {
+                                      "description": "Structured input items. Use this to pass explicit mentions (for example app:// connector paths).",
+                                      "items": {
+                                        "additionalProperties": false,
+                                        "properties": {
+                                          "image_url": {
+                                            "description": "Image URL when type is image.",
+                                            "type": "string"
+                                          },
+                                          "name": {
+                                            "description": "Display name when type is skill or mention.",
+                                            "type": "string"
+                                          },
+                                          "path": {
+                                            "description": "Path when type is local_image/skill, or structured mention target such as app://<connector-id> or plugin://<plugin-name>@<marketplace-name> when type is mention.",
+                                            "type": "string"
+                                          },
+                                          "text": {
+                                            "description": "Text content when type is text.",
+                                            "type": "string"
+                                          },
+                                          "type": {
+                                            "description": "Input item type: text, image, local_image, skill, or mention.",
+                                            "type": "string"
+                                          }
+                                        },
+                                        "type": "object"
+                                      },
+                                      "type": "array"
+                                    },
+                                    "message": {
+                                      "description": "Initial plain-text task for the new agent. Use either message or items.",
+                                      "type": "string"
+                                    },
+                                    "model": {
+                                      "description": "Optional model override for the new agent. Leave unset to inherit the same model as the parent, which is the preferred default. Only set this when the user explicitly asks for a different model or the task clearly requires one; if you set it without fork_turns, the new agent starts from your message instead of a full-history fork.",
+                                      "type": "string"
+                                    },
+                                    "reasoning_effort": {
+                                      "description": "Optional reasoning effort override for the new agent. Replaces the inherited reasoning effort.",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "type": "object"
+                                },
+                                "node_id": {
+                                  "description": "Agent-declared owner work node.",
+                                  "type": "string"
+                                },
+                                "tool": {
+                                  "enum": [
+                                    "spawn_agent"
+                                  ],
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "tool",
+                                "node_id",
+                                "input"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "description": "View a local image from the filesystem (only use if given a full filepath by the user, and the image isn't already attached to the thread context within <image ...> tags).",
+                              "properties": {
+                                "input": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "path": {
+                                      "description": "Local filesystem path to an image file",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "path"
+                                  ],
+                                  "type": "object"
+                                },
+                                "node_id": {
+                                  "description": "Agent-declared owner work node.",
+                                  "type": "string"
+                                },
+                                "tool": {
+                                  "enum": [
+                                    "view_image"
+                                  ],
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "tool",
+                                "node_id",
+                                "input"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "description": "Wait for agents to reach a final status. Completed statuses may include the agent's final message. Returns empty status when timed out. Once the agent reaches a final status, a notification message will be received containing the same completed status.",
+                              "properties": {
+                                "input": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "targets": {
+                                      "description": "Agent ids to wait on. Pass multiple ids to wait for whichever finishes first.",
+                                      "items": {
+                                        "type": "string"
+                                      },
+                                      "type": "array"
+                                    },
+                                    "timeout_ms": {
+                                      "description": "Optional timeout in milliseconds. Defaults to 30000, min 10000, max 3600000. Prefer longer waits (minutes) to avoid busy polling.",
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "targets"
+                                  ],
+                                  "type": "object"
+                                },
+                                "node_id": {
+                                  "description": "Agent-declared owner work node.",
+                                  "type": "string"
+                                },
+                                "tool": {
+                                  "enum": [
+                                    "wait_agent"
+                                  ],
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "tool",
+                                "node_id",
+                                "input"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "description": "Reads the content of a previously discovered or user-provided HTTP(S) URL and returns markdown or text.",
+                              "properties": {
+                                "input": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "format": {
+                                      "description": "Requested output format. Defaults to markdown.",
+                                      "enum": [
+                                        "markdown",
+                                        "text"
+                                      ],
+                                      "type": "string"
+                                    },
+                                    "max_chars": {
+                                      "description": "Maximum number of characters to return. Defaults to the configured limit.",
+                                      "type": "integer"
+                                    },
+                                    "reason": {
+                                      "description": "Brief reason this URL is needed for the current task.",
+                                      "type": "string"
+                                    },
+                                    "url": {
+                                      "description": "HTTP or HTTPS URL to read.",
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "url",
+                                    "reason"
+                                  ],
+                                  "type": "object"
+                                },
+                                "node_id": {
+                                  "description": "Agent-declared owner work node.",
+                                  "type": "string"
+                                },
+                                "tool": {
+                                  "enum": [
+                                    "web_fetch"
+                                  ],
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "tool",
+                                "node_id",
+                                "input"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "description": "The TaskSpace half of one indivisible `web_search` pair. If this assistant response contains the native top-level Provider Tool item, include exactly one matching entry here with `execution` set to `already_executed` and every Agent-declared owner in `node_ids`. If the response contains no matching native item, include no entry. The native item performs the work; this entry only records node ownership. Never emit either side alone, emit this entry early, or defer it to a later response. Do not include native Tool input. Use the Provider ToolSpec name exactly as exposed: `web_search`.",
+                              "properties": {
+                                "execution": {
+                                  "enum": [
+                                    "already_executed"
+                                  ],
+                                  "type": "string"
+                                },
+                                "node_ids": {
+                                  "description": "One or more Agent-declared owner work nodes for this native Provider ToolSpec action.",
+                                  "items": {
+                                    "type": "string"
+                                  },
+                                  "minItems": 1,
+                                  "type": "array"
+                                },
+                                "tool": {
+                                  "enum": [
+                                    "web_search"
+                                  ],
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "tool",
+                                "execution",
+                                "node_ids"
+                              ],
+                              "type": "object"
+                            },
+                            {
+                              "additionalProperties": false,
+                              "description": "Writes characters to an existing unified exec session and returns recent output.",
+                              "properties": {
+                                "input": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "chars": {
+                                      "description": "Bytes to write to stdin (may be empty to poll).",
+                                      "type": "string"
+                                    },
+                                    "max_output_tokens": {
+                                      "description": "Maximum number of tokens to return. Excess output will be truncated.",
+                                      "type": "number"
+                                    },
+                                    "session_id": {
+                                      "description": "Identifier of the running unified exec session.",
+                                      "type": "number"
+                                    },
+                                    "yield_time_ms": {
+                                      "description": "How long to wait (in milliseconds) for output before yielding.",
+                                      "type": "number"
+                                    }
+                                  },
+                                  "required": [
+                                    "session_id"
+                                  ],
+                                  "type": "object"
+                                },
+                                "node_id": {
+                                  "description": "Agent-declared owner work node.",
+                                  "type": "string"
+                                },
+                                "tool": {
+                                  "enum": [
+                                    "write_stdin"
+                                  ],
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "tool",
+                                "node_id",
+                                "input"
+                              ],
+                              "type": "object"
+                            }
+                          ],
+                          "description": "One Agent-declared Tool action. Array order is stable identity, not a Tool dependency.",
+                          "type": "object"
+                        },
+                        "update_map_input": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "add_work_nodes": {
+                              "description": "New work nodes.",
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "content": {
+                                    "type": "string"
+                                  },
+                                  "goal": {
+                                    "type": "string"
+                                  },
+                                  "node_id": {
+                                    "type": "string"
+                                  },
+                                  "parents": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "minItems": 1,
+                                    "type": "array"
+                                  }
+                                },
+                                "required": [
+                                  "node_id",
+                                  "goal",
+                                  "content",
+                                  "parents"
+                                ],
+                                "type": "object"
+                              },
+                              "type": "array"
+                            },
+                            "node_patches": {
+                              "description": "Updates to existing nodes.",
+                              "items": {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "content": {
+                                    "type": "string"
+                                  },
+                                  "goal": {
+                                    "type": "string"
+                                  },
+                                  "node_id": {
+                                    "type": "string"
+                                  },
+                                  "parents": {
+                                    "items": {
+                                      "type": "string"
+                                    },
+                                    "type": "array"
+                                  },
+                                  "state": {
+                                    "description": "Lifecycle target. waiting and ready are derived from parents; setting them cannot bypass dependencies.",
+                                    "enum": [
+                                      "waiting",
+                                      "ready",
+                                      "in_flight",
+                                      "completed"
+                                    ],
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "node_id"
+                                ],
+                                "type": "object"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "add_work_nodes",
+                            "node_patches"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "description": "Use only when the TaskSpace Map is blank. Initialize the Map, then perform the first Tool work on nodes made Ready by that initialization.",
+                          "properties": {
+                            "initialize_map": {
+                              "$ref": "#/$defs/initialize_map_input"
+                            },
+                            "tools": {
+                              "items": {
+                                "$ref": "#/$defs/tool_action"
+                              },
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "type": {
+                              "enum": [
+                                "initialize_and_work"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "initialize_map",
+                            "tools"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "description": "Use only when every Tool owner is already Ready or InFlight in the current Map. A prior Tool outcome does not complete its owner. If a Map update must complete or change a parent first, use update_and_work instead.",
+                          "properties": {
+                            "tools": {
+                              "items": {
+                                "$ref": "#/$defs/tool_action"
+                              },
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "type": {
+                              "enum": [
+                                "work"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "tools"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "description": "Update the current Map without Tool work or Map finish.",
+                          "properties": {
+                            "type": {
+                              "enum": [
+                                "update_map"
+                              ],
+                              "type": "string"
+                            },
+                            "update_map": {
+                              "$ref": "#/$defs/update_map_input"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "update_map"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "description": "Update the Map first, then perform Tool work that is executable in the resulting Map. Use this to complete or change parent nodes before working on their direct dependents. Only this preceding Map update can unlock Tool owners; Tool outcomes in this sequence do not unlock descendants.",
+                          "properties": {
+                            "tools": {
+                              "items": {
+                                "$ref": "#/$defs/tool_action"
+                              },
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "type": {
+                              "enum": [
+                                "update_and_work"
+                              ],
+                              "type": "string"
+                            },
+                            "update_map": {
+                              "$ref": "#/$defs/update_map_input"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "update_map",
+                            "tools"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "description": "Update the Map first, then finish it. Use only when that update completes the remaining work and makes the Finish node Ready.",
+                          "properties": {
+                            "finish_map": {
+                              "$ref": "#/$defs/finish_map_input"
+                            },
+                            "type": {
+                              "enum": [
+                                "update_and_finish"
+                              ],
+                              "type": "string"
+                            },
+                            "update_map": {
+                              "$ref": "#/$defs/update_map_input"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "update_map",
+                            "finish_map"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "description": "Read the complete current Map without changing it or performing Tool work.",
+                          "properties": {
+                            "read_map": {
+                              "$ref": "#/$defs/read_map_input"
+                            },
+                            "type": {
+                              "enum": [
+                                "read_map"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "read_map"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "description": "Use after user feedback requires continuing a finished Map. Reopen it, update the Agent-authored work structure, then perform executable Tool work.",
+                          "properties": {
+                            "reopen_map": {
+                              "$ref": "#/$defs/reopen_map_input"
+                            },
+                            "tools": {
+                              "items": {
+                                "$ref": "#/$defs/tool_action"
+                              },
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "type": {
+                              "enum": [
+                                "reopen_update_and_work"
+                              ],
+                              "type": "string"
+                            },
+                            "update_map": {
+                              "$ref": "#/$defs/update_map_input"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "reopen_map",
+                            "update_map",
+                            "tools"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "description": "Finish an open Map whose Finish node is already Ready; use update_and_finish when a preceding Map update is still required.",
+                          "properties": {
+                            "finish_map": {
+                              "$ref": "#/$defs/finish_map_input"
+                            },
+                            "type": {
+                              "enum": [
+                                "finish_map"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "type",
+                            "finish_map"
+                          ],
+                          "type": "object"
+                        }
+                      ],
+                      "description": "Choose exactly one legal TaskSpace sequence shape.",
+                      "type": "object"
+                    },
+                    "strict": false,
+                    "type": "function"
+                  },
+                  {
+                    "external_web_access": true,
+                    "type": "web_search"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "taskspace_contract",
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-core",
+          "--lib",
+          "taskspace_exec"
+        ],
+        "cwd": "third_party/codex-cli/codex-rs",
+        "exit_code": 0,
+        "timed_out": false,
+        "duration_ms": 658,
+        "status": "pass",
+        "output_tail": [
+          "14 |     pub(crate) profile_name: Option<String>,",
+          "   |                ^^^^^^^^^^^^",
+          "15 |     pub(crate) request_phase: Option<String>,",
+          "16 |     pub(crate) provider_request_context_missing_reason: Option<String>,",
+          "   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "17 |     pub(crate) map_requires_initialization: bool,",
+          "   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "   |",
+          "   = note: `ActionMapProviderRequestBudgetSnapshot` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis",
+          "   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default",
+          "",
+          "warning: methods `cached_action_map_snapshot_for_test` and `read_action_map_projection` are never used",
+          "    --> core/src/session/mod.rs:3120:25",
+          "     |",
+          " 908 | impl Session {",
+          "     | ------------ methods in this implementation",
+          "...",
+          "3120 |     pub(crate) async fn cached_action_map_snapshot_for_test(&self) -> ActionMapSnapshot {",
+          "     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "...",
+          "3135 |     pub(crate) async fn read_action_map_projection(",
+          "     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "",
+          "warning: function `response_input_model_visible_preview` is never used",
+          "   --> core/src/tools/context.rs:206:15",
+          "    |",
+          "206 | pub(crate) fn response_input_model_visible_preview(response: &ResponseInputItem) -> String {",
+          "    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "",
+          "warning: variant `Tail` is never constructed",
+          "  --> core/src/tools/output_reference.rs:34:5",
+          "   |",
+          "32 | pub(crate) enum OutputSliceMode {",
+          "   |                 --------------- variant in this enum",
+          "33 |     Head,",
+          "34 |     Tail,",
+          "   |     ^^^^",
+          "   |",
+          "   = note: `OutputSliceMode` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis",
+          ""
+        ],
+        "change_report": null
+      },
+      {
+        "id": "provider_contract",
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-model-provider-info",
+          "deepseek"
+        ],
+        "cwd": "third_party/codex-cli/codex-rs",
+        "exit_code": 0,
+        "timed_out": false,
+        "duration_ms": 322,
+        "status": "pass",
+        "output_tail": [
+          "",
+          "running 1 test",
+          ".",
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s",
+          ""
+        ],
+        "change_report": null
+      },
+      {
+        "id": "model_catalog_contract",
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-models-manager",
+          "deepseek"
+        ],
+        "cwd": "third_party/codex-cli/codex-rs",
+        "exit_code": 0,
+        "timed_out": false,
+        "duration_ms": 353,
+        "status": "pass",
+        "output_tail": [
+          "",
+          "running 8 tests",
+          "........",
+          "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.00s",
+          ""
+        ],
+        "change_report": null
+      },
+      {
+        "id": "default_route_contract",
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-core",
+          "--lib",
+          "defaults_to_deepseek_flash_responses_provider"
+        ],
+        "cwd": "third_party/codex-cli/codex-rs",
+        "exit_code": 0,
+        "timed_out": false,
+        "duration_ms": 442,
+        "status": "pass",
+        "output_tail": [
+          "14 |     pub(crate) profile_name: Option<String>,",
+          "   |                ^^^^^^^^^^^^",
+          "15 |     pub(crate) request_phase: Option<String>,",
+          "16 |     pub(crate) provider_request_context_missing_reason: Option<String>,",
+          "   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "17 |     pub(crate) map_requires_initialization: bool,",
+          "   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "   |",
+          "   = note: `ActionMapProviderRequestBudgetSnapshot` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis",
+          "   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default",
+          "",
+          "warning: methods `cached_action_map_snapshot_for_test` and `read_action_map_projection` are never used",
+          "    --> core/src/session/mod.rs:3120:25",
+          "     |",
+          " 908 | impl Session {",
+          "     | ------------ methods in this implementation",
+          "...",
+          "3120 |     pub(crate) async fn cached_action_map_snapshot_for_test(&self) -> ActionMapSnapshot {",
+          "     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "...",
+          "3135 |     pub(crate) async fn read_action_map_projection(",
+          "     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "",
+          "warning: function `response_input_model_visible_preview` is never used",
+          "   --> core/src/tools/context.rs:206:15",
+          "    |",
+          "206 | pub(crate) fn response_input_model_visible_preview(response: &ResponseInputItem) -> String {",
+          "    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "",
+          "warning: variant `Tail` is never constructed",
+          "  --> core/src/tools/output_reference.rs:34:5",
+          "   |",
+          "32 | pub(crate) enum OutputSliceMode {",
+          "   |                 --------------- variant in this enum",
+          "33 |     Head,",
+          "34 |     Tail,",
+          "   |     ^^^^",
+          "   |",
+          "   = note: `OutputSliceMode` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis",
+          ""
+        ],
+        "change_report": null
+      },
+      {
+        "id": "usage_decoder_contract",
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-api"
+        ],
+        "cwd": "third_party/codex-cli/codex-rs",
+        "exit_code": 0,
+        "timed_out": false,
+        "duration_ms": 1110,
+        "status": "pass",
+        "output_tail": [
+          "",
+          "running 120 tests",
+          "....................................................................................... 87/120",
+          ".................................",
+          "test result: ok. 120 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s",
+          "",
+          "",
+          "running 6 tests",
+          "......",
+          "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+          "",
+          "",
+          "running 1 test",
+          ".",
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s",
+          "",
+          "",
+          "running 6 tests",
+          "......",
+          "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s",
+          "",
+          "",
+          "running 1 test",
+          ".",
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+          "",
+          "",
+          "running 0 tests",
+          "",
+          "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+          ""
+        ],
+        "change_report": null
+      },
+      {
+        "id": "final_wire_comparison_contract",
+        "argv": [
+          "python3",
+          "scripts/cache-regression/test_cache_payload_contract.py"
+        ],
+        "cwd": ".",
+        "exit_code": 0,
+        "timed_out": false,
+        "duration_ms": 50,
+        "status": "pass",
+        "output_tail": [
+          "................",
+          "----------------------------------------------------------------------",
+          "Ran 16 tests in 0.003s",
+          "",
+          "OK"
+        ],
+        "change_report": null
+      }
+    ]
+  },
+  "require_clean_subject": true,
+  "release_relevant_changes": [
+    {
+      "path": "benchmarks/cache-regression/gate-reports/2026-08-14-r8-hosted-priority-stage1.json",
+      "state": "untracked"
+    }
+  ],
+  "surface_file_count": 310,
+  "sensitive_changes": []
+}

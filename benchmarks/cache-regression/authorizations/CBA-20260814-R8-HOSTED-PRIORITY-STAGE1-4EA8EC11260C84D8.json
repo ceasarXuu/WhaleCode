@@ -1,0 +1,38 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "approved_at": "2026-08-14T03:48:00+08:00",
+  "authorization_id": "CBA-20260814-R8-HOSTED-PRIORITY-STAGE1-4EA8EC11260C84D8",
+  "approval_reference": "用户于本轮明确批准四个单变量阶段各执行 provider-web-search-probe × map-request × repeat=3；本授权仅覆盖第1阶段，零重试，任一失败即停止。",
+  "proposal_id": "CBP-4EA8EC11260C84D8",
+  "proposal_sha256": "8259ce5d317839e20b375a371d47195edeaaa58b62c6bb5288c90b0de09bcacb",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "provider-web-search-probe"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 3,
+    "planned_sample_runs": 3,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 3,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "四阶段单变量验证的第1阶段：仅验证 Hosted 配对错误先于 client 节点错误反馈；provider-web-search-probe × map-request × repeat=3，零重试，任一失败即停止。用户已于本轮明确批准四个阶段各 repeat=3 的专项预算。"
+  },
+  "approved_maximums": {
+    "provider_requests": 36,
+    "input_tokens": 36000000,
+    "output_tokens": 13824000,
+    "elapsed_seconds": 900,
+    "estimated_cost": 8.91072,
+    "currency": "USD"
+  }
+}

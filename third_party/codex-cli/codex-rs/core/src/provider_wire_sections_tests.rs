@@ -1,9 +1,19 @@
+use super::history::HistoryKind;
+use super::tool_cost::ToolCostKind;
 use super::*;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 
 fn section(cost: &ProviderWireSectionCost, kind: SectionKind) -> &ProviderWireSection {
     &cost.sections[kind.index()]
+}
+
+fn history(cost: &ProviderWireSectionCost, kind: HistoryKind) -> &history::ProviderWireHistoryCost {
+    &cost.history_breakdown[kind.index()]
+}
+
+fn tool(cost: &ProviderWireSectionCost, kind: ToolCostKind) -> &tool_cost::ProviderWireToolCost {
+    &cost.tool_breakdown[kind.index()]
 }
 
 #[test]
@@ -13,26 +23,26 @@ fn every_message_is_classified_exactly_once() {
             {"role": "system", "content": "stable"},
             {
                 "role": "developer",
-                "content": "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR7V1 end."
+                "content": "TaskSpaceMapProjectionR8V1:\n- schema_version: taskspace-map-projection-r8-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR8V1 end."
             },
             {"role": "user", "content": "request"},
             {"role": "assistant", "content": "response"},
             {"role": "observer", "content": "other non-tool"},
             {
                 "role": "tool",
-                "content": "{\"schema_version\":\"TaskSpaceControlResultV2\",\"ok\":true}"
+                "content": "structured result"
             },
             {"role": "tool", "content": "ordinary result"}
         ]
     });
 
     let cost = ProviderWireSectionCost::measure(&wire, "messages");
-    let message_counts = SectionKind::ALL[..5]
+    let message_counts = SectionKind::ALL[..4]
         .iter()
         .map(|kind| section(&cost, *kind).count)
         .collect::<Vec<_>>();
 
-    assert_eq!(message_counts, vec![1, 3, 1, 1, 1]);
+    assert_eq!(message_counts, vec![1, 3, 1, 2]);
     assert_eq!(message_counts.iter().sum::<usize>(), 7);
 }
 
@@ -51,44 +61,13 @@ fn standard_payload_has_zero_taskspace_section_cost() {
 
     let cost = ProviderWireSectionCost::measure(&wire, "messages");
 
-    for kind in [
-        SectionKind::ActiveProjection,
-        SectionKind::TaskspaceControlFeedback,
-    ] {
-        assert_eq!(
-            (section(&cost, kind).count, section(&cost, kind).bytes),
-            (0, 0)
-        );
-    }
-}
-
-#[test]
-fn current_taskspace_feedback_family_and_final_receipt_share_one_section() {
-    let wire = json!({
-        "messages": [
-            {
-                "role": "tool",
-                "content": "{\"schema_version\":\"TaskSpaceResponseCommitV1\",\"success\":true}"
-            },
-            {
-                "role": "tool",
-                "content": "{\"schema_version\":\"TaskSpaceResponseCommitFailureV3\",\"success\":false}"
-            },
-            {
-                "role": "system",
-                "content": "{\"schema_version\":\"TaskSpaceResponseFinalReceiptV1\",\"success\":true}"
-            }
-        ]
-    });
-
-    let cost = ProviderWireSectionCost::measure(&wire, "messages");
-
     assert_eq!(
-        section(&cost, SectionKind::TaskspaceControlFeedback).count,
-        3
+        (
+            section(&cost, SectionKind::ActiveProjection).count,
+            section(&cost, SectionKind::ActiveProjection).bytes,
+        ),
+        (0, 0)
     );
-    assert_eq!(section(&cost, SectionKind::SystemMessages).count, 0);
-    assert_eq!(section(&cost, SectionKind::OrdinaryToolFeedback).count, 0);
 }
 
 #[test]
@@ -96,7 +75,7 @@ fn tool_output_containing_projection_block_remains_ordinary_feedback() {
     let wire = json!({
         "messages": [{
             "role": "tool",
-            "content": "source text:\nTaskSpaceMapProjectionR7V1:\n- map_id: copied-map\n- revision: 41\nTaskSpaceMapProjectionR7V1 end."
+            "content": "source text:\nTaskSpaceMapProjectionR8V1:\n- map_id: copied-map\n- revision: 41\nTaskSpaceMapProjectionR8V1 end."
         }]
     });
 
@@ -108,20 +87,16 @@ fn tool_output_containing_projection_block_remains_ordinary_feedback() {
 }
 
 #[test]
-fn tool_output_containing_control_marker_remains_ordinary_feedback() {
+fn structured_tool_output_remains_ordinary_feedback() {
     let wire = json!({
         "messages": [{
             "role": "tool",
-                "content": "source text: {\"schema_version\":\"TaskSpaceControlResultV2\"}"
+                "content": "source text: {\"schema_version\":\"example-v1\"}"
         }]
     });
 
     let cost = ProviderWireSectionCost::measure(&wire, "messages");
 
-    assert_eq!(
-        section(&cost, SectionKind::TaskspaceControlFeedback).count,
-        0
-    );
     assert_eq!(section(&cost, SectionKind::OrdinaryToolFeedback).count, 1);
 }
 
@@ -132,11 +107,11 @@ fn section_bytes_reconcile_with_provider_payload_bytes() {
         "stream": true,
         "messages": [
             {"role": "developer", "content": "stable"},
-            {"role": "developer", "content": "TaskSpaceMapProjectionR7V1"},
-            {"role": "tool", "content": "TaskSpaceControlResultV2"}
+            {"role": "developer", "content": "TaskSpaceMapProjectionR8V1"},
+            {"role": "tool", "content": "structured result"}
         ],
-        "tools": [{"type": "function", "function": {"name": "taskspace_control"}}],
-        "tool_choice": {"type": "function", "function": {"name": "taskspace_control"}}
+        "tools": [{"type": "function", "function": {"name": "exec_command"}}],
+        "tool_choice": "auto"
     });
 
     let cost = ProviderWireSectionCost::measure(&wire, "messages");
@@ -150,6 +125,112 @@ fn section_bytes_reconcile_with_provider_payload_bytes() {
     assert_eq!(cost.unavailable_reason, None);
     assert_eq!(cost.section_bytes_total, json_bytes(&wire).len());
     assert_eq!(accounted, cost.section_bytes_total);
+}
+
+#[test]
+fn responses_instructions_are_measured_separately_from_other_payload() {
+    let wire = json!({
+        "model": "deepseek-v4-flash",
+        "instructions": "stable base instructions",
+        "input": [{"role": "user", "content": "request"}],
+        "tools": [],
+        "tool_choice": "auto",
+        "stream": true
+    });
+
+    let cost = ProviderWireSectionCost::measure(&wire, "input");
+
+    assert_eq!(section(&cost, SectionKind::BaseInstructions).count, 1);
+    assert!(section(&cost, SectionKind::BaseInstructions).bytes > 0);
+    assert!(section(&cost, SectionKind::OtherPayload).bytes < 100);
+    assert_eq!(
+        cost.sections
+            .iter()
+            .map(|section| section.bytes)
+            .sum::<usize>(),
+        cost.section_bytes_total
+    );
+}
+
+#[test]
+fn responses_history_items_are_classified_once_by_wire_structure() {
+    let wire = json!({
+        "instructions": "base",
+        "input": [
+            {"type": "message", "role": "user", "content": []},
+            {"type": "message", "role": "assistant", "content": []},
+            {"type": "reasoning", "summary": [], "encrypted_content": null},
+            {"type": "function_call", "name": "taskspace_exec", "arguments": "{}", "call_id": "ts-1"},
+            {"type": "function_call_output", "call_id": "ts-1", "output": "done"},
+            {"type": "function_call", "name": "exec_command", "arguments": "{}", "call_id": "tool-1"},
+            {"type": "function_call_output", "call_id": "tool-1", "output": "done"},
+            {"type": "web_search_call", "status": "completed"},
+            {"type": "compaction", "encrypted_content": "opaque"},
+            {"type": "ghost_snapshot", "ghost_commit": {}}
+        ]
+    });
+
+    let cost = ProviderWireSectionCost::measure(&wire, "input");
+    let counts = HistoryKind::ALL
+        .iter()
+        .map(|kind| history(&cost, *kind).count)
+        .collect::<Vec<_>>();
+
+    assert_eq!(counts, vec![1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    assert_eq!(counts.iter().sum::<usize>(), 10);
+    assert_eq!(
+        cost.history_breakdown
+            .iter()
+            .map(|entry| entry.bytes)
+            .sum::<usize>(),
+        section(&cost, SectionKind::NaturalHistory).bytes
+    );
+}
+
+#[test]
+fn tool_declarations_are_partitioned_without_changing_wire_shape() {
+    let wire = json!({
+        "input": [],
+        "tools": [
+            {
+                "name": "taskspace_exec",
+                "description": "protocol",
+                "parameters": {
+                    "$defs": {
+                        "tool_action": {"anyOf": [{"type": "object"}]},
+                        "update_map_input": {"type": "object"}
+                    },
+                    "anyOf": [{"type": "object"}]
+                }
+            },
+            {"name": "exec_command", "description": "native", "parameters": {"type": "object"}},
+            {"type": "web_search"},
+            {"unexpected": true}
+        ]
+    });
+
+    let cost = ProviderWireSectionCost::measure(&wire, "input");
+
+    assert_eq!(tool(&cost, ToolCostKind::NativeClientTool).count, 1);
+    assert_eq!(tool(&cost, ToolCostKind::ProviderHostedTool).count, 1);
+    assert_eq!(tool(&cost, ToolCostKind::OtherTool).count, 1);
+    for kind in [
+        ToolCostKind::ToolsEnvelope,
+        ToolCostKind::TaskspaceProtocol,
+        ToolCostKind::TaskspaceClientCatalog,
+        ToolCostKind::TaskspaceMapSchema,
+        ToolCostKind::TaskspaceSequenceSchema,
+        ToolCostKind::TaskspaceMetadata,
+    ] {
+        assert!(tool(&cost, kind).bytes > 0, "missing {kind:?}");
+    }
+    assert_eq!(
+        cost.tool_breakdown
+            .iter()
+            .map(|entry| entry.bytes)
+            .sum::<usize>(),
+        section(&cost, SectionKind::Tools).bytes
+    );
 }
 
 #[test]
@@ -181,7 +262,7 @@ fn projection_revision_changes_identity_hash_without_changing_count() {
             "messages": [{
                 "role": "developer",
                 "content": format!(
-                    "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: current_projection\n- map_id: map-1\n- revision: {revision}\n- canonical_sha256: canonical-{revision}\nTaskSpaceMapProjectionR7V1 end."
+                    "TaskSpaceMapProjectionR8V1:\n- schema_version: taskspace-map-projection-r8-v1\n- projection_kind: current_projection\n- map_id: map-1\n- revision: {revision}\n- canonical_sha256: canonical-{revision}\nTaskSpaceMapProjectionR8V1 end."
                 )
             }]
         })
@@ -208,7 +289,7 @@ fn projection_revision_changes_identity_hash_without_changing_count() {
 fn append_projection_identity_uses_last_nondecreasing_request_snapshot() {
     let projection = |revision: u64| {
         format!(
-            "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: request_snapshot\n- map_id: map-1\n- revision: {revision}\n- supersedes_all_prior_projections: true\n- current_state_rule: last_projection_only\n- canonical_sha256: canonical-{revision}\nTaskSpaceMapProjectionR7V1 end."
+            "TaskSpaceMapProjectionR8V1:\n- schema_version: taskspace-map-projection-r8-v1\n- projection_kind: request_snapshot\n- map_id: map-1\n- revision: {revision}\n- supersedes_all_prior_projections: true\n- current_state_rule: last_projection_only\n- canonical_sha256: canonical-{revision}\nTaskSpaceMapProjectionR8V1 end."
         )
     };
     let wire = json!({
@@ -229,7 +310,7 @@ fn append_projection_identity_uses_last_nondecreasing_request_snapshot() {
 
 #[test]
 fn append_projection_identity_allows_duplicate_revision_across_requests() {
-    let projection = "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: request_snapshot\n- map_id: map-1\n- revision: 2\n- supersedes_all_prior_projections: true\n- current_state_rule: last_projection_only\n- canonical_sha256: canonical-2\nTaskSpaceMapProjectionR7V1 end.";
+    let projection = "TaskSpaceMapProjectionR8V1:\n- schema_version: taskspace-map-projection-r8-v1\n- projection_kind: request_snapshot\n- map_id: map-1\n- revision: 2\n- supersedes_all_prior_projections: true\n- current_state_rule: last_projection_only\n- canonical_sha256: canonical-2\nTaskSpaceMapProjectionR8V1 end.";
     let wire = json!({
         "messages": [
             {"role": "user", "content": projection},
@@ -248,7 +329,7 @@ fn append_projection_identity_allows_duplicate_revision_across_requests() {
 fn append_projection_identity_allows_revision_reset_for_a_new_map() {
     let projection = |map_id: &str, revision: u64| {
         format!(
-            "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: request_snapshot\n- map_id: {map_id}\n- revision: {revision}\n- supersedes_all_prior_projections: true\n- current_state_rule: last_projection_only\n- canonical_sha256: canonical-{map_id}-{revision}\nTaskSpaceMapProjectionR7V1 end."
+            "TaskSpaceMapProjectionR8V1:\n- schema_version: taskspace-map-projection-r8-v1\n- projection_kind: request_snapshot\n- map_id: {map_id}\n- revision: {revision}\n- supersedes_all_prior_projections: true\n- current_state_rule: last_projection_only\n- canonical_sha256: canonical-{map_id}-{revision}\nTaskSpaceMapProjectionR8V1 end."
         )
     };
     let wire = json!({
@@ -282,7 +363,7 @@ fn serialized_section_cost_never_contains_raw_payload_content() {
             {
                 "role": "developer",
                 "content": format!(
-                    "TaskSpaceMapProjectionR7V1:\n- schema_version: taskspace-map-projection-r7-v1\n- projection_kind: current_projection\n- map_id: {}\n- revision: 9\n- canonical_sha256: canonical-9\nTaskSpaceMapProjectionR7V1 end.",
+                    "TaskSpaceMapProjectionR8V1:\n- schema_version: taskspace-map-projection-r8-v1\n- projection_kind: current_projection\n- map_id: {}\n- revision: 9\n- canonical_sha256: canonical-9\nTaskSpaceMapProjectionR8V1 end.",
                     secrets[5]
                 )
             },
@@ -297,11 +378,23 @@ fn serialized_section_cost_never_contains_raw_payload_content() {
         .expect("section cost serializes");
 
     assert!(secrets.iter().all(|secret| !serialized.contains(secret)));
-    assert!(serialized.contains("provider-wire-section-cost-v1"));
+    assert!(serialized.contains("provider-wire-section-cost-v2"));
     assert_eq!(
         serde_json::from_str::<Value>(&serialized).expect("valid JSON")["sections"]
             .as_array()
             .map(Vec::len),
         Some(8)
+    );
+    assert_eq!(
+        serde_json::from_str::<Value>(&serialized).expect("valid JSON")["history_breakdown"]
+            .as_array()
+            .map(Vec::len),
+        Some(10)
+    );
+    assert_eq!(
+        serde_json::from_str::<Value>(&serialized).expect("valid JSON")["tool_breakdown"]
+            .as_array()
+            .map(Vec::len),
+        Some(9)
     );
 }

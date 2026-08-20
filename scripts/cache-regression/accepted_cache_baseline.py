@@ -14,11 +14,13 @@ from cache_evidence import RESULT_SCHEMA_VERSION, canonical_json_sha256
 from cache_arm_identity import validate_arm_identity
 from cache_gate_evidence import changed_scenarios
 from cache_json import exact_json_equal
+from cache_provider_promotion import validate_provider_route_evidence
 from cache_run_analysis import (
     CACHE_OBSERVATION_KEYS,
     analyze_artifact_values,
     budget_observation_exceeded,
 )
+from cache_usage_contract import parse_provider_wire_usage
 from accepted_cache_ledger import exact_int, validate_ledger
 from cache_run_contract import (
     execution_matrix,
@@ -31,6 +33,7 @@ from cache_source_evidence import (
     protected_manifest,
     relative_path,
     require,
+    source_bytes,
     source_json,
     source_sha256,
 )
@@ -56,6 +59,7 @@ def validate_observation(
         key: relative_path(repo, observation["artifacts"][key])
         for key in (
             "cache_summary",
+            "provider_wire",
             "request_summary",
             "metrics",
             "provider_boundary",
@@ -76,9 +80,12 @@ def validate_observation(
         "cache observation evidence digest mismatch",
     )
     cache = source_json(repo, artifacts["cache_summary"], source)
-    request = source_json(repo, artifacts["request_summary"], source)["rollout_trace"]
     metrics = source_json(repo, artifacts["metrics"], source)
     boundary = source_json(repo, artifacts["provider_boundary"], source)
+    provider_usage = parse_provider_wire_usage(
+        source_bytes(repo, artifacts["provider_wire"], source).decode("utf-8-sig"),
+        [request.get("request_id") for request in boundary.get("wire_requests", [])],
+    )
     validate_arm_identity(
         source_json(repo, artifacts["execution_argv"], source),
         source_json(repo, artifacts["logical_mode_map"], source),
@@ -86,7 +93,7 @@ def validate_observation(
     )
     recomputed = analyze_artifact_values(
         cache,
-        request,
+        provider_usage,
         metrics,
         boundary,
         observation["arm"],
@@ -181,6 +188,9 @@ def validate_run_evidence(
         "cache result is incomplete or has unverified scope",
     )
     validate_result_envelope(result, result_path)
+    route, route_path, route_evidence_paths = validate_provider_route_evidence(
+        repo, result, source
+    )
     require(
         acceptance.get("schema_version") == ACCEPTANCE_SCHEMA_VERSION
         and acceptance.get("status") == "accepted"
@@ -197,6 +207,15 @@ def validate_run_evidence(
     ended_at = parse_timestamp(result.get("ended_at"), "cache result ended_at")
     accepted_at = parse_timestamp(
         acceptance.get("accepted_at"), "cache acceptance timestamp"
+    )
+    preflight_completed_at = parse_timestamp(
+        route["preflight_completed_at"], "provider route preflight completion"
+    )
+    require_ordered(
+        preflight_completed_at,
+        started_at,
+        "provider route preflight completion",
+        "run start",
     )
     require_ordered(started_at, ended_at, "run start", "run end")
     require_ordered(ended_at, accepted_at, "run end", "acceptance")
@@ -245,7 +264,9 @@ def validate_run_evidence(
         result["attempts"],
         started_at,
         ended_at,
-        proposal["maximums"]["elapsed_seconds"],
+        proposal.get("approved_maximums", proposal.get("maximums"))[
+            "elapsed_seconds"
+        ],
     )
     require(
         all(
@@ -269,7 +290,10 @@ def validate_run_evidence(
                 result,
                 observation,
                 proposal["per_sample_run_limits"],
-                proposal["per_sample_run_observation_thresholds"],
+                proposal.get(
+                    "per_sample_run_budget_limits",
+                    proposal.get("per_sample_run_observation_thresholds"),
+                ),
                 source,
             )
         )
@@ -333,6 +357,8 @@ def validate_run_evidence(
                     acceptance_path,
                     proposal_path,
                     authorization_path,
+                    route_path,
+                    *route_evidence_paths,
                     gate_path,
                     ledger_path,
                     *evidence_paths,
@@ -376,13 +402,15 @@ def validate_accepted_baseline(
         "accepted baseline identity mismatch",
     )
     manifest = protected_manifest(repo, contract, source)
+    accepted_manifest = baseline.get("final_wire_manifest")
     require(
-        baseline.get("final_wire_manifest") == manifest
+        isinstance(accepted_manifest, list)
+        and accepted_manifest
         and baseline.get("final_wire_manifest_sha256")
-        == canonical_json_sha256(manifest),
-        "accepted final-wire manifest mismatch",
+        == canonical_json_sha256(accepted_manifest),
+        "accepted final-wire manifest is invalid",
     )
-    manifest_by_id = {item["scenario_id"]: item for item in manifest}
+    manifest_by_id = {item["scenario_id"]: item for item in accepted_manifest}
     accepted_paths = []
     for item in acceptance["accepted_scenarios"]:
         scenario = manifest_by_id.get(item["scenario_id"])
@@ -399,6 +427,7 @@ def validate_accepted_baseline(
         "valid": True,
         "surface_matches_current": baseline.get("surface_sha256")
         == actual_surface_sha256,
+        "manifest_matches_current": accepted_manifest == manifest,
         "accepted_scenario_paths": sorted(accepted_paths),
         "evidence_paths": validated["evidence_paths"],
     }

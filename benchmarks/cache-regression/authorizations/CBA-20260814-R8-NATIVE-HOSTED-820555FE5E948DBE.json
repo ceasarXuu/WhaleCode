@@ -1,0 +1,39 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "approved_at": "2026-08-14T02:48:27+08:00",
+  "authorization_id": "CBA-20260814-R8-NATIVE-HOSTED-820555FE5E948DBE",
+  "approval_reference": "用户于 2026-08-14 明确要求对原生 Hosted ToolSpec 身份修复执行真实运行测试；采用 accepted baseline 的最小两臂 smoke，零重试。",
+  "proposal_id": "CBP-820555FE5E948DBE",
+  "proposal_sha256": "b09f9ce469514df33080b0b7edea738d908b8e9dfd0c21414d36b34a96eddc1f",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "standard",
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "用户要求对原生 Hosted ToolSpec 身份修复执行真实运行测试；使用 accepted baseline 的 single-file-fast-fix，Standard 与 map-request 各一次，验证业务正确性、TaskSpace 行动路径与缓存回归，零重试。"
+  },
+  "approved_maximums": {
+    "provider_requests": 24,
+    "input_tokens": 24000000,
+    "output_tokens": 9216000,
+    "elapsed_seconds": 600,
+    "estimated_cost": 5.94048,
+    "currency": "USD"
+  }
+}

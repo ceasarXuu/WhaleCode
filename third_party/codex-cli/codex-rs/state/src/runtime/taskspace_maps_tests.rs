@@ -6,12 +6,11 @@ use crate::TaskSpaceMapRelation;
 use crate::TaskSpaceMapWriteOutcome;
 use codex_protocol::ThreadId;
 use codex_protocol::taskspace::TASKSPACE_CANONICAL_SCHEMA_VERSION;
+use codex_protocol::taskspace::TaskSpaceActionOutcome;
 use codex_protocol::taskspace::TaskSpaceCanonicalMap;
-use codex_protocol::taskspace::TaskSpaceCompletionRecord;
-use codex_protocol::taskspace::TaskSpaceMapEdge;
 use codex_protocol::taskspace::TaskSpaceMapNode;
-use codex_protocol::taskspace::TaskSpaceTerminalRecord;
-use std::collections::BTreeMap;
+use codex_protocol::taskspace::TaskSpaceNodeAction;
+use codex_protocol::taskspace::TaskSpaceNodeState;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -26,35 +25,31 @@ fn initialized_map(map_id: &str, revision: u64) -> Option<TaskSpaceCanonicalMap>
         root: TaskSpaceMapNode {
             node_id: "root".to_string(),
             goal: "deliver".to_string(),
-            source_refs: Vec::new(),
+            state: TaskSpaceNodeState::InFlight,
+            content: "Deliver the requested change.".to_string(),
+            parents: Vec::new(),
+            actions: Vec::new(),
         },
         work_nodes: vec![TaskSpaceMapNode {
             node_id: "work".to_string(),
             goal: "implement".to_string(),
-            source_refs: Vec::new(),
+            state: TaskSpaceNodeState::Ready,
+            content: "Implementation is ready to begin.".to_string(),
+            parents: vec!["root".to_string()],
+            actions: vec![TaskSpaceNodeAction {
+                action_id: "read-1".to_string(),
+                tool_name: "read_file".to_string(),
+                outcome: TaskSpaceActionOutcome::Succeeded,
+            }],
         }],
         finish: TaskSpaceMapNode {
             node_id: "finish".to_string(),
             goal: "finish".to_string(),
-            source_refs: Vec::new(),
+            state: TaskSpaceNodeState::Waiting,
+            content: String::new(),
+            parents: vec!["work".to_string()],
+            actions: Vec::new(),
         },
-        edges: vec![
-            TaskSpaceMapEdge {
-                from: "root".to_string(),
-                to: "work".to_string(),
-            },
-            TaskSpaceMapEdge {
-                from: "work".to_string(),
-                to: "finish".to_string(),
-            },
-        ],
-        completion_records: BTreeMap::new(),
-        block_records: BTreeMap::new(),
-        action_reservations: BTreeMap::new(),
-        result_refs: BTreeMap::new(),
-        evidence_refs: BTreeMap::new(),
-        terminal_record: None,
-        terminal_history: Vec::new(),
         revision,
     })
 }
@@ -91,7 +86,7 @@ async fn create_load_bind_and_commit_taskspace_map() {
         panic!("map creation should apply");
     };
     assert_eq!(created.store_revision, 1);
-    assert_eq!(created.map_revision, 0);
+    assert!(created.canonical_map.is_none());
 
     runtime
         .bind_thread_to_taskspace_map(BindTaskSpaceMapRequest {
@@ -126,7 +121,10 @@ async fn create_load_bind_and_commit_taskspace_map() {
         panic!("map commit should apply");
     };
     assert_eq!(committed.store_revision, 2);
-    assert_eq!(committed.map_revision, 3);
+    assert_eq!(
+        committed.canonical_map.as_ref().map(|map| map.revision),
+        Some(3)
+    );
     let _ = tokio::fs::remove_dir_all(home).await;
 }
 
@@ -400,22 +398,9 @@ async fn taskspace_map_survives_state_runtime_restart() {
     let owner = ThreadId::new();
     let map_id = format!("map-{owner}");
     let mut canonical = initialized_map(&map_id, 9).expect("initialized map");
-    canonical.completion_records.insert(
-        "work".to_string(),
-        TaskSpaceCompletionRecord {
-            action_id: "complete-work".to_string(),
-            result_ref_ids: Vec::new(),
-            evidence_ref_ids: Vec::new(),
-        },
-    );
-    canonical.terminal_history.push(TaskSpaceTerminalRecord {
-        action_id: "terminal-1".to_string(),
-        summary_ref: "initial completion".to_string(),
-    });
-    canonical.terminal_record = Some(TaskSpaceTerminalRecord {
-        action_id: "terminal-2".to_string(),
-        summary_ref: "feedback completion".to_string(),
-    });
+    canonical.work_nodes[0].state = TaskSpaceNodeState::Completed;
+    canonical.work_nodes[0].content = "Implementation persisted across restart.".to_string();
+    canonical.finish.state = TaskSpaceNodeState::Ready;
     runtime
         .create_taskspace_map(CreateTaskSpaceMapRequest {
             map_id: map_id.clone(),
@@ -440,18 +425,11 @@ async fn taskspace_map_survives_state_runtime_restart() {
     assert_eq!(record.store_revision, 1);
     let canonical = record.canonical_map.expect("canonical map");
     assert_eq!(canonical.revision, 9);
-    assert_eq!(canonical.terminal_history.len(), 1);
+    assert_eq!(canonical.work_nodes[0].state, TaskSpaceNodeState::Completed);
     assert_eq!(
-        canonical.terminal_history[0].summary_ref,
-        "initial completion"
+        canonical.work_nodes[0].content,
+        "Implementation persisted across restart."
     );
-    assert_eq!(
-        canonical
-            .terminal_record
-            .expect("current terminal")
-            .summary_ref,
-        "feedback completion"
-    );
-    assert!(canonical.completion_records.contains_key("work"));
+    assert_eq!(canonical.work_nodes[0].actions[0].action_id, "read-1");
     let _ = tokio::fs::remove_dir_all(home).await;
 }

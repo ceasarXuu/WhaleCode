@@ -15,6 +15,7 @@ from cache_windows_job import WindowsKillOnCloseJob, start_windows_job_process
 
 
 PROCESS_GROUP_TERMINATION_SECONDS = 5
+PROCESS_GROUP_GRACE_SECONDS = 0.5
 
 
 class BenchmarkTimeoutError(TimeoutError):
@@ -108,11 +109,25 @@ def _terminate_process_tree(
                     else {}
                 ),
             }
-    if process.poll() is not None:
+    process_group_id = None
+    if os.name == "posix":
+        process_group_id = getattr(process, "_whale_process_group_id", None)
+        if type(process_group_id) is not int:
+            try:
+                process_group_id = os.getpgid(process.pid)
+            except ProcessLookupError:
+                if process.poll() is not None:
+                    return {
+                        "status": "already_exited",
+                        "exit_code": process.returncode,
+                        "descendants_guaranteed_terminated": False,
+                    }
+                raise
+    if process.poll() is not None and process_group_id is None:
         return {"status": "already_exited", "exit_code": process.returncode}
     try:
         if os.name == "posix":
-            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+            os.killpg(process_group_id, signal.SIGTERM)
         else:
             terminated = subprocess.run(
                 ["taskkill", "/PID", str(process.pid), "/T", "/F"],
@@ -130,26 +145,70 @@ def _terminate_process_tree(
                 }
         try:
             process.wait(timeout=PROCESS_GROUP_TERMINATION_SECONDS)
-            return {
-                "status": "terminated",
-                "exit_code": process.returncode,
-                "method": "posix_process_group"
-                if os.name == "posix"
-                else "taskkill_fallback",
-                "descendants_guaranteed_terminated": True,
-            }
         except subprocess.TimeoutExpired:
-            if os.name == "posix":
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-            else:
+            pass
+        if os.name != "posix":
+            if process.poll() is None:
                 return {
                     "status": "failed",
                     "error": "taskkill completed but the process tree remained alive",
                 }
+            return {
+                "status": "terminated",
+                "exit_code": process.returncode,
+                "method": "taskkill_fallback",
+                "descendants_guaranteed_terminated": True,
+            }
+        if _wait_for_process_group_exit(process_group_id, PROCESS_GROUP_GRACE_SECONDS):
+            return {
+                "status": "terminated",
+                "exit_code": process.returncode,
+                "method": "posix_process_group",
+                "descendants_guaranteed_terminated": True,
+            }
+        os.killpg(process_group_id, signal.SIGKILL)
+        if process.poll() is None:
             process.wait(timeout=PROCESS_GROUP_TERMINATION_SECONDS)
-            return {"status": "killed", "exit_code": process.returncode}
+        if not _wait_for_process_group_exit(
+            process_group_id, PROCESS_GROUP_TERMINATION_SECONDS
+        ):
+            return {
+                "status": "failed",
+                "method": "posix_process_group",
+                "descendants_guaranteed_terminated": False,
+                "error": "process group remained after SIGKILL",
+            }
+        return {
+            "status": "killed",
+            "exit_code": process.returncode,
+            "method": "posix_process_group",
+            "descendants_guaranteed_terminated": True,
+        }
     except (OSError, subprocess.TimeoutExpired) as error:
-        return {"status": "failed", "error": f"{type(error).__name__}: {error}"}
+        return {
+            "status": "failed",
+            "descendants_guaranteed_terminated": False,
+            "error": f"{type(error).__name__}: {error}",
+        }
+
+
+def _process_group_exists(process_group_id: int) -> bool:
+    try:
+        os.killpg(process_group_id, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
+def _wait_for_process_group_exit(process_group_id: int, timeout_seconds: float) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while _process_group_exists(process_group_id):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+    return True
 
 
 def run_benchmark_command(
@@ -160,6 +219,7 @@ def run_benchmark_command(
         process, windows_job = start_windows_job_process(command, cwd)
     else:
         process = subprocess.Popen(command, cwd=cwd, start_new_session=True)
+        process._whale_process_group_id = os.getpgid(process.pid)
     try:
         return_code = process.wait(timeout=timeout_seconds)
     except subprocess.TimeoutExpired as error:
@@ -177,6 +237,36 @@ def run_benchmark_command(
                 + termination.get("error", "unknown Windows Job Object failure")
             )
     return subprocess.CompletedProcess(command, return_code)
+
+
+def run_captured_command(
+    command: list[str], cwd: Path, timeout_seconds: int
+) -> subprocess.CompletedProcess[str]:
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=os.name == "posix",
+        creationflags=(
+            subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+        ),
+    )
+    if os.name == "posix":
+        process._whale_process_group_id = os.getpgid(process.pid)
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired as error:
+        termination = _terminate_process_tree(process)
+        for stream in (process.stdout, process.stderr):
+            if stream is not None:
+                stream.close()
+        raise BenchmarkTimeoutError(command, timeout_seconds, termination) from error
+    except BaseException as error:
+        error.process_tree_termination = _terminate_process_tree(process)
+        raise
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
 def cleanup_labeled_containers(

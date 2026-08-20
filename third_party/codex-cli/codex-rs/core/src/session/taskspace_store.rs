@@ -20,6 +20,13 @@ use codex_state::TaskSpaceMapWriteOutcome;
 use sha2::Digest;
 use uuid::Uuid;
 
+mod action_settlement;
+mod cache_install;
+mod producer;
+
+pub(crate) use action_settlement::TaskSpaceActionSettlementFact;
+pub(crate) use action_settlement::TaskSpaceActionSettlementQueue;
+
 pub(super) struct HydratedActionMapStore {
     pub(super) runtime: ActionMapRuntimeState,
     pub(super) handle: ActionMapStoreHandle,
@@ -32,9 +39,7 @@ pub(super) async fn hydrate_action_map_store(
     session_source: &SessionSource,
     taskspace_policy_present: bool,
 ) -> anyhow::Result<Option<HydratedActionMapStore>> {
-    let parent_binding = taskspace_policy_present
-        .then(|| parent_map_binding(initial_history, session_source))
-        .flatten();
+    let parent_binding = parent_map_binding(initial_history, session_source);
     let requires_existing_map = taskspace_policy_present
         && (matches!(
             initial_history,
@@ -74,7 +79,7 @@ pub(super) async fn hydrate_action_map_store(
             parent_thread_id = %parent_thread_id,
             relation = relation.as_str(),
             store_revision = parent_map.store_revision,
-            map_revision = parent_map.map_revision,
+            map_revision = record_map_revision(&parent_map),
             "bound thread to canonical TaskSpace Map"
         );
         loaded = state_db.load_taskspace_map_for_thread(thread_id).await?;
@@ -105,8 +110,7 @@ pub(super) async fn hydrate_action_map_store(
         owner_thread_id = %record.owner_thread_id,
         relation = binding.relation.as_str(),
         store_revision = record.store_revision,
-        map_revision = record.map_revision,
-        terminal = record.terminal,
+        map_revision = record_map_revision(&record),
         "loaded canonical TaskSpace Map"
     );
     Ok(Some(HydratedActionMapStore {
@@ -137,8 +141,7 @@ fn runtime_from_record_for_hydrate(
             owner_thread_id = %record.owner_thread_id,
             relation = relation.as_str(),
             store_revision = record.store_revision,
-            map_revision = record.map_revision,
-            terminal = record.terminal,
+            map_revision = record_map_revision(record),
             "rejected canonical TaskSpace Map before Runtime installation"
         );
     })
@@ -177,6 +180,10 @@ pub(super) fn canonical_map_for_store(
     runtime: &ActionMapRuntimeState,
 ) -> Option<TaskSpaceCanonicalMap> {
     runtime.canonical_map_for_store()
+}
+
+pub(super) fn record_map_revision(record: &TaskSpaceMapRecord) -> u64 {
+    record.canonical_map.as_ref().map_or(0, |map| map.revision)
 }
 
 pub(super) fn canonical_map_sha256(
@@ -246,7 +253,7 @@ impl Session {
             MapRuntimeStoreCommittedEvent {
                 map_id: record.map_id.clone(),
                 store_revision: record.store_revision,
-                map_revision: record.map_revision,
+                map_revision: record_map_revision(&record),
                 operation: "activate_taskspace".to_string(),
                 actor_thread_id: self.conversation_id,
                 canonical_sha256: record.canonical_sha256.clone(),
@@ -259,7 +266,7 @@ impl Session {
             actor_thread_id = %self.conversation_id,
             owner_thread_id = %record.owner_thread_id,
             store_revision = record.store_revision,
-            map_revision = record.map_revision,
+            map_revision = record_map_revision(&record),
             operation = "activate_taskspace",
             "created canonical TaskSpace Map"
         );
@@ -276,6 +283,16 @@ impl Session {
     }
 
     pub(crate) async fn mutate_canonical_action_map_with_binding<T>(
+        &self,
+        operation: &'static str,
+        binding: Option<BindTaskSpaceMapRequest>,
+        mutate: impl FnOnce(&mut ActionMapRuntimeState, ThreadId) -> (T, Vec<MapRuntimeEvent>),
+    ) -> Result<(T, Vec<MapRuntimeEvent>), String> {
+        self.mutate_canonical_action_map_inner(operation, binding, mutate)
+            .await
+    }
+
+    async fn mutate_canonical_action_map_inner<T>(
         &self,
         operation: &'static str,
         binding: Option<BindTaskSpaceMapRequest>,
@@ -397,7 +414,7 @@ impl Session {
             MapRuntimeStoreCommittedEvent {
                 map_id: record.map_id.clone(),
                 store_revision: record.store_revision,
-                map_revision: record.map_revision,
+                map_revision: record_map_revision(&record),
                 operation: operation.to_string(),
                 actor_thread_id: self.conversation_id,
                 canonical_sha256: record.canonical_sha256.clone(),
@@ -410,7 +427,7 @@ impl Session {
             actor_thread_id = %self.conversation_id,
             owner_thread_id = %record.owner_thread_id,
             store_revision = record.store_revision,
-            map_revision = record.map_revision,
+            map_revision = record_map_revision(&record),
             operation,
             commit_id,
             "committed canonical TaskSpace Map"
@@ -422,22 +439,6 @@ impl Session {
         self.state_db().ok_or_else(|| {
             "TaskSpace requires the persistent Map Store; state DB is unavailable.".to_string()
         })
-    }
-
-    pub(super) async fn install_store_record(
-        &self,
-        record: &TaskSpaceMapRecord,
-        candidate: ActionMapRuntimeState,
-    ) -> Result<(), String> {
-        let candidate_map = canonical_map_for_store(&candidate);
-        let candidate_sha256 = canonical_map_sha256(&candidate_map)
-            .map_err(|error| format!("TaskSpace candidate hash failed: {error}"))?;
-        if candidate_sha256 != record.canonical_sha256 {
-            return Err("TaskSpace Store record does not match Runtime candidate.".to_string());
-        }
-        let mut state = self.state.lock().await;
-        state.install_action_map_store_record(record, candidate);
-        Ok(())
     }
 
     async fn refresh_after_store_failure(
@@ -465,10 +466,7 @@ impl Session {
             &owned
         };
         let runtime = runtime_from_record(record).map_err(|error| error.to_string())?;
-        self.state
-            .lock()
-            .await
-            .install_action_map_store_record(record, runtime);
+        let _ = self.install_store_record(record, runtime).await?;
         Ok(())
     }
 }

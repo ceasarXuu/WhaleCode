@@ -20,96 +20,42 @@ fn user_message(text: &str) -> ResponseItem {
 }
 
 #[tokio::test]
-async fn taskspace_context_moves_without_parallel_history_copy() {
+async fn taskspace_mode_keeps_standard_history_backend() {
     let session_configuration = make_session_configuration_for_tests().await;
     let mut state = SessionState::new(session_configuration);
-    let item = user_message("preserve exactly");
-    state
-        .history
-        .record_items(std::iter::once(&item), TruncationPolicy::Tokens(10_000));
-    let owner = codex_protocol::ThreadId::new();
-    state
-        .action_map_runtime
-        .set_mode_for_session(MapRuntimeMode::Experiment, owner);
-
-    let events = state.activate_taskspace_context();
-
-    assert_eq!(events.len(), 1);
-    assert!(state.history.raw_items().is_empty());
-    assert_eq!(state.clone_history().raw_items(), &[item.clone()]);
-
+    let before_switch = user_message("before switch");
+    state.record_items(
+        std::iter::once(&before_switch),
+        TruncationPolicy::Tokens(10_000),
+    );
     state
         .action_map_runtime
-        .set_mode_for_session(MapRuntimeMode::Standard, owner);
-    assert_eq!(state.deactivate_taskspace_context(), vec![item.clone()]);
-    assert!(state.taskspace_events.is_empty());
-    assert_eq!(state.history.raw_items(), &[item]);
+        .set_mode_for_session(MapRuntimeMode::Experiment, codex_protocol::ThreadId::new());
+    let after_switch = user_message("after switch");
+
+    state.record_items(
+        std::iter::once(&after_switch),
+        TruncationPolicy::Tokens(10_000),
+    );
+
+    assert_eq!(
+        state.clone_history().raw_items(),
+        &[before_switch, after_switch]
+    );
 }
 
 #[tokio::test]
-async fn subagent_fork_linearizes_context_without_parent_runtime() {
-    let session_configuration = make_session_configuration_for_tests().await;
-    let mut parent = SessionState::new(session_configuration.clone());
-    let item = user_message("fork context");
-    parent
-        .history
-        .record_items(std::iter::once(&item), TruncationPolicy::Tokens(10_000));
-    let owner = codex_protocol::ThreadId::new();
-    parent
-        .action_map_runtime
-        .set_mode_for_session(MapRuntimeMode::Experiment, owner);
-    let events = parent.activate_taskspace_context();
-    let mut child = SessionState::new(session_configuration);
-
-    child.restore_subagent_fork_context(Vec::new(), events, None);
-
-    assert_eq!(child.action_map_runtime.mode(), MapRuntimeMode::Standard);
-    assert!(child.taskspace_events.is_empty());
-    assert_eq!(child.history.raw_items(), &[item]);
-}
-
-#[tokio::test]
-async fn taskspace_compaction_keeps_raw_events_behind_verified_checkpoint() {
+async fn taskspace_mode_uses_standard_history_replacement() {
     let session_configuration = make_session_configuration_for_tests().await;
     let mut state = SessionState::new(session_configuration);
-    let original = user_message("raw task body");
-    state
-        .history
-        .record_items(std::iter::once(&original), TruncationPolicy::Tokens(10_000));
-    let owner = codex_protocol::ThreadId::new();
     state
         .action_map_runtime
-        .set_mode_for_session(MapRuntimeMode::Experiment, owner);
-    state.activate_taskspace_context();
-    let summary = ResponseItem::Message {
-        id: None,
-        role: "assistant".to_string(),
-        content: vec![ContentItem::OutputText {
-            text: "checkpoint summary".to_string(),
-        }],
-        end_turn: None,
-        phase: None,
-    };
+        .set_mode_for_session(MapRuntimeMode::Experiment, codex_protocol::ThreadId::new());
+    let compacted = user_message("compacted history");
 
-    let checkpoint_events = state.replace_compacted_history(vec![summary.clone()], None);
+    state.replace_history(vec![compacted.clone()], None);
 
-    assert_eq!(checkpoint_events.len(), 1);
-    assert_eq!(state.taskspace_events.events().len(), 2);
-    let visible = state.clone_history().raw_items().to_vec();
-    assert_eq!(visible.len(), 2);
-    assert!(
-        serde_json::to_string(&visible[0])
-            .unwrap()
-            .contains("TaskSpaceCompactionCheckpointV1")
-    );
-    assert_eq!(visible[1], summary);
-    assert!(
-        !serde_json::to_string(&visible)
-            .unwrap()
-            .contains("raw task body")
-    );
-    TaskSpaceEventStore::restore(state.taskspace_events.events().to_vec())
-        .expect("raw event archive and checkpoint must restore");
+    assert_eq!(state.clone_history().raw_items(), &[compacted]);
 }
 
 #[tokio::test]

@@ -69,139 +69,86 @@ function Add-R7RequestFailureFacts {
         ) { "invalid" } else { "valid" })
 }
 
-function Test-R7NonnegativeJsonInteger {
-    param($Value)
-    $null -ne (ConvertTo-R7NonnegativeInt64Fact $Value)
-}
-
 function Get-R7WireRequestInventory {
-    param([Parameter(Mandatory = $true)][string]$WireTracePath)
-    $facts = @{}
+    param(
+        [Parameter(Mandatory = $true)][string]$WireTracePath,
+        $RequestFacts = $null
+    )
+    if ($null -eq $RequestFacts) {
+        $RequestFacts = Invoke-TaskspaceRequestFactsGenerator -WireTracePath $WireTracePath
+    }
+    if ([string]$RequestFacts.availability.attempt -ne "measured" -or
+        [string]$RequestFacts.availability.completion -ne "measured" -or
+        [string]$RequestFacts.availability.usage -ne "measured") {
+        $codes = @($RequestFacts.findings | ForEach-Object { [string]$_.code }) -join ","
+        throw "Canonical request facts are unavailable for wire inventory: $codes"
+    }
+
+    $wireShapes = @{}
     foreach ($line in Get-Content -Encoding UTF8 -LiteralPath $WireTracePath) {
         $event = $line | ConvertFrom-Json -Depth 100
+        if ($null -eq (Get-R7JsonProperty $event "request_index")) { continue }
         $requestId = [string](Get-R7JsonProperty $event "request_id" "")
-        if ([string]::IsNullOrWhiteSpace($requestId)) { continue }
-        if (-not $facts.ContainsKey($requestId)) {
-            $facts[$requestId] = [ordered]@{
-                request_id = $requestId
-                logical_request_id = ""
-                terminal_logical_request_id = ""
-                attempt_seq = [int64]0
-                terminal_attempt_seq = [int64]0
-                request_index = [int64]0
-                trace_schema = ""
-                transport = ""
-                terminal_transport = ""
-                provider_wire_api = ""
-                lcp_message_count = [int64]0
-                message_shapes = @()
-                receipt_identities = @()
-                input_tokens = $null
-                cached_input_tokens = $null
-                output_tokens = $null
-                reasoning_output_tokens = $null
-                total_tokens = $null
-                terminal_status = ""
-                shape_event_count = [int64]0
-                terminal_event_count = [int64]0
-            }
+        if ([string]::IsNullOrWhiteSpace($requestId)) {
+            throw "Provider wire shape event has no request identity"
         }
-        $fact = $facts[$requestId]
-        if ($null -ne (Get-R7JsonProperty $event "request_index")) {
-            $fact.shape_event_count = [int64]$fact.shape_event_count + 1
-            $fact.request_index = Get-R7RequiredNonnegativeInt64Fact `
-                $event "request_index" "provider wire shape event"
-            $fact.trace_schema = [string](Get-R7JsonProperty $event "schema_version" "")
-            $fact.logical_request_id =
-                [string](Get-R7JsonProperty $event "logical_request_id" "")
-            $fact.attempt_seq = Get-R7RequiredNonnegativeInt64Fact `
-                $event "attempt_seq" "provider wire shape event"
-            $fact.transport = [string](Get-R7JsonProperty $event "transport" "")
-            $fact.provider_wire_api = [string](Get-R7JsonProperty $event "provider_wire_api" "")
-            $fact.lcp_message_count = Get-R7RequiredNonnegativeInt64Fact `
+        if ($wireShapes.ContainsKey($requestId)) {
+            throw "Provider wire trace has duplicate shape event: $requestId"
+        }
+        $resultIdentity = Get-R7JsonProperty $event "taskspace_final_control_result_identity"
+        $wireShapes[$requestId] = [pscustomobject]@{
+            trace_schema = [string](Get-R7JsonProperty $event "schema_version" "")
+            transport = [string](Get-R7JsonProperty $event "transport" "")
+            provider_wire_api = [string](Get-R7JsonProperty $event "provider_wire_api" "")
+            lcp_message_count = Get-R7RequiredNonnegativeInt64Fact `
                 $event "lcp_message_count" "provider wire shape event"
-            $fact.message_shapes = @(Get-R7JsonProperty $event "message_shapes" @())
-            $receiptIdentity = Get-R7JsonProperty $event "taskspace_final_receipt_identity"
-            $fact.receipt_identities = @(
-                Get-R7JsonProperty $receiptIdentity "receipts" @()
+            message_shapes = @(Get-R7JsonProperty $event "message_shapes" @())
+            final_control_result_identities = @(
+                Get-R7JsonProperty $resultIdentity "results" @()
             )
         }
-        if ([string](Get-R7JsonProperty $event "event_name" "") -eq "provider.chat_wire_request_terminal") {
-            $fact.terminal_event_count = [int64]$fact.terminal_event_count + 1
-            $fact.terminal_status = [string](Get-R7JsonProperty $event "status" "")
-            $fact.terminal_logical_request_id =
-                [string](Get-R7JsonProperty $event "logical_request_id" "")
-            $fact.terminal_attempt_seq = Get-R7RequiredNonnegativeInt64Fact `
-                $event "attempt_seq" "provider wire terminal event"
-            $fact.terminal_transport = [string](Get-R7JsonProperty $event "transport" "")
-            $fact.input_tokens = Get-R7JsonProperty $event "input_tokens"
-            $fact.cached_input_tokens = Get-R7JsonProperty $event "cached_input_tokens"
-            $fact.output_tokens = Get-R7JsonProperty $event "output_tokens"
-            $fact.reasoning_output_tokens =
-                Get-R7JsonProperty $event "reasoning_output_tokens"
-            $fact.total_tokens = Get-R7JsonProperty $event "total_tokens"
-        }
     }
-    $unordered = @($facts.Values | ForEach-Object { [pscustomobject]$_ })
-    $incomplete = @($unordered | Where-Object {
-            [string]$_.trace_schema -ne "provider-chat-wire-trace-v10" -or
-            [string]::IsNullOrWhiteSpace([string]$_.logical_request_id) -or
-            [string]$_.logical_request_id -ne [string]$_.terminal_logical_request_id -or
-            [string]::IsNullOrWhiteSpace([string]$_.transport) -or
-            [string]$_.transport -ne [string]$_.terminal_transport -or
-            -not (Test-R7NonnegativeJsonInteger $_.request_index) -or
-            [int64]$_.request_index -lt 1 -or
-            -not (Test-R7NonnegativeJsonInteger $_.attempt_seq) -or
-            [int64]$_.attempt_seq -lt 1 -or
-            -not (Test-R7NonnegativeJsonInteger $_.terminal_attempt_seq) -or
-            [int64]$_.attempt_seq -ne [int64]$_.terminal_attempt_seq -or
-            [int64]$_.shape_event_count -ne 1 -or
-            [int64]$_.terminal_event_count -ne 1 -or
-            [string]$_.terminal_status -notin @(
-                "response_completed", "response_failed", "cancelled", "retry_unauthorized"
-            ) -or
-            (
-                [string]$_.terminal_status -eq "response_completed" -and
-                (
-                    -not (Test-R7NonnegativeJsonInteger $_.input_tokens) -or
-                    -not (Test-R7NonnegativeJsonInteger $_.cached_input_tokens) -or
-                    -not (Test-R7NonnegativeJsonInteger $_.output_tokens) -or
-                    -not (Test-R7NonnegativeJsonInteger $_.reasoning_output_tokens) -or
-                    -not (Test-R7NonnegativeJsonInteger $_.total_tokens) -or
-                    [int64]$_.cached_input_tokens -gt [int64]$_.input_tokens -or
-                    [int64]$_.reasoning_output_tokens -gt [int64]$_.output_tokens -or
-                    [bigint]$_.total_tokens -ne
-                        ([bigint]$_.input_tokens + [bigint]$_.output_tokens)
-                )
-            )
-        })
-    if ($incomplete.Count) {
-        throw "Provider wire trace has $($incomplete.Count) incomplete physical request rows"
+
+    $inventory = @(
+        $RequestFacts.rows |
+            Where-Object { $null -ne $_.wire_attempt_line_number } |
+            Sort-Object { [int64]$_.request_index } |
+            ForEach-Object {
+                $row = $_
+                $requestId = [string]$row.request_id
+                if (-not $wireShapes.ContainsKey($requestId)) {
+                    throw "Canonical request fact has no Provider wire shape: $requestId"
+                }
+                $shape = $wireShapes[$requestId]
+                if ([string]$shape.trace_schema -ne "provider-chat-wire-trace-v11" -or
+                    [string]::IsNullOrWhiteSpace([string]$shape.transport)) {
+                    throw "Provider wire shape metadata is incomplete: $requestId"
+                }
+                $usage = $row.usage
+                [pscustomobject]@{
+                    request_id = $requestId
+                    logical_request_id = [string]$row.logical_request_id
+                    attempt_seq = [int64]$row.attempt_seq
+                    request_index = [int64]$row.request_index
+                    trace_schema = [string]$shape.trace_schema
+                    transport = [string]$shape.transport
+                    provider_wire_api = [string]$shape.provider_wire_api
+                    lcp_message_count = [int64]$shape.lcp_message_count
+                    message_shapes = @($shape.message_shapes)
+                    final_control_result_identities = @($shape.final_control_result_identities)
+                    input_tokens = if ($null -ne $usage) { [int64]$usage.input_tokens } else { $null }
+                    cached_input_tokens = if ($null -ne $usage) { [int64]$usage.cached_input_tokens } else { $null }
+                    output_tokens = if ($null -ne $usage) { [int64]$usage.output_tokens } else { $null }
+                    reasoning_output_tokens = if ($null -ne $usage) { [int64]$usage.reasoning_output_tokens } else { $null }
+                    total_tokens = if ($null -ne $usage) { [int64]$usage.total_tokens } else { $null }
+                    terminal_status = [string]$row.terminal_status
+                }
+            }
+    )
+    if ($inventory.Count -eq 0 -or $inventory.Count -ne $wireShapes.Count) {
+        throw "Canonical request facts and Provider wire shapes do not form a complete inventory"
     }
-    $ordered = @($unordered | Sort-Object { [int64]$_.request_index })
-    $expectedIndexes = @(1..$ordered.Count)
-    $actualIndexes = @($ordered | ForEach-Object { [int64]$_.request_index })
-    if ($ordered.Count -eq 0 -or
-        (Compare-Object $expectedIndexes $actualIndexes -SyncWindow 0)) {
-        throw "Provider wire physical request indexes are missing, duplicated, or reordered"
-    }
-    foreach ($group in @($ordered | Group-Object logical_request_id)) {
-        $attempts = @($group.Group | Sort-Object { [int64]$_.request_index })
-        $expectedAttempts = @(1..$attempts.Count)
-        $actualAttempts = @($attempts | ForEach-Object { [int64]$_.attempt_seq })
-        if (Compare-Object $expectedAttempts $actualAttempts -SyncWindow 0) {
-            throw "Provider wire logical request attempts are missing, duplicated, or reordered: $($group.Name)"
-        }
-        $completed = @($attempts | Where-Object terminal_status -eq "response_completed")
-        if ($completed.Count -gt 1) {
-            throw "Provider wire logical request has multiple completed attempts: $($group.Name)"
-        }
-        if ($completed.Count -eq 1 -and
-            [int64]$completed[0].attempt_seq -ne [int64]$attempts[-1].attempt_seq) {
-            throw "Provider wire logical request completed before its final attempt: $($group.Name)"
-        }
-    }
-    $ordered
+    $inventory
 }
 
 function Get-R7WireRequestFacts {
@@ -237,9 +184,10 @@ function Add-R7WireFactsToRequestPath {
     param(
         [Parameter(Mandatory = $true)][object[]]$RequestPath,
         [Parameter(Mandatory = $true)][string]$WireTracePath,
-        [int64]$ExpectedProviderAttempts = 0
+        [int64]$ExpectedProviderAttempts = 0,
+        $RequestFacts = $null
     )
-    $inventory = @(Get-R7WireRequestInventory $WireTracePath)
+    $inventory = @(Get-R7WireRequestInventory $WireTracePath $RequestFacts)
     if ($ExpectedProviderAttempts -gt 0 -and $inventory.Count -ne $ExpectedProviderAttempts) {
         throw "Provider wire physical attempt count mismatch: wire=$($inventory.Count) expected=$ExpectedProviderAttempts"
     }
@@ -305,55 +253,43 @@ function Add-R7WireFactsToRequestPath {
         $request | Add-Member -Force -NotePropertyName reasoning_output_tokens -NotePropertyValue $reasoningTokens
         $request | Add-Member -Force -NotePropertyName total_tokens -NotePropertyValue $totalTokens
         $request | Add-Member -Force -NotePropertyName cache_hit_rate -NotePropertyValue $cacheHitRate
-        $receiptWireIdentity = $null
-        $newReceipts = @(
-            $fact.receipt_identities |
+        $resultWireIdentity = $null
+        $newResults = @(
+            $fact.final_control_result_identities |
                 Where-Object { [int]$_.message_index -ge [int]$fact.lcp_message_count } |
                 Sort-Object { [int]$_.message_index }
         )
-        if ([bool]$request.receipt_before) {
-            if ([int]$request.receipt_count -ne 1 -or $newReceipts.Count -ne 1) {
-                throw "Provider request must carry exactly one complete response-final receipt: $rolloutRequestId"
+        if ([bool]$request.final_control_result_before) {
+            if ([int]$request.final_control_result_count -ne 1 -or $newResults.Count -ne 1) {
+                throw "Provider request must carry exactly one settled final control result: $rolloutRequestId"
             }
-            $receiptWireIdentity = $newReceipts[0]
-            $wireRole = [string](Get-R7JsonProperty $receiptWireIdentity "wire_role" "")
-            $callHash = [string](Get-R7JsonProperty $receiptWireIdentity "control_call_id_sha256" "")
-            $reservationRevision =
-                Get-R7JsonProperty $receiptWireIdentity "reservation_revision_after"
-            $canonicalRevision = Get-R7JsonProperty $receiptWireIdentity "canonical_revision"
-            $revisionDelta = Get-R7JsonProperty $receiptWireIdentity "revision_delta"
-            $receiptComplete = [bool](Get-R7JsonProperty $receiptWireIdentity "complete" $false)
-            if ([string]::IsNullOrWhiteSpace($wireRole) -or
+            $resultWireIdentity = $newResults[0]
+            $itemKind = [string](Get-R7JsonProperty $resultWireIdentity "item_kind" "")
+            $callHash = [string](Get-R7JsonProperty $resultWireIdentity "control_call_id_sha256" "")
+            $canonicalRevision = Get-R7JsonProperty $resultWireIdentity "canonical_revision"
+            $settled = [bool](Get-R7JsonProperty $resultWireIdentity "settled" $false)
+            if ([string]::IsNullOrWhiteSpace($itemKind) -or
                 $callHash -notmatch '^[a-fA-F0-9]{64}$' -or
-                $null -eq $reservationRevision -or $null -eq $canonicalRevision -or
-                $null -eq $revisionDelta -or -not $receiptComplete -or
-                [int64]$revisionDelta -ne
-                    ([int64]$canonicalRevision - [int64]$reservationRevision)) {
-                throw "Provider response-final receipt identity is incomplete: $rolloutRequestId"
+                $null -eq $canonicalRevision -or -not $settled) {
+                throw "Provider final control result identity is incomplete: $rolloutRequestId"
             }
-        } elseif ($newReceipts.Count) {
-            throw "Wire trace has an unpaired response-final receipt: $rolloutRequestId"
+        } elseif ($newResults.Count) {
+            throw "Wire trace has an unpaired final control result: $rolloutRequestId"
         }
-        $request | Add-Member -Force -NotePropertyName receipt_wire_role -NotePropertyValue (
-            [string](Get-R7JsonProperty $receiptWireIdentity "wire_role" "")
+        $request | Add-Member -Force -NotePropertyName final_control_result_item_kind -NotePropertyValue (
+            [string](Get-R7JsonProperty $resultWireIdentity "item_kind" "")
         )
-        $request | Add-Member -Force -NotePropertyName receipt_message_index -NotePropertyValue (
-            Get-R7JsonProperty $receiptWireIdentity "message_index"
+        $request | Add-Member -Force -NotePropertyName final_control_result_message_index -NotePropertyValue (
+            Get-R7JsonProperty $resultWireIdentity "message_index"
         )
-        $request | Add-Member -Force -NotePropertyName receipt_control_call_id_sha256 -NotePropertyValue (
-            [string](Get-R7JsonProperty $receiptWireIdentity "control_call_id_sha256" "")
+        $request | Add-Member -Force -NotePropertyName final_control_result_call_id_sha256 -NotePropertyValue (
+            [string](Get-R7JsonProperty $resultWireIdentity "control_call_id_sha256" "")
         )
-        $request | Add-Member -Force -NotePropertyName receipt_reservation_revision -NotePropertyValue (
-            Get-R7JsonProperty $receiptWireIdentity "reservation_revision_after"
+        $request | Add-Member -Force -NotePropertyName final_control_result_canonical_revision -NotePropertyValue (
+            Get-R7JsonProperty $resultWireIdentity "canonical_revision"
         )
-        $request | Add-Member -Force -NotePropertyName receipt_canonical_revision -NotePropertyValue (
-            Get-R7JsonProperty $receiptWireIdentity "canonical_revision"
-        )
-        $request | Add-Member -Force -NotePropertyName receipt_revision_delta -NotePropertyValue (
-            Get-R7JsonProperty $receiptWireIdentity "revision_delta"
-        )
-        $request | Add-Member -Force -NotePropertyName receipt_complete -NotePropertyValue (
-            Get-R7JsonProperty $receiptWireIdentity "complete"
+        $request | Add-Member -Force -NotePropertyName final_control_result_settled -NotePropertyValue (
+            Get-R7JsonProperty $resultWireIdentity "settled"
         )
     }
     $RequestPath
@@ -381,19 +317,19 @@ function Get-R7RequestObservabilitySummary {
             [string]$_.primary_failure_class -notin @($classes.Keys)
         })
     $invalidEvidence = @($RequestPath | Where-Object evidence_health -ne "valid")
-    $receipt = @($RequestPath | Where-Object receipt_before -eq $true)
-    $withoutReceipt = @($RequestPath | Where-Object receipt_before -ne $true)
-    $receiptInput = Get-R7ExactInt64Sum @(
-        $receipt | ForEach-Object { $_.input_tokens }
+    $finalControlResult = @($RequestPath | Where-Object final_control_result_before -eq $true)
+    $withoutFinalControlResult = @($RequestPath | Where-Object final_control_result_before -ne $true)
+    $finalControlResultInput = Get-R7ExactInt64Sum @(
+        $finalControlResult | ForEach-Object { $_.input_tokens }
     ) "input_tokens"
-    $receiptCached = Get-R7ExactInt64Sum @(
-        $receipt | ForEach-Object { $_.cached_input_tokens }
+    $finalControlResultCached = Get-R7ExactInt64Sum @(
+        $finalControlResult | ForEach-Object { $_.cached_input_tokens }
     ) "cached_input_tokens"
     $otherInput = Get-R7ExactInt64Sum @(
-        $withoutReceipt | ForEach-Object { $_.input_tokens }
+        $withoutFinalControlResult | ForEach-Object { $_.input_tokens }
     ) "input_tokens"
     $otherCached = Get-R7ExactInt64Sum @(
-        $withoutReceipt | ForEach-Object { $_.cached_input_tokens }
+        $withoutFinalControlResult | ForEach-Object { $_.cached_input_tokens }
     ) "cached_input_tokens"
     [pscustomobject]@{
         provider_requests = [int64]$RequestPath.Count
@@ -415,30 +351,30 @@ function Get-R7RequestObservabilitySummary {
             @($RequestPath.reasoning_output_tokens) `
             "reasoning_output_tokens"
         total_tokens = Get-R7ExactInt64Sum @($RequestPath.total_tokens) "total_tokens"
-        receipt_before_requests = [int64]$receipt.Count
-        receipt_before_input_tokens = $receiptInput
-        receipt_before_cached_input_tokens = $receiptCached
-        receipt_before_cache_hit_rate = if ($receiptInput -gt 0) {
-            [Math]::Round($receiptCached / $receiptInput, 6)
+        final_control_result_before_requests = [int64]$finalControlResult.Count
+        final_control_result_before_input_tokens = $finalControlResultInput
+        final_control_result_before_cached_input_tokens = $finalControlResultCached
+        final_control_result_before_cache_hit_rate = if ($finalControlResultInput -gt 0) {
+            [Math]::Round($finalControlResultCached / $finalControlResultInput, 6)
         } else {
             $null
         }
-        no_receipt_before_requests = [int64]$withoutReceipt.Count
-        no_receipt_before_input_tokens = $otherInput
-        no_receipt_before_cached_input_tokens = $otherCached
-        no_receipt_before_cache_hit_rate = if ($otherInput -gt 0) {
+        no_final_control_result_before_requests = [int64]$withoutFinalControlResult.Count
+        no_final_control_result_before_input_tokens = $otherInput
+        no_final_control_result_before_cached_input_tokens = $otherCached
+        no_final_control_result_before_cache_hit_rate = if ($otherInput -gt 0) {
             [Math]::Round($otherCached / $otherInput, 6)
         } else {
             $null
         }
-        receipt_original_roles = @(
-            $receipt | ForEach-Object receipt_original_role | Where-Object { $_ } | Sort-Object -Unique
+        final_control_result_item_kinds = @(
+            $finalControlResult | ForEach-Object final_control_result_item_kind |
+                Where-Object { $_ } | Sort-Object -Unique
         )
-        receipt_wire_roles = @(
-            $receipt | ForEach-Object receipt_wire_role | Where-Object { $_ } | Sort-Object -Unique
-        )
-        receipt_wire_role_unresolved_count = [int64]@(
-            $receipt | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.receipt_wire_role) }
+        final_control_result_item_kind_unresolved_count = [int64]@(
+            $finalControlResult | Where-Object {
+                [string]::IsNullOrWhiteSpace([string]$_.final_control_result_item_kind)
+            }
         ).Count
     }
 }

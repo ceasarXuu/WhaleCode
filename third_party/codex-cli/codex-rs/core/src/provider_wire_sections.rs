@@ -3,19 +3,21 @@ use std::collections::HashSet;
 use serde::Serialize;
 use serde_json::Map;
 use serde_json::Value;
-use sha2::Digest;
-use sha2::Sha256;
 
-const ACTIVE_PROJECTION_START: &str = "TaskSpaceMapProjectionR7V1:";
-const ACTIVE_PROJECTION_END: &str = "TaskSpaceMapProjectionR7V1 end.";
-const TASKSPACE_FEEDBACK_SCHEMAS: [&str; 6] = [
-    "TaskSpaceControlResultV2",
-    "TaskSpaceResponseCommitV1",
-    "TaskSpaceResponseCommitFailureV3",
-    "TaskSpaceResponseFinalReceiptV1",
-    "ToolSequencePreflightResultV3",
-    "ProviderToolResponsePreflightV2",
-];
+const ACTIVE_PROJECTION_START: &str = "TaskSpaceMapProjectionR8V1:";
+const ACTIVE_PROJECTION_END: &str = "TaskSpaceMapProjectionR8V1 end.";
+
+#[path = "provider_wire_history.rs"]
+mod history;
+#[path = "provider_wire_tools.rs"]
+mod tool_cost;
+#[path = "provider_wire_hash.rs"]
+mod wire_hash;
+
+use wire_hash::byte_hash;
+use wire_hash::json_bytes;
+use wire_hash::json_hash;
+use wire_hash::section_hashes;
 
 #[derive(Debug, Serialize)]
 pub(super) struct ProviderWireSectionCost {
@@ -25,6 +27,8 @@ pub(super) struct ProviderWireSectionCost {
     pub(super) section_bytes_total: usize,
     active_projection_identity: ActiveProjectionIdentity,
     sections: Vec<ProviderWireSection>,
+    history_breakdown: Vec<history::ProviderWireHistoryCost>,
+    tool_breakdown: Vec<tool_cost::ProviderWireToolCost>,
 }
 
 #[derive(Debug, Serialize)]
@@ -53,8 +57,8 @@ enum SectionKind {
     SystemMessages,
     NaturalHistory,
     ActiveProjection,
-    TaskspaceControlFeedback,
     OrdinaryToolFeedback,
+    BaseInstructions,
     Tools,
     ToolChoice,
     OtherPayload,
@@ -65,8 +69,8 @@ impl SectionKind {
         Self::SystemMessages,
         Self::NaturalHistory,
         Self::ActiveProjection,
-        Self::TaskspaceControlFeedback,
         Self::OrdinaryToolFeedback,
+        Self::BaseInstructions,
         Self::Tools,
         Self::ToolChoice,
         Self::OtherPayload,
@@ -77,8 +81,8 @@ impl SectionKind {
             Self::SystemMessages => 0,
             Self::NaturalHistory => 1,
             Self::ActiveProjection => 2,
-            Self::TaskspaceControlFeedback => 3,
-            Self::OrdinaryToolFeedback => 4,
+            Self::OrdinaryToolFeedback => 3,
+            Self::BaseInstructions => 4,
             Self::Tools => 5,
             Self::ToolChoice => 6,
             Self::OtherPayload => 7,
@@ -94,7 +98,8 @@ struct SectionMeasure {
 
 struct SectionBuild {
     measures: [SectionMeasure; 8],
-    message_values: [Vec<Value>; 5],
+    message_values: [Vec<Value>; 4],
+    base_instructions_value: Value,
     tools_value: Value,
     tool_choice_value: Value,
     other_value: Map<String, Value>,
@@ -105,6 +110,7 @@ impl Default for SectionBuild {
         Self {
             measures: std::array::from_fn(|_| SectionMeasure::default()),
             message_values: std::array::from_fn(|_| Vec::new()),
+            base_instructions_value: Value::Null,
             tools_value: Value::Null,
             tool_choice_value: Value::Null,
             other_value: Map::new(),
@@ -131,8 +137,14 @@ impl ProviderWireSectionCost {
         };
 
         let active_projection_identity = active_projection_identity(&build.message_values[2]);
+        let history_breakdown = history::measure(&build.message_values[1]);
+        let tool_breakdown = tool_cost::measure(
+            &build.tools_value,
+            build.measures[SectionKind::Tools.index()].bytes,
+        );
         let hashes = section_hashes(
             build.message_values,
+            build.base_instructions_value,
             build.tools_value,
             build.tool_choice_value,
             build.other_value,
@@ -155,9 +167,25 @@ impl ProviderWireSectionCost {
             section_bytes_total,
             "provider wire section accounting must assign every payload byte exactly once"
         );
+        debug_assert_eq!(
+            history_breakdown
+                .iter()
+                .map(|section| section.bytes)
+                .sum::<usize>(),
+            sections[SectionKind::NaturalHistory.index()].bytes,
+            "history breakdown must assign every natural-history item exactly once"
+        );
+        debug_assert_eq!(
+            tool_breakdown
+                .iter()
+                .map(|section| section.bytes)
+                .sum::<usize>(),
+            sections[SectionKind::Tools.index()].bytes,
+            "tool breakdown must assign every tools-section byte exactly once"
+        );
 
         Self {
-            schema_version: "provider-wire-section-cost-v1",
+            schema_version: "provider-wire-section-cost-v2",
             availability: if unavailable_reason.is_some() {
                 "unavailable"
             } else {
@@ -167,6 +195,8 @@ impl ProviderWireSectionCost {
             section_bytes_total,
             active_projection_identity,
             sections,
+            history_breakdown,
+            tool_breakdown,
         }
     }
 }
@@ -194,6 +224,11 @@ fn measure_object(
                 build.measures[other_index].bytes += field_prefix_bytes + json_bytes(value).len();
                 build.other_value.insert(field.clone(), value.clone());
             }
+        } else if field == "instructions" {
+            let instructions = &mut build.measures[SectionKind::BaseInstructions.index()];
+            instructions.count = 1;
+            instructions.bytes = field_prefix_bytes + json_bytes(value).len();
+            build.base_instructions_value.clone_from(value);
         } else if field == "tools" {
             let tools = &mut build.measures[SectionKind::Tools.index()];
             tools.count = value.as_array().map(Vec::len).unwrap_or(1);
@@ -217,7 +252,7 @@ fn measure_object(
 fn measure_messages(
     messages: &[Value],
     measures: &mut [SectionMeasure; 8],
-    message_values: &mut [Vec<Value>; 5],
+    message_values: &mut [Vec<Value>; 4],
 ) {
     for message in messages {
         let serialized = json_bytes(message);
@@ -236,22 +271,10 @@ fn classify_message(message: &Value) -> SectionKind {
         {
             SectionKind::ActiveProjection
         }
-        Some("system" | "developer" | "tool") if is_taskspace_control_feedback(message) => {
-            SectionKind::TaskspaceControlFeedback
-        }
         Some("system" | "developer") => SectionKind::SystemMessages,
         Some("tool") => SectionKind::OrdinaryToolFeedback,
         Some(_) | None => SectionKind::NaturalHistory,
     }
-}
-
-fn is_taskspace_control_feedback(message: &Value) -> bool {
-    let Some(content) = message.get("content") else {
-        return false;
-    };
-    TASKSPACE_FEEDBACK_SCHEMAS
-        .iter()
-        .any(|schema| super::exact_schema_payload(content, schema).is_some())
 }
 
 fn active_projection_identity(messages: &[Value]) -> ActiveProjectionIdentity {
@@ -447,39 +470,6 @@ fn mechanical_field<'a>(projection: &'a str, field: &str) -> Option<&'a str> {
         .lines()
         .find_map(|line| line.strip_prefix(&prefix))
         .filter(|value| !value.is_empty())
-}
-
-fn section_hashes(
-    message_values: [Vec<Value>; 5],
-    tools_value: Value,
-    tool_choice_value: Value,
-    other_value: Map<String, Value>,
-) -> [String; 8] {
-    let [system, natural, projection, control, ordinary] = message_values;
-    [
-        json_hash(&Value::Array(system)),
-        json_hash(&Value::Array(natural)),
-        json_hash(&Value::Array(projection)),
-        json_hash(&Value::Array(control)),
-        json_hash(&Value::Array(ordinary)),
-        json_hash(&tools_value),
-        json_hash(&tool_choice_value),
-        json_hash(&Value::Object(other_value)),
-    ]
-}
-
-fn json_bytes(value: &Value) -> Vec<u8> {
-    serde_json::to_vec(value).unwrap_or_default()
-}
-
-fn json_hash(value: &Value) -> String {
-    byte_hash(&json_bytes(value))
-}
-
-fn byte_hash(bytes: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
 }
 
 #[cfg(test)]

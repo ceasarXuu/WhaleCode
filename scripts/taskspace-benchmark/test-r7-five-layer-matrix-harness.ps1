@@ -68,7 +68,7 @@ try {
     $wirePath = Join-Path $runRoot "wire.jsonl"
     $profile = $authorityCheck.authority.tool_capability_profiles.standard
     $shape = @{
-        schema_version = "provider-chat-wire-trace-v10"
+        schema_version = "provider-chat-wire-trace-v11"
         request_index = 1
         provider_wire_api = $authorityCheck.authority.provider_wire_api
         transport = $authorityCheck.authority.provider_transport

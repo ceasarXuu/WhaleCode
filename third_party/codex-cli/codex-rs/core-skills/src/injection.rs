@@ -14,8 +14,6 @@ use codex_otel::SessionTelemetry;
 use codex_protocol::user_input::UserInput;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_plugins::mention_syntax::TOOL_MENTION_SIGIL;
-use sha2::Digest;
-use sha2::Sha256;
 
 #[derive(Debug, Default)]
 pub struct SkillInjections {
@@ -65,22 +63,6 @@ pub async fn build_skill_injections(
             .await
         {
             Ok(contents) => {
-                if let Some(expected_sha256) =
-                    loaded_skills.and_then(|outcome| outcome.expected_body_sha256(skill))
-                {
-                    let actual_sha256 = body_sha256(contents.as_bytes());
-                    if actual_sha256 != expected_sha256 {
-                        emit_skill_injected_metric(otel, skill, "integrity_error");
-                        push_load_failure(
-                            &mut result,
-                            skill,
-                            format!(
-                                "skill body SHA-256 mismatch: expected {expected_sha256}, actual {actual_sha256}"
-                            ),
-                        );
-                        continue;
-                    }
-                }
                 emit_skill_injected_metric(otel, skill, "ok");
                 invocations.push(SkillInvocation {
                     skill_name: skill.name.clone(),
@@ -106,10 +88,6 @@ pub async fn build_skill_injections(
     result
 }
 
-fn body_sha256(contents: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(contents))
-}
-
 fn push_load_failure(result: &mut SkillInjections, skill: &SkillMetadata, message: String) {
     let warning = format!(
         "Failed to load skill {name} at {path}: {message}",
@@ -122,19 +100,6 @@ fn push_load_failure(result: &mut SkillInjections, skill: &SkillMetadata, messag
         path: skill.path_to_skills_md.to_string_lossy().into_owned(),
         message,
     });
-}
-
-#[cfg(test)]
-mod integrity_tests {
-    use super::body_sha256;
-
-    #[test]
-    fn body_sha256_uses_exact_skill_bytes() {
-        assert_eq!(
-            body_sha256(b"taskspace-skill\n"),
-            "a51f6f308ae880147eff0397ea9ee11bb8ac3d26071f2c75a8ee83d5e4a534b2"
-        );
-    }
 }
 
 fn emit_skill_injected_metric(

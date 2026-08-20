@@ -8,6 +8,7 @@ from typing import Any
 
 from cache_cost import settled_monetary_cost
 from cache_json import exact_json_equal
+from cache_provider_route import validate_route_summary
 from cache_source_evidence import require, source_json, source_sha256
 
 
@@ -56,6 +57,10 @@ def validate_ledger(
         )
     }
     execution = entry.get("execution", {})
+    route = validate_route_summary(
+        result.get("provider_route_attestation"), selection["model"]
+    )
+    route_identity = route["provider_routing"]
     require(
         entry.get("status") == "settled"
         and entry.get("started_at") == result["started_at"]
@@ -70,12 +75,18 @@ def validate_ledger(
     )
     require(
         exact_json_equal(
-            entry["authorization"].get("budget_summary"), proposal["maximums"]
+            entry["authorization"].get("budget_summary"),
+            proposal.get("approved_maximums", proposal.get("maximums")),
         ),
         "cache ledger budget summary mismatch",
     )
     require(
         execution.get("model") == selection["model"]
+        and execution.get("provider") == route_identity["logical_provider_id"]
+        and execution.get("transport_provider")
+        == route_identity["transport_provider_id"]
+        and execution.get("provider_descriptor_sha256")
+        == route["provider_descriptor_sha256"]
         and execution.get("sample_ids") == selection["samples"]
         and execution.get("arm_ids") == selection["arms"]
         and exact_int(execution.get("repeats_per_arm_per_sample"), selection["repeat"])
@@ -108,7 +119,10 @@ def validate_ledger(
         == source_sha256(repo, proposal_path, source)
         and evidence.get("authorization_path") == authorization_path
         and evidence.get("authorization_sha256")
-        == source_sha256(repo, authorization_path, source),
+        == source_sha256(repo, authorization_path, source)
+        and evidence.get("provider_route_attestation_path") == route["artifact_path"]
+        and evidence.get("provider_route_attestation_sha256")
+        == route["artifact_sha256"],
         "cache ledger evidence mismatch",
     )
     expected_cost = settled_monetary_cost(

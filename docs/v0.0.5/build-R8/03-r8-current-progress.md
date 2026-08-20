@@ -1,0 +1,146 @@
+# R8 当前进展报告
+
+- Report date: 2026-08-20
+- Status: Frozen; superseded for final status by [`04-r8-freeze-report.md`](04-r8-freeze-report.md)
+- Source plans: `00-r8-charter.md`、`01-r8-known-issues.md`、`taskspace-exec/12-phase-b-zero-base-plan.md`
+- Scope: `whalecode-alpha` branch，当前离线修复 commit `8ae4f2759`
+- Latest runtime evidence: `WAR-20260820-214337-R8-MAP-REQUEST-R3`
+- Scoring: 十个 R8 全局问题等权；每项按已验证验收条件计 `0/25/50/75/100`
+
+## 1. 完成度总览
+
+| 口径 | 分子 / 分母 | 完成度 | 含义 |
+|---|---:|---:|---|
+| R8 验证完成度 | 890 / 1000 | **89.0%** | 十个问题按实现、接入、测试和生产证据评分；I03 多 outer fatal 恢复已离线修复，在线行为待验证 |
+| 正式问题关闭率 | 5 / 10 | **50.0%** | I09、I01、I06、I02、I10 达到 `closed`；I07 回到 `verifying` |
+| TaskSpace Exec 阶段实现度 | 650 / 700 | **92.9%** | B0～B4 为 100%，B5～B6 各按 75% 计 |
+
+```mermaid
+xychart-beta
+  title "R8 各责任层验证完成度"
+  x-axis ["F0 Map", "F1 Transaction", "F2 Tool", "F3 Feedback", "F4 Identity", "F5 Agent", "F6 Cost"]
+  y-axis "Completion %" 0 --> 100
+  bar [100, 75, 100, 88, 100, 75, 75]
+```
+
+89.0% 不等于发布完成度。当前代码和三种 projection 的复杂 client-tool 链路已经可运行，Provider-hosted 机械归纳
+已有生产证据；I01-W10 已接受并晋升 baseline，用户已确认默认 `map-request` 和三个 TaskSpace-only 切换命令。I07 的逻辑
+单模式选择已真实生效，多 outer 的逐 call 反馈与 observer 结果也已离线修复；自然在线恢复待验证。fork/join DAG 继续按用户决定暂缓。
+
+## 2. 全局问题状态
+
+| 顺序 | 问题 | 完成度 | 当前状态 | 已验证结果 | 未完成验收 |
+|---:|---|---:|---|---|---|
+| 1 | I09 Map 恢复合法性 | 100% | closed | 非法关系图在 hydrate 时停止，canonical 事实不变 | 无 |
+| 2 | I01 唯一最终进度 | 100% | closed | 唯一 final result、复杂样本 9/9、W10 三模式 3/3 与 accepted baseline 全部通过 | 无；默认模式决策归 I08 |
+| 3 | I06 Tool 不可绕过边界 | 100% | closed | 统一 preflight、零副作用旁路拒绝、单 Patch 和原生 dispatch 均有确定性与生产证据 | 无 |
+| 4 | I05 拒绝反馈忠实性 | 75% | verifying | 同 `call_id`、零执行、可继续反馈已实现；最新 3 次正常路径无回归 | 逃逸恢复分支未自然在线命中 |
+| 5 | I02 Tool 事实单次表达 | 100% | closed | 最新三次生产运行 `18 calls = 18 outputs`，无高优先级副本、重复或 orphan | 无 |
+| 6 | I10 capability 身份 | 100% | closed | 最新 21 个 TaskSpace wire 请求身份一致，跨 Catalog/dispatch/wire/report 无冲突 | 无；projection 对照归入 I01/I08 |
+| 7 | I07 观测可信性 | 90% | verifying | 单模式选择已在线生效；多 outer fixture 已对账两个 call、两个拒绝和一个 request | 自然在线多 outer 恢复分支尚未命中 |
+| 8 | I03 动作组织稳定性 | 75% | verifying | Base `3.0.8`、sequence type、窄 JSON 自愈及多 outer 可恢复拒绝均已落地 | Agent 仍会低频生成多 outer；下一请求自然纠正尚未在线验证 |
+| 9 | I04 frontier 使用 | 75% | verifying | 顺序 patch 事务离线通过；最新复杂运行无 `TransitionInvalid` 且 Map 闭合 | 同批父子完成未自然命中；Map 仍为线性链，fork/join 未观察到 |
+| 10 | I08 成本与晋升 | 75% | investigating | 复杂样本四臂成本已量化，默认模式已由用户确认为 map-request | 只有一个复杂样本；三模式长期成本边界仍需使用中观察 |
+
+## 3. 阶段完成情况
+
+| Phase | 完成度 | 已完成工程结果 | 当前缺口 |
+|---|---:|---|---|
+| B0 Zero-Base Reset | 100% | 旧 Map/协议兼容路线净删除，零基线门禁建立 | 无 |
+| B1 Minimal Map | 100% | Root/Work/Finish、parents/children/actions 与关系化 Store 落地 | 无 |
+| B2 Exec Contract | 100% | `taskspace_exec`、静态 catalog、Map/client 合法输入与预检落地 | 无 |
+| B3 Execution & Feedback | 100% | 原生 Router dispatch、逐 Tool 低延迟结算、唯一 outer result 与恢复链落地 | 无离线 blocker |
+| B4 Observability | 100% | canonical request facts、usage 身份链、projection final-wire 与 Exec reject 分类统一 | 无 |
+| B5 Production Integration | 75% | Codex Exec 基建对齐、JSON 自愈、反馈分类、真实简单样本闭环及 Provider-hosted Root 归纳生产命中 | I05 恢复分支未自然在线命中 |
+| B6 Closed Sequences | 75% | L1～L8 闭集、四状态模型、DAG 预检和 simple repeat=3 通过 | 复杂 DAG 与多能力场景未通过完整验收 |
+
+## 4. 目标与工程收益
+
+| 目标 | 已完成工作 | 可量化收益 | 证据 | 状态 |
+|---|---|---|---|---|
+| Canonical Map 可信 | 删除平行 ledger/ref/edges，关系化持久化并机械派生 children/state | I09 关闭；最新 3/3 Map 完整闭合、图警告 0 | I09 结果、最新 repeat=3 | achieved |
+| Runtime 只守硬边界 | 普通 Tool 保持原生；TaskSpace 只增加 Exec 顺序与 node metadata | 本轮三次协议拒绝均为零副作用，9 张 Map 最终闭合 | 四臂 repeat=3 | achieved for hard boundary |
+| 反馈不丢失不重复 | 唯一 outer result、错误分类、同调用反馈、单闭合符自愈进入正式上下文 | 三次拒绝均在原 call 输出准确原因并由 Agent 恢复 | 四臂 repeat=3 | partial；错误仍发生 |
+| 观测可复算 | 请求/usage 读取 canonical facts，projection 读取 final-wire，Exec reject 由专用观察器分类 | 默认 metrics 与专用 observer 共用事实；最新三轮拒绝对账为 `0/1/2` | 四臂结果、I07 默认 metrics 修复结果 | achieved |
+| 缓存不发生结构性塌陷 | Tool shape 静态化、缓存敏感面门禁、动态 Map 按 projection 策略处理 | 四臂零 shape transition；request 2+ 为 97.80%/84.21%/93.49%/89.39% | 四臂 repeat=3 | achieved for measured sample |
+| 成本可解释 | Tool/schema/history/feedback 分项测量，SC-01 删除重复合同 | always/append/request 总 input 为 Standard 1.25x/1.60x/1.32x，费用 2.83x/2.09x/2.43x | 四臂 repeat=3 | partial；阈值未定 |
+
+## 5. 最新真实验收
+
+| 模式 | Runs | Success | Requests | Input | Cached | Uncached | Output | Request 2+ cache | Agent wall | CNY |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Standard | 3 | 3/3 | 30 | 442,990 | 433,664 | 9,326 | 13,981 | 97.80% | 116.527s | 0.04596128 |
+| map-always | 3 | 3/3 | 30 | 553,757 | 472,064 | 81,693 | 19,542 | 84.21% | 162.324s | 0.13021828 |
+| map-append | 3 | 3/3 | 32 | 710,150 | 666,112 | 44,038 | 19,421 | 93.49% | 155.406s | 0.09620224 |
+| map-request | 3 | 3/3 | 31 | 586,416 | 528,000 | 58,416 | 21,268 | 89.39% | 171.306s | 0.11151200 |
+
+总计 123 requests、2,293,313 input、74,212 output，估算费用 CNY 0.3838938。12/12 业务与 oracle 通过，
+但 2/9 TaskSpace runs 出现三次可恢复协议拒绝；详细结果见
+[`I01 四臂报告`](I01/03-i01-four-arm-repeat3-result.md)。
+
+Provider-hosted 专项另完成 `provider-web-search-probe × map-request × repeat=1`：10 requests、267,288 input、
+239,232 cached、28,056 uncached、5,225 output，request 2+ cache hit 89.03%，CNY 0.04329064。业务与 Map 均闭合，
+唯一 `web_search` Root 子节点归纳三条响应级 Action，未创建空 Hosted 节点。该结果关闭 Provider-hosted PR-05，
+但不外推另外两种 projection 或复杂 DAG。
+
+I01-W10 最小缓存发布验收另完成三个 TaskSpace 模式各一次，3/3 业务通过并已晋升 accepted baseline：22 requests、352,500 input、318,848
+cached、33,652 uncached、7,629 output，费用 CNY 0.05528696。request 2+ 命中率分别为 87.53%、93.97%、
+91.84%。结果完整但尚未获得用户对精确结果的 baseline 接受，见
+[`I01-W10 结果`](I01/04-i01-w10-cache-release-verification-result.md)。
+
+I04 新自然 DAG 样本两臂均完成：Standard 9 requests，TaskSpace 11 requests；TaskSpace Map 为
+`root -> explore -> fix -> verify -> finish`，未形成 fork/join。该 trace 的 `TransitionInvalid` 已确认是旧 Runtime 没有在同批
+有序 patch 之间重新派生 readiness，并非 Agent 误选 waiting 节点；顺序 patch 事务已离线修复。Observer 对历史拒绝漏报为 0
+的缺口已由原始 trace 离线回放闭环，详见 [`I04 结果`](I04/01-fork-join-live-validation-result.md) 与
+[`I07 修复结果`](I07/03-i07-default-metrics-rejection-repair-result.md)。
+
+Base `3.0.7` 显式 sequence `type` 验证实际形成 Standard 3 轮与 map-request 3 轮。TaskSpace 18/18 Exec
+调用携带 `type`，零 Exec reject，业务、隐藏验收和 Map 闭环 3/3；Standard 同样 3/3。TaskSpace 为 21 requests、343,360
+input、88.77% request 2+ cache、CNY 0.07214464；Standard 为 24 requests、334,579 input、96.56%、CNY 0.03657980。
+实际矩阵偏离计划，因此不晋升缓存基线；详见
+[`Base 3.0.7 结果`](taskspace-exec/88-base307-explicit-type-r3-result.md)。
+
+后续批准的 TaskSpace `repeat=10` 扩大验收在第 1 轮按停止条件结束：第二个响应生成两个同级
+`taskspace_exec(type=work)`，Runtime 按一响应一个 outer Exec 的硬合同整批拒绝，Agent fatal 且未产生 Patch。两次请求共
+26,536 input，request 2+ cache 93.84%，CNY 0.002708。该结果不推翻显式 `type` 修复，但坐实 outer call 基数未被
+Agent-visible 协议清楚表达；详见
+[`Repeat 10 停止结果`](taskspace-exec/89-base307-repeat10-stopped-result.md)。
+
+Base `3.0.8` 已把“一响应一个 outer Exec、多个 client action 放入同一 `tools[]`”同时写入 Base 与 Tool protocol。
+后续真实运行的 7 次 TaskSpace / 59 个响应中，`exec_call_count > 1` 为 0，目标回归未复发；七次代码验证和 Map 均完成，
+其中第七次在 Map 闭合后因 final 自然回复触及单轮 10-request 上限而被 runner 标为 interrupted。I03 仍因 syntax、顶层
+client 逃逸和缺失 `type` 保持 verifying。该批次还暴露 I07 执行控制缺口：`RunSide=right` 选择物理侧，额外运行了
+6 次 Standard，导致实际 13 samples / 104 requests，未补跑剩余三次 TaskSpace。详见
+[`Base 3.0.8 结果`](taskspace-exec/90-base308-outer-cardinality-result.md)。
+
+最新候选新增默认 `map-request` 与 `/map-request`、`/map-append`、`/map-always`。命令只在 TaskSpace 活跃时可见，选择同时
+作用于当前会话并写入用户级根配置，后续 TaskSpace session 沿用。离线检查、聚焦测试、缓存免费门禁和 TaskSpace-only
+execution plan 均通过，详见
+[`投影模式命令结果`](taskspace-exec/92-projection-policy-controls-result.md)。
+
+随后获批的 `release-dispatch-repair × map-request × TaskSpace-only × repeat=3` 在第 1 轮按失败停止：Request 2 再次并列
+生成两个 `taskspace_exec(type=work)`。Response scope 正确零执行拒绝，但 turn 协调器把错误转成 fatal，两个 call 没有失败
+output，Agent 无法纠正。实际为 1 run / 2 requests / 26,722 input / 655 output / CNY 0.00883968，剩余两轮未启动；详见
+[`I03 深挖`](taskspace-exec/93-i03-multi-outer-fatal-deep-dive.md)。
+
+## 6. 未完成工作
+
+| 未完成项 | 原因 | 不完成的影响 | 下一验收 |
+|---|---|---|---|
+| I05 逃逸恢复在线分支 | 最新自然样本没有触发逃逸 | 不能证明目标模型收到失败后会稳定恢复且无请求放大 | 不人为诱导；复杂自然样本出现时随 trace 验收 |
+| I03 多 outer 在线恢复 | Runtime 已离线逐 call 返回合同错误；自然分支尚未复验 | 不能证明目标模型会在下一请求稳定纠正 | 后续获批自然样本若命中，则验收继续请求、零副作用和纠正结果 |
+| I07 多 outer 在线观测 | fixture 已可比；自然 artifact 尚未产生 | 不能确认生产 trace 与离线 fixture 完全一致 | 随 I03 自然命中同步对账，不单独制造错误样本 |
+| I04 复杂依赖 | 客观提供两个独立修复域的新样本仍形成线性链；顺序 patch 事务仅离线通过 | fork/join、多 Ready 节点和多父节点仍无生产证据 | 不诱导拆图；先验收新事务，再分析首次读取前初始化通用链的影响 |
+| I08 长期成本 | 单个复杂样本已量化三模式取舍，默认 map-request 已确认 | 不能外推长期 Map 和真实日常任务成本 | 暂不改协议，在代表性使用中继续积累事实 |
+
+## 7. 冻结处置
+
+| 优先级 | 动作 | 依赖 | 验收方式 |
+|---:|---|---|---|
+| Done | I03 多 outer 可恢复拒绝 | 最新真实 trace 与 H-016 | 离线证明整批零执行、两个原 call-id 同合同错误且 turn 可继续 |
+| Done | I07 多 outer 可比观测 | I03 逐 call 结果 | fixture 对账 2 call / 2 reject / 1 request，missing result 为 0 |
+| Observe | 观察 I03 Agent 生成稳定性与在线恢复 | 当前修复 | 不人为诱导；自然命中时验证下一请求纠正和生产 observer |
+| Observe | 观察默认 map-request 的长期成本 | 当前产品默认已确认 | 保持三模式共用基建，不为单个成本指标改变语义 |
+
+多 outer fatal 恢复链与离线 observer 已完成；下一步是在自然获批样本中验证 Agent 收到逐 call 错误后继续纠正，不人为
+诱导该错误。I04 按用户决定暂不处理，I08 不做新的压缩改动。上述事项已转入冻结观察，不构成 R8 后续实施计划。

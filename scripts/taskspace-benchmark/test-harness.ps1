@@ -19,7 +19,6 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 . (Join-Path $PSScriptRoot "lib\pair-artifact-classifier.ps1")
 . (Join-Path $PSScriptRoot "lib\e3-proof.ps1")
 . (Join-Path $PSScriptRoot "lib\pair-report.ps1")
-. (Join-Path $PSScriptRoot "lib\map-management.ps1")
 . (Join-Path $PSScriptRoot "lib\report-summary.ps1")
 . (Join-Path $PSScriptRoot "lib\aggregate-report.ps1")
 . (Join-Path $PSScriptRoot "lib\run-state.ps1")
@@ -270,6 +269,8 @@ $graphObs = [pscustomobject]@{
 $graphReport = New-TaskspaceGraphHealthReport $graphObs "right" "taskspace"
 Assert-True ([string]$graphReport.schema_version -eq "taskspace-graph-health-v1") "graph health report schema version missing"
 Assert-True ($graphReport.node_count -eq 2 -and $graphReport.edge_count -eq 1) "graph health report did not count nodes/edges"
+$standardGraphReport = New-TaskspaceGraphHealthReport ([pscustomobject]@{ nodes = @([pscustomobject]@{}); edges = @(); maps = @() }) "left" "standard"
+Assert-True ($standardGraphReport.node_count -eq 0) "graph health did not ignore a standard-mode placeholder without an id"
 Assert-True (@($graphReport.warnings) -contains "high_unreviewed_result_ratio") "graph health did not flag high unreviewed result ratio"
 Assert-True ([int]$graphReport.reviewable_result_count -eq 2) "graph health did not isolate reviewable semantic results"
 Assert-True ([int]$graphReport.reviewable_unreviewed_result_count -eq 1) "graph health counted non-reviewable tool traces as reviewable"
@@ -277,59 +278,6 @@ Assert-True (@($graphReport.warnings) -contains "subagent_no_adoption") "graph h
 Assert-True (@($graphReport.warnings) -contains "subagent_no_decision_yield") "graph health did not flag missing subagent decision yield"
 Assert-True ([double]$graphReport.subagent_decision_yield -eq 0.0) "graph health counted ordinary adoption as decision yield"
 Assert-True ([string]$graphReport.metric_availability.result_adoption -eq "measured") "graph health did not expose result adoption metric availability"
-$mapMgmtDir = Join-Path $runDir "map-management"
-New-Item -ItemType Directory -Path $mapMgmtDir -Force | Out-Null
-$mapMgmtObsPath = Join-Path $mapMgmtDir "action-map-observability.json"
-$mapMgmtObs = [pscustomobject]@{
-    tasks = @(
-        [pscustomobject]@{
-            id = "task-1"; activeMapId = "map-1"; status = "active"
-            problemLedger = [pscustomobject]@{
-                successCriteria = @([pscustomobject]@{ id = "sc-1"; kind = "test"; status = "open"; evidenceRefs = @() })
-                knownFacts = @([pscustomobject]@{ id = "fact-1"; statement = "Accepted fact"; evidenceRefs = @([pscustomobject]@{ resultId = "result-accepted" }) })
-                decisions = @()
-            }
-            cognitiveState = [pscustomobject]@{
-                outputContracts = @([pscustomobject]@{ id = "oc-1"; kind = "artifact"; evidenceRefs = @([pscustomobject]@{ artifactRef = "src/app.py" }) })
-                factSources = @([pscustomobject]@{ id = "fs-1"; provenance = "observed"; evidenceRefs = @([pscustomobject]@{ artifactRef = "README.md" }) })
-                facts = @()
-            }
-        }
-    )
-    nodes = @(
-        [pscustomobject]@{
-            id = "node-1"; kind = "inspect_code_context"; status = "completed"
-            results = @(
-                [pscustomobject]@{
-                    resultId = "result-output"; mapId = "map-1"; taskId = "task-1"; kind = "main_tool_call"; validity = "unreviewed"; sourceEventRef = "task-event-8"; artifactRefs = @("output-ref://sha256/abc")
-                    evidencePackage = [pscustomobject]@{ evidenceRefs = @(); validatorRefs = @(); changedArtifacts = @() }
-                },
-                [pscustomobject]@{
-                    resultId = "result-accepted"; mapId = "map-1"; taskId = "task-1"; kind = "result"; validity = "accepted"; sourceEventRef = "task-event-9"; artifactRefs = @("README.md")
-                    evidencePackage = [pscustomobject]@{ evidenceRefs = @([pscustomobject]@{ artifactRef = "README.md" }); validatorRefs = @("pytest"); changedArtifacts = @() }
-                }
-            )
-        },
-        [pscustomobject]@{
-            id = "node-2"; kind = "smoke_test"; status = "running"
-            results = @()
-        }
-    )
-}
-$mapMgmtObs | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $mapMgmtObsPath -Encoding UTF8
-$mapMgmt = Write-TaskspaceMapManagementArtifacts -ArtifactDir $mapMgmtDir -ObservabilityJsonPath $mapMgmtObsPath
-Assert-True ([string]$mapMgmt.availability -eq "measured") "map management summary was not measured"
-Assert-True ([double]$mapMgmt.retention_coverage_ratio -eq 1.0) "map management retention coverage was not complete"
-Assert-True ([double]$mapMgmt.salience_coverage_ratio -eq 1.0) "map management salience coverage was not complete"
-Assert-True ([int]$mapMgmt.protected_miss_count -eq 0) "map management archived protected evidence"
-Assert-True ([int]$mapMgmt.audit_only_item_count -eq 1) "map management did not classify output refs as audit-only"
-Assert-True ([int]$mapMgmt.compaction_event_count -ge 1) "map management did not emit compaction events"
-Assert-True (Test-Path -LiteralPath (Join-Path $mapMgmtDir "compaction-events.jsonl")) "compaction-events.jsonl was not written"
-$suiteMapMgmt = Write-TaskspaceSuiteMapManagementSummary -RootDir $mapMgmtDir
-Assert-True ([string]$suiteMapMgmt.availability -eq "measured") "suite map management summary was not measured"
-Assert-True ([int]$suiteMapMgmt.source_summary_count -eq 1) "suite map management summary did not count side summaries"
-Assert-True ([int]$suiteMapMgmt.protected_miss_count -eq 0) "suite map management summary reported protected misses"
-Assert-True (Test-Path -LiteralPath (Join-Path $mapMgmtDir "suite-map-management-summary.json")) "suite-map-management-summary.json was not written"
 $nonReviewableObs = [pscustomobject]@{
     nodes = @(
         [pscustomobject]@{
@@ -481,8 +429,8 @@ $costObs = Join-Path $costDir "observability.json"
     (@{ type = "response.completed"; response = @{ usage = @{ output_tokens = 7 } } } | ConvertTo-Json -Compress -Depth 8)
 ) | Set-Content -LiteralPath $costJsonl -Encoding UTF8
 @(
-    (@{ type = "event_msg"; payload = @{ type = "token_count"; info = @{ last_token_usage = @{ input_tokens = 100; cached_input_tokens = 10; output_tokens = 11 } } } } | ConvertTo-Json -Compress -Depth 8),
-    (@{ type = "event_msg"; payload = @{ type = "token_count"; info = @{ last_token_usage = @{ input_tokens = 300; cached_input_tokens = 240; output_tokens = 21 } } } } | ConvertTo-Json -Compress -Depth 8)
+    (@{ type = "event_msg"; payload = @{ type = "token_count"; provider_request_id = "fixture-logical-1:attempt-1"; provider_logical_request_id = "fixture-logical-1"; provider_attempt_seq = 1; info = @{ last_token_usage = @{ input_tokens = 100; cached_input_tokens = 10; output_tokens = 11; reasoning_output_tokens = 1; total_tokens = 111 } } } } | ConvertTo-Json -Compress -Depth 8),
+    (@{ type = "event_msg"; payload = @{ type = "token_count"; provider_request_id = "fixture-logical-2:attempt-1"; provider_logical_request_id = "fixture-logical-2"; provider_attempt_seq = 1; info = @{ last_token_usage = @{ input_tokens = 300; cached_input_tokens = 240; output_tokens = 21; reasoning_output_tokens = 2; total_tokens = 321 } } } } | ConvertTo-Json -Compress -Depth 8)
 ) | Set-Content -LiteralPath (Join-Path $costDir "rollout.jsonl") -Encoding UTF8
 [pscustomobject]@{
     timeline = @(
@@ -497,6 +445,7 @@ $costObs = Join-Path $costDir "observability.json"
 $costArtifacts = Write-TaskspaceCostInstrumentationArtifacts $costDir $costJsonl $costObs
 Assert-True (Test-Path -LiteralPath $costArtifacts.token_summary_path) "token-summary.json was not written"
 Assert-True (Test-Path -LiteralPath $costArtifacts.request_summary_path) "request-summary.json was not written"
+Assert-True (Test-Path -LiteralPath $costArtifacts.request_facts_path) "request-facts.json was not written"
 Assert-True (Test-Path -LiteralPath $costArtifacts.taskspace_control_usage_path) "taskspace-control-usage.json was not written"
 Assert-True (Test-Path -LiteralPath $costArtifacts.context_projection_summary_path) "context-projection-summary.json was not written"
 Assert-True (Test-Path -LiteralPath $costArtifacts.projection_events_path) "projection-events.jsonl was not written"
@@ -506,7 +455,7 @@ Assert-True (($outputRefEventLines -join "`n").Contains('"kind":"output_ref.crea
 Assert-True (($outputRefEventLines -join "`n").Contains('"kind":"output_ref.slice_read"')) "output-ref-events.jsonl omitted output_ref.slice_read"
 Assert-True ([string]$costArtifacts.token_summary.availability -eq "partial") "partial token usage was not marked partial"
 Assert-True ([int]$costArtifacts.request_summary.model_request_count -eq 2) "model request count did not come from rollout request events"
-Assert-True ([string]$costArtifacts.request_summary.model_request_count_source -eq "rollout_trace") "model request source was not recorded"
+Assert-True ([string]$costArtifacts.request_summary.model_request_count_source -eq "request_facts_completed_usage") "model request source was not recorded"
 Assert-True ([int]$costArtifacts.request_summary.token_usage_record_count -eq 2) "turn usage record count was not preserved separately"
 Assert-True ([int]$costArtifacts.request_summary.max_input_tokens_per_request -eq 300) "max input tokens per request was not reported"
 Assert-True ([int]$costArtifacts.request_summary.p95_input_tokens_per_request -eq 300) "p95 input tokens per request was not reported"
@@ -517,6 +466,7 @@ Assert-True ([int]$costArtifacts.request_summary.last_output_tokens_per_request 
 Assert-True ([string]$costArtifacts.request_summary.rollout_trace.availability -eq "measured") "rollout request trace was not measured"
 Assert-True ([int]$costArtifacts.request_summary.rollout_trace.model_request_count -eq 2) "rollout request trace count was not parsed"
 Assert-True ([int]$costArtifacts.request_summary.rollout_trace.input_tokens -eq 400) "rollout request trace input tokens were not summed"
+Assert-True ([int]$costArtifacts.request_facts.summary.usage_record_count -eq 2) "canonical request facts usage count drifted"
 Assert-True ([int]$costArtifacts.request_summary.rollout_trace.max_input_tokens_per_request -eq 300) "rollout max input tokens per request was not reported"
 Assert-True ([int]$costArtifacts.request_summary.rollout_trace.last_input_tokens_per_request -eq 300) "rollout last input tokens per request was not reported"
 Assert-True ([int]$costArtifacts.taskspace_control_usage.taskspace_control_count -eq 4) "taskspace_control count was not parsed"
@@ -626,6 +576,7 @@ Assert-True ($null -eq $missingCostArtifacts.request_summary.model_request_count
 $costAggregateRoot = Join-Path $runDir "cost-aggregate"
 New-Item -ItemType Directory -Path (Join-Path $costAggregateRoot "pair-001\left\artifacts") -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $costAggregateRoot "pair-001\right\artifacts") -Force | Out-Null
+[pscustomobject]@{ repeat = 1; left = "standard"; right = "taskspace" } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $costAggregateRoot "pair-001\logical-mode-map.json") -Encoding UTF8
 [pscustomobject]@{
     logical_mode = "standard"; token_summary_availability = "measured"; model_request_count = 10
     input_tokens = 1000; output_tokens = 200; cached_input_tokens = 100; uncached_input_tokens = 900
@@ -655,6 +606,16 @@ $aggregateProjection = Get-Content -Raw -Encoding UTF8 -LiteralPath $aggregateCo
 Assert-True ([int]$aggregateProjection.taskspace_projection_count -eq 3) "aggregate projection count was not summed"
 Assert-True ([int]$aggregateProjection.taskspace_projection_tokens -eq 240) "aggregate projection tokens were not summed"
 Assert-True ([int]$aggregateProjection.taskspace_projection_protected_miss_count -eq 0) "aggregate projection protected miss count was not summed"
+$missingMapCostRoot = Join-Path $runDir "cost-aggregate-missing-mode-map"
+New-Item -ItemType Directory -Path (Join-Path $missingMapCostRoot "pair-001\left\artifacts") -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $missingMapCostRoot "pair-001\right\artifacts") -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $costAggregateRoot "pair-001\left\artifacts\metrics.json") -Destination (Join-Path $missingMapCostRoot "pair-001\left\artifacts\metrics.json")
+Copy-Item -LiteralPath (Join-Path $costAggregateRoot "pair-001\right\artifacts\metrics.json") -Destination (Join-Path $missingMapCostRoot "pair-001\right\artifacts\metrics.json")
+$missingMapAggregate = Write-TaskspaceCostAggregateArtifacts -RootDir $missingMapCostRoot -Scope "sample"
+$missingMapToken = Get-Content -Raw -Encoding UTF8 -LiteralPath $missingMapAggregate.token_summary_path | ConvertFrom-Json
+Assert-True ([string]$missingMapAggregate.gate.status -eq "FAIL" -and [string]$missingMapAggregate.gate.reason -eq "logical_mode_map_invalid") "cost aggregate passed without an authoritative logical mode map"
+Assert-True ($null -eq $missingMapToken.modes.standard.input_tokens -and $null -eq $missingMapToken.modes.taskspace.input_tokens) "cost aggregate emitted partial exact mode totals without a logical mode map"
+Assert-True ([string]$missingMapToken.comparison_scope_status -eq "unavailable") "cost aggregate did not expose unavailable comparison scope"
 $partialMetricPath = Join-Path $costAggregateRoot "pair-001\right\artifacts\metrics.json"
 [pscustomobject]@{
     logical_mode = "taskspace"; token_summary_availability = "measured"; model_request_count = 24
@@ -674,6 +635,7 @@ Assert-True ([string]$missingGate.status -eq "FAIL" -and [string]$missingGate.re
 $fallbackCostRoot = Join-Path $runDir "cost-aggregate-rollout-fallback"
 New-Item -ItemType Directory -Path (Join-Path $fallbackCostRoot "pair-001\left\artifacts") -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $fallbackCostRoot "pair-001\right\artifacts") -Force | Out-Null
+[pscustomobject]@{ repeat = 1; left = "standard"; right = "taskspace" } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $fallbackCostRoot "pair-001\logical-mode-map.json") -Encoding UTF8
 [pscustomobject]@{
     logical_mode = "standard"; token_summary_availability = "measured"; model_request_count = 10
     input_tokens = 1000; output_tokens = 200; wall_time_ms = 1000

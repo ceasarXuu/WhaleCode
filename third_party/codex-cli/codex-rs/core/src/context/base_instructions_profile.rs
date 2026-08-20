@@ -9,9 +9,9 @@ use sha2::Sha256;
 pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION: &str = "1.0.2";
 pub(crate) const WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256: &str =
     "5e1178bd781d3be2cb2c4d5ead76ba074b3349954b7832333d86b6c454cc7382";
-pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "2.0.1";
+pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "3.0.8";
 pub(crate) const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256: &str =
-    "5da2664eac32a68948e1df23c48b637a29d2baafc3b5f16d7855047054c88272";
+    "f1a963f8476d98dee15cba3118e962981c8f0b7231b28a5884c32fc4be234363";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WhaleCodeBaseInstructionsProfile {
@@ -39,10 +39,6 @@ impl WhaleCodeBaseInstructionsProfile {
             Self::Standard => WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256,
             Self::TaskSpace => WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256,
         }
-    }
-
-    pub(crate) fn is_taskspace(self) -> bool {
-        self == Self::TaskSpace
     }
 }
 
@@ -113,6 +109,8 @@ mod tests {
         const FORBIDDEN_TOOL_WIRE_FRAGMENTS: &[&str] = &[
             "*** Begin Patch",
             "*** Update File:",
+            "initialize_map",
+            "hosted_bindings",
             "{\"command\"",
             "{\"input\"",
             "\"arguments\"",
@@ -157,6 +155,64 @@ mod tests {
             BASE_INSTRUCTIONS_WHALECODE_TASKSPACE
         );
         assert!(taskspace.matches_current_contract);
+    }
+
+    #[test]
+    fn taskspace_base_excludes_standard_plan_and_direct_client_tool_contracts() {
+        for forbidden in [
+            "update_plan",
+            "in_progress",
+            "Emit function calls to run terminal commands and apply patches",
+            "emit both in the same response",
+            "`apply_patch`",
+            "`taskspace_control`",
+        ] {
+            assert!(
+                !BASE_INSTRUCTIONS_WHALECODE_TASKSPACE.contains(forbidden),
+                "TaskSpace Base contains conflicting contract fragment: {forbidden}"
+            );
+        }
+        for required in [
+            "call `taskspace_exec` exactly once as the sole top-level Function Tool",
+            "including `exec_command`, inside that one call's `tools` array",
+            "never emit sibling `taskspace_exec` calls",
+            "`exec_command`, or another client Tool as a separate top-level call",
+            "must provide its required top-level `type`",
+            "the Runtime does not infer an omitted `type`",
+        ] {
+            assert!(
+                BASE_INSTRUCTIONS_WHALECODE_TASKSPACE.contains(required),
+                "TaskSpace Base is missing client Tool scope rule: {required}"
+            );
+        }
+    }
+
+    #[test]
+    fn taskspace_base_exposes_the_dependency_driven_lifecycle_model() {
+        let prompt = BASE_INSTRUCTIONS_WHALECODE_TASKSPACE;
+        for required in [
+            "Waiting Work is not executable",
+            "Ready Work is executable",
+            "Tool dispatch starts a Ready owner InFlight",
+            "do not also patch that owner InFlight",
+            "A Tool result records evidence but never makes its owner Completed",
+            "explicitly complete it before advancing any dependent Work",
+            "the Runtime then derives which dependents become Ready",
+            "newly unlocked child's Tool action in the same response",
+        ] {
+            assert!(prompt.contains(required), "missing {required}");
+        }
+        for forbidden in [
+            "initialize_and_work",
+            "update_and_work",
+            "update_and_finish",
+            "node_patches",
+        ] {
+            assert!(
+                !prompt.contains(forbidden),
+                "Base embeds Tool sequence: {forbidden}"
+            );
+        }
     }
 
     #[test]

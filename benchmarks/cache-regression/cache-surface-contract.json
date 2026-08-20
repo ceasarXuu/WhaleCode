@@ -1,11 +1,46 @@
 {
   "schema_version": "whalecode-cache-surface-v1",
   "baseline": {
-    "surface_sha256": "9651121f653277a6919dd97d549ecbfd5f812ef64267d2561cd873de95888bdc",
-    "status": "live_regression_failed",
-    "source_commit": "6e492ea63",
-    "live_result_path": "benchmarks/cache-regression/results/WAR-20260731-121102-CACHE-REGRESSION-03B04648.json",
-    "note": "最近一次已授权真实缓存回归未通过；修复并重新获批验证前保持阻断。"
+    "status": "accepted",
+    "surface_sha256": "bc4ae37dd3b6e2ce14598cb724a9529b794502e88376c202ca34028e9cabf4e8",
+    "source_commit": "413f940d7e846ffd029619fe38ba014fcf38736b",
+    "accepted_at": "2026-08-18T22:47:51+08:00",
+    "acceptance_reference": "用户于 2026-08-18 在收到 WAR-20260818-222826-CACHE-REGRESSION-D4B2E4BE 的精确提交、模型、样本、三种 TaskSpace 模式、缓存和费用结果后明确回复‘批准’，同意晋升该结果；该接受不关闭 I03、I04、I07 或 I08，也不认可任一 projection 为默认模式。",
+    "acceptance_evidence": {
+      "path": "benchmarks/cache-regression/acceptances/WAR-20260818-222826-CACHE-REGRESSION-D4B2E4BE.json",
+      "sha256": "d13a0c17891bd60483fa47be98101ccc4b3200f4d13777b76ca5ac0d8655ead5"
+    },
+    "final_wire_manifest": [
+      {
+        "scenario_id": "taskspace_production_tool_wire",
+        "baseline_path": "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_final_wire__taskspace_production_tool_wire.snap",
+        "payload_sha256": "5002ed9fae0860b7376563435a09be5351fa8fa2b7fc825b6e1fbc9de0abdfd2"
+      },
+      {
+        "scenario_id": "standard_two_request_final_wire",
+        "baseline_path": "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_contract__standard_two_request_final_wire.snap",
+        "payload_sha256": "3e6f1602ab3a1a2349420afafca95570b25ce7eca1faad07de1d7c649a956c08"
+      }
+    ],
+    "final_wire_manifest_sha256": "ecb6282507a5da560cd1c12fd43737560ddda93a40b34b863fb2d6efde4fb589",
+    "smoke_evidence": {
+      "result_path": "benchmarks/cache-regression/results/WAR-20260818-222826-CACHE-REGRESSION-D4B2E4BE.json",
+      "result_sha256": "db637ae5c61adc8c82fd20d3dd114294df5738dd3e0916187db6554d6196671f",
+      "proposal_id": "CBP-9D74CF85E2C39355",
+      "model": "deepseek-v4-flash",
+      "samples": [
+        "single-file-fast-fix"
+      ],
+      "arms": [
+        "map-always",
+        "map-append",
+        "map-request"
+      ],
+      "repeat": 1,
+      "actual_sample_runs": 3,
+      "unverified_scope": []
+    },
+    "note": "仅接受所列 final-wire 场景，并仅引用实际执行的 smoke 范围。"
   },
   "surface_rules": [
     {
@@ -59,11 +94,20 @@
     {
       "id": "tool_declarations",
       "globs": [
-        "third_party/codex-cli/codex-rs/core/src/tools/**",
+        "third_party/codex-cli/codex-rs/core/src/tools/spec.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/router.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/tool_search_entry.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/catalog.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/deferred.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/hosted.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/map_operations.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/protocol.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/result.rs",
+        "third_party/codex-cli/codex-rs/core/src/tools/taskspace_exec/sequence_schema.rs",
         "third_party/codex-cli/codex-rs/tools/src/**",
         "third_party/codex-cli/codex-rs/core/src/context/prompts/taskspace_*"
       ],
-      "reason": "改变每次请求携带的 Tool schema 或 TaskSpace 固定合同"
+      "reason": "改变原生或 TaskSpace Tool schema、模型可见 Tool 集合或 TaskSpace 固定合同"
     },
     {
       "id": "capability_context",
@@ -100,25 +144,44 @@
   "free_validation": {
     "run_on_release": true,
     "semantic_baseline_globs": [
-      "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_*.snap"
+      "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_contract__standard_two_request_final_wire.snap",
+      "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_final_wire__taskspace_production_tool_wire.snap"
     ],
     "commands": [
       {
         "id": "final_wire_matrix",
         "cwd": "third_party/codex-cli/codex-rs",
-        "argv": ["cargo", "test", "-q", "-p", "codex-core", "--test", "all", "cache_payload_"],
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-core",
+          "--test",
+          "all",
+          "standard_request_pair_preserves_the_complete_prefix"
+        ],
         "timeout_seconds": 600,
         "change_report": {
           "type": "final_wire_snapshot_set",
           "baseline_globs": [
-            "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload*.snap"
+            "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_contract__standard_two_request_final_wire.snap"
           ]
         }
       },
       {
-        "id": "tool_wire_contract",
+        "id": "taskspace_final_wire",
         "cwd": "third_party/codex-cli/codex-rs",
-        "argv": ["cargo", "test", "-q", "-p", "codex-core", "--test", "all", "taskspace_tools_use_production_wire_schema"],
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-core",
+          "--test",
+          "all",
+          "taskspace_production_tool_wire"
+        ],
         "timeout_seconds": 600,
         "change_report": {
           "type": "final_wire_snapshot_set",
@@ -128,44 +191,89 @@
         }
       },
       {
+        "id": "taskspace_contract",
+        "cwd": "third_party/codex-cli/codex-rs",
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-core",
+          "--lib",
+          "taskspace_exec"
+        ],
+        "timeout_seconds": 600
+      },
+      {
         "id": "provider_contract",
         "cwd": "third_party/codex-cli/codex-rs",
-        "argv": ["cargo", "test", "-q", "-p", "codex-model-provider-info", "deepseek"],
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-model-provider-info",
+          "deepseek"
+        ],
         "timeout_seconds": 120
       },
       {
         "id": "model_catalog_contract",
         "cwd": "third_party/codex-cli/codex-rs",
-        "argv": ["cargo", "test", "-q", "-p", "codex-models-manager", "deepseek"],
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-models-manager",
+          "deepseek"
+        ],
         "timeout_seconds": 120
       },
       {
         "id": "default_route_contract",
         "cwd": "third_party/codex-cli/codex-rs",
-        "argv": ["cargo", "test", "-q", "-p", "codex-core", "--lib", "defaults_to_deepseek_flash_responses_provider"],
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-core",
+          "--lib",
+          "defaults_to_deepseek_flash_responses_provider"
+        ],
         "timeout_seconds": 600
       },
       {
         "id": "usage_decoder_contract",
         "cwd": "third_party/codex-cli/codex-rs",
-        "argv": ["cargo", "test", "-q", "-p", "codex-api"],
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-api"
+        ],
         "timeout_seconds": 300
       },
       {
         "id": "final_wire_comparison_contract",
         "cwd": ".",
-        "argv": ["python3", "scripts/cache-regression/test_cache_payload_contract.py"],
+        "argv": [
+          "python3",
+          "scripts/cache-regression/test_cache_payload_contract.py"
+        ],
         "timeout_seconds": 60
       }
     ]
   },
   "pricing_snapshot": {
-    "currency": "USD",
-    "captured_at": "2026-07-31",
-    "source": "https://api-docs.deepseek.com/quick_start/pricing/",
-    "cached_input_per_million": 0.0028,
-    "uncached_input_per_million": 0.14,
-    "output_per_million": 0.28
+    "currency": "CNY",
+    "captured_at": "2026-08-18",
+    "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+    "cached_input_per_million": 0.02,
+    "uncached_input_per_million": 1.0,
+    "output_per_million": 2.0
   },
   "provider_hard_limits": {
     "deepseek-v4-flash": {

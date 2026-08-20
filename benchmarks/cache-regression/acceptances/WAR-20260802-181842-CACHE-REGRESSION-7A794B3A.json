@@ -1,0 +1,47 @@
+{
+  "schema_version": "whalecode-cache-baseline-acceptance-v1",
+  "status": "accepted",
+  "accepted_by": "user",
+  "accepted_at": "2026-08-02T18:27:18+08:00",
+  "acceptance_reference": "用户在当前会话明确回复‘接受’，同意将 WAR-20260802-181842-CACHE-REGRESSION-7A794B3A 作为 R8 Tool Sequence MVT-0 当前缓存基线；该接受不代表关闭 I02/I05 或认可 map-request 成本水平。",
+  "result_path": "benchmarks/cache-regression/results/WAR-20260802-181842-CACHE-REGRESSION-7A794B3A.json",
+  "result_sha256": "313450581c004781f804edec2b7ab2a7fdc3664630b226f32f7c203302fcfc97",
+  "proposal_path": "benchmarks/cache-regression/proposals/CBP-94C0F4C009ACD2C8.json",
+  "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260802-SEQUENCE-R1-94C0F4C009ACD2C8.json",
+  "accepted_scope": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "standard",
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "用户批准两轮预算，第一轮执行 R8 Tool Sequence MVT-0 Standard 与 map-request 各一次；若失败允许再执行一轮，当前提案仅对应第一轮且禁止自动重试。"
+  },
+  "acknowledged_unverified_scope": [],
+  "accepted_scenarios": [
+    {
+      "scenario_id": "taskspace_map_always_two_request_final_wire",
+      "after_payload_sha256": "89d8a90c7e7e03de8222732ccee24895ba6d02b4c1e51107176a9e46729f7825"
+    },
+    {
+      "scenario_id": "taskspace_map_append_two_request_final_wire",
+      "after_payload_sha256": "9981e6e6ad87f05f72ee91e64902b2dda56ad8257894845b1ecc0aa3dd7567c7"
+    },
+    {
+      "scenario_id": "taskspace_map_request_two_request_final_wire",
+      "after_payload_sha256": "6ac8d5ea071f6080b7969d2657e01eb125c1925ce977d09b2d13b2d7811fec57"
+    }
+  ]
+}

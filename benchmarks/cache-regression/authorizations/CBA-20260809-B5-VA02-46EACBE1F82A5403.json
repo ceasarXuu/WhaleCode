@@ -1,0 +1,38 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "authorization_id": "CBA-20260809-B5-VA02-46EACBE1F82A5403",
+  "approval_reference": "用户在当前会话明确回复“批准预算”，批准 B5 VA-02：single-file-fast-fix × map-request × repeat=1，最多 2 个 provider requests，无重试；任一结构、业务、usage 或预算异常立即停止。",
+  "approved_at": "2026-08-09T19:57:20+08:00",
+  "proposal_id": "CBP-46EACBE1F82A5403",
+  "proposal_sha256": "b6c74a82174205e12bc713c5d6179cfeddd3925bf9ca779041ab968eed2120f5",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 1,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 1,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "用户在当前会话明确批准 B5 VA-02 专项预算：single-file-fast-fix × map-request × repeat=1，最多 2 个 provider requests，无重试；任一结构、业务、usage 或预算异常立即停止。"
+  },
+  "approved_maximums": {
+    "provider_requests": 2,
+    "input_tokens": 2000000,
+    "output_tokens": 768000,
+    "elapsed_seconds": 720,
+    "estimated_cost": 0.49504,
+    "currency": "USD"
+  }
+}

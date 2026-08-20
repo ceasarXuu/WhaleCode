@@ -6,6 +6,8 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot "r7-integer-facts.ps1")
 . (Join-Path $PSScriptRoot "performance-token-identity.ps1")
 . (Join-Path $PSScriptRoot "performance-count-identity.ps1")
+. (Join-Path $PSScriptRoot "logical-mode-map.ps1")
+. (Join-Path $PSScriptRoot "taskspace-exec-observation.ps1")
 function Get-PerformanceProperty {
     param($Object, [Parameter(Mandatory = $true)][string]$Name, $Default = $null)
     if ($null -ne $Object) {
@@ -42,100 +44,39 @@ function Get-PerformanceRatio {
     [Math]::Round($num / $den, 4)
 }
 function Get-PerformanceWireRequestCount {
-    param([string]$ArtifactDir, $CacheSummary)
-    $summaryRaw = Get-PerformanceProperty $CacheSummary "provider_request_count"
-    if ($null -ne $summaryRaw) {
-        $summaryCount = Get-PerformanceNonnegativeInt64 $summaryRaw
-        $source = if ($null -ne $summaryCount) {
-            "provider_cache_trace_summary"
-        } else {
-            "provider_cache_trace_summary_invalid"
-        }
-        return [pscustomobject]@{ value = $summaryCount; source = $source }
-    }
-    $wirePath = Join-Path $ArtifactDir "provider-wire-trace.jsonl"
-    if (Test-Path -LiteralPath $wirePath) {
-        $count = 0
-        foreach ($line in [System.IO.File]::ReadLines($wirePath)) {
-            if ($line -match '"schema_version"\s*:\s*"provider-chat-wire-trace-v10"' -and
-                $line -match '"status"\s*:\s*"payload_captured"') {
-                $count++
-            }
-        }
-        if ($count -gt 0) {
-            return [pscustomobject]@{
-                value = [int64]$count
-                source = "provider_wire_trace"
-            }
-        }
-    }
-    [pscustomobject]@{ value = $null; source = "unavailable" }
-}
-function Get-PerformanceActionCounts {
-    param([string]$ArtifactDir, [System.Collections.Generic.List[object]]$Events)
-    $shell = 0; $patch = 0; $control = 0; $other = 0
-    $providerOuterCalls = 0; $nestedActions = 0
-    $rolloutPath = Join-Path $ArtifactDir "rollout.jsonl"
-    if (Test-Path -LiteralPath $rolloutPath) {
-        foreach ($line in [System.IO.File]::ReadLines($rolloutPath)) {
-            if ([string]::IsNullOrWhiteSpace($line)) { continue }
-            try {
-                $row = $line | ConvertFrom-Json
-                $payload = Get-TaskspaceCanonicalResponseItem $row
-                if ($null -eq $payload) { continue }
-                if ([string](Get-PerformanceProperty $payload "type") -notin @("function_call", "custom_tool_call")) { continue }
-                $providerOuterCalls++
-                $name = [string](Get-PerformanceProperty $payload "name")
-                switch ($name) {
-                    "exec_command" { $shell++ }
-                    "apply_patch" { $patch++ }
-                    "taskspace_control" { $control++ }
-                    default { $other++ }
-                }
-            } catch {
-                if ($null -ne $Events) {
-                    $Events.Add([pscustomobject]@{ event = "rollout_line_parse_failed"; path = $rolloutPath; error = [string]$_.Exception.Message })
-                }
-            }
-        }
+    param([string]$ArtifactDir)
+    $facts = Read-PerformanceJson (Join-Path $ArtifactDir "request-facts.json")
+    if ($facts -and [string]$facts.schema_version -eq "whalecode-request-facts-v1") {
+        $boundaryMeasured = [string]$facts.availability.boundary -eq "measured"
+        $completionMeasured = [string]$facts.availability.completion -eq "measured"
+        $usageMeasured = [string]$facts.availability.usage -eq "measured"
+        $usage = Get-PerformanceProperty (Get-PerformanceProperty $facts "summary") "usage"
+        $value = if ($boundaryMeasured) { Get-PerformanceCount $facts.summary.boundary_request_count } else { $null }
         return [pscustomobject]@{
-            shell = $shell; patch = $patch; control = $control; other = $other
-            provider_outer_tool_calls = $providerOuterCalls; nested_action_count = $nestedActions
-            source = "rollout"
-        }
-    }
-    $execPath = Join-Path $ArtifactDir "whale-exec.jsonl"
-    if (Test-Path -LiteralPath $execPath) {
-        foreach ($line in [System.IO.File]::ReadLines($execPath)) {
-            if ([string]::IsNullOrWhiteSpace($line)) { continue }
-            try {
-                $row = $line | ConvertFrom-Json
-                if ([string](Get-PerformanceProperty $row "type") -ne "item.completed") { continue }
-                $item = Get-PerformanceProperty $row "item"
-                switch ([string](Get-PerformanceProperty $item "type")) {
-                    "command_execution" { $shell++ }
-                    "file_change" { $patch++ }
-                }
-            } catch {
-                if ($null -ne $Events) {
-                    $Events.Add([pscustomobject]@{ event = "exec_line_parse_failed"; path = $execPath; error = [string]$_.Exception.Message })
-                }
-            }
-        }
-        return [pscustomobject]@{
-            shell = $shell; patch = $patch; control = 0; other = 0
-            provider_outer_tool_calls = $null; nested_action_count = 0; source = "whale_exec"
+            value = $value
+            source = if ($boundaryMeasured) { "request_facts_boundary" } else { "request_facts_unavailable" }
+            logical = Get-PerformanceCount $facts.summary.logical_request_count
+            attempts = Get-PerformanceCount $facts.summary.local_attempt_count
+            boundary = if ($boundaryMeasured) { Get-PerformanceCount $facts.summary.boundary_request_count } else { $null }
+            completed = if ($completionMeasured) { Get-PerformanceCount $facts.summary.completed_response_count } else { $null }
+            failed_or_cancelled = Get-PerformanceCount $facts.summary.failed_or_cancelled_attempt_count
+            usage_measured = $usageMeasured
+            input_tokens = if ($usageMeasured) { Get-PerformanceCount (Get-PerformanceProperty $usage "input_tokens") } else { $null }
+            cached_input_tokens = if ($usageMeasured) { Get-PerformanceCount (Get-PerformanceProperty $usage "cached_input_tokens") } else { $null }
+            uncached_input_tokens = if ($usageMeasured) { Get-PerformanceCount (Get-PerformanceProperty $usage "uncached_input_tokens") } else { $null }
+            output_tokens = if ($usageMeasured) { Get-PerformanceCount (Get-PerformanceProperty $usage "output_tokens") } else { $null }
         }
     }
     [pscustomobject]@{
-        shell = $null; patch = $null; control = $null; other = $null
-        provider_outer_tool_calls = $null; nested_action_count = $null; source = "unavailable"
+        value = $null; source = "unavailable"; logical = $null; attempts = $null
+        boundary = $null; completed = $null; failed_or_cancelled = $null
+        usage_measured = $false; input_tokens = $null; cached_input_tokens = $null
+        uncached_input_tokens = $null; output_tokens = $null
     }
 }
 function Get-PerformanceMapFacts {
     param([string]$ArtifactDir, $Metrics, [System.Collections.Generic.List[string]]$Warnings)
     $graph = Read-PerformanceJson (Join-Path $ArtifactDir "graph-health.json")
-    $managed = Read-PerformanceJson (Join-Path $ArtifactDir "map-management-summary.json")
     $control = Read-PerformanceJson (Join-Path $ArtifactDir "taskspace-control-usage.json")
     $observability = Read-PerformanceJson (Join-Path $ArtifactDir "observability/action-map-observability.json")
     $nodes = @()
@@ -179,8 +120,11 @@ function Get-PerformanceMapFacts {
     $openLeaves = Get-PerformanceCount (Get-PerformanceProperty $Metrics "open_leaf_nodes")
     $resultCount = Get-PerformanceCount (Get-PerformanceProperty $graph "result_count")
     $unreviewed = Get-PerformanceCount (Get-PerformanceProperty $graph "unreviewed_result_count")
+    $allNodesTerminal = $nodes.Count -gt 0 -and @($nodes | Where-Object {
+            [string]$_.status -notin @("completed", "failed", "cancelled")
+        }).Count -eq 0
     if ($mapCount -gt 0 -and $nodeCount -gt 1 -and $edgeCount -eq 0) { $Warnings.Add("multi_node_map_without_edges") }
-    if ($mapCount -gt 0 -and $openLeaves -eq 0 -and $taskStatus -eq "active") { $Warnings.Add("root_task_active_after_nodes_closed") }
+    if ($mapCount -gt 0 -and $allNodesTerminal -and $taskStatus -eq "active") { $Warnings.Add("root_task_active_after_nodes_closed") }
     if ($unreviewed -gt 0) { $Warnings.Add("unreviewed_results_present") }
     [pscustomobject]@{
         map_count = $mapCount
@@ -192,11 +136,6 @@ function Get-PerformanceMapFacts {
         root_task_status = $taskStatus
         accepted_result_count = Get-PerformanceCount (Get-PerformanceProperty $graph "accepted_result_count")
         unreviewed_result_count = $unreviewed
-        retention_coverage_ratio = Get-PerformanceNumber (Get-PerformanceProperty $managed "retention_coverage_ratio")
-        salience_coverage_ratio = Get-PerformanceNumber (Get-PerformanceProperty $managed "salience_coverage_ratio")
-        semantic_replacement_rate = Get-PerformanceNumber (Get-PerformanceProperty $managed "semantic_replacement_rate")
-        protected_miss_count = Get-PerformanceCount (Get-PerformanceProperty $managed "protected_miss_count")
-        compaction_event_count = Get-PerformanceCount (Get-PerformanceProperty $managed "compaction_event_count")
         control_count = Get-PerformanceCount (Get-PerformanceProperty $control "taskspace_control_count")
         action_manifest_count = Get-PerformanceCount (Get-PerformanceProperty $control "action_manifest_count")
         declared_action_count = Get-PerformanceCount (Get-PerformanceProperty $control "declared_action_count")
@@ -240,28 +179,50 @@ function Get-PerformanceSideObservation {
     $caseId = [System.IO.Path]::GetRelativePath($ObservationRoot, $pairDir).Replace("\", "/")
     $metrics = Read-PerformanceJson $MetricPath $Events
     if (-not $metrics) { return $null }
-    $modeMap = Read-PerformanceJson (Join-Path $pairDir "logical-mode-map.json") $Events
-    $mode = if ($modeMap -and $modeMap.PSObject.Properties.Name -contains $side) { [string]$modeMap.$side } else { [string](Get-PerformanceProperty $metrics "logical_mode" "unknown") }
-    $repeat = if ($modeMap) { Get-PerformanceNumber (Get-PerformanceProperty $modeMap "repeat") } elseif ($pair -match '(\d+)$') { [double]$Matches[1] } else { $null }
+    $modeMapResult = Read-TaskspaceLogicalModeMap (Join-Path $pairDir "logical-mode-map.json")
+    $modeMap = $modeMapResult.map
+    $modeMapValid = [bool]$modeMapResult.valid
+    $mode = if ($modeMapValid) { [string]$modeMap.$side } else { "unknown" }
+    $repeat = if ($modeMapValid) { [int64]$modeMap.repeat } else { $null }
     $cache = Read-PerformanceJson (Join-Path $artifactDir "provider-cache-trace-summary.json") $Events
-    $requests = Get-PerformanceWireRequestCount $artifactDir $cache
+    $requests = Get-PerformanceWireRequestCount $artifactDir
     $actions = Get-PerformanceActionCounts $artifactDir $Events
     $cadence = Get-TaskspaceNativeCadenceFacts $artifactDir $Events
     $patchObservation = Get-TaskspacePatchObservability $artifactDir $Events
     $warnings = New-Object System.Collections.Generic.List[string]
+    if ([string]$actions.protocol -eq "taskspace_exec" -and [string]$actions.availability -ne "measured") {
+        $warnings.Add("taskspace_exec_observation_incomparable")
+        foreach ($finding in @($actions.findings)) { $warnings.Add("taskspace_exec:$finding") }
+    }
     $taints = @((Get-PerformanceProperty $metrics "metrics_taints" @()))
     $skipped = @($taints | Where-Object { [string]$_ -match '^side_selection_skipped:' }).Count -gt 0
-    if ($skipped) {
+    if (-not $modeMapValid) {
+        $warnings.Add("logical_mode_map_invalid")
+    } elseif ($skipped) {
         $warnings.Add("side_not_run")
     } else {
         if ($null -eq $requests.value) { $warnings.Add("provider_request_count_unavailable") }
         if (-not $cache) { $warnings.Add("provider_cache_trace_unavailable") }
         if ([string](Get-PerformanceProperty $metrics "external_validation_status") -eq "failed") { $warnings.Add("external_validation_failed") }
     }
+    if (-not $modeMapValid -and $null -ne $Events) {
+        $Events.Add([pscustomobject]@{
+                event = "performance_logical_mode_map_invalid"
+                code = "logical_mode_map_invalid"
+                case_id = $caseId
+                pair = $pair
+                repeat = $repeat
+                side = $side
+                logical_mode = "unknown"
+                metric_path = $MetricPath
+                artifact_dir = $artifactDir
+            })
+    }
     $map = Get-PerformanceMapFacts $artifactDir $metrics $warnings
     $duplication = Get-PerformanceDuplicationFacts $artifactDir $Events
+    $tokenSource = if ([bool]$requests.usage_measured) { $requests } else { $metrics }
     $tokenIdentity = Get-PerformanceTokenIdentity `
-        $metrics `
+        $tokenSource `
         $cache `
         $requests.value `
         $skipped
@@ -302,16 +263,16 @@ function Get-PerformanceSideObservation {
         }
     }
     $agentStatus = [string](Get-PerformanceProperty $metrics "agent_completion_status")
-    $observationStatus = if ($skipped) {
-        "skipped"
-    } elseif (-not $tokenIdentity.valid -or -not $countIdentity.valid) {
+    $observationStatus = if (-not $modeMapValid -or -not $tokenIdentity.valid -or -not $countIdentity.valid) {
         "invalid"
+    } elseif ($skipped) {
+        "skipped"
     } elseif ($agentStatus -eq "complete") {
         "complete"
     } else {
         "incomplete"
     }
-    $comparisonEligible = -not $skipped -and $tokenIdentity.valid -and
+    $comparisonEligible = -not $skipped -and $modeMapValid -and $tokenIdentity.valid -and
         $countIdentity.valid -and
         $agentStatus -eq "complete"
     [pscustomobject]@{
@@ -329,11 +290,42 @@ function Get-PerformanceSideObservation {
         }
         actions = [pscustomobject]@{
             provider_requests = $requests.value; provider_request_source = $requests.source
-            ordinary_tools = Get-PerformanceCount (Get-PerformanceProperty $metrics "tool_call_count")
-            failed_tools = Get-PerformanceCount (Get-PerformanceProperty $metrics "failed_tool_call_count")
+            provider_logical_requests = $requests.logical
+            provider_local_attempts = $requests.attempts
+            provider_boundary_requests = $requests.boundary
+            provider_completed_responses = $requests.completed
+            provider_failed_or_cancelled_attempts = $requests.failed_or_cancelled
+            ordinary_tools = if ([string]$actions.protocol -eq "taskspace_exec") {
+                [int64]$actions.client_action_count + [int64]$actions.provider_action_count
+            } else { Get-PerformanceCount (Get-PerformanceProperty $metrics "tool_call_count") }
+            failed_tools = if ([string]$actions.protocol -eq "taskspace_exec") {
+                $actions.failed_action_count
+            } else { Get-PerformanceCount (Get-PerformanceProperty $metrics "failed_tool_call_count") }
+            action_protocol = $actions.protocol
+            exec_observation_status = Get-PerformanceProperty $actions "availability"
             provider_outer_tool_calls = $actions.provider_outer_tool_calls
             nested_actions = $actions.nested_action_count
             shell = $actions.shell; patch = $actions.patch; taskspace_control = $map.control_count
+            taskspace_exec = Get-PerformanceCount (Get-PerformanceProperty $actions "exec_count")
+            map_operations = Get-PerformanceCount (Get-PerformanceProperty $actions "map_operation_count")
+            client_actions = Get-PerformanceCount (Get-PerformanceProperty $actions "client_action_count")
+            provider_actions = Get-PerformanceCount (Get-PerformanceProperty $actions "provider_action_count")
+            node_bindings = Get-PerformanceCount (Get-PerformanceProperty $actions "node_binding_count")
+            client_results = Get-PerformanceCount (Get-PerformanceProperty $actions "client_result_count")
+            provider_results = Get-PerformanceCount (Get-PerformanceProperty $actions "provider_result_count")
+            exec_rejected_calls = Get-PerformanceCount (Get-PerformanceProperty $actions "rejected_call_count")
+            exec_rejected_syntax_calls = Get-PerformanceCount (Get-PerformanceProperty $actions "rejected_syntax_call_count")
+            exec_rejected_contract_calls = Get-PerformanceCount (Get-PerformanceProperty $actions "rejected_contract_call_count")
+            exec_rejected_state_calls = Get-PerformanceCount (Get-PerformanceProperty $actions "rejected_state_call_count")
+            exec_rejected_preflight_other_calls = Get-PerformanceCount (Get-PerformanceProperty $actions "rejected_preflight_other_call_count")
+            exec_rejected_preflight_calls = Get-PerformanceCount (Get-PerformanceProperty $actions "rejected_preflight_call_count")
+            exec_rejected_unknown_calls = Get-PerformanceCount (Get-PerformanceProperty $actions "rejected_unknown_call_count")
+            exec_trace_events = Get-PerformanceCount (Get-PerformanceProperty $actions "trace_event_count")
+            correlated_requests = Get-PerformanceCount (Get-PerformanceProperty $actions "correlated_request_count")
+            correlated_outer_calls = Get-PerformanceCount (Get-PerformanceProperty $actions "correlated_outer_call_count")
+            capability_identity = Get-PerformanceProperty $actions "capability_identity"
+            wire_capability_identity = Get-PerformanceProperty $actions "wire_capability_identity"
+            exec_findings = @((Get-PerformanceProperty $actions "findings" @()))
             action_manifests = $map.action_manifest_count
             declared_actions = $map.declared_action_count
             initialize_and_execute = $map.initialize_and_execute_count
@@ -414,7 +406,7 @@ function Get-PerformanceModeAggregate {
     $selected = @($observed | Where-Object { $_.comparison_eligible })
     if ($selected.Count -eq 0) { return $null }
     $sum = [ordered]@{}
-    foreach ($field in @("provider_requests", "ordinary_tools", "failed_tools", "provider_outer_tool_calls", "nested_actions", "taskspace_control", "action_manifests", "declared_actions", "initialize_and_execute", "committed_initialize_and_execute", "failed_initialize_and_execute", "sequence_preflight_rejected_calls", "control_failures", "control_protocol_failures", "control_state_failures", "nested_action_failures", "provider_tool_responses", "control_responses", "mixed_control_action_responses", "multi_control_responses", "action_manifest_count", "action_manifest_pairs", "action_manifest_violations", "orphan_siblings", "cadence_declared_actions", "cadence_owned_siblings", "initialize_and_execute_pairs", "execute_pairs", "reopen_pairs", "finish_maps", "finish_map_final_work", "standalone_control_responses", "terminal_candidates", "terminal_extra_requests", "cadence_parse_errors")) {
+    foreach ($field in @("provider_requests", "provider_logical_requests", "provider_local_attempts", "provider_boundary_requests", "provider_completed_responses", "provider_failed_or_cancelled_attempts", "ordinary_tools", "failed_tools", "provider_outer_tool_calls", "nested_actions", "taskspace_exec", "map_operations", "client_actions", "provider_actions", "node_bindings", "client_results", "provider_results", "exec_rejected_calls", "exec_rejected_syntax_calls", "exec_rejected_contract_calls", "exec_rejected_state_calls", "exec_rejected_preflight_other_calls", "exec_rejected_preflight_calls", "exec_rejected_unknown_calls", "exec_trace_events", "correlated_requests", "correlated_outer_calls", "taskspace_control", "action_manifests", "declared_actions", "initialize_and_execute", "committed_initialize_and_execute", "failed_initialize_and_execute", "sequence_preflight_rejected_calls", "control_failures", "control_protocol_failures", "control_state_failures", "nested_action_failures", "provider_tool_responses", "control_responses", "mixed_control_action_responses", "multi_control_responses", "action_manifest_count", "action_manifest_pairs", "action_manifest_violations", "orphan_siblings", "cadence_declared_actions", "cadence_owned_siblings", "initialize_and_execute_pairs", "execute_pairs", "reopen_pairs", "finish_maps", "finish_map_final_work", "standalone_control_responses", "terminal_candidates", "terminal_extra_requests", "cadence_parse_errors")) {
         $values = @($selected | ForEach-Object { $_.actions.$field })
         $sum[$field] = Get-PerformanceOptionalExactInt64Sum $values $field
     }

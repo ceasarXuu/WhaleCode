@@ -1,0 +1,387 @@
+{
+  "schema_version": "whalecode-cache-regression-gate-v1",
+  "status": "pass",
+  "source": "index",
+  "subject_commit": "b411bfef56b119c75d5d6accdbc728a971acb5ec",
+  "actual_surface_sha256": "41bb2280b6aeb9e793a118049c788e1d7b11e5b25d78533217e019adab987a50",
+  "expected_surface_sha256": "204978af2218017fe58f2322973b2a605cce6ec16e1e91f92ef4386aa1e3926b",
+  "baseline_status": "accepted",
+  "accepted_baseline_validation": {
+    "valid": false,
+    "reason": "provider boundary evidence schema is invalid"
+  },
+  "promotion_transition": false,
+  "require_live_baseline": false,
+  "contract_matches_worktree": true,
+  "policy_changes": [],
+  "baseline_changed": false,
+  "policy_baseline_conflict": false,
+  "policy_product_conflict": false,
+  "semantic_baseline_changes": [],
+  "baseline_product_conflict": false,
+  "relevant_source_matches_worktree": true,
+  "validation_input_mismatches": [],
+  "free_validation_required": true,
+  "discovery_state": "unchanged",
+  "candidate_transition": false,
+  "revalidation_requested": false,
+  "free_validation": {
+    "status": "pass",
+    "passed": true,
+    "commands": [
+      {
+        "id": "final_wire_matrix",
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-core",
+          "--test",
+          "all",
+          "standard_request_pair_preserves_the_complete_prefix"
+        ],
+        "cwd": "third_party/codex-cli/codex-rs",
+        "exit_code": 0,
+        "timed_out": false,
+        "duration_ms": 47142,
+        "status": "pass",
+        "output_tail": [
+          "   |",
+          "11 | pub(crate) const OUTPUT_SLICE_MAX_BYTES: usize = 16 * 1024;",
+          "   |                  ^^^^^^^^^^^^^^^^^^^^^^",
+          "",
+          "warning: enum `OutputSliceMode` is never used",
+          "  --> core/src/tools/output_reference.rs:32:17",
+          "   |",
+          "32 | pub(crate) enum OutputSliceMode {",
+          "   |                 ^^^^^^^^^^^^^^^",
+          "",
+          "warning: struct `OutputSliceRequest` is never constructed",
+          "  --> core/src/tools/output_reference.rs:40:19",
+          "   |",
+          "40 | pub(crate) struct OutputSliceRequest {",
+          "   |                   ^^^^^^^^^^^^^^^^^^",
+          "",
+          "warning: struct `OutputSliceResult` is never constructed",
+          "  --> core/src/tools/output_reference.rs:46:19",
+          "   |",
+          "46 | pub(crate) struct OutputSliceResult {",
+          "   |                   ^^^^^^^^^^^^^^^^^",
+          "",
+          "warning: function `read_output_artifact_slice_result` is never used",
+          "   --> core/src/tools/output_reference.rs:193:21",
+          "    |",
+          "193 | pub(crate) async fn read_output_artifact_slice_result(",
+          "    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "",
+          "warning: function `read_output_bytes_slice_result` is never used",
+          "   --> core/src/tools/output_reference.rs:245:15",
+          "    |",
+          "245 | pub(crate) fn read_output_bytes_slice_result(",
+          "    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "",
+          "warning: function `parse_output_ref_sha` is never used",
+          "   --> core/src/tools/output_reference.rs:373:4",
+          "    |",
+          "373 | fn parse_output_ref_sha(output_ref: &str) -> std::io::Result<&str> {",
+          "    |    ^^^^^^^^^^^^^^^^^^^^",
+          ""
+        ],
+        "change_report": {
+          "schema_version": "whalecode-final-wire-change-report-v1",
+          "status": "unchanged",
+          "comparison_policy": "exact_normalized_json_value",
+          "scenario_count": 1,
+          "changed_scenario_count": 0,
+          "uncomparable_scenario_count": 0,
+          "errors": [],
+          "scenarios": [
+            {
+              "scenario_id": "standard_two_request_final_wire",
+              "comparison_object": "normalized_final_wire_snapshot",
+              "baseline_path": "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_contract__standard_two_request_final_wire.snap",
+              "status": "unchanged",
+              "first_difference": null,
+              "before_payload_sha256": "3e6f1602ab3a1a2349420afafca95570b25ce7eca1faad07de1d7c649a956c08",
+              "after_payload_sha256": "3e6f1602ab3a1a2349420afafca95570b25ce7eca1faad07de1d7c649a956c08",
+              "candidate_payload": null
+            }
+          ]
+        }
+      },
+      {
+        "id": "provider_contract",
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-model-provider-info",
+          "deepseek"
+        ],
+        "cwd": "third_party/codex-cli/codex-rs",
+        "exit_code": 0,
+        "timed_out": false,
+        "duration_ms": 23080,
+        "status": "pass",
+        "output_tail": [
+          "",
+          "running 1 test",
+          ".",
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s",
+          ""
+        ],
+        "change_report": null
+      },
+      {
+        "id": "model_catalog_contract",
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-models-manager",
+          "deepseek"
+        ],
+        "cwd": "third_party/codex-cli/codex-rs",
+        "exit_code": 0,
+        "timed_out": false,
+        "duration_ms": 25045,
+        "status": "pass",
+        "output_tail": [
+          "",
+          "running 8 tests",
+          "........",
+          "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.00s",
+          ""
+        ],
+        "change_report": null
+      },
+      {
+        "id": "default_route_contract",
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-core",
+          "--lib",
+          "defaults_to_deepseek_flash_responses_provider"
+        ],
+        "cwd": "third_party/codex-cli/codex-rs",
+        "exit_code": 0,
+        "timed_out": false,
+        "duration_ms": 37972,
+        "status": "pass",
+        "output_tail": [
+          "     | ------------ methods in this implementation",
+          "...",
+          "1041 |     pub(crate) async fn set_action_map_mode_for_test(",
+          "     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "...",
+          "3107 |     pub(crate) async fn cached_action_map_snapshot_for_test(&self) -> ActionMapSnapshot {",
+          "     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "...",
+          "3117 |     pub(crate) async fn taskspace_active(&self) -> bool {",
+          "     |                         ^^^^^^^^^^^^^^^^",
+          "...",
+          "3122 |     pub(crate) async fn read_action_map_projection(",
+          "     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "",
+          "warning: function `response_input_model_visible_preview` is never used",
+          "   --> core/src/tools/context.rs:138:15",
+          "    |",
+          "138 | pub(crate) fn response_input_model_visible_preview(response: &ResponseInputItem) -> String {",
+          "    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+          "",
+          "warning: variant `Tail` is never constructed",
+          "  --> core/src/tools/output_reference.rs:34:5",
+          "   |",
+          "32 | pub(crate) enum OutputSliceMode {",
+          "   |                 --------------- variant in this enum",
+          "33 |     Head,",
+          "34 |     Tail,",
+          "   |     ^^^^",
+          "   |",
+          "   = note: `OutputSliceMode` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis",
+          "",
+          "warning: associated function `from_builder_for_test` is never used",
+          "  --> core/src/tools/router.rs:73:19",
+          "   |",
+          "71 | impl ToolRouter {",
+          "   | --------------- associated function in this implementation",
+          "72 |     #[cfg(test)]",
+          "73 |     pub(crate) fn from_builder_for_test(builder: ToolRegistryBuilder) -> Self {",
+          "   |                   ^^^^^^^^^^^^^^^^^^^^^",
+          ""
+        ],
+        "change_report": null
+      },
+      {
+        "id": "usage_decoder_contract",
+        "argv": [
+          "cargo",
+          "test",
+          "-q",
+          "-p",
+          "codex-api"
+        ],
+        "cwd": "third_party/codex-cli/codex-rs",
+        "exit_code": 0,
+        "timed_out": false,
+        "duration_ms": 11242,
+        "status": "pass",
+        "output_tail": [
+          "",
+          "running 120 tests",
+          "....................................................................................... 87/120",
+          ".................................",
+          "test result: ok. 120 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s",
+          "",
+          "",
+          "running 6 tests",
+          "......",
+          "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+          "",
+          "",
+          "running 1 test",
+          ".",
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s",
+          "",
+          "",
+          "running 6 tests",
+          "......",
+          "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s",
+          "",
+          "",
+          "running 1 test",
+          ".",
+          "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+          "",
+          "",
+          "running 0 tests",
+          "",
+          "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+          ""
+        ],
+        "change_report": null
+      },
+      {
+        "id": "final_wire_comparison_contract",
+        "argv": [
+          "python3",
+          "scripts/cache-regression/test_cache_payload_contract.py"
+        ],
+        "cwd": ".",
+        "exit_code": 0,
+        "timed_out": false,
+        "duration_ms": 43,
+        "status": "pass",
+        "output_tail": [
+          "................",
+          "----------------------------------------------------------------------",
+          "Ran 16 tests in 0.002s",
+          "",
+          "OK"
+        ],
+        "change_report": null
+      }
+    ]
+  },
+  "require_clean_subject": false,
+  "release_relevant_changes": [],
+  "surface_file_count": 380,
+  "sensitive_changes": [
+    {
+      "path": "third_party/codex-cli/codex-rs/core/src/action_map/projection.rs",
+      "rules": [
+        {
+          "id": "taskspace_projection_feedback",
+          "reason": "改变 TaskSpace 动态内容的位置、载体或重复表达"
+        }
+      ]
+    },
+    {
+      "path": "third_party/codex-cli/codex-rs/core/src/action_map/projection_policy.rs",
+      "rules": [
+        {
+          "id": "taskspace_projection_feedback",
+          "reason": "改变 TaskSpace 动态内容的位置、载体或重复表达"
+        }
+      ]
+    },
+    {
+      "path": "third_party/codex-cli/codex-rs/core/src/action_map/projection_tests.rs",
+      "rules": [
+        {
+          "id": "taskspace_projection_feedback",
+          "reason": "改变 TaskSpace 动态内容的位置、载体或重复表达"
+        }
+      ]
+    },
+    {
+      "path": "third_party/codex-cli/codex-rs/core/src/action_map/runtime/projection.rs",
+      "rules": [
+        {
+          "id": "taskspace_projection_feedback",
+          "reason": "改变 TaskSpace 动态内容的位置、载体或重复表达"
+        }
+      ]
+    },
+    {
+      "path": "third_party/codex-cli/codex-rs/core/src/client.rs",
+      "rules": [
+        {
+          "id": "provider_payload",
+          "reason": "改变最终 provider payload、协议序列化、消息顺序、依赖或缓存观测"
+        }
+      ]
+    },
+    {
+      "path": "third_party/codex-cli/codex-rs/core/src/provider_wire_sections.rs",
+      "rules": [
+        {
+          "id": "provider_payload",
+          "reason": "改变最终 provider payload、协议序列化、消息顺序、依赖或缓存观测"
+        }
+      ]
+    },
+    {
+      "path": "third_party/codex-cli/codex-rs/core/src/provider_wire_sections_tests.rs",
+      "rules": [
+        {
+          "id": "provider_payload",
+          "reason": "改变最终 provider payload、协议序列化、消息顺序、依赖或缓存观测"
+        }
+      ]
+    },
+    {
+      "path": "third_party/codex-cli/codex-rs/core/src/session/mod.rs",
+      "rules": [
+        {
+          "id": "context_construction",
+          "reason": "改变消息角色、顺序、替换或追加结构"
+        }
+      ]
+    },
+    {
+      "path": "third_party/codex-cli/codex-rs/protocol/src/protocol.rs",
+      "rules": [
+        {
+          "id": "provider_payload",
+          "reason": "改变最终 provider payload、协议序列化、消息顺序、依赖或缓存观测"
+        }
+      ]
+    },
+    {
+      "path": "third_party/codex-cli/codex-rs/protocol/src/taskspace.rs",
+      "rules": [
+        {
+          "id": "provider_payload",
+          "reason": "改变最终 provider payload、协议序列化、消息顺序、依赖或缓存观测"
+        }
+      ]
+    }
+  ]
+}

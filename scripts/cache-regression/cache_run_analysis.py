@@ -10,9 +10,14 @@ from typing import Any
 from cache_evidence import file_sha256
 from cache_json import strict_json_loads
 from cache_usage_contract import SCHEMA_VERSION as PROVIDER_USAGE_CONTRACT_VERSION
+from cache_usage_contract import load_provider_wire_usage
 from cache_usage_contract import validate_cache_artifacts
 
-PROVIDER_BOUNDARY_SCHEMA_VERSION = "whalecode-provider-boundary-evidence-v1"
+PROVIDER_BOUNDARY_SCHEMA_VERSION = "whalecode-provider-boundary-evidence-v2"
+READABLE_PROVIDER_BOUNDARY_SCHEMA_VERSIONS = {
+    "whalecode-provider-boundary-evidence-v1",
+    PROVIDER_BOUNDARY_SCHEMA_VERSION,
+}
 CACHE_OBSERVATION_KEYS = (
     "arm",
     "provider_usage_contract_version",
@@ -34,6 +39,10 @@ CACHE_OBSERVATION_KEYS = (
     "artifacts",
     "artifact_sha256",
 )
+
+
+def _is_nonnegative_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -60,6 +69,7 @@ def budget_observation_exceeded(
 
 def analyze_artifacts(
     cache_path: Path,
+    provider_wire_path: Path,
     request_path: Path,
     metrics_path: Path,
     boundary_path: Path,
@@ -67,24 +77,31 @@ def analyze_artifacts(
     expected_model: str,
 ) -> dict[str, Any]:
     cache = read_json(cache_path)
-    request = read_json(request_path)["rollout_trace"]
     metrics = read_json(metrics_path)
     boundary = read_json(boundary_path)
+    provider_request_ids = [
+        request.get("request_id") for request in boundary.get("wire_requests", [])
+    ]
+    provider_usage = load_provider_wire_usage(
+        provider_wire_path, provider_request_ids
+    )
     return analyze_artifact_values(
         cache,
-        request,
+        provider_usage,
         metrics,
         boundary,
         arm,
         expected_model,
         {
             "cache_summary": str(cache_path),
+            "provider_wire": str(provider_wire_path),
             "request_summary": str(request_path),
             "metrics": str(metrics_path),
             "provider_boundary": str(boundary_path),
         },
         {
             "cache_summary": file_sha256(cache_path),
+            "provider_wire": file_sha256(provider_wire_path),
             "request_summary": file_sha256(request_path),
             "metrics": file_sha256(metrics_path),
             "provider_boundary": file_sha256(boundary_path),
@@ -94,7 +111,7 @@ def analyze_artifacts(
 
 def analyze_artifact_values(
     cache: dict[str, Any],
-    request: dict[str, Any],
+    provider_usage: dict[str, Any],
     metrics: dict[str, Any],
     boundary: dict[str, Any],
     arm: str,
@@ -102,9 +119,12 @@ def analyze_artifact_values(
     artifacts: dict[str, str],
     artifact_sha256: dict[str, str],
 ) -> dict[str, Any]:
-    usage = validate_cache_artifacts(cache, request)
+    usage = validate_cache_artifacts(cache, provider_usage)
     validate_provider_boundary_evidence(
-        boundary, usage["provider_request_count"], expected_model
+        boundary,
+        usage["provider_request_count"],
+        expected_model,
+        provider_usage,
     )
     expected_logical_mode = "standard" if arm == "standard" else "taskspace"
     if metrics.get("logical_mode") != expected_logical_mode:
@@ -151,7 +171,10 @@ def analyze_artifact_values(
 
 
 def validate_provider_boundary_evidence(
-    boundary: dict[str, Any], expected_count: int, expected_model: str
+    boundary: dict[str, Any],
+    expected_count: int,
+    expected_model: str,
+    provider_usage: dict[str, Any] | None = None,
 ) -> None:
     boundary_count = validate_provider_boundary_accounting(boundary, expected_model)
     if boundary_count != expected_count:
@@ -163,8 +186,24 @@ def validate_provider_boundary_evidence(
     wire_requests = boundary.get("wire_requests")
     if not isinstance(wire_requests, list):
         raise ValueError("provider boundary wire evidence is invalid")
-    if boundary.get("wire_request_count") != len(wire_requests):
+    wire_request_count = boundary.get("wire_request_count")
+    if not _is_nonnegative_int(wire_request_count) or wire_request_count != len(
+        wire_requests
+    ):
         raise ValueError("provider boundary wire request count is invalid")
+    boundary_schema = boundary.get("schema_version")
+    for index, request in enumerate(wire_requests, 1):
+        request_count_after = request.get("request_count_after")
+        if (
+            boundary_schema == "whalecode-provider-boundary-evidence-v1"
+            and request_count_after is None
+        ):
+            continue
+        if (
+            not _is_nonnegative_int(request_count_after)
+            or request_count_after != index
+        ):
+            raise ValueError("provider boundary wire request ordinal is invalid")
     boundary_requests = boundary["boundary_requests"]
     boundary_hashes = [request.get("body_sha256") for request in boundary_requests]
     wire_hashes = [request.get("provider_payload_sha256") for request in wire_requests]
@@ -172,6 +211,14 @@ def validate_provider_boundary_evidence(
         raise ValueError(
             "provider boundary request trace does not match Whale wire trace"
         )
+    if provider_usage is not None:
+        usage_ids = provider_usage.get("request_ids")
+        usage_hashes = provider_usage.get("provider_payload_sha256")
+        boundary_ids = [request.get("request_id") for request in wire_requests]
+        if usage_ids != boundary_ids or usage_hashes != boundary_hashes:
+            raise ValueError(
+                "provider terminal usage does not match provider boundary evidence"
+            )
 
 
 def validate_provider_boundary_accounting(
@@ -179,7 +226,7 @@ def validate_provider_boundary_accounting(
 ) -> int:
     if not isinstance(boundary, dict):
         raise ValueError("provider boundary evidence must be an object")
-    if boundary.get("schema_version") != PROVIDER_BOUNDARY_SCHEMA_VERSION:
+    if boundary.get("schema_version") not in READABLE_PROVIDER_BOUNDARY_SCHEMA_VERSIONS:
         raise ValueError("provider boundary evidence schema is invalid")
     if (
         boundary.get("expected_model") != expected_model
@@ -190,11 +237,15 @@ def validate_provider_boundary_accounting(
     boundary_requests = boundary.get("boundary_requests")
     if not isinstance(boundary_requests, list):
         raise ValueError("provider boundary request evidence is invalid")
-    if boundary.get("boundary_request_count") != len(boundary_requests):
+    boundary_request_count = boundary.get("boundary_request_count")
+    if not _is_nonnegative_int(
+        boundary_request_count
+    ) or boundary_request_count != len(boundary_requests):
         raise ValueError("provider boundary request count is invalid")
     for index, request in enumerate(boundary_requests, 1):
         if (
-            request.get("count") != index
+            not _is_nonnegative_int(request.get("count"))
+            or request.get("count") != index
             or request.get("method") != "POST"
             or request.get("path") != "/responses"
             or request.get("model") != expected_model
@@ -211,6 +262,7 @@ def analyze_arm(
     artifacts = run_dir / "pair-001" / side / "artifacts"
     return analyze_artifacts(
         artifacts / "provider-cache-trace-summary.json",
+        artifacts / "provider-wire-trace.jsonl",
         artifacts / "request-summary.json",
         artifacts / "metrics.json",
         artifacts / "provider-boundary-evidence.json",

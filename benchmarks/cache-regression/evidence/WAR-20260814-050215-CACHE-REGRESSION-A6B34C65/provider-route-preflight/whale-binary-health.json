@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "run_validity": "valid",
+  "whale_bin_requested": "/home/zhangxu/whalecode-alpha/target/r8-hft-s2/bin/whale",
+  "whale_bin_resolved": "/home/zhangxu/whalecode-alpha/target/r8-hft-s2/bin/whale",
+  "whale_binary_exists": true,
+  "whale_binary_last_write_utc": "2026-08-13T21:02:05.8133954Z",
+  "whale_binary_sha256": "50b23b90337d73e8af7e9c5d43673e974c6ea41e063f4ff75c70e7bc952bedd9",
+  "whale_binary_epoch": 1786654925,
+  "current_git_head": "7f7a1e7b9de5c4930aa78571ef54c3d968a54d46",
+  "codex_source_latest_commit": {
+    "hash": "7f7a1e7b9de5c4930aa78571ef54c3d968a54d46",
+    "epoch": 1786653836,
+    "time_utc": "2026-08-13T20:43:56.0000000Z",
+    "pathspec": "third_party/codex-cli"
+  },
+  "stale_for_codex_source": false,
+  "stale_allowed": false,
+  "build_attestation_path": "/home/zhangxu/whalecode-alpha/target/r8-hft-s2/bin/whale.build-attestation.json",
+  "build_attestation_status": "pass",
+  "build_attestation_reason": "",
+  "findings": [],
+  "generated_at": "2026-08-14T05:02:16.5573213+08:00"
+}

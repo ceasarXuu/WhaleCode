@@ -4,24 +4,25 @@ if (-not (Get-Command ConvertTo-TaskspaceProjectionIdentity -ErrorAction Silentl
 if (-not (Get-Command ConvertTo-WhaleCodeBaseInstructionsIdentity -ErrorAction SilentlyContinue)) {
     . (Join-Path $PSScriptRoot "base-instructions-observation.ps1")
 }
-
+if (-not (Get-Command Invoke-TaskspaceRequestFactsGenerator -ErrorAction SilentlyContinue)) {
+    . (Join-Path $PSScriptRoot "request-facts.ps1")
+}
 function Get-TaskspaceProviderSectionKinds {
     @(
         "system_messages"
         "natural_history"
         "active_projection"
-        "taskspace_control_feedback"
         "ordinary_tool_feedback"
+        "base_instructions"
         "tools"
         "tool_choice"
         "other_payload"
     )
 }
-
 function New-TaskspaceUnavailableProviderSectionCost {
     param([Parameter(Mandatory = $true)][string]$Reason)
     [pscustomobject]@{
-        schema_version = "provider-wire-section-cost-v1"
+        schema_version = "provider-wire-section-cost-v2"
         availability = "unavailable"
         unavailable_reason = $Reason
         section_bytes_total = $null
@@ -29,19 +30,17 @@ function New-TaskspaceUnavailableProviderSectionCost {
         sections = @()
     }
 }
-
 function ConvertTo-TaskspaceProviderSectionInt64 {
     param($Value)
-    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value)) { return $null }
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -is [double] -or $Value -is [decimal] -or $Value -is [single] -or [string]::IsNullOrWhiteSpace([string]$Value)) { return $null }
     try {
         $number = [int64]$Value
-        if ($number -lt 0 -or [double]$Value -ne [double]$number) { return $null }
+        if ($number -lt 0 -or [string]$number -ne [string]$Value) { return $null }
         $number
     } catch {
         $null
     }
 }
-
 function Get-TaskspaceProviderSectionMedian {
     param([object[]]$Values)
     $ordered = @($Values | ForEach-Object { [double]$_ } | Sort-Object)
@@ -54,7 +53,7 @@ function Get-TaskspaceProviderSectionMedian {
 function ConvertTo-TaskspaceProviderSectionCost {
     param([Parameter(Mandatory = $true)]$Shape)
     $traceSchema = [string](Get-TaskspaceCostProperty $Shape @("schema_version"))
-    if ($traceSchema -ne "provider-chat-wire-trace-v10") {
+    if ($traceSchema -ne "provider-chat-wire-trace-v11") {
         return New-TaskspaceUnavailableProviderSectionCost "unsupported_provider_wire_trace_schema"
     }
     $raw = Get-TaskspaceCostProperty $Shape @("section_cost")
@@ -65,7 +64,7 @@ function ConvertTo-TaskspaceProviderSectionCost {
     if ($availability -notin @("measured", "unavailable")) {
         return New-TaskspaceUnavailableProviderSectionCost "section_cost_availability_invalid"
     }
-    if ([string](Get-TaskspaceCostProperty $raw @("schema_version")) -ne "provider-wire-section-cost-v1") {
+    if ([string](Get-TaskspaceCostProperty $raw @("schema_version")) -ne "provider-wire-section-cost-v2") {
         return New-TaskspaceUnavailableProviderSectionCost "unsupported_section_cost_schema"
     }
     $declaredTotal = ConvertTo-TaskspaceProviderSectionInt64 (Get-TaskspaceCostProperty $raw @("section_bytes_total"))
@@ -123,7 +122,7 @@ function ConvertTo-TaskspaceProviderSectionCost {
         $null
     }
     [pscustomobject]@{
-        schema_version = "provider-wire-section-cost-v1"
+        schema_version = "provider-wire-section-cost-v2"
         availability = $availability
         unavailable_reason = $reason
         section_bytes_total = [int64]$declaredTotal
@@ -184,8 +183,8 @@ function Add-TaskspaceProviderMeasuredSections {
         $Accumulator.estimated_tokens_total = [int64]$Accumulator.estimated_tokens_total + $tokens
         $rawRequestBytes = Get-TaskspaceCostProperty $section @("request_bytes")
         $rawRequestTokens = Get-TaskspaceCostProperty $section @("request_estimated_tokens")
-        $requestBytes = if ($null -eq $rawRequestBytes) { @() } else { @($rawRequestBytes) }
-        $requestTokens = if ($null -eq $rawRequestTokens) { @() } else { @($rawRequestTokens) }
+        $requestBytes = @(if ($null -ne $rawRequestBytes) { @($rawRequestBytes) })
+        $requestTokens = @(if ($null -ne $rawRequestTokens) { @($rawRequestTokens) })
         if ($RequestCount -eq 1 -and $requestBytes.Count -eq 0) { $requestBytes = @($bytes) }
         if ($RequestCount -eq 1 -and $requestTokens.Count -eq 0) { $requestTokens = @($tokens) }
         foreach ($value in $requestBytes) { $Accumulator.sections[$kind].request_bytes.Add([int64]$value) }
@@ -322,23 +321,30 @@ function Merge-TaskspaceProviderSectionCostSummaries {
     }
     ConvertFrom-TaskspaceProviderSectionAccumulator $accumulator
 }
-
 function New-TaskspaceProviderWireCacheTraceArtifacts {
-    param([Parameter(Mandatory = $true)][string]$TracePath)
+    param([Parameter(Mandatory = $true)][string]$TracePath, $RequestFacts = $null)
     $shapes = @{}
-    $terminals = @{}
     foreach ($line in @(Get-Content -Encoding UTF8 -LiteralPath $TracePath -ErrorAction SilentlyContinue)) {
         if ([string]::IsNullOrWhiteSpace([string]$line)) { continue }
         try { $event = $line | ConvertFrom-Json } catch { continue }
-        if ([string]$event.schema_version -ne "provider-chat-wire-trace-v10") { continue }
+        if ([string]$event.schema_version -ne "provider-chat-wire-trace-v11") { continue }
         $requestId = [string]$event.request_id
         if ([string]::IsNullOrWhiteSpace($requestId)) { continue }
         if ([string]$event.status -eq "payload_captured") {
             $shapes[$requestId] = $event
-        } elseif ([string]$event.event_name -eq "provider.chat_wire_request_terminal") {
-            $terminals[$requestId] = $event
         }
     }
+    $facts = if ($null -ne $RequestFacts) {
+        $RequestFacts
+    } else {
+        Invoke-TaskspaceRequestFactsGenerator -WireTracePath $TracePath
+    }
+    $factsById = @{}
+    foreach ($row in @($facts.rows)) { $factsById[[string]$row.request_id] = $row }
+    $usageMeasured = [string]$facts.availability.usage -eq "measured"
+    $cacheSourceEligible = $usageMeasured -and (Test-TaskspaceProviderWireFactsSource $facts $TracePath)
+    $attemptMeasured = [string]$facts.availability.attempt -eq "measured"
+    $boundaryMeasured = [string]$facts.availability.boundary -eq "measured"
     $events = New-Object System.Collections.Generic.List[object]
     $sectionCosts = New-Object System.Collections.Generic.List[object]
     $baseInstructionsIdentities = New-Object System.Collections.Generic.List[object]
@@ -359,14 +365,16 @@ function New-TaskspaceProviderWireCacheTraceArtifacts {
     $previousCacheShapeHash = ""
     foreach ($shape in @($shapes.Values | Sort-Object -Property request_index)) {
         $requestId = [string]$shape.request_id
-        $terminal = if ($terminals.ContainsKey($requestId)) { $terminals[$requestId] } else { $null }
-        $inputTokens = if ($null -ne $terminal) { Get-TaskspaceCostProperty $terminal @("input_tokens") } else { $null }
-        $cachedTokens = if ($null -ne $terminal) { Get-TaskspaceCostProperty $terminal @("cached_input_tokens") } else { $null }
+        $fact = if ($factsById.ContainsKey($requestId)) { $factsById[$requestId] } else { $null }
+        if ($boundaryMeasured -and ($null -eq $fact -or [string]$fact.boundary_status -ne "observed")) { continue }
+        $usage = if ($cacheSourceEligible -and $null -ne $fact -and [string]$fact.usage_source -in @("wire", "wire_and_rollout")) { Get-TaskspaceCostProperty $fact @("usage") } else { $null }
+        $inputTokens = if ($null -ne $usage) { Get-TaskspaceCostProperty $usage @("input_tokens") } else { $null }
+        $cachedTokens = if ($null -ne $usage) { Get-TaskspaceCostProperty $usage @("cached_input_tokens") } else { $null }
         $uncachedTokens = $null
-        $terminalStatus = if ($null -ne $terminal) { [string]$terminal.status } else { "terminal_missing" }
+        $terminalStatus = if ($null -ne $fact) { [string]$fact.terminal_status } else { "unavailable" }
         if ($null -ne $inputTokens -and $null -ne $cachedTokens) {
             $uncachedTokens = [Math]::Max(0, [int64]$inputTokens - [int64]$cachedTokens)
-        } elseif ($terminalStatus -eq "response_completed") {
+        } elseif ($cacheSourceEligible -and $null -ne $fact -and $null -eq $usage) {
             $missingUsage++
         }
         $hitRate = if ($null -ne $cachedTokens -and $null -ne $uncachedTokens -and ([double]$cachedTokens + [double]$uncachedTokens) -gt 0) {
@@ -450,36 +458,39 @@ function New-TaskspaceProviderWireCacheTraceArtifacts {
         -not [string]::IsNullOrWhiteSpace([string]$_.provider_payload_sha256) -and [string]$_.status -ne "terminal_missing"
     }).Count
     $request2PlusDenominator = [double]$request2PlusHit + [double]$request2PlusMiss
+    $cacheMeasured = $cacheSourceEligible -and $missingUsage -eq 0 -and (-not $boundaryMeasured -or $count -eq [int]$facts.summary.boundary_request_count)
+    $findingCodes = @($facts.findings | ForEach-Object { [string]$_.code } | Sort-Object -Unique)
     [pscustomobject]@{
         provider_cache_trace_events = @($events.ToArray())
         provider_cache_trace_summary = [pscustomobject]@{
             schema_version = "TaskSpaceProviderCacheTraceSummaryV4"; source = "provider_final_wire_trace"
-            provider_request_count = $count
-            completed_response_count = @(
-                $events.ToArray() | Where-Object status -eq "response_completed"
-            ).Count
-            failed_or_cancelled_attempt_count = @(
-                $events.ToArray() | Where-Object {
-                    [string]$_.status -notin @("response_completed", "terminal_missing")
-                }
-            ).Count
-            trace_coverage = if ($count -gt 0) { [Math]::Round([double]$covered / [double]$count, 6) } else { 0.0 }
-            cache_usage_missing_count = [int]$missingUsage
+            provider_request_count = if ($boundaryMeasured) { [int64]$facts.summary.boundary_request_count } else { $null }
+            provider_request_source = if ($boundaryMeasured) { "request_facts_boundary" } else { "request_facts_unavailable" }
+            provider_attempt_count = if ($attemptMeasured) { [int64]$facts.summary.local_attempt_count } else { $null }
+            shape_observation_count = $count
+            completed_response_count = if ([string]$facts.availability.completion -eq "measured") { [int64]$facts.summary.completed_response_count } else { $null }
+            failed_or_cancelled_attempt_count = if ([string]$facts.availability.completion -eq "measured") { [int64]$facts.summary.failed_or_cancelled_attempt_count } else { $null }
+            request_facts_analyzer_version = [string]$facts.analyzer_version
+            request_facts_availability = $facts.availability
+            request_facts_findings = $findingCodes
+            comparison_eligible = $cacheMeasured
+            trace_coverage = if ($attemptMeasured -and $count -gt 0) { [Math]::Round([double]$covered / [double]$count, 6) } elseif ($attemptMeasured) { 0.0 } else { $null }
+            cache_usage_missing_count = if ($cacheMeasured) { [int]$missingUsage } else { $null }
             request_shape_counts = Convert-TaskspaceCostTable $shapeCounts
             native_tools_schema_hot_path_count = if ($shapeCounts.ContainsKey("native_tools_schema_hot_path")) { [int]$shapeCounts["native_tools_schema_hot_path"] } else { 0 }
             tool_free_action_contract_count = if ($shapeCounts.ContainsKey("tool_free_action_contract")) { [int]$shapeCounts["tool_free_action_contract"] } else { 0 }
             unknown_or_unclassified_count = 0
-            request_2_plus_count = [int]$request2PlusCount
-            request_2_plus_cached_input_tokens = [int64]$request2PlusHit
-            request_2_plus_uncached_input_tokens = [int64]$request2PlusMiss
-            request_2_plus_hit_rate = if ($request2PlusDenominator -gt 0) { [Math]::Round([double]$request2PlusHit / $request2PlusDenominator, 6) } else { $null }
+            request_2_plus_count = if ($cacheMeasured) { [int]$request2PlusCount } else { $null }
+            request_2_plus_cached_input_tokens = if ($cacheMeasured) { [int64]$request2PlusHit } else { $null }
+            request_2_plus_uncached_input_tokens = if ($cacheMeasured) { [int64]$request2PlusMiss } else { $null }
+            request_2_plus_hit_rate = if ($cacheMeasured -and $request2PlusDenominator -gt 0) { [Math]::Round([double]$request2PlusHit / $request2PlusDenominator, 6) } else { $null }
             prefix_comparison_count = [int]$prefixComparisonCount
             prefix_preserved_count = [int]$prefixPreservedCount
             prefix_preserved_rate = if ($prefixComparisonCount -gt 0) { [Math]::Round([double]$prefixPreservedCount / [double]$prefixComparisonCount, 6) } else { $null }
             first_diff_path_counts = Convert-TaskspaceCostTable $firstDiffPathCounts
-            zero_cache_hit_count = [int]$zeroCacheHitCount
-            cache_warmup_candidate_count = [int]$cacheWarmupCandidateCount
-            same_shape_zero_hit_count = [int]$sameShapeZeroHitCount
+            zero_cache_hit_count = if ($cacheMeasured) { [int]$zeroCacheHitCount } else { $null }
+            cache_warmup_candidate_count = if ($cacheMeasured) { [int]$cacheWarmupCandidateCount } else { $null }
+            same_shape_zero_hit_count = if ($cacheMeasured) { [int]$sameShapeZeroHitCount } else { $null }
             tool_choice_transition_count = [int]$toolChoiceTransitionCount
             cache_shape_transition_count = [int]$cacheShapeTransitionCount
             section_cost_summary = New-TaskspaceProviderSectionCostSummary @($sectionCosts.ToArray())

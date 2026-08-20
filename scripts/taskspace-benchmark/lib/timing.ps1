@@ -104,7 +104,7 @@ function New-TaskspaceMissingWaitAttribution {
             $Object -and
             $Object.PSObject.Properties.Name -contains "wait_attribution_unavailable_fields" -and
             $Object.wait_attribution_unavailable_fields -and
-            $Object.wait_attribution_unavailable_fields.PSObject.Properties.Name -contains $field
+            @($Object.wait_attribution_unavailable_fields.PSObject.Properties | ForEach-Object { $_.Name }) -contains $field
         )
         if ($unavailable) { continue }
         if (-not $Object -or -not ($Object.PSObject.Properties.Name -contains $field) -or $null -eq $Object.$field) {
@@ -206,7 +206,9 @@ function Get-TaskspaceModelTimingAttribution {
         $eventType = if ($evt.PSObject.Properties.Name -contains "type") { [string]$evt.type } else { "" }
         $payload = if ($evt.PSObject.Properties.Name -contains "payload") { $evt.payload } else { $null }
         $payloadType = if ($payload -and $payload.PSObject.Properties.Name -contains "type") { [string]$payload.type } else { "" }
-        if ($eventType -eq "event_msg" -and $payload -and [string]$payload.kind -eq "provider_request_budget") {
+        if ($eventType -eq "event_msg" -and $payload -and
+            $payload.PSObject.Properties.Name -contains "kind" -and
+            [string]$payload.kind -eq "provider_request_budget") {
             $tags = Convert-TaskspaceTimingTraceTags $payload.tags
             $status = [string]$tags.status
             $producer = [string]$tags.producer

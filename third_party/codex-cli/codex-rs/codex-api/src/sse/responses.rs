@@ -174,6 +174,7 @@ pub struct ResponsesStreamEvent {
     item: Option<Value>,
     item_id: Option<String>,
     call_id: Option<String>,
+    output_index: Option<usize>,
     delta: Option<String>,
     summary_index: Option<i64>,
     content_index: Option<i64>,
@@ -289,7 +290,10 @@ pub fn process_responses_event(
         "response.output_item.done" => {
             if let Some(item_val) = event.item {
                 if let Ok(item) = serde_json::from_value::<ResponseItem>(item_val) {
-                    return Ok(Some(ResponseEvent::OutputItemDone(item)));
+                    return Ok(Some(ResponseEvent::OutputItemDone(
+                        item,
+                        event.output_index,
+                    )));
                 }
                 debug!("failed to parse ResponseItem from output_item.done");
             }
@@ -738,12 +742,12 @@ mod tests {
                 role,
                 phase: Some(MessagePhase::Commentary),
                 ..
-            })) if role == "assistant"
+            }, _)) if role == "assistant"
         );
 
         assert_matches!(
             &events[1],
-            Ok(ResponseEvent::OutputItemDone(ResponseItem::Message { role, .. }))
+            Ok(ResponseEvent::OutputItemDone(ResponseItem::Message { role, .. }, _))
                 if role == "assistant"
         );
 
@@ -779,7 +783,7 @@ mod tests {
 
         assert_eq!(events.len(), 2);
 
-        assert_matches!(events[0], Ok(ResponseEvent::OutputItemDone(_)));
+        assert_matches!(events[0], Ok(ResponseEvent::OutputItemDone(_, _)));
 
         match &events[1] {
             Err(ApiError::Stream(msg)) => {
@@ -794,6 +798,7 @@ mod tests {
         let events = run_sse(vec![
             json!({
                 "type": "response.output_item.done",
+                "output_index": 3,
                 "item": {
                     "type": "tool_search_call",
                     "call_id": "search-1",
@@ -819,9 +824,110 @@ mod tests {
                 execution,
                 arguments,
                 ..
-            }) if call_id.as_deref() == Some("search-1")
+            }, _) if call_id.as_deref() == Some("search-1")
                 && execution == "client"
                 && arguments == &json!({"query": "calendar create", "limit": 1})
+        );
+    }
+
+    #[tokio::test]
+    async fn preserves_hosted_item_ids_without_requiring_a_function_echo() {
+        let function_arguments = json!({
+            "node_id": "research",
+            "operation": "record_progress"
+        })
+        .to_string();
+        let events = run_sse(vec![
+            json!({
+                "type": "response.output_item.added",
+                "item": {
+                    "type": "web_search_call",
+                    "id": "ws_123",
+                    "status": "in_progress"
+                }
+            }),
+            json!({
+                "type": "response.output_item.done",
+                "output_index": 3,
+                "item": {
+                    "type": "web_search_call",
+                    "id": "ws_123",
+                    "status": "completed",
+                    "action": {"type": "search", "query": "TaskSpace protocol"}
+                }
+            }),
+            json!({
+                "type": "response.output_item.done",
+                "output_index": 7,
+                "item": {
+                    "type": "image_generation_call",
+                    "id": "ig_123",
+                    "status": "completed",
+                    "revised_prompt": "A dependency map",
+                    "result": "ZmFrZS1pbWFnZQ=="
+                }
+            }),
+            json!({
+                "type": "response.output_item.done",
+                "output_index": 9,
+                "item": {
+                    "type": "function_call",
+                    "id": "fc_123",
+                    "call_id": "call_123",
+                    "name": "record_hosted_results",
+                    "status": "completed",
+                    "arguments": function_arguments
+                }
+            }),
+            json!({
+                "type": "response.completed",
+                "response": {"id": "resp_123"}
+            }),
+        ])
+        .await;
+
+        assert_eq!(events.len(), 5);
+        assert_matches!(
+            &events[0],
+            ResponseEvent::OutputItemAdded(ResponseItem::WebSearchCall {
+                id: Some(id),
+                status: Some(status),
+                ..
+            }) if id == "ws_123" && status == "in_progress"
+        );
+        assert_matches!(
+            &events[1],
+            ResponseEvent::OutputItemDone(ResponseItem::WebSearchCall {
+                id: Some(id),
+                status: Some(status),
+                ..
+            }, Some(3)) if id == "ws_123" && status == "completed"
+        );
+        assert_matches!(
+            &events[2],
+            ResponseEvent::OutputItemDone(ResponseItem::ImageGenerationCall {
+                id,
+                status,
+                result,
+                ..
+            }, Some(7)) if id == "ig_123" && status == "completed" && result == "ZmFrZS1pbWFnZQ=="
+        );
+        assert_matches!(
+            &events[3],
+            ResponseEvent::OutputItemDone(ResponseItem::FunctionCall {
+                id: Some(id),
+                call_id,
+                name,
+                arguments,
+                ..
+            }, Some(9)) if id == "fc_123"
+                && call_id == "call_123"
+                && name == "record_hosted_results"
+                && arguments == &function_arguments
+        );
+        assert_matches!(
+            &events[4],
+            ResponseEvent::Completed { response_id, .. } if response_id == "resp_123"
         );
     }
 
@@ -1036,7 +1142,7 @@ mod tests {
             matches!(ev, ResponseEvent::Created)
         }
         fn is_output(ev: &ResponseEvent) -> bool {
-            matches!(ev, ResponseEvent::OutputItemDone(_))
+            matches!(ev, ResponseEvent::OutputItemDone(_, _))
         }
         fn is_completed(ev: &ResponseEvent) -> bool {
             matches!(ev, ResponseEvent::Completed { .. })

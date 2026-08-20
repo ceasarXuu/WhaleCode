@@ -1,0 +1,38 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v1",
+  "status": "granted",
+  "approved_by": "user",
+  "approved_at": "2026-08-12T23:24:09+08:00",
+  "authorization_id": "CBA-20260812-R8-LS09-A-BFA6943F5975B105",
+  "approval_reference": "用户于 2026-08-12 批准 R8-LS09-LIVE-ACCEPT-20260812：三项 map-request 验收顺序执行、总计最多 52 requests、1,180,000 input、80,000 output、60 分钟、USD 0.19，零重试；本授权仅认领 Run A single-file-fast-fix repeat=1，token 与费用按每次运行结束后的观测阈值累计并在异常时停止后续运行。",
+  "proposal_id": "CBP-BFA6943F5975B105",
+  "proposal_sha256": "2ff50984ffa668cb3d01bfc24e0a249a39a7954a49b66ae29fb2eae3e6142e8a",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 1,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 1,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "LS-09 Run A: accept the closed legal sequence on single-file-fast-fix under the user-approved three-run package; no retry."
+  },
+  "approved_maximums": {
+    "provider_requests": 12,
+    "input_tokens": 12000000,
+    "output_tokens": 4608000,
+    "elapsed_seconds": 720,
+    "estimated_cost": 2.97024,
+    "currency": "USD"
+  }
+}

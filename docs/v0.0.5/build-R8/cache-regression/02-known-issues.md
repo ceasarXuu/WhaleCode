@@ -175,6 +175,12 @@ Python `195 passed, 0 skipped`，Schema 与五组 PowerShell/Docker 集成自测
 非阻断残余：多文件 promotion 仍不是事务写入；中断会留下 dirty worktree，但正式 clean-HEAD gate 与 accepted
 manifest 重验会阻断该中间状态，不构成发布绕过。它作为后续工程增强记录，不重新打开 CR-I07。
 
+2026-08-18 在准备 Provider hosted 聚合真实验收时发现一项授权合同回归：v2 提案把 Provider 理论容量写成用户必须
+批准的 `maximums`，人工选择的 token/费用只作为事后观测阈值。该问题由预算合同 v3 修复：批准额度与
+`provider_capacity_ceiling` 分离，隔离 Provider boundary 在每个 terminal usage 后累计 token/费用并在下一请求前
+fail closed；历史 v2/v1 证据仅保留只读校验。详见 [22-approved-budget-contract-v3.md](22-approved-budget-contract-v3.md)。
+该修复属于 CR-I07 已关闭能力的回归修正，不新增独立全局问题编号。
+
 ## 3. 已验证但不属于门禁缺陷的产品现象
 
 首次真实回归发现 map-request request 2+ 缓存命中率为 `35.79%`，Standard 为 `96.62%`。这是当前 TaskSpace

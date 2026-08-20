@@ -1,0 +1,350 @@
+{
+  "schema_version": "TaskSpaceProviderCacheTraceSummaryV4",
+  "source": "provider_final_wire_trace",
+  "provider_request_count": 8,
+  "provider_request_source": "request_facts_boundary",
+  "provider_attempt_count": 8,
+  "shape_observation_count": 8,
+  "completed_response_count": 8,
+  "failed_or_cancelled_attempt_count": 0,
+  "request_facts_analyzer_version": "i07-review-fixes-v3",
+  "request_facts_availability": {
+    "attempt": "measured",
+    "boundary": "measured",
+    "boundary_correlation": "measured",
+    "completion": "measured",
+    "usage": "measured"
+  },
+  "request_facts_findings": [],
+  "comparison_eligible": true,
+  "trace_coverage": 1.0,
+  "cache_usage_missing_count": 0,
+  "request_shape_counts": {
+    "native_tools_schema_hot_path": 8
+  },
+  "native_tools_schema_hot_path_count": 8,
+  "tool_free_action_contract_count": 0,
+  "unknown_or_unclassified_count": 0,
+  "request_2_plus_count": 7,
+  "request_2_plus_cached_input_tokens": 102016,
+  "request_2_plus_uncached_input_tokens": 9063,
+  "request_2_plus_hit_rate": 0.918409,
+  "prefix_comparison_count": 7,
+  "prefix_preserved_count": 0,
+  "prefix_preserved_rate": 0.0,
+  "first_diff_path_counts": {
+    "messages[11].message": 1,
+    "messages[15].message": 1,
+    "messages[19].message": 1,
+    "messages[23].message": 1,
+    "messages[27].message": 1,
+    "messages[3].message": 1,
+    "messages[7].message": 1
+  },
+  "zero_cache_hit_count": 0,
+  "cache_warmup_candidate_count": 0,
+  "same_shape_zero_hit_count": 0,
+  "tool_choice_transition_count": 0,
+  "cache_shape_transition_count": 0,
+  "section_cost_summary": {
+    "schema_version": "provider-wire-section-cost-summary-v1",
+    "availability": "measured",
+    "request_count": 8,
+    "measured_request_count": 8,
+    "unavailable_request_count": 0,
+    "unavailable_reason_counts": {},
+    "section_bytes_total": 501647,
+    "estimated_tokens_total": 125425,
+    "sections": [
+      {
+        "kind": "system_messages",
+        "count": 8,
+        "bytes": 40392,
+        "estimated_tokens": 10104,
+        "request_sample_count": 8,
+        "bytes_per_request_mean": 5049.0,
+        "bytes_per_request_median": 5049.0,
+        "estimated_tokens_per_request_mean": 1263.0,
+        "estimated_tokens_per_request_median": 1263.0,
+        "request_bytes": [
+          5049,
+          5049,
+          5049,
+          5049,
+          5049,
+          5049,
+          5049,
+          5049
+        ],
+        "request_estimated_tokens": [
+          1263,
+          1263,
+          1263,
+          1263,
+          1263,
+          1263,
+          1263,
+          1263
+        ]
+      },
+      {
+        "kind": "natural_history",
+        "count": 136,
+        "bytes": 83655,
+        "estimated_tokens": 20917,
+        "request_sample_count": 8,
+        "bytes_per_request_mean": 10456.875,
+        "bytes_per_request_median": 12265.5,
+        "estimated_tokens_per_request_mean": 2614.625,
+        "estimated_tokens_per_request_median": 3067.0,
+        "request_bytes": [
+          729,
+          4501,
+          7595,
+          11446,
+          13085,
+          14068,
+          15556,
+          16675
+        ],
+        "request_estimated_tokens": [
+          183,
+          1126,
+          1899,
+          2862,
+          3272,
+          3517,
+          3889,
+          4169
+        ]
+      },
+      {
+        "kind": "active_projection",
+        "count": 0,
+        "bytes": 0,
+        "estimated_tokens": 0,
+        "request_sample_count": 8,
+        "bytes_per_request_mean": 0.0,
+        "bytes_per_request_median": 0.0,
+        "estimated_tokens_per_request_mean": 0.0,
+        "estimated_tokens_per_request_median": 0.0,
+        "request_bytes": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "request_estimated_tokens": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "kind": "ordinary_tool_feedback",
+        "count": 0,
+        "bytes": 0,
+        "estimated_tokens": 0,
+        "request_sample_count": 8,
+        "bytes_per_request_mean": 0.0,
+        "bytes_per_request_median": 0.0,
+        "estimated_tokens_per_request_mean": 0.0,
+        "estimated_tokens_per_request_median": 0.0,
+        "request_bytes": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "request_estimated_tokens": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "kind": "base_instructions",
+        "count": 8,
+        "bytes": 161088,
+        "estimated_tokens": 40272,
+        "request_sample_count": 8,
+        "bytes_per_request_mean": 20136.0,
+        "bytes_per_request_median": 20136.0,
+        "estimated_tokens_per_request_mean": 5034.0,
+        "estimated_tokens_per_request_median": 5034.0,
+        "request_bytes": [
+          20136,
+          20136,
+          20136,
+          20136,
+          20136,
+          20136,
+          20136,
+          20136
+        ],
+        "request_estimated_tokens": [
+          5034,
+          5034,
+          5034,
+          5034,
+          5034,
+          5034,
+          5034,
+          5034
+        ]
+      },
+      {
+        "kind": "tools",
+        "count": 16,
+        "bytes": 213504,
+        "estimated_tokens": 53376,
+        "request_sample_count": 8,
+        "bytes_per_request_mean": 26688.0,
+        "bytes_per_request_median": 26688.0,
+        "estimated_tokens_per_request_mean": 6672.0,
+        "estimated_tokens_per_request_median": 6672.0,
+        "request_bytes": [
+          26688,
+          26688,
+          26688,
+          26688,
+          26688,
+          26688,
+          26688,
+          26688
+        ],
+        "request_estimated_tokens": [
+          6672,
+          6672,
+          6672,
+          6672,
+          6672,
+          6672,
+          6672,
+          6672
+        ]
+      },
+      {
+        "kind": "tool_choice",
+        "count": 8,
+        "bytes": 160,
+        "estimated_tokens": 40,
+        "request_sample_count": 8,
+        "bytes_per_request_mean": 20.0,
+        "bytes_per_request_median": 20.0,
+        "estimated_tokens_per_request_mean": 5.0,
+        "estimated_tokens_per_request_median": 5.0,
+        "request_bytes": [
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20,
+          20
+        ],
+        "request_estimated_tokens": [
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5,
+          5
+        ]
+      },
+      {
+        "kind": "other_payload",
+        "count": 72,
+        "bytes": 2848,
+        "estimated_tokens": 716,
+        "request_sample_count": 8,
+        "bytes_per_request_mean": 356.0,
+        "bytes_per_request_median": 356.0,
+        "estimated_tokens_per_request_mean": 89.5,
+        "estimated_tokens_per_request_median": 89.5,
+        "request_bytes": [
+          342,
+          346,
+          350,
+          354,
+          358,
+          362,
+          366,
+          370
+        ],
+        "request_estimated_tokens": [
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93
+        ]
+      }
+    ],
+    "active_projection_identity_summary": {
+      "schema_version": "provider-wire-active-projection-identity-summary-v1",
+      "bootstrap_count": 0,
+      "active_count": 0,
+      "unavailable_count": 8,
+      "unavailable_reason_counts": {
+        "active_projection_missing": 8
+      },
+      "projection_sha256_counts": {},
+      "revision_counts": {},
+      "unique_projection_sha256_count": 0,
+      "unique_revision_count": 0
+    }
+  },
+  "base_instructions_identity_summary": {
+    "schema_version": "WhaleCodeBaseInstructionsIdentitySummaryV1",
+    "request_count": 8,
+    "present_count": 8,
+    "absent_count": 0,
+    "invalid_count": 0,
+    "unavailable_count": 0,
+    "current_contract_match_count": 8,
+    "current_contract_match_rate": 1.0,
+    "message_bytes_total": 160968,
+    "message_bytes_per_present_request_mean": 20121.0,
+    "estimated_tokens_total": 40248,
+    "estimated_tokens_per_present_request_mean": 5031.0,
+    "profile_counts": {
+      "taskspace": 8
+    },
+    "version_counts": {
+      "3.0.5": 8
+    },
+    "sha256_counts": {
+      "e2f81354fb2f9e4831505e3a809b09e52266e5f83235f14d3d802d715b562866": 8
+    },
+    "message_index_counts": {},
+    "wire_role_counts": {
+      "instructions": 8
+    },
+    "unavailable_reason_counts": {}
+  }
+}

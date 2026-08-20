@@ -1,0 +1,42 @@
+{
+  "schema_version": "whalecode-provider-boundary-evidence-v2",
+  "request_facts_analyzer_version": "i07-review-fixes-v3",
+  "status": "reconciled",
+  "boundary_availability": "measured",
+  "boundary_correlation_availability": "measured",
+  "expected_model": "deepseek-v4-flash",
+  "allowed_method": "POST",
+  "allowed_path": "/responses",
+  "boundary_request_count": 1,
+  "wire_request_count": 1,
+  "local_attempt_count": 1,
+  "local_only_attempt_count": 0,
+  "boundary_requests": [
+    {
+      "count": 1,
+      "method": "POST",
+      "path": "/responses",
+      "model": "deepseek-v4-flash",
+      "body_sha256": "8adaa1d524dd5d1da4d17005cad34573c37dd3540a7f55d01bc457f8564612fe"
+    }
+  ],
+  "wire_requests": [
+    {
+      "request_id": "provider-wire:019fe663-22c4-79b3-8fc9-b40fa14f3afd:0:logical-1:attempt-1",
+      "request_count_after": 1,
+      "provider_payload_sha256": "8adaa1d524dd5d1da4d17005cad34573c37dd3540a7f55d01bc457f8564612fe"
+    }
+  ],
+  "local_attempts": [
+    {
+      "request_id": "provider-wire:019fe663-22c4-79b3-8fc9-b40fa14f3afd:0:logical-1:attempt-1",
+      "logical_request_id": "provider-wire:019fe663-22c4-79b3-8fc9-b40fa14f3afd:0:logical-1",
+      "attempt_seq": 1,
+      "request_index": 1,
+      "provider_payload_sha256": "8adaa1d524dd5d1da4d17005cad34573c37dd3540a7f55d01bc457f8564612fe",
+      "boundary_status": "observed",
+      "terminal_status": "response_completed"
+    }
+  ],
+  "errors": []
+}

@@ -783,6 +783,9 @@ pub enum Op {
     /// It does not select between legacy and current TaskSpace implementations.
     SetMapRuntimeMode { mode: MapRuntimeMode },
 
+    /// Select how the current and future TaskSpace sessions project their Map.
+    SetTaskSpaceProjectionPolicy { policy: TaskSpaceProjectionPolicy },
+
     /// Show a human-readable snapshot of the current TaskSpace path.
     ///
     /// This is a local-only operation handled by codex-core; it does not
@@ -922,6 +925,7 @@ impl Op {
             Self::SetThreadName { .. } => "set_thread_name",
             Self::SetThreadMemoryMode { .. } => "set_thread_memory_mode",
             Self::SetMapRuntimeMode { .. } => "set_map_runtime_mode",
+            Self::SetTaskSpaceProjectionPolicy { .. } => "set_taskspace_projection_policy",
             Self::ShowActionMap => "show_action_map",
             Self::Undo => "undo",
             Self::ThreadRollback { .. } => "thread_rollback",
@@ -1801,19 +1805,8 @@ pub struct ActionMapSnapshot {
     pub schema_version: String,
     pub mode: MapRuntimeMode,
     #[serde(default)]
-    pub routing_required: bool,
-    #[serde(default)]
     pub bootstrap_required: bool,
     pub map: Option<ActionMapSnapshotMap>,
-    pub maintenance_barriers: Vec<ActionMapSnapshotMaintenanceBarrier>,
-    #[serde(default)]
-    pub trace_summary: ActionMapSnapshotTraceSummary,
-    #[serde(default)]
-    pub trace_events: Vec<ActionMapSnapshotTraceEventRef>,
-    #[serde(default)]
-    pub sentinel_summary: ActionMapSnapshotSentinelSummary,
-    #[serde(default)]
-    pub sentinel_warnings: Vec<ActionMapSnapshotSentinelWarningRef>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -1821,26 +1814,15 @@ pub struct ActionMapSnapshot {
 #[ts(rename_all = "camelCase")]
 pub struct ActionMapSnapshotMap {
     pub id: String,
-    pub task_id: Option<String>,
-    pub owner_session_id: Option<ThreadId>,
     pub root_node_id: String,
     pub finish_node_id: String,
     pub revision: u64,
-    pub terminal_summary_ref: Option<String>,
-    #[serde(default)]
-    pub terminal_history_summary_refs: Vec<String>,
     pub complete: bool,
     pub ready_work_node_count: usize,
     pub inflight_work_node_count: usize,
     pub completed_work_node_count: usize,
     pub finish_ready: bool,
     pub nodes: Vec<ActionMapSnapshotNode>,
-    pub edges: Vec<ActionMapSnapshotEdge>,
-    pub reservations: Vec<ActionMapSnapshotReservation>,
-    pub results: Vec<ActionMapSnapshotResult>,
-    pub evidence_refs: Vec<ActionMapSnapshotEvidenceRef>,
-    #[serde(default)]
-    pub node_events: Vec<ActionMapSnapshotNodeEvent>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -1851,148 +1833,19 @@ pub struct ActionMapSnapshotNode {
     pub role: String,
     pub goal: String,
     pub state: String,
-    pub source_refs: Vec<String>,
-    pub result_ids: Vec<String>,
-    pub evidence_ref_ids: Vec<String>,
-    #[serde(default)]
-    pub node_event_ids: Vec<String>,
+    pub content: String,
+    pub parents: Vec<String>,
+    pub children: Vec<String>,
+    pub actions: Vec<ActionMapSnapshotAction>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(rename_all = "camelCase")]
-pub struct ActionMapSnapshotEdge {
-    pub from: String,
-    pub to: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct ActionMapSnapshotReservation {
-    pub id: String,
+pub struct ActionMapSnapshotAction {
     pub action_id: String,
-    pub node_id: String,
     pub tool_name: String,
-    pub response_call_index: u32,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct ActionMapSnapshotResult {
-    pub id: String,
-    pub node_id: String,
-    pub action_id: String,
-    pub reservation_id: String,
-    pub is_error: bool,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct ActionMapSnapshotEvidenceRef {
-    pub id: String,
-    pub node_id: String,
-    pub action_id: String,
-    pub reservation_id: String,
-    pub kind: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct ActionMapSnapshotNodeEvent {
-    pub id: String,
-    pub map_id: String,
-    pub node_id: String,
-    pub event_kind: String,
-    pub source: String,
-    #[serde(default)]
-    pub action_class: Option<String>,
-    #[serde(default)]
-    pub tool_success: Option<bool>,
-    pub content_sha256: String,
-    pub source_event_id: Option<String>,
-    #[serde(default)]
-    pub raw_ref: Option<String>,
-    #[serde(default)]
-    pub artifact_refs: Vec<String>,
-    #[serde(default)]
-    pub call_id: Option<String>,
-    pub source_thread_id: ThreadId,
-    pub created_at_ms: i64,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct ActionMapSnapshotMaintenanceBarrier {
-    pub map_id: String,
-    pub node_id: String,
-    pub reason: String,
-    pub result_count: usize,
-    pub budget: usize,
-}
-
-#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct ActionMapSnapshotTraceSummary {
-    pub total_event_count: usize,
-    pub tool_call_count: usize,
-    pub failed_tool_call_count: usize,
-    pub validator_failure_count: usize,
-    pub unclassified_shell_action_count: usize,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct ActionMapSnapshotTraceEventRef {
-    pub id: String,
-    pub kind: String,
-    pub task_id: Option<String>,
-    pub map_id: String,
-    pub node_id: String,
-    pub result_id: Option<String>,
-    pub call_id: Option<String>,
-    pub action_class: Option<String>,
-    pub tool_success: Option<bool>,
-    pub tags: Vec<String>,
-    pub artifact_refs: Vec<String>,
-    pub created_at_ms: i64,
-}
-
-#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct ActionMapSnapshotSentinelSummary {
-    pub total_warning_count: usize,
-    pub active_warning_count: usize,
-    pub validator_failure_warning_count: usize,
-    pub unclassified_shell_warning_count: usize,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct ActionMapSnapshotSentinelWarningRef {
-    pub id: String,
-    pub sentinel_type: String,
-    pub status: String,
-    pub severity: String,
-    pub task_id: Option<String>,
-    pub map_id: String,
-    pub node_id: String,
-    pub result_id: Option<String>,
-    pub trace_event_ids: Vec<String>,
-    pub reason: String,
-    pub clearance_action: String,
-    #[serde(default)]
-    pub clear_action: Option<String>,
-    pub created_at_ms: i64,
-    pub cleared_at_ms: Option<i64>,
+    pub outcome: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -2001,73 +1854,6 @@ pub struct ActionMapSnapshotSentinelWarningRef {
 pub struct MapRuntimeModeChangedEvent {
     pub previous_mode: MapRuntimeMode,
     pub current_mode: MapRuntimeMode,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct MapRuntimeGraphRevisionCommittedEvent {
-    pub map_id: String,
-    pub revision: u64,
-    pub operation: String,
-    pub event_ids: Vec<String>,
-    pub events: Vec<Value>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct MapRuntimeNodeDetailExpandedEvent {
-    pub map_id: String,
-    pub node_id: String,
-    pub expansion_event_id: String,
-    pub call_id: String,
-    pub source_event_id: String,
-    pub source_thread_id: ThreadId,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct MapRuntimeTraceEventRecordedEvent {
-    pub trace_event_id: String,
-    pub kind: String,
-    pub task_id: Option<String>,
-    pub map_id: String,
-    pub node_id: String,
-    pub result_id: Option<String>,
-    pub call_id: Option<String>,
-    pub action_class: Option<String>,
-    pub tool_success: Option<bool>,
-    pub tags: Vec<String>,
-    pub artifact_refs: Vec<String>,
-    pub created_at_ms: i64,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct MapRuntimeTaskContextEventRecordedEvent {
-    pub id: String,
-    pub sequence: u64,
-    pub owner_kind: String,
-    pub owner_id: Option<String>,
-    pub event_type: String,
-    pub original_role: Option<String>,
-    pub call_id: Option<String>,
-    pub parent_call_id: Option<String>,
-    pub tool_success: Option<bool>,
-    pub raw_payload: Value,
-    pub provider_item_id: Option<String>,
-    pub created_at_ms: i64,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(rename_all = "camelCase")]
-pub struct MapRuntimeTaskContextOwnershipChangedEvent {
-    pub active: bool,
-    pub events: Vec<MapRuntimeTaskContextEventRecordedEvent>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
@@ -2087,11 +1873,6 @@ pub struct MapRuntimeStoreCommittedEvent {
 #[ts(tag = "map_event_type")]
 pub enum MapRuntimeEvent {
     ModeChanged(MapRuntimeModeChangedEvent),
-    GraphRevisionCommitted(MapRuntimeGraphRevisionCommittedEvent),
-    NodeDetailExpanded(MapRuntimeNodeDetailExpandedEvent),
-    TaskspaceTraceEventRecorded(MapRuntimeTraceEventRecordedEvent),
-    TaskContextEventRecorded(MapRuntimeTaskContextEventRecordedEvent),
-    TaskContextOwnershipChanged(MapRuntimeTaskContextOwnershipChangedEvent),
     StoreCommitted(MapRuntimeStoreCommittedEvent),
 }
 
@@ -3022,26 +2803,6 @@ impl InitialHistory {
             }),
         }
     }
-
-    pub fn taskspace_skill_snapshot(&self) -> Option<TaskSpaceSkillSnapshotIdentity> {
-        match self {
-            InitialHistory::New | InitialHistory::Cleared => None,
-            InitialHistory::Resumed(resumed) => {
-                resumed.history.iter().find_map(|item| match item {
-                    RolloutItem::SessionMeta(meta_line) => {
-                        meta_line.meta.taskspace_skill_snapshot.clone()
-                    }
-                    _ => None,
-                })
-            }
-            InitialHistory::Forked(items) => items.iter().find_map(|item| match item {
-                RolloutItem::SessionMeta(meta_line) => {
-                    meta_line.meta.taskspace_skill_snapshot.clone()
-                }
-                _ => None,
-            }),
-        }
-    }
 }
 
 fn session_cwd_from_items(items: &[RolloutItem]) -> Option<PathBuf> {
@@ -3237,16 +2998,6 @@ pub struct SessionMeta {
     pub memory_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub taskspace_projection_policy: Option<TaskSpaceProjectionPolicy>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub taskspace_skill_snapshot: Option<TaskSpaceSkillSnapshotIdentity>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, JsonSchema, TS)]
-pub struct TaskSpaceSkillSnapshotIdentity {
-    pub name: String,
-    pub skill_version: String,
-    pub body_sha256: String,
-    pub immutable_snapshot_path: PathBuf,
 }
 
 impl Default for SessionMeta {
@@ -3267,7 +3018,6 @@ impl Default for SessionMeta {
             dynamic_tools: None,
             memory_mode: None,
             taskspace_projection_policy: None,
-            taskspace_skill_snapshot: None,
         }
     }
 }
@@ -5645,62 +5395,28 @@ mod tests {
     }
 
     #[test]
-    fn action_map_snapshot_result_serializes_canonical_attribution_facts() -> Result<()> {
-        let result = ActionMapSnapshotResult {
-            id: "result-1".to_string(),
-            node_id: "node-1".to_string(),
-            action_id: "action-1".to_string(),
-            reservation_id: "reservation-1".to_string(),
-            is_error: false,
-        };
-
-        let value = serde_json::to_value(&result)?;
-
-        assert_eq!(value["id"], "result-1");
-        assert_eq!(value["nodeId"], "node-1");
-        assert_eq!(value["actionId"], "action-1");
-        assert_eq!(value["reservationId"], "reservation-1");
-        assert_eq!(value["isError"], false);
-        for forbidden in [
-            "assignmentId",
-            "leaseId",
-            "mapId",
-            "toolSuccess",
-            "previousNodeStatus",
-        ] {
-            assert!(
-                value.get(forbidden).is_none(),
-                "{forbidden} leaked into {value}"
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn action_map_snapshot_node_and_reservation_are_derived_fact_views() -> Result<()> {
+    fn action_map_snapshot_node_and_action_are_derived_fact_views() -> Result<()> {
         let node = ActionMapSnapshotNode {
             id: "work-1".to_string(),
             role: "work".to_string(),
             goal: "inspect".to_string(),
             state: "in_flight".to_string(),
-            source_refs: vec!["user-turn-1".to_string()],
-            result_ids: vec!["result-1".to_string()],
-            evidence_ref_ids: vec!["evidence-1".to_string()],
-            node_event_ids: vec!["event-1".to_string()],
-        };
-        let reservation = ActionMapSnapshotReservation {
-            id: "reservation-1".to_string(),
-            action_id: "action-1".to_string(),
-            node_id: "work-1".to_string(),
-            tool_name: "exec_command".to_string(),
-            response_call_index: 2,
+            content: "Found the relevant module.".to_string(),
+            parents: vec!["root".to_string()],
+            children: vec!["finish".to_string()],
+            actions: vec![ActionMapSnapshotAction {
+                action_id: "action-1".to_string(),
+                tool_name: "read_file".to_string(),
+                outcome: "succeeded".to_string(),
+            }],
         };
 
         let node_value = serde_json::to_value(node)?;
-        let reservation_value = serde_json::to_value(reservation)?;
 
         assert_eq!(node_value["state"], "in_flight");
-        assert_eq!(reservation_value["responseCallIndex"], 2);
+        assert_eq!(node_value["parents"], json!(["root"]));
+        assert_eq!(node_value["children"], json!(["finish"]));
+        assert_eq!(node_value["actions"][0]["actionId"], "action-1");
         for forbidden in [
             "currentNodeId",
             "status",
@@ -5709,7 +5425,7 @@ mod tests {
             "previousNodeStatus",
         ] {
             assert!(
-                node_value.get(forbidden).is_none() && reservation_value.get(forbidden).is_none(),
+                node_value.get(forbidden).is_none(),
                 "{forbidden} leaked into the derived snapshot view"
             );
         }
@@ -5735,135 +5451,6 @@ mod tests {
         };
         assert_eq!(decoded.previous_mode, MapRuntimeMode::Standard);
         assert_eq!(decoded.current_mode, MapRuntimeMode::Experiment);
-        Ok(())
-    }
-
-    #[test]
-    fn map_runtime_node_detail_expanded_event_round_trips() -> Result<()> {
-        let event = MapRuntimeEvent::NodeDetailExpanded(MapRuntimeNodeDetailExpandedEvent {
-            map_id: "map-1".into(),
-            node_id: "node-1".into(),
-            expansion_event_id: "node-event-1".into(),
-            call_id: "call-1".into(),
-            source_event_id: "task-event-1".into(),
-            source_thread_id: ThreadId::new(),
-        });
-
-        let value = serde_json::to_value(&event)?;
-        assert_eq!(value["map_event_type"], "node_detail_expanded");
-        let decoded: MapRuntimeEvent = serde_json::from_value(value)?;
-        assert_eq!(decoded, event);
-        Ok(())
-    }
-
-    #[test]
-    fn map_runtime_trace_event_recorded_serializes_refs_without_raw_output() -> Result<()> {
-        let event =
-            MapRuntimeEvent::TaskspaceTraceEventRecorded(MapRuntimeTraceEventRecordedEvent {
-                trace_event_id: "trace-1".to_string(),
-                kind: "main_tool_result".to_string(),
-                task_id: Some("task-1".to_string()),
-                map_id: "map-1".to_string(),
-                node_id: "node-1".to_string(),
-                result_id: Some("result-1".to_string()),
-                call_id: Some("call-1".to_string()),
-                action_class: Some("test".to_string()),
-                tool_success: Some(false),
-                tags: vec!["tool_failure".to_string(), "validator_failure".to_string()],
-                artifact_refs: Vec::new(),
-                created_at_ms: 1234,
-            });
-
-        let value = serde_json::to_value(&event)?;
-
-        assert_eq!(value["map_event_type"], "taskspace_trace_event_recorded");
-        assert_eq!(value["traceEventId"], "trace-1");
-        assert_eq!(value["resultId"], "result-1");
-        assert_eq!(value["actionClass"], "test");
-        assert_eq!(value["toolSuccess"], false);
-        assert!(value.get("preview").is_none());
-        assert!(value.get("body").is_none());
-        Ok(())
-    }
-
-    #[test]
-    fn map_runtime_task_context_events_round_trip_without_data_loss() -> Result<()> {
-        let record = MapRuntimeTaskContextEventRecordedEvent {
-            id: "task-context-1".to_string(),
-            sequence: 7,
-            owner_kind: "node".to_string(),
-            owner_id: Some("node-1".to_string()),
-            event_type: "function_call_output".to_string(),
-            original_role: Some("tool".to_string()),
-            call_id: Some("call-1".to_string()),
-            parent_call_id: Some("parent-call-1".to_string()),
-            tool_success: Some(false),
-            raw_payload: json!({
-                "type": "function_call_output",
-                "output": {"status": "failed", "details": ["stderr", 17]},
-            }),
-            provider_item_id: Some("provider-item-1".to_string()),
-            created_at_ms: 1234,
-        };
-        let recorded = MapRuntimeEvent::TaskContextEventRecorded(record.clone());
-        let recorded_value = serde_json::to_value(&recorded)?;
-
-        assert_eq!(
-            recorded_value["map_event_type"],
-            "task_context_event_recorded"
-        );
-        assert_eq!(recorded_value["id"], "task-context-1");
-        assert_eq!(recorded_value["toolSuccess"], false);
-        assert_eq!(recorded_value["rawPayload"], record.raw_payload);
-        assert_eq!(
-            serde_json::from_value::<MapRuntimeEvent>(recorded_value)?,
-            recorded
-        );
-
-        let ownership = MapRuntimeEvent::TaskContextOwnershipChanged(
-            MapRuntimeTaskContextOwnershipChangedEvent {
-                active: true,
-                events: vec![record],
-            },
-        );
-        let ownership_value = serde_json::to_value(&ownership)?;
-
-        assert_eq!(
-            ownership_value["map_event_type"],
-            "task_context_ownership_changed"
-        );
-        assert_eq!(ownership_value["events"][0]["id"], "task-context-1");
-        assert_eq!(ownership_value["events"][0]["toolSuccess"], false);
-        assert_eq!(
-            serde_json::from_value::<MapRuntimeEvent>(ownership_value)?,
-            ownership
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn graph_revision_committed_round_trips_canonical_events() -> Result<()> {
-        let event =
-            MapRuntimeEvent::GraphRevisionCommitted(MapRuntimeGraphRevisionCommittedEvent {
-                map_id: "map-1".to_string(),
-                revision: 3,
-                operation: "transition_node".to_string(),
-                event_ids: vec!["event-1".to_string()],
-                events: vec![json!({
-                    "event_type": "node_completed",
-                    "node_id": "work-1",
-                })],
-            });
-
-        let value = serde_json::to_value(&event)?;
-
-        assert_eq!(value["map_event_type"], "graph_revision_committed");
-        assert_eq!(value["mapId"], "map-1");
-        assert_eq!(value["revision"], 3);
-        assert_eq!(value["operation"], "transition_node");
-        assert_eq!(value["eventIds"], json!(["event-1"]));
-        assert_eq!(value["events"][0]["event_type"], "node_completed");
-        assert_eq!(serde_json::from_value::<MapRuntimeEvent>(value)?, event);
         Ok(())
     }
 

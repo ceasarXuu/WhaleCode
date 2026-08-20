@@ -13,6 +13,8 @@ from cache_evidence import canonical_json_sha256
 SCHEMA_VERSION = "whalecode-cache-execution-identity-v1"
 RUNNER_INPUTS = (
     "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1",
+    "scripts/taskspace-benchmark/run-taskspace-benchmark-pairs.ps1",
+    "scripts/taskspace-benchmark/invoke-provider-route-preflight.ps1",
     "scripts/taskspace-benchmark/lib",
     "scripts/taskspace-benchmark/docker",
     "scripts/action-map-real-user-e2e-lib.ps1",

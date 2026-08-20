@@ -1,0 +1,168 @@
+{
+  "schema_version": "r8-four-arm-projection-evidence-v1",
+  "record_id": "WAR-20260818-055427-R8-FOUR-ARM-R3",
+  "subject_commit": "4fe2f3557eab1ca07836dfdc9e0f909b73329ea7",
+  "model": "deepseek-v4-flash",
+  "scenario": "subscription-billing-repair",
+  "execution": "docker",
+  "repeats_per_arm": 3,
+  "whale_binary_sha256": "a1c15de942d39362f86659af37589250e0aaa52c6e1f87d6f959dcaed09299ca",
+  "run_root": "target/r8-four-arm/WAR-20260818-055427-R8-FOUR-ARM-R3",
+  "started_at": "2026-08-18T05:58:19.429200+08:00",
+  "ended_at": "2026-08-18T06:06:19.034909+08:00",
+  "elapsed_calendar_seconds": 479.605709,
+  "pricing_snapshot": {
+    "currency": "CNY",
+    "captured_at": "2026-08-18",
+    "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+    "cached_input_per_million": 0.02,
+    "uncached_input_per_million": 1.0,
+    "output_per_million": 2.0
+  },
+  "aggregate": {
+    "runs": 12,
+    "business_successes": 12,
+    "provider_requests": 123,
+    "input_tokens": 2293313,
+    "cached_input_tokens": 2099840,
+    "uncached_input_tokens": 193473,
+    "output_tokens": 74212,
+    "aggregate_agent_wall_time_ms": 605563,
+    "estimated_cost_cny": 0.3838938
+  },
+  "arms": [
+    {
+      "arm": "standard",
+      "runs": 3,
+      "business_successes": 3,
+      "provider_requests": 30,
+      "input_tokens": 442990,
+      "cached_input_tokens": 433664,
+      "uncached_input_tokens": 9326,
+      "output_tokens": 13981,
+      "request_2_plus_cache_hit_rate": 0.9780,
+      "final_request_cache_hit_rate_mean": 0.9931,
+      "aggregate_agent_wall_time_ms": 116527,
+      "estimated_cost_cny": 0.04596128,
+      "map_node_count_mean": null
+    },
+    {
+      "arm": "map-always",
+      "runs": 3,
+      "business_successes": 3,
+      "provider_requests": 30,
+      "input_tokens": 553757,
+      "cached_input_tokens": 472064,
+      "uncached_input_tokens": 81693,
+      "output_tokens": 19542,
+      "request_2_plus_cache_hit_rate": 0.8421,
+      "final_request_cache_hit_rate_mean": 0.9118,
+      "aggregate_agent_wall_time_ms": 162324,
+      "estimated_cost_cny": 0.13021828,
+      "map_node_count_mean": 5.6667
+    },
+    {
+      "arm": "map-append",
+      "runs": 3,
+      "business_successes": 3,
+      "provider_requests": 32,
+      "input_tokens": 710150,
+      "cached_input_tokens": 666112,
+      "uncached_input_tokens": 44038,
+      "output_tokens": 19421,
+      "request_2_plus_cache_hit_rate": 0.9349,
+      "final_request_cache_hit_rate_mean": 0.9565,
+      "aggregate_agent_wall_time_ms": 155406,
+      "estimated_cost_cny": 0.09620224,
+      "map_node_count_mean": 5.3333
+    },
+    {
+      "arm": "map-request",
+      "runs": 3,
+      "business_successes": 3,
+      "provider_requests": 31,
+      "input_tokens": 586416,
+      "cached_input_tokens": 528000,
+      "uncached_input_tokens": 58416,
+      "output_tokens": 21268,
+      "request_2_plus_cache_hit_rate": 0.8939,
+      "final_request_cache_hit_rate_mean": 0.9475,
+      "aggregate_agent_wall_time_ms": 171306,
+      "estimated_cost_cny": 0.111512,
+      "map_node_count_mean": 5.6667
+    }
+  ],
+  "product_results": {
+    "same_changed_paths_in_all_runs": true,
+    "public_validation_passes": 12,
+    "hidden_oracle_passes": 12,
+    "taskspace_maps_completed": 9,
+    "taskspace_maps_with_open_leaves": 0,
+    "taskspace_graph_warning_count": 0,
+    "stale_revision_occurrence_count": 0,
+    "cache_shape_transition_count": 0,
+    "same_shape_zero_hit_count": 0,
+    "taskspace_protocol_reject_count": 3,
+    "taskspace_protocol_reject_run_count": 2,
+    "taskspace_protocol_rejects": [
+      {
+        "arm": "map-always",
+        "repeat": 1,
+        "kind": "invalid_initialize_map_type",
+        "side_effect": "none",
+        "recovered": true
+      },
+      {
+        "arm": "map-request",
+        "repeat": 2,
+        "kind": "waiting_frontier",
+        "side_effect": "none",
+        "recovered": true
+      },
+      {
+        "arm": "map-request",
+        "repeat": 2,
+        "kind": "invalid_json_control_character",
+        "side_effect": "none",
+        "recovered": true
+      }
+    ],
+    "ordinary_command_failure_count": 3,
+    "ordinary_command_failure_kind": "python_import_without_project_pythonpath",
+    "ordinary_command_failure_arms": [
+      "standard",
+      "map-append"
+    ]
+  },
+  "projection_wire_evidence": {
+    "map_always": {
+      "provider_requests": 30,
+      "bootstrap_projection_count": 4,
+      "active_projection_count": 26,
+      "unavailable_projection_count": 0
+    },
+    "map_append": {
+      "provider_requests": 32,
+      "bootstrap_projection_count": 3,
+      "active_projection_count": 29,
+      "unavailable_projection_count": 0
+    },
+    "map_request": {
+      "provider_requests": 31,
+      "bootstrap_projection_count": 0,
+      "active_projection_count": 0,
+      "unavailable_projection_count": 31
+    }
+  },
+  "observer_findings": [
+    {
+      "stable_code": "context_projection_summary_uses_stale_source",
+      "description": "map-always/map-append 的 provider final-wire 已观测到 projection，但旧 context-projection-summary 仍报告 projection_unavailable。"
+    },
+    {
+      "stable_code": "taskspace_reject_subtype_not_counted",
+      "description": "显式 taskspace_exec reject 被计入 failed_tools，但 sequence/control/nested reject 子类计数仍为零，且 exec_findings 只覆盖其中一部分。"
+    }
+  ],
+  "evidence_boundary": "同一复杂 client-tool sample、当前 Runtime、四种 projection/standard 模式各 repeat=3；不外推 Provider-hosted Tool 或 fork/join DAG。"
+}

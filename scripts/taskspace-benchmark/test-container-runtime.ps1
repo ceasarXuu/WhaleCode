@@ -33,7 +33,7 @@ if ($stats.exit_code -ne 0 -or -not (Test-Path -LiteralPath $stats.stats_path)) 
 if ([string]::IsNullOrWhiteSpace((Get-Content -Raw -LiteralPath $stats.stats_path))) { throw 'Stats fixture was empty' }
 
 $invalidImage = $image | Select-Object *
-$invalidImage.image_ref = 'whalecode/taskspace-benchmark:missing-selftest'
+$invalidImage.image_ref = '/home/private-user/secret-image'
 $createFailed = $false
 try {
     Invoke-TaskspaceContainerRole -Role validator -Image $invalidImage -Contract $contract -WorkspaceDir $workspace -ArtifactDir $artifacts -Command @('true') -TimeoutSeconds 10 -Identity $identity | Out-Null
@@ -41,6 +41,8 @@ try {
     $createFailed = ([string]$_.Exception.Message -match '^container_create_failed:')
 }
 if (-not $createFailed) { throw 'Create failure fixture was not classified' }
+$failureEvents = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $artifacts 'container-lifecycle-events.jsonl')
+if ($failureEvents.Contains('/home/private-user/secret-image')) { throw 'Container lifecycle persisted a raw host path' }
 
 $secretValue = 'container-selftest-secret-value'
 $secretPath = New-TaskspaceContainerSecret $root $secretValue

@@ -1,75 +1,76 @@
 #!/usr/bin/env python3
-"""Reconcile provider-boundary dispatches with Whale provider wire evidence."""
+"""Render provider-boundary evidence from canonical request facts."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
-from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from request_facts import ANALYZER_VERSION, build_request_facts  # noqa: E402
+
+SCHEMA_VERSION = "whalecode-provider-boundary-evidence-v2"
 
 
-SCHEMA_VERSION = "whalecode-provider-boundary-evidence-v1"
-
-
-def read_jsonl(path: Path) -> list[dict[str, Any]]:
-    if not path.is_file():
-        return []
-    values = []
-    for line_number, raw in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), 1):
-        if not raw.strip():
-            continue
-        value = json.loads(raw)
-        if not isinstance(value, dict):
-            raise ValueError(f"{path}:{line_number}: JSON object required")
-        values.append(value)
-    return values
-
-
-def reconcile(events_path: Path, wire_path: Path, expected_model: str) -> dict[str, Any]:
-    claimed = [
-        {
-            "count": event.get("count"),
-            "method": event.get("method"),
-            "path": event.get("path"),
-            "model": event.get("model"),
-            "body_sha256": event.get("body_sha256"),
-        }
-        for event in read_jsonl(events_path)
-        if event.get("event") == "provider_request_claimed"
+def reconcile(events_path: Path, wire_path: Path, expected_model: str) -> dict[str, object]:
+    facts = build_request_facts(
+        wire_path=wire_path,
+        boundary_path=events_path,
+        expected_model=expected_model,
+    )
+    boundary = [
+        {key: claim[key] for key in ("count", "method", "path", "model", "body_sha256")}
+        for claim in facts["boundary_claims"]
     ]
-    wire = [
-        {
-            "request_id": event.get("request_id"),
-            "request_count_after": event.get("request_count_after"),
-            "provider_payload_sha256": event.get("provider_payload_sha256"),
-        }
-        for event in read_jsonl(wire_path)
-        if event.get("status") == "payload_captured"
-        and event.get("provider_payload_sha256")
-    ]
-    errors = []
-    for index, request in enumerate(claimed, 1):
-        if request["count"] != index:
-            errors.append(f"boundary_count_sequence_invalid:{index}")
-        if request["method"] != "POST" or request["path"] != "/responses":
-            errors.append(f"boundary_route_invalid:{index}")
-        if request["model"] != expected_model:
-            errors.append(f"boundary_model_invalid:{index}")
-    boundary_hashes = [request["body_sha256"] for request in claimed]
-    wire_hashes = [request["provider_payload_sha256"] for request in wire]
-    if boundary_hashes != wire_hashes:
-        errors.append("provider_dispatch_trace_mismatch")
+    attempts = [row for row in facts["rows"] if row["attempt_status"] == "observed"]
+    crossed = [row for row in attempts if row["boundary_status"] == "observed"]
+    errors = sorted({finding["code"] for finding in facts["findings"]})
+    boundary_measured = facts["availability"]["boundary"] == "measured"
+    correlation_measured = facts["availability"]["boundary_correlation"] == "measured"
+    ambiguity_only = boundary_measured and set(errors) <= {"boundary_correlation_ambiguous"}
+    status = (
+        "reconciled"
+        if boundary_measured and correlation_measured
+        else "reconciled_correlation_incomparable"
+        if ambiguity_only
+        else "mismatch"
+    )
     return {
         "schema_version": SCHEMA_VERSION,
-        "status": "reconciled" if not errors else "mismatch",
+        "request_facts_analyzer_version": ANALYZER_VERSION,
+        "status": status,
+        "boundary_availability": facts["availability"]["boundary"],
+        "boundary_correlation_availability": facts["availability"]["boundary_correlation"],
         "expected_model": expected_model,
         "allowed_method": "POST",
         "allowed_path": "/responses",
-        "boundary_request_count": len(claimed),
-        "wire_request_count": len(wire),
-        "boundary_requests": claimed,
-        "wire_requests": wire,
+        "boundary_request_count": facts["summary"]["boundary_request_count"],
+        "wire_request_count": len(crossed) if correlation_measured else None,
+        "local_attempt_count": len(attempts),
+        "local_only_attempt_count": facts["summary"]["local_only_attempt_count"],
+        "boundary_requests": boundary,
+        "wire_requests": [
+            {
+                "request_id": row["request_id"],
+                "request_count_after": row["boundary_index"],
+                "provider_payload_sha256": row["provider_payload_sha256"],
+            }
+            for row in crossed
+        ],
+        "local_attempts": [
+            {
+                "request_id": row["request_id"],
+                "logical_request_id": row["logical_request_id"],
+                "attempt_seq": row["attempt_seq"],
+                "request_index": row["request_index"],
+                "provider_payload_sha256": row["provider_payload_sha256"],
+                "boundary_status": row["boundary_status"],
+                "terminal_status": row["terminal_status"],
+            }
+            for row in attempts
+        ],
         "errors": errors,
     }
 
@@ -85,7 +86,7 @@ def main() -> int:
     args.output.write_text(
         json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
-    return 0 if result["status"] == "reconciled" else 3
+    return 0 if str(result["status"]).startswith("reconciled") else 3
 
 
 if __name__ == "__main__":

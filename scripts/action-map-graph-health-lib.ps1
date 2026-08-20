@@ -39,21 +39,24 @@ function Get-TaskspaceGraphHealth($Obs) {
     $decisions = @(Get-TaskspaceObsDecisions $Obs)
     $warnings = New-Object System.Collections.Generic.List[object]
     $byId = @{}
-    foreach ($node in $nodes) { $byId[[string]$node.id] = $node }
+    foreach ($node in $nodes) { $byId[[string](Get-ObjectValue $node "id")] = $node }
 
-    $implNodes = @($nodes | Where-Object { [string]$_.kind -eq "implement_solution" })
-    $testNodes = @($nodes | Where-Object { [string]$_.kind -match "smoke_test|regression_test" })
-    $parserNodes = @($nodes | Where-Object { [string]$_.kind -eq "inspect_code_context" -and [string]$_.title -match "(?i)parser|parse|sku" })
-    $pricingNodes = @($nodes | Where-Object { [string]$_.kind -eq "inspect_code_context" -and [string]$_.title -match "(?i)pricing|discount|invoice|shipping" })
-    $parallelInspectNodes = @($nodes | Where-Object { [string]$_.kind -eq "inspect_code_context" -and @($_.agentThreads).Count -gt 0 })
+    $implNodes = @($nodes | Where-Object { [string](Get-ObjectValue $_ "kind") -eq "implement_solution" })
+    $testNodes = @($nodes | Where-Object { [string](Get-ObjectValue $_ "kind") -match "smoke_test|regression_test" })
+    $parserNodes = @($nodes | Where-Object { [string](Get-ObjectValue $_ "kind") -eq "inspect_code_context" -and [string](Get-ObjectValue $_ "title") -match "(?i)parser|parse|sku" })
+    $pricingNodes = @($nodes | Where-Object { [string](Get-ObjectValue $_ "kind") -eq "inspect_code_context" -and [string](Get-ObjectValue $_ "title") -match "(?i)pricing|discount|invoice|shipping" })
+    $parallelInspectNodes = @($nodes | Where-Object {
+            [string](Get-ObjectValue $_ "kind") -eq "inspect_code_context" -and
+            @(Get-ObjectValueArray $_ "agentThreads" "agent_threads").Count -gt 0
+        })
 
     $incomingToImpl = @($edges | Where-Object {
-            $to = [string]$_.to
-            @($implNodes | Where-Object { [string]$_.id -eq $to }).Count -gt 0
+            $to = [string](Get-ObjectValue $_ "to")
+            @($implNodes | Where-Object { [string](Get-ObjectValue $_ "id") -eq $to }).Count -gt 0
         })
-    $implIds = @($implNodes | ForEach-Object { [string]$_.id })
-    $testIds = @($testNodes | ForEach-Object { [string]$_.id })
-    $finalIds = @($nodes | Where-Object { [string]$_.kind -eq "final_synthesis" } | ForEach-Object { [string]$_.id })
+    $implIds = @($implNodes | ForEach-Object { [string](Get-ObjectValue $_ "id") })
+    $testIds = @($testNodes | ForEach-Object { [string](Get-ObjectValue $_ "id") })
+    $finalIds = @($nodes | Where-Object { [string](Get-ObjectValue $_ "kind") -eq "final_synthesis" } | ForEach-Object { [string](Get-ObjectValue $_ "id") })
     $anchoredImplIds = @($implIds | Where-Object {
             (Test-TaskspacePathExists $edges @($_) $testIds) -or
             (Test-TaskspacePathExists $edges @($_) $finalIds)
@@ -62,15 +65,15 @@ function Get-TaskspaceGraphHealth($Obs) {
     $testDependsOnImplementation = Test-TaskspacePathExists $edges $implIds $testIds
     $directTestDependsOnImplementation = Test-TaskspaceDirectEdgeExists $edges $implIds $testIds
 
-    $parserIds = @($parserNodes | ForEach-Object { [string]$_.id })
-    $pricingIds = @($pricingNodes | ForEach-Object { [string]$_.id })
+    $parserIds = @($parserNodes | ForEach-Object { [string](Get-ObjectValue $_ "id") })
+    $pricingIds = @($pricingNodes | ForEach-Object { [string](Get-ObjectValue $_ "id") })
     $parserPricingLinked =
         (Test-TaskspacePathExists $edges $parserIds $pricingIds) -or
         (Test-TaskspacePathExists $edges $pricingIds $parserIds)
     $parserPricingIndependent = $parserIds.Count -gt 0 -and $pricingIds.Count -gt 0 -and -not $parserPricingLinked
     $implementationDependsOnParser = Test-TaskspacePathExists $edges $parserIds $anchoredImplIds
     $implementationDependsOnPricing = Test-TaskspacePathExists $edges $pricingIds $anchoredImplIds
-    $parallelInspectIds = @($parallelInspectNodes | ForEach-Object { [string]$_.id })
+    $parallelInspectIds = @($parallelInspectNodes | ForEach-Object { [string](Get-ObjectValue $_ "id") })
     $parallelTracksLinked = $false
     foreach ($left in $parallelInspectIds) {
         foreach ($right in $parallelInspectIds) {
@@ -86,13 +89,13 @@ function Get-TaskspaceGraphHealth($Obs) {
         (Test-TaskspaceDirectEdgesFromAll $edges $parallelInspectIds $anchoredImplIds)
 
     $nodesWithOutgoingEdges = [System.Collections.Generic.HashSet[string]]::new()
-    foreach ($edge in $edges) { [void]$nodesWithOutgoingEdges.Add([string]$edge.from) }
+    foreach ($edge in $edges) { [void]$nodesWithOutgoingEdges.Add([string](Get-ObjectValue $edge "from")) }
     $openStatuses = @("pending", "ready", "running")
     $openLeafNodeCount = @($nodes | Where-Object {
-            -not $nodesWithOutgoingEdges.Contains([string]$_.id) -and $openStatuses -contains [string]$_.status
+            -not $nodesWithOutgoingEdges.Contains([string](Get-ObjectValue $_ "id")) -and $openStatuses -contains [string](Get-ObjectValue $_ "status")
         }).Count
     $openFinalSynthesisCount = @($nodes | Where-Object {
-            [string]$_.kind -eq "final_synthesis" -and $openStatuses -contains [string]$_.status
+            [string](Get-ObjectValue $_ "kind") -eq "final_synthesis" -and $openStatuses -contains [string](Get-ObjectValue $_ "status")
         }).Count
 
     $orderedEdgeCount = 0
@@ -217,7 +220,7 @@ function Get-TaskspaceThinModeRecommendation($Obs, [object[]]$Nodes, [object[]]$
 function Get-TaskspaceObsNodes($Obs) {
     if ((Get-ObjectPropertyNames $Obs) -contains "nodes") { return @($Obs.nodes) }
     if ((Get-ObjectPropertyNames $Obs) -contains "maps") {
-        return @($Obs.maps | ForEach-Object { @($_.nodes) })
+        return @($Obs.maps | ForEach-Object { @(Get-ObjectValueArray $_ "nodes") })
     }
     return @()
 }
@@ -225,7 +228,7 @@ function Get-TaskspaceObsNodes($Obs) {
 function Get-TaskspaceObsEdges($Obs) {
     if ((Get-ObjectPropertyNames $Obs) -contains "edges") { return @($Obs.edges) }
     if ((Get-ObjectPropertyNames $Obs) -contains "maps") {
-        return @($Obs.maps | ForEach-Object { @($_.edges) })
+        return @($Obs.maps | ForEach-Object { @(Get-ObjectValueArray $_ "edges") })
     }
     return @()
 }
@@ -234,7 +237,7 @@ function Get-TaskspaceObsSubagentPlans($Obs) {
     if ((Get-ObjectPropertyNames $Obs) -contains "subagentPlans") { return @($Obs.subagentPlans | Where-Object { $null -ne $_ }) }
     if ((Get-ObjectPropertyNames $Obs) -contains "subagent_plans") { return @($Obs.subagent_plans | Where-Object { $null -ne $_ }) }
     if ((Get-ObjectPropertyNames $Obs) -contains "maps") {
-        return @($Obs.maps | ForEach-Object { @($_.subagentPlans) + @($_.subagent_plans) } | Where-Object { $null -ne $_ })
+        return @($Obs.maps | ForEach-Object { @(Get-ObjectValueArray $_ "subagentPlans" "subagent_plans") } | Where-Object { $null -ne $_ })
     }
     return @()
 }
@@ -246,11 +249,11 @@ function Get-TaskspaceObsResults($Obs, $Nodes) {
     }
     if ((Get-ObjectPropertyNames $Obs) -contains "maps") {
         foreach ($map in @($Obs.maps)) {
-            foreach ($result in @($map.results | Where-Object { $null -ne $_ })) { $direct.Add($result) }
+            foreach ($result in @(Get-ObjectValueArray $map "results" | Where-Object { $null -ne $_ })) { $direct.Add($result) }
         }
     }
     foreach ($node in @($Nodes)) {
-        foreach ($result in @($node.results | Where-Object { $null -ne $_ })) { $direct.Add($result) }
+        foreach ($result in @(Get-ObjectValueArray $node "results" | Where-Object { $null -ne $_ })) { $direct.Add($result) }
     }
     return @($direct.ToArray())
 }
@@ -262,8 +265,7 @@ function Get-TaskspaceObsDecisions($Obs) {
     }
     if ((Get-ObjectPropertyNames $Obs) -contains "tasks") {
         foreach ($task in @($Obs.tasks)) {
-            foreach ($decision in @($task.problemLedger.decisions | Where-Object { $null -ne $_ })) { $decisions.Add($decision) }
-            foreach ($decision in @($task.problem_ledger.decisions | Where-Object { $null -ne $_ })) { $decisions.Add($decision) }
+            foreach ($decision in @(Get-ObjectValueArray $task "problemLedger.decisions" "problem_ledger.decisions" | Where-Object { $null -ne $_ })) { $decisions.Add($decision) }
         }
     }
     return @($decisions.ToArray())
@@ -281,7 +283,7 @@ function Get-TaskspaceSpawnCount($Obs, $SubagentPlans) {
 function Get-TaskspaceSubagentResults($Results, $Nodes) {
     $agentThreads = [System.Collections.Generic.HashSet[string]]::new()
     foreach ($node in @($Nodes)) {
-        foreach ($thread in @($node.agentThreads)) { [void]$agentThreads.Add([string]$thread) }
+        foreach ($thread in @(Get-ObjectValueArray $node "agentThreads" "agent_threads")) { [void]$agentThreads.Add([string]$thread) }
     }
     return @($Results | Where-Object {
             -not [string]::IsNullOrWhiteSpace([string](Get-ObjectValue $_ "subagentPlanId" "subagent_plan_id")) -or
@@ -443,14 +445,17 @@ function Test-TaskspacePathExists([object[]]$Edges, [string[]]$FromIds, [string[
 }
 
 function Get-NodeFirstWorkAt($Node) {
-    foreach ($event in @($Node.events)) {
-        if ([string]$event.to -in @("running", "completed") -and -not [string]::IsNullOrWhiteSpace([string]$event.at)) {
-            return ConvertFrom-TaskspaceEventTime $event.at
+    foreach ($event in @(Get-ObjectValueArray $Node "events")) {
+        $to = [string](Get-ObjectValue $event "to")
+        $at = [string](Get-ObjectValue $event "at")
+        if ($to -in @("running", "completed") -and -not [string]::IsNullOrWhiteSpace($at)) {
+            return ConvertFrom-TaskspaceEventTime $at
         }
     }
-    foreach ($result in @($Node.results)) {
-        if (-not [string]::IsNullOrWhiteSpace([string]$result.at)) {
-            return ConvertFrom-TaskspaceEventTime $result.at
+    foreach ($result in @(Get-ObjectValueArray $Node "results")) {
+        $at = [string](Get-ObjectValue $result "at")
+        if (-not [string]::IsNullOrWhiteSpace($at)) {
+            return ConvertFrom-TaskspaceEventTime $at
         }
     }
     return $null

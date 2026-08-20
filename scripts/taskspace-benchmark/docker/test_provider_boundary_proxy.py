@@ -71,6 +71,13 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
                 f"http://127.0.0.1:{self.upstream.server_address[1]}"
             ),
             "PROVIDER_REQUEST_HARD_LIMIT": "2",
+            "PROVIDER_INPUT_TOKEN_HARD_LIMIT": "0",
+            "PROVIDER_OUTPUT_TOKEN_HARD_LIMIT": "0",
+            "PROVIDER_ESTIMATED_COST_HARD_LIMIT": "0",
+            "PROVIDER_BUDGET_CURRENCY": "",
+            "PROVIDER_CACHED_INPUT_RATE_PER_MILLION": "0",
+            "PROVIDER_UNCACHED_INPUT_RATE_PER_MILLION": "0",
+            "PROVIDER_OUTPUT_RATE_PER_MILLION": "0",
             "PROVIDER_ALLOWED_MODEL": "deepseek-v4-flash",
             "PROVIDER_BOUNDARY_EVENTS_PATH": str(Path(self.temp.name) / "events.jsonl"),
         }
@@ -127,7 +134,7 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
         self.assertEqual(first["authorization"], "Bearer real-secret")
         self.assertEqual(first["path"], "/responses")
         self.assertNotIn("agent-visible-value", json.dumps(first))
-        self.assertIn("hard limit", str(third["error"]))
+        self.assertIn("request_limit_reached", str(third["error"]))
         events = Path(self.temp.name, "events.jsonl").read_text(encoding="utf-8")
         self.assertEqual(events.count('"event":"provider_request_claimed"'), 2)
         self.assertEqual(events.count('"event":"provider_request_rejected"'), 1)
@@ -147,14 +154,84 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
         self.assertEqual(health.status, 200)
         self.assertEqual(self.proxy.boundary_state.budget.count, 0)
 
+    def test_settled_usage_rejects_the_next_request_at_approved_limit(self) -> None:
+        environment = {
+            **dict(os.environ),
+            "PROVIDER_INPUT_TOKEN_HARD_LIMIT": "100",
+            "PROVIDER_OUTPUT_TOKEN_HARD_LIMIT": "20",
+            "PROVIDER_ESTIMATED_COST_HARD_LIMIT": "1.4",
+            "PROVIDER_BUDGET_CURRENCY": "CNY",
+            "PROVIDER_CACHED_INPUT_RATE_PER_MILLION": "0.02",
+            "PROVIDER_UNCACHED_INPUT_RATE_PER_MILLION": "1",
+            "PROVIDER_OUTPUT_RATE_PER_MILLION": "2",
+        }
+        with patch.dict(os.environ, environment, clear=True):
+            state = PROXY.BoundaryState()
+        allowed, count, reason = state.claim_request(model="deepseek-v4-flash")
+        self.assertEqual((allowed, count, reason), (True, 1, None))
+        state.settle_usage(
+            count,
+            {"input_tokens": 100, "cached_input_tokens": 40, "output_tokens": 5},
+        )
+        allowed, count, reason = state.claim_request(model="deepseek-v4-flash")
+        self.assertEqual((allowed, count, reason), (False, 1, "approved_budget_reached"))
+
+    def test_missing_terminal_usage_fails_closed_before_next_request(self) -> None:
+        environment = {
+            **dict(os.environ),
+            "PROVIDER_INPUT_TOKEN_HARD_LIMIT": "100",
+            "PROVIDER_OUTPUT_TOKEN_HARD_LIMIT": "20",
+            "PROVIDER_ESTIMATED_COST_HARD_LIMIT": "1.4",
+            "PROVIDER_BUDGET_CURRENCY": "CNY",
+            "PROVIDER_CACHED_INPUT_RATE_PER_MILLION": "0.02",
+            "PROVIDER_UNCACHED_INPUT_RATE_PER_MILLION": "1",
+            "PROVIDER_OUTPUT_RATE_PER_MILLION": "2",
+        }
+        with patch.dict(os.environ, environment, clear=True):
+            state = PROXY.BoundaryState()
+        allowed, count, _ = state.claim_request(model="deepseek-v4-flash")
+        self.assertTrue(allowed)
+        state.settle_usage(count, None)
+        self.assertEqual(
+            state.claim_request(model="deepseek-v4-flash"),
+            (False, 1, "usage_missing"),
+        )
+
+    def test_scans_terminal_responses_usage_without_buffering_other_events(self) -> None:
+        scanner = PROXY.ResponseUsageScanner()
+        event = {
+            "type": "response.completed",
+            "response": {
+                "usage": {
+                    "input_tokens": 90,
+                    "input_tokens_details": {"cached_tokens": 40},
+                    "output_tokens": 7,
+                }
+            },
+        }
+        payload = f"event: response.completed\ndata: {json.dumps(event)}\n\n".encode()
+        scanner.feed(payload[:37])
+        scanner.feed(payload[37:])
+        self.assertEqual(
+            scanner.finish(),
+            {"input_tokens": 90, "cached_input_tokens": 40, "output_tokens": 7},
+        )
+
     def test_reconciles_exact_boundary_and_wire_payload_sequence(self) -> None:
         body = b'{"model":"deepseek-v4-flash","input":"hello"}'
         digest = hashlib.sha256(body).hexdigest()
         events = Path(self.temp.name, "reconcile-events.jsonl")
         wire = Path(self.temp.name, "wire.jsonl")
-        events.write_text(
-            json.dumps(
-                {
+        start_event = {
+            "schema_version": 1,
+            "event": "provider_boundary_started",
+            "limit": 2,
+            "allowed_method": "POST",
+            "allowed_path": "/responses",
+            "allowed_model": "deepseek-v4-flash",
+        }
+        first_claim = {
+                    "schema_version": 1,
                     "event": "provider_request_claimed",
                     "count": 1,
                     "method": "POST",
@@ -162,30 +239,46 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
                     "model": "deepseek-v4-flash",
                     "body_sha256": digest,
                 }
-            )
-            + "\n",
+        events.write_text(
+            "".join(
+                json.dumps(event) + "\n"
+                for event in (start_event, first_claim, {"schema_version": 1, "event": "provider_boundary_stopped", "request_count": 1})
+            ),
             encoding="utf-8",
         )
+        wire_events = [
+            {
+                "schema_version": "provider-chat-wire-trace-v11",
+                "status": "payload_captured",
+                "request_id": "request-1",
+                "logical_request_id": "logical-1",
+                "attempt_seq": 1,
+                "request_index": 1,
+                "provider_payload_sha256": digest,
+            },
+            {
+                "schema_version": "provider-chat-wire-trace-v11",
+                "status": "response_completed",
+                "request_id": "request-1",
+                "logical_request_id": "logical-1",
+                "attempt_seq": 1,
+                "input_tokens": 10,
+                "cached_input_tokens": 0,
+                "output_tokens": 2,
+                "reasoning_output_tokens": 1,
+                "total_tokens": 12,
+            },
+        ]
         wire.write_text(
-            json.dumps(
-                {
-                    "status": "payload_captured",
-                    "request_id": "request-1",
-                    "request_count_after": 1,
-                    "provider_payload_sha256": digest,
-                }
-            )
-            + "\n",
+            "".join(json.dumps(event) + "\n" for event in wire_events),
             encoding="utf-8",
         )
         result = VERIFIER.reconcile(events, wire, "deepseek-v4-flash")
         self.assertEqual(result["status"], "reconciled")
         self.assertEqual(result["boundary_request_count"], 1)
 
-        events.write_text(
-            events.read_text(encoding="utf-8")
-            + json.dumps(
-                {
+        second_claim = {
+                    "schema_version": 1,
                     "event": "provider_request_claimed",
                     "count": 2,
                     "method": "POST",
@@ -193,13 +286,16 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
                     "model": "deepseek-v4-flash",
                     "body_sha256": "f" * 64,
                 }
-            )
-            + "\n",
+        events.write_text(
+            "".join(
+                json.dumps(event) + "\n"
+                for event in (start_event, first_claim, second_claim, {"schema_version": 1, "event": "provider_boundary_stopped", "request_count": 2})
+            ),
             encoding="utf-8",
         )
         mismatch = VERIFIER.reconcile(events, wire, "deepseek-v4-flash")
         self.assertEqual(mismatch["status"], "mismatch")
-        self.assertIn("provider_dispatch_trace_mismatch", mismatch["errors"])
+        self.assertIn("boundary_unattributed", mismatch["errors"])
 
     def test_parallel_claim_events_remain_in_authoritative_count_order(self) -> None:
         state = self.proxy.boundary_state
@@ -242,6 +338,34 @@ class ProviderBoundaryProxyTest(unittest.TestCase):
             if event["event"] == "provider_request_claimed"
         ]
         self.assertEqual(counts, [1, 2])
+
+    def test_duplicate_payload_retry_preserves_boundary_count(self) -> None:
+        digest = "d" * 64
+        events = Path(self.temp.name, "duplicate-events.jsonl")
+        wire = Path(self.temp.name, "duplicate-wire.jsonl")
+        boundary = [
+            {"schema_version": 1, "event": "provider_boundary_started", "limit": 2, "allowed_method": "POST", "allowed_path": "/responses", "allowed_model": "deepseek-v4-flash"},
+            *[
+                {"schema_version": 1, "event": "provider_request_claimed", "count": index, "method": "POST", "path": "/responses", "model": "deepseek-v4-flash", "body_sha256": digest}
+                for index in (1, 2)
+            ],
+            {"schema_version": 1, "event": "provider_boundary_stopped", "request_count": 2},
+        ]
+        wire_events = []
+        for index, terminal in ((1, "response_failed"), (2, "response_completed")):
+            request_id = f"retry-{index}"
+            wire_events.append({"schema_version": "provider-chat-wire-trace-v11", "status": "payload_captured", "request_id": request_id, "logical_request_id": "logical-retry", "attempt_seq": index, "request_index": index, "provider_payload_sha256": digest})
+            event = {"schema_version": "provider-chat-wire-trace-v11", "status": terminal, "request_id": request_id, "logical_request_id": "logical-retry", "attempt_seq": index}
+            if terminal == "response_completed":
+                event.update({"input_tokens": 10, "cached_input_tokens": 0, "output_tokens": 2, "reasoning_output_tokens": 1, "total_tokens": 12})
+            wire_events.append(event)
+        events.write_text("".join(json.dumps(event) + "\n" for event in boundary), encoding="utf-8")
+        wire.write_text("".join(json.dumps(event) + "\n" for event in wire_events), encoding="utf-8")
+        result = VERIFIER.reconcile(events, wire, "deepseek-v4-flash")
+        self.assertEqual(result["status"], "reconciled_correlation_incomparable")
+        self.assertEqual(result["boundary_request_count"], 2)
+        self.assertEqual(result["boundary_correlation_availability"], "incomparable")
+        self.assertIsNone(result["wire_request_count"])
 
 
 if __name__ == "__main__":

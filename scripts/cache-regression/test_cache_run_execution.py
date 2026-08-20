@@ -8,7 +8,10 @@ import json
 import unittest
 from unittest.mock import patch
 
-from cache_baseline_test_support import write_provider_boundary_evidence
+from cache_baseline_test_support import (
+    write_provider_boundary_evidence,
+    write_provider_wire_trace,
+)
 from cache_evidence import RESULT_SCHEMA_VERSION, file_sha256
 from cache_arm_identity import fixture_arm_identity
 from cache_provider_boundary_evidence import persist_provider_boundary_accounting
@@ -132,7 +135,10 @@ class CacheRunExecutionTest(CacheRunExecutionFixture):
             ),
             patch(
                 "run_cache_hit_regression.persist_observation_artifacts",
-                side_effect=lambda _repo, _record, _run, _arm, _model, value: value,
+                side_effect=lambda _repo, _record, _run, _arm, _model, value: {
+                    **value,
+                    "provider_routing": self.provider_route["provider_routing"],
+                },
             ),
             contextlib.redirect_stdout(io.StringIO()),
         ):
@@ -386,6 +392,7 @@ class CacheRunExecutionTest(CacheRunExecutionFixture):
         source = self.repo / "target/run/pair-001/left/artifacts"
         source.mkdir(parents=True)
         cache = source / "provider-cache-trace-summary.json"
+        provider_wire = source / "provider-wire-trace.jsonl"
         request = source / "request-summary.json"
         metrics = source / "metrics.json"
         boundary = source / "provider-boundary-evidence.json"
@@ -413,6 +420,13 @@ class CacheRunExecutionTest(CacheRunExecutionFixture):
                 }
             },
         )
+        write_provider_wire_trace(
+            provider_wire,
+            [
+                {"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0},
+                {"input_tokens": 100, "cached_input_tokens": 80, "output_tokens": 10},
+            ],
+        )
         write_json(
             metrics,
             {"logical_mode": "standard", "business_success": True},
@@ -423,6 +437,7 @@ class CacheRunExecutionTest(CacheRunExecutionFixture):
         write_json(logical_mode_map, mode_map_value)
         observation = analyze_artifacts(
             cache,
+            provider_wire,
             request,
             metrics,
             boundary,

@@ -926,6 +926,7 @@ pub(crate) struct ChatWidget {
     thread_name: Option<String>,
     thread_rename_block_message: Option<String>,
     active_side_conversation: bool,
+    taskspace_active: bool,
     normal_placeholder_text: String,
     side_placeholder_text: String,
     forked_from: Option<ThreadId>,
@@ -2479,6 +2480,7 @@ impl ChatWidget {
     }
 
     pub(crate) fn handle_thread_session(&mut self, session: ThreadSessionState) {
+        self.set_taskspace_active(session.taskspace_active);
         self.instruction_source_paths = session.instruction_source_paths.clone();
         let fork_parent_title = session.fork_parent_title.clone();
         self.on_session_configured_with_display_and_fork_parent_title(
@@ -2489,6 +2491,7 @@ impl ChatWidget {
     }
 
     pub(crate) fn handle_thread_session_quiet(&mut self, session: ThreadSessionState) {
+        self.set_taskspace_active(session.taskspace_active);
         self.instruction_source_paths = session.instruction_source_paths.clone();
         self.on_session_configured_with_display_and_fork_parent_title(
             thread_session_state_to_legacy_event(session),
@@ -2498,6 +2501,7 @@ impl ChatWidget {
     }
 
     pub(crate) fn handle_side_thread_session(&mut self, session: ThreadSessionState) {
+        self.set_taskspace_active(session.taskspace_active);
         self.instruction_source_paths = session.instruction_source_paths.clone();
         let fork_parent_title = session.fork_parent_title.clone();
         self.on_session_configured_with_display_and_fork_parent_title(
@@ -5631,6 +5635,7 @@ impl ChatWidget {
             thread_name: None,
             thread_rename_block_message: None,
             active_side_conversation: false,
+            taskspace_active: false,
             normal_placeholder_text: placeholder,
             side_placeholder_text: side_placeholder,
             forked_from: None,
@@ -7606,7 +7611,12 @@ impl ChatWidget {
                     event.turn_id,
                 );
             }
-            EventMsg::MapRuntime(_) => {}
+            EventMsg::MapRuntime(codex_protocol::protocol::MapRuntimeEvent::ModeChanged(event)) => {
+                self.set_taskspace_active(
+                    event.current_mode == codex_protocol::protocol::MapRuntimeMode::Experiment,
+                );
+            }
+            EventMsg::MapRuntime(codex_protocol::protocol::MapRuntimeEvent::StoreCommitted(_)) => {}
             // NOTE: All three AgentMessage arms feed `record_agent_markdown` even
             // when the message is otherwise not rendered (thread-snapshot replay,
             // non-review live messages). This ensures the copy source stays
@@ -10445,6 +10455,18 @@ impl ChatWidget {
 
     pub(crate) fn set_approvals_reviewer(&mut self, policy: ApprovalsReviewer) {
         self.config.approvals_reviewer = policy;
+    }
+
+    pub(crate) fn set_taskspace_active(&mut self, active: bool) {
+        self.taskspace_active = active;
+        self.bottom_pane.set_taskspace_active(active);
+    }
+
+    pub(crate) fn set_taskspace_projection_policy(
+        &mut self,
+        policy: codex_protocol::protocol::TaskSpaceProjectionPolicy,
+    ) {
+        self.config.taskspace_projection_policy = Some(policy);
     }
 
     pub(crate) fn set_full_access_warning_acknowledged(&mut self, acknowledged: bool) {

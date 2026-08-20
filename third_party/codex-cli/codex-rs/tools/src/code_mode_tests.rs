@@ -1,4 +1,5 @@
 use super::augment_tool_spec_for_code_mode;
+use super::collect_code_mode_exec_prompt_tool_definitions;
 use super::create_code_mode_tool;
 use super::create_wait_tool;
 use super::tool_spec_to_code_mode_tool_definition;
@@ -110,6 +111,11 @@ fn tool_spec_to_code_mode_tool_definition_returns_augmented_nested_tools() {
             tool_name: ToolName::plain("apply_patch"),
             description: r#"Apply a patch
 
+Nested exec input must match this lark grammar:
+```lark
+start: "patch"
+```
+
 exec tool declaration:
 ```ts
 declare const tools: { apply_patch(input: string): Promise<unknown>; };
@@ -135,6 +141,44 @@ fn tool_spec_to_code_mode_tool_definition_skips_unsupported_variants() {
             ),
         }),
         None
+    );
+}
+
+#[test]
+fn exec_prompt_projection_applies_code_mode_container_policy() {
+    let specs = [
+        ToolSpec::Function(ResponsesApiTool {
+            name: codex_code_mode::PUBLIC_TOOL_NAME.to_string(),
+            description: "Recursive exec.".to_string(),
+            strict: false,
+            defer_loading: None,
+            parameters: JsonSchema::object(BTreeMap::new(), None, Some(false.into())),
+            output_schema: None,
+        }),
+        ToolSpec::Function(ResponsesApiTool {
+            name: codex_code_mode::WAIT_TOOL_NAME.to_string(),
+            description: "Wait for exec.".to_string(),
+            strict: false,
+            defer_loading: None,
+            parameters: JsonSchema::object(BTreeMap::new(), None, Some(false.into())),
+            output_schema: None,
+        }),
+        ToolSpec::Function(ResponsesApiTool {
+            name: "read_file".to_string(),
+            description: "Read a file.".to_string(),
+            strict: false,
+            defer_loading: None,
+            parameters: JsonSchema::object(BTreeMap::new(), None, Some(false.into())),
+            output_schema: None,
+        }),
+    ];
+
+    assert_eq!(
+        collect_code_mode_exec_prompt_tool_definitions(&specs)
+            .into_iter()
+            .map(|definition| definition.name)
+            .collect::<Vec<_>>(),
+        vec!["read_file"]
     );
 }
 
@@ -198,6 +242,7 @@ fn create_code_mode_tool_matches_expected_spec() {
             &enabled_tools,
             &BTreeMap::new(),
             /*code_mode_only*/ true,
+            /*exec_as_function*/ false,
             /*deferred_tools_available*/ false,
         ),
         ToolSpec::Freeform(FreeformTool {
@@ -222,6 +267,58 @@ SOURCE: /[\s\S]+/
 "#
                 .to_string(),
             },
+        })
+    );
+}
+
+#[test]
+fn create_code_mode_tool_can_use_function_wire_shape() {
+    let enabled_tools = vec![codex_code_mode::ToolDefinition {
+        name: "update_plan".to_string(),
+        tool_name: ToolName::plain("update_plan"),
+        description: "Update the plan".to_string(),
+        kind: codex_code_mode::CodeModeToolKind::Function,
+        input_schema: None,
+        output_schema: None,
+    }];
+    let description = codex_code_mode::build_function_exec_tool_description(
+        &enabled_tools,
+        &BTreeMap::new(),
+        /*code_mode_only*/ true,
+        /*deferred_tools_available*/ false,
+    );
+    assert!(description.contains("exactly one required `source` string"));
+    assert!(!description.contains("Accepts raw JavaScript source text, not JSON"));
+    assert!(description.contains(
+        "Awaiting a nested tool makes its result available only inside the current JavaScript execution"
+    ));
+    assert!(description.contains("const result = await tools.exec_command(...); text(result);"));
+
+    assert_eq!(
+        create_code_mode_tool(
+            &enabled_tools,
+            &BTreeMap::new(),
+            /*code_mode_only*/ true,
+            /*exec_as_function*/ true,
+            /*deferred_tools_available*/ false,
+        ),
+        ToolSpec::Function(ResponsesApiTool {
+            name: codex_code_mode::PUBLIC_TOOL_NAME.to_string(),
+            description,
+            strict: false,
+            parameters: JsonSchema::object(
+                BTreeMap::from([(
+                    "source".to_string(),
+                    JsonSchema::string(Some(
+                        "JavaScript source to execute. Do not wrap it in Markdown fences."
+                            .to_string(),
+                    )),
+                )]),
+                Some(vec!["source".to_string()]),
+                Some(false.into()),
+            ),
+            output_schema: None,
+            defer_loading: None,
         })
     );
 }

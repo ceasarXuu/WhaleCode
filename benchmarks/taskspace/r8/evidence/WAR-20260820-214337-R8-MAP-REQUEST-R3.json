@@ -1,0 +1,55 @@
+{
+  "schema_version": "taskspace-r8-durable-evidence-v1",
+  "record_id": "WAR-20260820-214337-R8-MAP-REQUEST-R3",
+  "subject_commit": "5ce2cfaf880a3bd2628057b7bbb94e9e3df4f538",
+  "whale_binary_sha256": "d18ca48beb9ce3fa592244b913d6a3987933fc5b241b7f7e8e53a36b6105bc90",
+  "scenario": "release-dispatch-repair",
+  "projection_policy": "map-request",
+  "logical_mode": "taskspace",
+  "planned_runs": 3,
+  "actual_runs": 1,
+  "stop_reason": "any_side_failure",
+  "result": {
+    "business_success": false,
+    "provider_requests": 2,
+    "input_tokens": 26722,
+    "cached_input_tokens": 19584,
+    "uncached_input_tokens": 7138,
+    "output_tokens": 655,
+    "agent_wall_time_ms": 7282,
+    "estimated_cost_cny": 0.00883968
+  },
+  "taskspace": {
+    "map_count": 1,
+    "node_count": 5,
+    "edge_count": 4,
+    "map_closed": false,
+    "exec_call_count_by_response": [
+      1,
+      2
+    ],
+    "client_tool_side_effects_in_failed_response": 0,
+    "failure": "TaskSpace response contains more than one Exec call",
+    "runtime_outcome": "fatal response reconciliation failure"
+  },
+  "selection": {
+    "run_side": "both",
+    "run_logical_mode": "taskspace",
+    "standard_runs_started": 0,
+    "taskspace_runs_started": 1,
+    "remaining_runs_skipped_by_stop_condition": 2
+  },
+  "preflight_attempts": [
+    {
+      "run_id": "live-r3",
+      "reason": "whale_binary_attestation_invalid",
+      "provider_requests": 0
+    },
+    {
+      "run_id": "live-r3b",
+      "reason": "provider_credential_missing",
+      "provider_requests": 0
+    }
+  ],
+  "evidence_root": "target/whale-agent-runs/WAR-20260820-214337-R8-MAP-REQUEST-R3/release-dispatch-repair/live-r3c"
+}

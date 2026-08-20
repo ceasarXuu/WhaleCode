@@ -1,30 +1,19 @@
-use super::events::EventBatch;
-use super::events::MapFact;
-use super::events::ReplayError;
-use super::events::apply_batch;
 use super::invariants::Violation;
 use super::invariants::ViolationCode;
-use super::model::ActionReservation;
-use super::model::BlockRecord;
-use super::model::CompletionRecord;
-use super::model::EvidenceRef;
-use super::model::MapEdge;
+use super::invariants::validate;
 use super::model::MapId;
 use super::model::MapNode;
-use super::model::ReservationId;
-use super::model::ResultRef;
+use super::model::NodeAction;
+use super::model::NodeState;
 use super::model::Revision;
 use super::model::TaskSpaceMap;
-use super::model::TerminalRecord;
+use super::model::canonicalize;
+use super::model::is_complete;
+use super::model::new_map;
 use super::model::node;
-use super::transitions::derive_node_state;
-use super::transitions::predecessors;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ReservationInput {
-    pub(crate) reservation_id: ReservationId,
-    pub(crate) reservation: ActionReservation,
-}
+use super::model::node_mut;
+use super::transitions::normalize_readiness;
+use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct InitializeMap {
@@ -32,86 +21,39 @@ pub(crate) struct InitializeMap {
     pub(crate) root: MapNode,
     pub(crate) work_nodes: Vec<MapNode>,
     pub(crate) finish: MapNode,
-    pub(crate) edges: Vec<MapEdge>,
-    pub(crate) reservations: Vec<ReservationInput>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(crate) struct GraphMutation {
-    pub(crate) add_work_nodes: Vec<MapNode>,
-    pub(crate) add_edges: Vec<MapEdge>,
-    pub(crate) remove_edges: Vec<MapEdge>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum NodeMutation {
-    Complete {
-        node_id: String,
-        record: CompletionRecord,
-    },
-    Block {
-        node_id: String,
-        record: BlockRecord,
-    },
-    Unblock {
-        node_id: String,
-    },
+pub(crate) struct NodePatch {
+    pub(crate) node_id: String,
+    pub(crate) goal: Option<String>,
+    pub(crate) state: Option<NodeState>,
+    pub(crate) content: Option<String>,
+    pub(crate) parents: Option<Vec<String>>,
+    pub(crate) append_actions: Vec<NodeAction>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ExecuteTransaction {
-    pub(crate) expected_revision: Revision,
-    pub(crate) graph: GraphMutation,
-    pub(crate) node_mutations: Vec<NodeMutation>,
-    pub(crate) reservations: Vec<ReservationInput>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ResultRefInput {
-    pub(crate) result_ref_id: String,
-    pub(crate) is_error: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct EvidenceRefInput {
-    pub(crate) evidence_ref_id: String,
-    pub(crate) kind: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ReservationRelease {
-    pub(crate) expected_revision: Revision,
-    pub(crate) reservation_id: ReservationId,
-    pub(crate) result_refs: Vec<ResultRefInput>,
-    pub(crate) evidence_refs: Vec<EvidenceRefInput>,
+    pub(crate) request_revision: Revision,
+    pub(crate) add_work_nodes: Vec<MapNode>,
+    pub(crate) patches: Vec<NodePatch>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FinishMap {
-    pub(crate) expected_revision: Revision,
-    pub(crate) finish_node_id: String,
-    pub(crate) final_completions: Vec<FinalCompletion>,
-    pub(crate) terminal: TerminalRecord,
+    pub(crate) request_revision: Revision,
+    pub(crate) content: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ReopenMap {
-    pub(crate) expected_revision: Revision,
-    pub(crate) add_work_nodes: Vec<MapNode>,
-    pub(crate) add_edges: Vec<MapEdge>,
-    pub(crate) reservations: Vec<ReservationInput>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct FinalCompletion {
-    pub(crate) node_id: String,
-    pub(crate) record: CompletionRecord,
+    pub(crate) request_revision: Revision,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Commit {
     pub(crate) map: TaskSpaceMap,
-    pub(crate) events: EventBatch,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,315 +72,172 @@ impl Rejection {
         Self {
             state_commit: false,
             current_revision,
-            violations: vec![Violation::simple(code, vec![subject.into()])],
-        }
-    }
-
-    fn from_replay(
-        current: Option<&TaskSpaceMap>,
-        current_revision: Revision,
-        error: ReplayError,
-    ) -> Self {
-        let mut violations = match error {
-            ReplayError::InvariantViolations(violations) => violations,
-            ReplayError::InvalidFact(violation) => vec![violation],
-            ReplayError::RevisionMismatch { .. } => {
-                vec![Violation::simple(ViolationCode::StaleRevision, vec![])]
-            }
-            ReplayError::MapIdentityMismatch => {
-                vec![Violation::simple(ViolationCode::MapIdentityInvalid, vec![])]
-            }
-            ReplayError::EmptyBatch
-            | ReplayError::InitializationRequired
-            | ReplayError::UnexpectedInitialization => {
-                vec![Violation::simple(ViolationCode::TransitionInvalid, vec![])]
-            }
-        };
-        for violation in &mut violations {
-            let Some(node_id) = violation.node_id.as_deref() else {
-                continue;
-            };
-            let Some(canonical) = current else {
-                violation.canonical_node_present_before_transaction = Some(false);
-                continue;
-            };
-            violation.canonical_node_present_before_transaction =
-                Some(node(canonical, node_id).is_some());
-            violation.canonical_state_before_transaction = derive_node_state(canonical, node_id);
-            violation.canonical_unsatisfied_predecessor_ids_before_transaction =
-                unsatisfied_predecessors(canonical, node_id);
-        }
-        Self {
-            state_commit: false,
-            current_revision,
-            violations,
+            violations: vec![Violation::one(code, subject)],
         }
     }
 }
 
 pub(crate) fn initialize(input: InitializeMap) -> Result<Commit, Rejection> {
-    if input.reservations.is_empty() {
-        return Err(Rejection::one(
-            0,
-            ViolationCode::ReservationInvalid,
-            "initialization_requires_action",
-        ));
+    let mut map = new_map(input.map_id, input.root, input.work_nodes, input.finish);
+    map.root.state = NodeState::InFlight;
+    for node in &mut map.work_nodes {
+        node.state = NodeState::Waiting;
     }
-    let mut facts = vec![MapFact::MapInitialized {
-        map_id: input.map_id.clone(),
-        root: input.root,
-        work_nodes: input.work_nodes,
-        finish: input.finish,
-        edges: input.edges,
-    }];
-    facts.extend(
-        input
-            .reservations
-            .into_iter()
-            .map(|input| MapFact::ActionReserved {
-                reservation_id: input.reservation_id,
-                reservation: input.reservation,
-            }),
-    );
-    commit(None, input.map_id, 1, facts)
+    map.finish.state = NodeState::Waiting;
+    normalize_readiness(&mut map);
+    validate_candidate(map)
 }
 
 pub(crate) fn execute(
     current: &TaskSpaceMap,
-    input: ExecuteTransaction,
+    mut input: ExecuteTransaction,
 ) -> Result<Commit, Rejection> {
-    require_revision(current, input.expected_revision)?;
-    if input.reservations.is_empty() {
+    require_revision(current, input.request_revision)?;
+    if is_complete(current) {
         return Err(Rejection::one(
             current.revision,
-            ViolationCode::ReservationInvalid,
-            "execute_requires_action",
+            ViolationCode::MapAlreadyFinished,
+            current.map_id.clone(),
         ));
     }
-    let mut facts = Vec::new();
-    facts.extend(
-        input
-            .graph
-            .add_work_nodes
-            .into_iter()
-            .map(|node| MapFact::WorkNodeAdded { node }),
-    );
-    facts.extend(
-        input
-            .graph
-            .remove_edges
-            .into_iter()
-            .map(|edge| MapFact::EdgeRemoved { edge }),
-    );
-    facts.extend(
-        input
-            .graph
-            .add_edges
-            .into_iter()
-            .map(|edge| MapFact::EdgeAdded { edge }),
-    );
-    facts.extend(input.node_mutations.into_iter().map(node_fact));
-    facts.extend(
-        input
-            .reservations
-            .into_iter()
-            .map(|input| MapFact::ActionReserved {
-                reservation_id: input.reservation_id,
-                reservation: input.reservation,
-            }),
-    );
-    commit(
-        Some(current),
-        current.map_id.clone(),
-        next_revision(current)?,
-        facts,
-    )
-}
-
-pub(crate) fn release_reservation(
-    current: &TaskSpaceMap,
-    input: ReservationRelease,
-) -> Result<Commit, Rejection> {
-    require_revision(current, input.expected_revision)?;
-    let reservation = current
-        .action_reservations
-        .get(&input.reservation_id)
-        .ok_or_else(|| {
-            Rejection::one(
-                current.revision,
-                ViolationCode::ReservationInvalid,
-                input.reservation_id.clone(),
-            )
-        })?;
-    let mut facts = Vec::new();
-    facts.extend(
-        input
-            .result_refs
-            .into_iter()
-            .map(|result| MapFact::ResultAttributed {
-                result_ref_id: result.result_ref_id,
-                result: ResultRef {
-                    node_id: reservation.node_id.clone(),
-                    action_id: reservation.action_id.clone(),
-                    reservation_id: input.reservation_id.clone(),
-                    is_error: result.is_error,
-                },
-            }),
-    );
-    facts.extend(
-        input
-            .evidence_refs
-            .into_iter()
-            .map(|evidence| MapFact::EvidenceAttributed {
-                evidence_ref_id: evidence.evidence_ref_id,
-                evidence: EvidenceRef {
-                    node_id: reservation.node_id.clone(),
-                    action_id: reservation.action_id.clone(),
-                    reservation_id: input.reservation_id.clone(),
-                    kind: evidence.kind,
-                },
-            }),
-    );
-    facts.push(MapFact::ActionReleased {
-        reservation_id: input.reservation_id,
-    });
-    commit(
-        Some(current),
-        current.map_id.clone(),
-        next_revision(current)?,
-        facts,
-    )
-}
-
-pub(crate) fn finish_map(current: &TaskSpaceMap, input: FinishMap) -> Result<Commit, Rejection> {
-    require_revision(current, input.expected_revision)?;
-    if input.terminal.summary_ref.trim().is_empty() {
-        return Err(Rejection::one(
-            current.revision,
-            ViolationCode::ExactSummaryEmpty,
-            input.finish_node_id,
-        ));
-    }
-    if input.final_completions.is_empty() {
-        return Err(Rejection::one(
-            current.revision,
-            ViolationCode::UnfinishedRequiredWork,
-            "finish_requires_final_work",
-        ));
-    }
-    let mut facts = input
-        .final_completions
-        .into_iter()
-        .map(|completion| MapFact::NodeCompleted {
-            node_id: completion.node_id,
-            record: completion.record,
-        })
-        .collect::<Vec<_>>();
-    facts.push(MapFact::TerminalRecorded {
-        finish_node_id: input.finish_node_id,
-        terminal: input.terminal,
-    });
-    commit(
-        Some(current),
-        current.map_id.clone(),
-        next_revision(current)?,
-        facts,
-    )
-}
-
-pub(crate) fn reopen_map(current: &TaskSpaceMap, input: ReopenMap) -> Result<Commit, Rejection> {
-    require_revision(current, input.expected_revision)?;
-    if input.add_work_nodes.is_empty()
-        || input.add_edges.is_empty()
-        || input.reservations.is_empty()
+    let added_node_ids = input
+        .add_work_nodes
+        .iter()
+        .map(|node| node.node_id.as_str())
+        .collect::<BTreeSet<_>>();
+    if let Some(patch) = input
+        .patches
+        .iter()
+        .find(|patch| patch.state.is_some() && added_node_ids.contains(patch.node_id.as_str()))
     {
         return Err(Rejection::one(
             current.revision,
             ViolationCode::TransitionInvalid,
-            "reopen_requires_work_edges_and_actions",
+            patch.node_id.clone(),
         ));
     }
-    let terminal = current.terminal_record.clone().ok_or_else(|| {
-        Rejection::one(
+    let mut candidate = current.clone();
+    for node in &mut input.add_work_nodes {
+        node.state = NodeState::Waiting;
+    }
+    candidate.work_nodes.extend(input.add_work_nodes);
+    for patch in input.patches {
+        apply_patch(&mut candidate, patch)?;
+        normalize_readiness(&mut candidate);
+    }
+    normalize_readiness(&mut candidate);
+    candidate.revision = next_revision(current)?;
+    canonicalize(&mut candidate);
+    validate_candidate(candidate)
+}
+
+pub(crate) fn finish_map(current: &TaskSpaceMap, input: FinishMap) -> Result<Commit, Rejection> {
+    require_revision(current, input.request_revision)?;
+    if is_complete(current) {
+        return Err(Rejection::one(
+            current.revision,
+            ViolationCode::MapAlreadyFinished,
+            current.map_id.clone(),
+        ));
+    }
+    if input.content.trim().is_empty() {
+        return Err(Rejection::one(
             current.revision,
             ViolationCode::TransitionInvalid,
-            "active_map",
+            current.finish.node_id.clone(),
+        ));
+    }
+    let mut candidate = current.clone();
+    normalize_readiness(&mut candidate);
+    if candidate.finish.state != NodeState::Ready {
+        return Err(Rejection::one(
+            current.revision,
+            ViolationCode::FinishNotReady,
+            candidate.finish.node_id.clone(),
+        ));
+    }
+    candidate.root.state = NodeState::Completed;
+    candidate.finish.state = NodeState::Completed;
+    candidate.finish.content = input.content;
+    candidate.revision = next_revision(current)?;
+    validate_candidate(candidate)
+}
+
+pub(crate) fn reopen_map(current: &TaskSpaceMap, input: ReopenMap) -> Result<Commit, Rejection> {
+    require_revision(current, input.request_revision)?;
+    if !is_complete(current) {
+        return Err(Rejection::one(
+            current.revision,
+            ViolationCode::MapNotFinished,
+            current.map_id.clone(),
+        ));
+    }
+    let mut candidate = current.clone();
+    candidate.root.state = NodeState::InFlight;
+    candidate.finish.state = NodeState::Waiting;
+    candidate.revision = next_revision(current)?;
+    normalize_readiness(&mut candidate);
+    validate_candidate(candidate)
+}
+
+fn apply_patch(map: &mut TaskSpaceMap, patch: NodePatch) -> Result<(), Rejection> {
+    let current = node(map, &patch.node_id).cloned().ok_or_else(|| {
+        Rejection::one(
+            map.revision,
+            ViolationCode::NodeIdentityInvalid,
+            patch.node_id.clone(),
         )
     })?;
-    let mut facts = vec![MapFact::MapReopened { terminal }];
-    facts.extend(
-        input
-            .add_work_nodes
-            .into_iter()
-            .map(|node| MapFact::WorkNodeAdded { node }),
-    );
-    facts.extend(
-        input
-            .add_edges
-            .into_iter()
-            .map(|edge| MapFact::EdgeAdded { edge }),
-    );
-    facts.extend(
-        input
-            .reservations
-            .into_iter()
-            .map(|input| MapFact::ActionReserved {
-                reservation_id: input.reservation_id,
-                reservation: input.reservation,
-            }),
-    );
-    commit(
-        Some(current),
-        current.map_id.clone(),
-        next_revision(current)?,
-        facts,
-    )
-}
-
-fn node_fact(mutation: NodeMutation) -> MapFact {
-    match mutation {
-        NodeMutation::Complete { node_id, record } => MapFact::NodeCompleted { node_id, record },
-        NodeMutation::Block { node_id, record } => MapFact::NodeBlocked { node_id, record },
-        NodeMutation::Unblock { node_id } => MapFact::NodeUnblocked { node_id },
+    let target_state = patch.state.unwrap_or(current.state);
+    if !allowed_transition(current.state, target_state) {
+        return Err(Rejection::one(
+            map.revision,
+            ViolationCode::TransitionInvalid,
+            patch.node_id,
+        ));
     }
+    if current.node_id == map.root.node_id || current.node_id == map.finish.node_id {
+        if patch.state.is_some() {
+            return Err(Rejection::one(
+                map.revision,
+                ViolationCode::TransitionInvalid,
+                current.node_id,
+            ));
+        }
+    }
+    let target = node_mut(map, &current.node_id).expect("node existed before mutable lookup");
+    if let Some(goal) = patch.goal {
+        target.goal = goal;
+    }
+    target.state = target_state;
+    if let Some(content) = patch.content {
+        target.content = content;
+    }
+    if let Some(parents) = patch.parents {
+        target.parents = parents;
+    }
+    target.actions.extend(patch.append_actions);
+    Ok(())
 }
 
-fn commit(
-    current: Option<&TaskSpaceMap>,
-    map_id: MapId,
-    revision: Revision,
-    facts: Vec<MapFact>,
-) -> Result<Commit, Rejection> {
-    let events = EventBatch {
-        map_id,
-        revision,
-        facts,
-    };
-    let current_revision = current.map_or(0, |map| map.revision);
-    let map = apply_batch(current, &events)
-        .map_err(|error| Rejection::from_replay(current, current_revision, error))?;
-    Ok(Commit { map, events })
+fn allowed_transition(from: NodeState, to: NodeState) -> bool {
+    from == to
+        || matches!(
+            (from, to),
+            (NodeState::Ready, NodeState::InFlight | NodeState::Completed)
+                | (NodeState::InFlight, NodeState::Completed)
+        )
 }
 
-fn unsatisfied_predecessors(map: &TaskSpaceMap, node_id: &str) -> Vec<String> {
-    predecessors(map, node_id)
-        .into_iter()
-        .filter(|predecessor| {
-            predecessor != &map.root.node_id && !map.completion_records.contains_key(predecessor)
-        })
-        .collect()
-}
-
-fn require_revision(current: &TaskSpaceMap, expected_revision: Revision) -> Result<(), Rejection> {
-    if current.revision == expected_revision {
-        Ok(())
-    } else {
-        Err(Rejection::one(
+fn require_revision(current: &TaskSpaceMap, request_revision: Revision) -> Result<(), Rejection> {
+    if current.revision != request_revision {
+        return Err(Rejection::one(
             current.revision,
             ViolationCode::StaleRevision,
-            expected_revision.to_string(),
-        ))
+            request_revision.to_string(),
+        ));
     }
+    Ok(())
 }
 
 fn next_revision(current: &TaskSpaceMap) -> Result<Revision, Rejection> {
@@ -449,4 +248,17 @@ fn next_revision(current: &TaskSpaceMap) -> Result<Revision, Rejection> {
             current.revision.to_string(),
         )
     })
+}
+
+fn validate_candidate(map: TaskSpaceMap) -> Result<Commit, Rejection> {
+    let violations = validate(&map);
+    if violations.is_empty() {
+        Ok(Commit { map })
+    } else {
+        Err(Rejection {
+            state_commit: false,
+            current_revision: map.revision,
+            violations,
+        })
+    }
 }
