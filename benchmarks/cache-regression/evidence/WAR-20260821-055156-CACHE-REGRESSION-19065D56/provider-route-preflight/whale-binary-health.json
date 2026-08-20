@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "status": "pass",
+  "run_validity": "valid",
+  "whale_bin_requested": "/home/zhangxu/.local/share/whalecode/workspaces/whalecode-codex-2de2f3853e/bin/whale",
+  "whale_bin_resolved": "/home/zhangxu/.local/share/whalecode/workspaces/whalecode-codex-2de2f3853e/bin/whale",
+  "whale_binary_exists": true,
+  "whale_binary_last_write_utc": "2026-08-20T21:50:48.7966394Z",
+  "whale_binary_sha256": "cc3462222ec2513a2ec2f4919789a116c2efe640bfd7c4407f90c389441b157c",
+  "whale_binary_epoch": 1787262648,
+  "current_git_head": "2efc9f99aa3166eaa2f1308899b3f7e83957256e",
+  "codex_source_latest_commit": {
+    "hash": "2efc9f99aa3166eaa2f1308899b3f7e83957256e",
+    "epoch": 1787262624,
+    "time_utc": "2026-08-20T21:50:24.0000000Z",
+    "pathspec": "third_party/codex-cli"
+  },
+  "stale_for_codex_source": false,
+  "stale_allowed": false,
+  "build_attestation_path": "/home/zhangxu/.local/share/whalecode/workspaces/whalecode-codex-2de2f3853e/bin/whale.build-attestation.json",
+  "build_attestation_status": "pass",
+  "build_attestation_reason": "",
+  "findings": [],
+  "generated_at": "2026-08-21T05:51:58.4194923+08:00"
+}

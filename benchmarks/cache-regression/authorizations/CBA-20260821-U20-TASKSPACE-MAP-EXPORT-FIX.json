@@ -1,0 +1,38 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v2",
+  "status": "granted",
+  "approved_by": "user",
+  "authorization_id": "CBA-20260821-U20-TASKSPACE-MAP-EXPORT-FIX",
+  "approval_reference": "用户于 2026-08-21 明确批准整个 rebase 与 Codex 合入工作 3.00 CNY 总包预算，并允许在预算内按需执行。本授权仅覆盖 deepseek-v4-flash、single-file-fast-fix 的 map-request 1 次，零重试，单次提案费用硬上限 0.20 CNY；此前缺失 usage 的失败运行按 0.40 CNY 上限保守占用，已观测 trace 复验费用 0.01649412 CNY、response-finalization 复验费用 0.022617 CNY，因此运行前总包保守剩余 2.56088888 CNY。",
+  "approved_at": "2026-08-21T05:51:25+08:00",
+  "proposal_id": "CBP-4DE8C41FD7241301",
+  "proposal_sha256": "4854c58248835e12c3414cea1c5fbce727b2aba3863d0cf54ab19287b40b7122",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 1,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 1,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "Validate the restored TaskSpace Map Store debug exporter end-to-end on the previously successful map-request path; total rebase package budget is 3.00 CNY and conservative remaining budget before this run is 2.56088888 CNY."
+  },
+  "approved_maximums": {
+    "provider_requests": 18,
+    "input_tokens": 180000,
+    "output_tokens": 10000,
+    "elapsed_seconds": 720,
+    "estimated_cost": 0.2,
+    "currency": "CNY"
+  }
+}

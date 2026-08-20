@@ -1,7 +1,7 @@
 # Problem P-001: 0.147 rebase 丢失 TaskSpace Map 调试导出命令
-- Status: open
+- Status: fixed
 - Created: 2026-08-21 05:47
-- Updated: 2026-08-21 06:08
+- Updated: 2026-08-21 05:54
 - Objective: 恢复 benchmark 可观测性依赖的内部 `whale debug taskspace-map` Store 导出能力。
 - Symptoms:
   - 真实 TaskSpace Agent 完成修复且公开/隐藏测试均通过，但 runner 因 Map Store export 失败将业务结果判为 false。
@@ -26,14 +26,14 @@
   - CLI 测试覆盖成功导出、无 binding 和非法 thread id。
   - 使用失败 run 的真实 SQLite home 离线导出成功。
   - 新授权真实 map-request 复验业务、usage、trace 与 Map Store observability 全部通过。
-- Current conclusion: H-001 confirmed；历史 exporter 已按 0.147 API 最小恢复，离线验证通过，等待新授权真实 map-request 关闭最后一项标准。
+- Current conclusion: H-001 confirmed；历史 exporter 已按 0.147 API 最小恢复，并通过离线与真实 map-request 端到端验证。
 - Related hypotheses:
   - H-001
   - H-002
 - Resolution basis:
-  - H-001 confirmed by E-001/E-002；repair 已通过 E-003/E-004 的 CLI 与失败运行 SQLite 离线验证。
+  - H-001 confirmed by E-001/E-002；repair 已通过 E-003/E-004 的 CLI/离线验证及 E-005 的真实 DeepSeek Responses 运行。
 - Close reason:
-  - not closed
+  - `WAR-20260821-055156-CACHE-REGRESSION-19065D56` completed；TaskSpace solved、usage/trace 完整、Map Store observability measured。
 
 ## Hypothesis H-001: rebase 删除 producer 但保留 benchmark consumer
 - Status: confirmed
@@ -71,13 +71,14 @@
   - E-002
   - E-003
   - E-004
+  - E-005
 - Conclusion: producer/consumer 迁移不完整。
 - Repair design readiness: ready
-- Next step: 使用新授权运行一次 map-request，确认 runner 端到端得到 measured Map Store observability。
+- Next step: none
 - Blocker:
   - none
 - Close reason:
-  - not closed
+  - Fixed by `2efc9f99aa3166eaa2f1308899b3f7e83957256e` and validated by E-003/E-004/E-005.
 
 ## Hypothesis H-002: Store 存在但缺少 thread binding
 - Status: refuted
@@ -181,7 +182,7 @@
   3 tests run: 3 passed, 0 skipped
   ```
 - Interpretation: 恢复后的隐藏命令已正确适配 0.147 ConfigBuilder 与 SqliteConfig。
-- Time: 2026-08-21 06:07
+- Time: 2026-08-21 05:49
 
 ## Evidence E-004: 失败运行的真实 SQLite Store 可离线导出并被观测脚本消费
 - Related hypotheses:
@@ -203,4 +204,27 @@
   MapStoreAvailability: measured; nodes=5
   ```
 - Interpretation: 原失败运行无需重新执行 Agent 即可证明导出修复正确；仍保留一次新真实运行作为 runner 端到端关闭证据。
-- Time: 2026-08-21 06:08
+- Time: 2026-08-21 05:50
+
+## Evidence E-005: 新真实 map-request 端到端完成并测得 Map Store
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: fix-validation
+- Source: `benchmarks/cache-regression/results/WAR-20260821-055156-CACHE-REGRESSION-19065D56.json` 与对应 observability artifact
+- Prediction or plan link:
+  - P-001 最后一项真实复验标准。
+- Matched signal:
+  - runner status completed、TaskSpace business success、Agent complete、公开/隐藏验证通过；8 个 Provider 请求 usage 完整且 trace coverage 1.0；Map Store availability measured、4 个 nodes。
+- Correlation keys:
+  - `WAR-20260821-055156-CACHE-REGRESSION-19065D56-CACHE-001`
+  - thread `01a02128-faed-7940-be65-64813a660e4a`
+- Raw content:
+  ```text
+  runner_exit_code=0; business_success=true
+  provider_requests=8; cache_usage_missing_count=0; trace_coverage=1.0
+  agent_completion_status=complete; external_validation_status=passed
+  observability_availability=measured; nodes=4
+  ```
+- Interpretation: 被 rebase 删除的 exporter 已恢复，runner 不再把正确 TaskSpace 运行误判为失败。
+- Time: 2026-08-21 05:53
