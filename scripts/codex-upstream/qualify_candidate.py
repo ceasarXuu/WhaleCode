@@ -18,16 +18,16 @@ from generate_overlay_inventory import VENDOR_PATH
 from git_snapshot import git, index_subtree, resolve_commit, resolve_tree
 from metadata_contract import validate_candidate
 
-RELEASE_TAG = "rust-v0.147.0"
-RELEASE_DATE = "2026-08-07"
-CANDIDATE_TARGET = "be6e8eac029b183056b7e4402879f15d2c85f61b"
+RELEASE_TAG = "rust-v0.149.0"
+RELEASE_DATE = "2026-08-20"
+CANDIDATE_TARGET = "758ef40f50c1a458425c7cfbf1eb12cbc07af0b0"
 RUSTY_V8_VERSION = "150.4.0"
 RUSTY_V8_TARGET = "x86_64-unknown-linux-gnu"
 RUSTY_V8_PROFILE = "ptrcomp_sandbox_release"
 OUTPUT_PATH = "docs/v0.0.5/codex-upstream-sync/upstream-candidate.json"
 EVIDENCE_DIR = (
     "docs/v0.0.5/codex-upstream-sync/evidence/"
-    "rust-v0.147.0/attempt-9-runtime-ceiling"
+    "rust-v0.149.0/attempt-1-isolated-qualification"
 )
 QUALIFICATION_ENVIRONMENT = {
     "INSTA_UPDATE": "no",
@@ -409,8 +409,8 @@ def _manifest(repo: Path, candidate_root: Path, commands: list[dict]) -> dict:
 def run(repo: Path) -> int:
     before = index_subtree(repo, VENDOR_PATH)
     with (
-        tempfile.TemporaryDirectory(prefix="whale-codex-0.147-") as temp_dir,
-        tempfile.TemporaryDirectory(prefix="whale-codex-0.147-runtime-") as runtime_dir,
+        tempfile.TemporaryDirectory(prefix="whale-codex-0.149-") as temp_dir,
+        tempfile.TemporaryDirectory(prefix="whale-codex-0.149-runtime-") as runtime_dir,
     ):
         candidate_root = Path(temp_dir)
         runtime_root = Path(runtime_dir)

@@ -14,7 +14,7 @@ class QualifyCandidateTests(unittest.TestCase):
     def test_candidate_target_is_independent_from_overlay_target(self) -> None:
         self.assertEqual(
             qualify_candidate.CANDIDATE_TARGET,
-            "be6e8eac029b183056b7e4402879f15d2c85f61b",
+            "758ef40f50c1a458425c7cfbf1eb12cbc07af0b0",
         )
 
     def test_candidate_uses_codex_sandboxed_v8_artifacts(self) -> None:
@@ -71,7 +71,7 @@ class QualifyCandidateTests(unittest.TestCase):
         self.assertEqual(
             qualify_candidate.EVIDENCE_DIR,
             "docs/v0.0.5/codex-upstream-sync/evidence/"
-            "rust-v0.147.0/attempt-9-runtime-ceiling",
+            "rust-v0.149.0/attempt-1-isolated-qualification",
         )
         self.assertEqual(
             qualify_candidate.ISOLATED_HOME_TEST_IDS,

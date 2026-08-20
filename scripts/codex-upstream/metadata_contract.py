@@ -52,8 +52,8 @@ def validate_candidate(document: dict) -> list[str]:
         return [f"candidate missing fields: {', '.join(missing)}"]
     if document["schema_version"] != 1:
         errors.append("candidate schema_version must be 1")
-    if document["release_tag"] != "rust-v0.147.0":
-        errors.append("candidate release_tag must be rust-v0.147.0")
+    if document["release_tag"] != "rust-v0.149.0":
+        errors.append("candidate release_tag must be rust-v0.149.0")
     for field in ("commit_sha", "tree_sha"):
         if not SHA40.fullmatch(str(document[field])):
             errors.append(f"candidate {field} must be a full SHA")

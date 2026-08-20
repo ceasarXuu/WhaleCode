@@ -122,7 +122,7 @@ class ContractTests(unittest.TestCase):
     def test_candidate_rejects_absolute_evidence_path(self) -> None:
         document = {
             "schema_version": 1,
-            "release_tag": "rust-v0.147.0",
+            "release_tag": "rust-v0.149.0",
             "commit_sha": "a" * 40,
             "tree_sha": "b" * 40,
             "release_date": "2026-08-07",
