@@ -1,8 +1,8 @@
 # Problem P-001: Whale npm 发布身份在 Codex vendor 同步后回退
 - Status: diagnosed
 - Created: 2026-08-21 09:39
-- Updated: 2026-08-21 09:43
-- Objective: 解释已独立发布的 Whale npm 包为什么在当前仓库中变回 OpenAI Codex 包配置。
+- Updated: 2026-08-21 10:18
+- Objective: 解释已独立发布的 Whale npm 包为什么在当前仓库中变回 OpenAI Codex 包配置，并审计同类分发面回退。
 - Symptoms:
   - 当前 `third_party/codex-cli/codex-cli/package.json` 声明 `@openai/codex`，而 Whale 之前已独立发布 npm 包。
 - Expected behavior:
@@ -20,17 +20,21 @@
   - npm registry 公开记录 `@ceasarxuu/whalecode@0.0.1-dev`，bin 为 `whale -> bin/whale.js`。
   - `720abe529` 的 0.147 vendor cutover 将 package、launcher 和 release workflow 回退为上游 Codex 版本。
   - 0.149 同步及 main 合并保留了该回退状态。
+  - 回退范围还覆盖已编译进 Whale 的自动更新/doctor 路径，以及 vendor 内的安装器、GitHub Release、R2、WinGet、代码签名和 SDK 发布配置。
+  - vendor 内 `.github/workflows` 在当前 Whale 仓库不会自动触发，但不能直接作为 Whale 发布工作流启用或复制。
 - Ruled out:
   - Whale 独立 npm 包从未发布。
   - 当前仓库另有一套仍有效的 Whale npm package manifest。
 - Fix criteria:
   - 用户授权修复后，恢复并验证 Whale 独立 package identity、launcher、平台包构建和只指向 Whale 资产的发布入口；加入同步/发布回归门禁；原始安装 smoke 通过。
-- Current conclusion: 这是 0.147 vendor cutover 中未重放 npm/release overlay 导致的确定性回归，不是 npm registry 迁移或 OpenAI 接管。
+- Current conclusion: 这是 0.147 vendor cutover 中未重放 Whale 分发 overlay 导致的系统性回归，不是 npm registry 迁移或 OpenAI 接管；当前直接风险包括 Whale 运行时把更新动作导向 OpenAI Codex。
 - Related hypotheses:
   - H-001
   - H-002
+  - H-003
+  - H-004
 - Resolution basis:
-  - Root cause diagnosed by H-001 and E-001 through E-006；尚未授权或实施修复。
+  - Root cause and distribution blast radius diagnosed by H-001/H-003 and E-001 through E-011；H-002/H-004 排除了替代解释和误报范围；尚未授权或实施修复。
 - Close reason:
   - not closed
 
@@ -250,3 +254,207 @@
   ```
 - Interpretation: 用户预期与 Git/registry 证据一致，并暴露了发布准备盘点中的错误假设。
 - Time: 2026-08-21 09:39
+
+## Hypothesis H-003: 分发身份回退不止 npm manifest，并已进入 Whale 可执行运行时
+- Status: confirmed
+- Parent: P-001
+- Claim: 同一未重放的 Whale 分发 overlay 还使自动更新、doctor、安装器和多渠道发布配置保留 OpenAI Codex 目标，其中部分路径已编译进 Whale CLI。
+- Layer: contributing
+- Factor relation: amplifying
+- Depends on:
+  - H-001
+- Rationale:
+  - package manifest、更新检测、安装命令和发布流水线共享 package/repository/artifact identity，vendor cutover 可能同时覆盖这些面。
+- Falsifiable predictions:
+  - If true: 生产 Rust 路径会查询或执行 OpenAI npm、GitHub、Homebrew、ChatGPT installer；vendor 发布链会指向 OpenAI npm scope、R2、WinGet 或签名标识。
+  - If false: OpenAI 配置仅存在于测试、文档或不可执行的 upstream provenance 中。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 区分编译进 Whale 的生产路径、当前根工作流和仅保留的 vendor 发布模板。
+  - Signal: 非测试源中的 URL/包名/命令、GitHub workflow 位置和根入口引用。
+  - Capture method: `rg`、目标文件阅读、根 `.github/workflows` 枚举、现有发布门禁执行。
+  - Event name or marker:
+    - distribution-openai-target-audit
+  - Correlation keys:
+    - main `715f91909`
+  - Differentiates from:
+    - H-004
+  - Supports if:
+    - 存在实际生产代码或可发布模板把 Whale 用户/制品导向 OpenAI 渠道。
+  - Refutes if:
+    - 所有命中都仅是合法 upstream 来源或测试夹具。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-007
+  - E-008
+  - E-009
+  - E-010
+  - E-011
+- Conclusion: 回退横跨运行时更新、npm 构建、安装器和 vendor 多渠道发布模板；最高优先级是已编译进 Whale 的更新/doctor 路径。
+- Repair design readiness: ready after user confirmation
+- Next step: 用户确认后按“运行时阻断 → npm 独立链恢复 → 其他渠道隔离/重建 → 门禁补强”分阶段修复。
+- Blocker:
+  - 修复尚未获得用户授权。
+- Close reason:
+  - not closed
+
+## Hypothesis H-004: 仓库内所有 OpenAI 分发相关字样都必须改成 Whale
+- Status: refuted
+- Parent: P-001
+- Claim: 所有 `openai/codex`、OpenAI URL 或 Codex artifact 引用都属于 Whale 分发错误。
+- Layer: root-cause
+- Factor relation: competing
+- Depends on:
+  - none
+- Rationale:
+  - 仓库以 Codex upstream 为 substrate，合法的来源追踪、同步资格验证、测试夹具和未启用 vendor 快照也会保留上游身份。
+- Falsifiable predictions:
+  - If true: 每个命中都会被 Whale 运行时或发布入口消费。
+  - If false: 能找到仅用于 upstream provenance、同步验证或历史证据的命中。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 按生产可达性和发布入口分类命中。
+  - Signal: 根工作流引用关系、文件职责、测试/证据目录边界。
+  - Capture method: `find .github/workflows`、`rg`、同步计划和 runbook 阅读。
+  - Event name or marker:
+    - openai-reference-classification
+  - Correlation keys:
+    - Codex substrate `rust-v0.149.0`
+  - Differentiates from:
+    - H-003
+  - Supports if:
+    - 所有命中均可达 Whale 分发。
+  - Refutes if:
+    - 部分命中是保留上游可追溯性的必要配置或不可执行证据。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-009
+- Conclusion: 不能全局替换 OpenAI/Codex；必须只修 Whale 产品运行时和 Whale 发布入口，保留 upstream provenance 与资格验证身份。
+- Repair design readiness: not applicable
+- Next step: closed by evidence
+- Blocker:
+  - none
+- Close reason:
+  - refuted by reachability and provenance classification
+
+## Evidence E-007: Whale 生产代码中的更新动作仍指向 OpenAI
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: code-location
+- Source: `codex-rs/tui/src/update_action.rs`、`updates.rs`、`npm_registry.rs`、`cli/src/doctor/updates.rs`、`cli/src/doctor.rs`、`app-server-daemon/src/update_loop.rs`
+- Prediction or plan link:
+  - H-003 预测生产更新/doctor 路径会消费 OpenAI 渠道。
+- Matched signal:
+  - 实际命令执行 `npm|bun|pnpm ... @openai/codex`、`brew upgrade --cask codex` 或 `chatgpt.com/codex/install.*`；版本检测查询 OpenAI GitHub/npm/Homebrew/桌面 appcast，doctor 固定 npm 路径 `@openai/codex` 和 Windows identity `OpenAI.Codex`；`whale app` 的平台实现会下载/打开 OpenAI Codex Desktop。
+- Correlation keys:
+  - npm package `@openai/codex`
+  - GitHub repo `openai/codex`
+- Raw content:
+  ```text
+  update_action.rs:44 npm install -g @openai/codex
+  update_action.rs:52 https://chatgpt.com/codex/install.sh
+  updates.rs:62 https://api.github.com/repos/openai/codex/releases/latest
+  npm_registry.rs:5 https://registry.npmjs.org/@openai%2fcodex
+  doctor/updates.rs:341 package_identity != "OpenAI.Codex"
+  doctor.rs:1085 npm_root.join("@openai").join("codex")
+  desktop_app/mac.rs:9 https://persistent.oaistatic.com/codex-app-prod/Codex.dmg
+  desktop_app/windows.rs:7 https://get.microsoft.com/installer/download/9PLM9XGG6VKS
+  ```
+- Interpretation: 这是用户运行 Whale 时可触达的错误更新路径，不只是待启用的发布模板。
+- Time: 2026-08-21 10:08
+
+## Evidence E-008: npm 构建、归档下载和 standalone installer 构成完整 OpenAI 链
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: config
+- Source: `codex-cli/package.json`、`bin/codex.js`、`build_npm_package.py`、`scripts/stage_npm_packages.py`、`scripts/install/install.sh`、`install.ps1`
+- Prediction or plan link:
+  - H-003 预测 package 之外仍有同身份的构建与安装配置。
+- Matched signal:
+  - 六个平台包、launcher、stager、release asset 名和 Unix/Windows installer 全部使用 `@openai/codex`、`openai/codex`、`rust-v*` 或 `releases.openai.com/codex`。
+- Correlation keys:
+  - package/artifact family `codex-*`
+- Raw content:
+  ```text
+  CODEX_NPM_NAME = "@openai/codex"
+  GITHUB_REPO = "openai/codex"
+  RELEASES_BASE_URL = "https://releases.openai.com/codex"
+  ```
+- Interpretation: 直接沿用这些脚本会下载、打包或卸载 Codex，不能发布 Whale v0.0.5。
+- Time: 2026-08-21 10:10
+
+## Evidence E-009: vendor 多渠道发布模板保留 OpenAI 专属目标，但当前不会自动触发
+- Related hypotheses:
+  - H-003
+  - H-004
+- Direction: supports
+- Type: config
+- Source: `third_party/codex-cli/.github/workflows/rust-release.yml`、`r2-release.yml`、`.github/scripts/publish_r2_release.py`、根 `.github/workflows` 枚举
+- Prediction or plan link:
+  - H-003 的多渠道预测；H-004 的可达性分类。
+- Matched signal:
+  - vendor workflow 配置 npm scope `@openai`、签名 ID `com.openai.codex.*`、developers.openai.com deploy hook、WinGet `OpenAI.Codex`/`openai-oss-forks`、CODEX_R2 secrets 和 `releases.openai.com/codex`；同时保留 `@openai/codex-sdk`、`@openai/codex-responses-api-proxy`、`openai-codex` 和 `openai-codex-cli-bin` 发布身份；根工作流只有 `release-identity.yml`，未调用这些 vendor workflows。
+- Correlation keys:
+  - vendor workflow path boundary
+- Raw content:
+  ```text
+  scope: "@openai"
+  identifier: OpenAI.Codex
+  fork-user: openai-oss-forks
+  REPOSITORY = "openai/codex"
+  https://releases.openai.com/codex/releases/...
+  root workflow: .github/workflows/release-identity.yml only
+  ```
+- Interpretation: 这些配置当前是“休眠但危险”的上游模板；不能误称已在 Whale 仓库自动发布，但任何启用/复制都会发错渠道。upstream 来源追踪本身应保留。
+- Time: 2026-08-21 10:13
+
+## Evidence E-010: 现有发布门禁不能阻止上述回归
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: test-output
+- Source: `scripts/check-codex-collision-risk.ps1`、`scripts/check-build-profile-policy.ps1`、`scripts/release/check_release_identity.py`
+- Prediction or plan link:
+  - H-003 的回归持续性与控制缺口。
+- Matched signal:
+  - release identity v0.0.5/Codex 0.149 检查和 5 个单测通过，但只覆盖版本身份；collision guard 默认模式在 Linux 因 `USERPROFILE`/安装路径隔离检查提前失败，以 `-SkipCliPathCheck` 运行时能检出 npm identity 回退；build profile guard 因 `tui/build.rs`/`BUILD_NUMBER` 已被同步删除而失败；根 CI 只运行 release identity 检查。
+- Correlation keys:
+  - v0.0.5 preflight
+- Raw content:
+  ```text
+  release identity check OK: WhaleCode v0.0.5; Codex substrate rust-v0.149.0
+  Ran 5 tests ... OK
+  check-cli-isolation.ps1: USERPROFILE is null
+  check-codex-collision-risk.ps1 -SkipCliPathCheck: npm CLI package must be named @ceasarxuu/whalecode
+  check-build-profile-policy.ps1: tui/build.rs does not exist
+  ```
+- Interpretation: 新增的版本号门禁正确区分了 0.0.5 与 0.149，但尚未覆盖分发 owner/package/channel identity；旧 Whale guard 仍含有有价值的 npm 断言，但默认可运行性、覆盖范围和 CI 接线均不足。
+- Time: 2026-08-21 10:16
+
+## Evidence E-011: TUI 远程公告和用户反馈仍由 OpenAI 渠道控制
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: code-location
+- Source: `codex-rs/tui/src/tooltips.rs`、`announcement_tip.toml`、`history_cell/notices.rs`、`bottom_pane/feedback_view.rs`
+- Prediction or plan link:
+  - H-003 的用户可达分发/引导面预测。
+- Matched signal:
+  - TUI 从 `raw.githubusercontent.com/openai/codex/main/announcement_tip.toml` 获取公告，展示 Codex Desktop/ChatGPT 安装引导、OpenAI Codex release notes，并把外部反馈送到 `openai/codex` issue。
+- Correlation keys:
+  - user-facing routing
+- Raw content:
+  ```text
+  tooltips.rs:7 raw.githubusercontent.com/openai/codex/main/announcement_tip.toml
+  tooltips.rs:12 https://chatgpt.com/codex?app-landing-page=true
+  notices.rs:46 https://github.com/openai/codex/releases/latest
+  feedback_view.rs:34 https://github.com/openai/codex/issues/new?template=3-cli.yml
+  ```
+- Interpretation: 这不是制品上传目标，但会把 Whale 用户引导到 OpenAI 的安装、公告、release 和支持渠道；其中远程公告还允许上游在 Whale TUI 中动态改变文案，应作为独立产品边界修复。
+- Time: 2026-08-21 10:21
