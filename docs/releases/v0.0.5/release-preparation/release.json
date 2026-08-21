@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "product": "WhaleCode",
+  "release": {
+    "version": "0.0.5",
+    "tag": "v0.0.5",
+    "status": "preparing",
+    "publish_authorized": false
+  },
+  "upstream_substrate": {
+    "product": "OpenAI Codex CLI",
+    "version": "0.149.0",
+    "tag": "rust-v0.149.0",
+    "candidate_manifest": "docs/v0.0.5/codex-upstream-sync/upstream-candidate.json"
+  }
+}

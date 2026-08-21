@@ -26,16 +26,23 @@ VS Code提供`Workspace: Bootstrap Plan`、`Workspace: Bootstrap Apply`、`Works
 
 ## Version And Build Number
 
-Whale reuses the Codex CLI release-version flow instead of adding a parallel
-version source:
+Whale and its Codex substrate have separate version identities:
 
 - Release semver lives in
   `third_party/codex-cli/codex-rs/Cargo.toml` under
   `[workspace.package].version`.
-- Rust release tags must stay `rust-vX.Y.Z`; the release workflow validates
-  that the tag matches the Cargo workspace version.
-- npm staging uses the same release semver through
-  `scripts/stage_npm_packages.py --release-version`.
+- Whale product release tags use `vX.Y.Z` and must match the Cargo workspace
+  version. Tags named `rust-vX.Y.Z` identify the imported Codex substrate only
+  and must never be registered as a Whale release.
+- Any future Whale package staging must use the same Whale release semver.
+  The vendor's OpenAI npm/R2/WinGet workflows are not Whale release entrypoints.
+
+For v0.0.5, run the offline identity guard before building or registering a
+release candidate:
+
+```powershell
+python scripts/release/check_release_identity.py --tag v0.0.5
+```
 
 Whale adds one checked-in monotonic build number at
 `third_party/codex-cli/BUILD_NUMBER`. Increment it when preparing a release
