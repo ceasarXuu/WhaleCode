@@ -1,0 +1,76 @@
+name: release-smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Draft or published Whale release tag
+        required: true
+        default: v0.0.5
+      version:
+        description: Expected Whale product version
+        required: true
+        default: 0.0.5
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-smoke-${{ inputs.tag }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux-x64
+          - runner: ubuntu-24.04-arm
+            platform: linux-arm64
+          - runner: macos-15-intel
+            platform: darwin-x64
+          - runner: macos-15
+            platform: darwin-arm64
+          - runner: windows-2025
+            platform: win32-x64
+          - runner: windows-11-arm
+            platform: win32-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Download release npm packages
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          VERSION: ${{ inputs.version }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          mkdir release-assets
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "whalecode-npm-${VERSION}.tgz" \
+            --pattern "whalecode-npm-${PLATFORM}-${VERSION}.tgz" \
+            --dir release-assets
+
+      - name: Verify isolated npm installation
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          mkdir smoke-prefix
+          cd smoke-prefix
+          npm init -y >/dev/null
+          npm install --ignore-scripts --omit=optional \
+            "../release-assets/whalecode-npm-${VERSION}.tgz"
+          alias="whalecode-${PLATFORM}"
+          mkdir -p "node_modules/${alias}"
+          tar -xzf "../release-assets/whalecode-npm-${PLATFORM}-${VERSION}.tgz" \
+            -C "node_modules/${alias}" --strip-components=1
+          actual="$(node node_modules/@ceasarxuu/whalecode/bin/whale.js --version | tr -d '\r')"
+          test "$actual" = "whale ${VERSION}"
+          test ! -e node_modules/.bin/codex
+          test ! -e node_modules/.bin/codex.cmd
+          echo "$actual (${PLATFORM})"

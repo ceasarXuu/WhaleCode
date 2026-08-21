@@ -22,5 +22,11 @@ gh workflow run release-identity.yml --ref main -f version=0.0.5
 gh workflow run whale-native-artifacts.yml --ref main -f version=0.0.5
 ```
 
+已有候选制品只需执行六平台安装 smoke 时，运行：
+
+```bash
+gh workflow run release-smoke.yml --ref main -f tag=v0.0.5 -f version=0.0.5
+```
+
 不要在仓库设置中禁用 Actions；完全禁用会同时阻止上述手动 workflow。静态门禁
 `python3 scripts/release/check_manual_actions_only.py` 会拒绝任何新增的自动触发器。
