@@ -9,8 +9,8 @@
 - 适用版本：WhaleCode v0.0.5
 - Checkpoint B 起始提交：`5331173f158fe6352ba69d78bcaf5038971fc7f1`
 - 初始 Codex vendor 导入基线：`fed0a8f4faa58db3138488cca77628c1d54a2cd8`
-- 当前 Codex vendor substrate：`rust-v0.147.0` / `be6e8eac029b183056b7e4402879f15d2c85f61b`
-- 当前正式验证目标：Codex CLI `rust-v0.147.0` / `be6e8eac029b183056b7e4402879f15d2c85f61b`（U2 与 Checkpoint B verified）
+- 当前 Codex vendor substrate：`rust-v0.149.0` / `758ef40f50c1a458425c7cfbf1eb12cbc07af0b0`
+- 当前正式验证目标：Codex CLI `rust-v0.149.0` / `758ef40f50c1a458425c7cfbf1eb12cbc07af0b0`（U19 verified）
 - 范围：差异审计、合并风险分类、追赶顺序和已完成切换证据
 
 ## 专题文档
@@ -98,7 +98,7 @@
 | --- | --- | --- |
 | Whale 历史分析 HEAD | `c539cbe18030727ae9c48e27246c0439ad246390` | 2026-08-01 分析快照边界，非当前 HEAD |
 | Whale vendor 固定基线 | `fed0a8f4faa58db3138488cca77628c1d54a2cd8` | 识别 Whale 自有修改 |
-| 当前正式候选 | `rust-v0.147.0` / `be6e8eac029b183056b7e4402879f15d2c85f61b` | U2 direction-supported；Checkpoint B/U3 后才可成为 cutover 目标 |
+| U2 历史候选 | `rust-v0.147.0` / `be6e8eac029b183056b7e4402879f15d2c85f61b` | 当时为 direction-supported；现已由 U19 的 0.149 取代 |
 | 官方 main | `ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff` | 观察稳定版之后的演进，不作为本轮目标 |
 
 ### 2.2 使用的方法

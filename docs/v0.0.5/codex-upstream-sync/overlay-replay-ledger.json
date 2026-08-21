@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "baseline_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
-  "target_commit": "be6e8eac029b183056b7e4402879f15d2c85f61b",
-  "overlay_tree": "e21033aa61284a8cc1bf98ce4e7e5782f7731bc8",
+  "baseline_commit": "758ef40f50c1a458425c7cfbf1eb12cbc07af0b0",
+  "target_commit": "758ef40f50c1a458425c7cfbf1eb12cbc07af0b0",
+  "overlay_tree": "6cb3c08e39a61d59f9ac64b97293d422f0594a85",
   "cutover_batches": [
     {
       "id": "batch-1-brand-home",
@@ -121,7 +121,7 @@
         "build_release",
         "upstream_backport"
       ],
-      "current_sha256": "2386c2385cf4ae58a4e6a8a968e552e91655e6bd51344c9791f8577d97082a87",
+      "current_sha256": "23c3324458f5e4ab92359c1832b996334ba0fee978d710d39e8858df68ca4565",
       "cutover_batch": "batch-5-generated-release",
       "decision_basis": [
         "cargo-lock requires cutover-source integration before regeneration"
@@ -137,7 +137,7 @@
       "generated_lineage": null,
       "owner_domain": "generated-release",
       "path": "codex-rs/Cargo.lock",
-      "target_sha256": "eeab4e9d3466da54037032251e2f13ad1ed11eae18bb8ee7dd2c89dbb86f645d",
+      "target_sha256": "0c32858e9c47d0acf82735c8620c96840a5381152eec63acad15d1acadb9edad",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -150,7 +150,7 @@
         "build_release",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "b348acd0cd3043f967086a0ea4d63a06ccfc2f9cddf168757284172aee9a2349",
+      "current_sha256": "4ebca0f3e55a9b5c25c9f8dafef23e77a38e826e1967d30f586021c3891b7732",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -164,7 +164,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/Cargo.toml",
-      "target_sha256": "852ffe282c3c97cd642419d70babd94391624525bcdc48f7942160776f83e710",
+      "target_sha256": "a3669102a1d1305b4b243b0fc6bd6bca9629ed9e5aa74b42936aba386c9805b4",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -178,7 +178,7 @@
         "generated_artifact",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "9902d33eeb52b84a528c51d89bdbf547a4ba9caeff5c47c50119b8e2786a437c",
+      "current_sha256": "5228387b03aa31d393cd3a3ac0acc72f9067ed89ddb4160bb96d6191f758b9f6",
       "cutover_batch": "batch-5-generated-release",
       "decision_basis": [
         "authoritative upstream generator and command are known"
@@ -198,7 +198,7 @@
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/ClientRequest.json",
-      "target_sha256": "6ba8920b1eb51583d43829d73a353bb069a888d08ed763a44272440c14efc88f",
+      "target_sha256": "1024db9d23b156e04b020a5d101982841dab158b84ecc9ecec399ab119ac9a1f",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -213,7 +213,7 @@
         "generated_artifact",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "d6ca61a46152ec8cdb3d44763322eee1a362379892cc8412f7810549b9a16b24",
+      "current_sha256": "cb70ff4842d0ddab690f1abc07d1faa1afba628e38ae6742b799b3c11f46aa65",
       "cutover_batch": "batch-5-generated-release",
       "decision_basis": [
         "authoritative upstream generator and command are known"
@@ -233,7 +233,7 @@
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/ServerNotification.json",
-      "target_sha256": "558aab11da20cd0d278ec6f9067a46444f0566be7e3953f443dcc5d7cb23736f",
+      "target_sha256": "be5e648ebf969cba14befd535a20463befb0ea99ae03a923471547b7f473161e",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -248,7 +248,7 @@
         "generated_artifact",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "b25be662fb8462bfff15b8405d6d7ec674d25ae00f61697b0f249ebd6c67fb42",
+      "current_sha256": "10d82b5be7d6dc52ccaea9a64d6b264c7c6d92ea1407c715336c5f07d0ca4a19",
       "cutover_batch": "batch-5-generated-release",
       "decision_basis": [
         "authoritative upstream generator and command are known"
@@ -268,7 +268,7 @@
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/codex_app_server_protocol.schemas.json",
-      "target_sha256": "f72b2caa3cbfa4298de9e85c62dda6dfbaf2266ffeb916fed30615ca69ff8c74",
+      "target_sha256": "02a4c63a638fdae4a5f6c3ad32a41a377b642c66f3abc84f6fc47c7f3d6074df",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -283,7 +283,7 @@
         "generated_artifact",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "b308e0b1e7d28bfabf4b85e850110d98c928df82a7b912b06fd5a1b834eb4290",
+      "current_sha256": "d91a804e84a0a7be54744f5e3951cb5fd178c4f584ca4d35d02367e4ae428a7f",
       "cutover_batch": "batch-5-generated-release",
       "decision_basis": [
         "authoritative upstream generator and command are known"
@@ -303,7 +303,7 @@
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/json/codex_app_server_protocol.v2.schemas.json",
-      "target_sha256": "f3dec1e031d99a420b137b903f02196d4325eece57620c925bb7130b25f168d2",
+      "target_sha256": "9b3de71a5a2ffc980b792a18aa8f8dec3f85f48829560222a0264fe494b679a9",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -365,7 +365,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/app-server-protocol/schema/precomputed/app-server-exports-experimental.json.zst",
-      "target_sha256": "f012c8367251cf766eda1a733b2224b51ab68cd4893897a8464e889c37939a1b",
+      "target_sha256": "5185430fffaa0d7c254d74d0d528e24c2814ac6d7f25f9b0679d6ad26f84eadc",
       "upstream_status": "added",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -378,7 +378,7 @@
         "app_server_protocol",
         "generated_artifact"
       ],
-      "current_sha256": "2ba02c0df6c5a6c3f91366de2ede335473a18a22f167eeac3bb23b4fa6301b33",
+      "current_sha256": "315afdde2c5379476c6a6d9da527a2b8a8eb27180f79250bc4f48d3bcda07f1b",
       "cutover_batch": "batch-2-substrate",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -391,7 +391,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/app-server-protocol/schema/precomputed/app-server-exports-stable.json.zst",
-      "target_sha256": "84ad8d6156b5a7b7fe574b7d4fb8186257d2f5189869c1876073445b21b6f077",
+      "target_sha256": "5b0cb2524f4719764b11fe4a0321ca300a61daf081bbc391a21e2417254dafb3",
       "upstream_status": "added",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -580,7 +580,7 @@
         "generated_artifact",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "75fe5eff7211f5a6e3515f3f09b8e773d063b8812c13f7a89a703f5ecca53e80",
+      "current_sha256": "8999d694069046c2fcf4162e2b750f6edd94d5ed167117468cb9c71785ffb016",
       "cutover_batch": "batch-5-generated-release",
       "decision_basis": [
         "authoritative upstream generator and command are known"
@@ -600,7 +600,7 @@
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/typescript/ServerNotification.ts",
-      "target_sha256": "dea5109760272972853a3fbb4dc04084f17338f0837eba4af0da65352bb4c3c4",
+      "target_sha256": "e00fcc3b3c376e808a5feefaa233fdd49ea50acfa15cb629eb40fcf27b706777",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -615,7 +615,7 @@
         "generated_artifact",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "67c1fd6084c579ecf899f7420ed80e8a33e6c182b7b1c9a3e9765eb4851e4af7",
+      "current_sha256": "014931a203acfe64790f852e55eea08ab6517cc95f214f490370a733959dd35e",
       "cutover_batch": "batch-5-generated-release",
       "decision_basis": [
         "authoritative upstream generator and command are known"
@@ -635,7 +635,7 @@
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/typescript/ServerNotificationEnvelope.ts",
-      "target_sha256": "981eafc2a836f9bf38d95f6091b2e1dff56dbeaa9d7ef004bc960b9b91bf368c",
+      "target_sha256": "acaa68be642b7473bd22799aeec69b140a6b7ed9a34893dc2dd199c61253003f",
       "upstream_status": "added",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -685,7 +685,7 @@
         "generated_artifact",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "912f7ea46e8160a2a8cf9362c9543d7c9cbf60ce55d691d59d07aaeac7a6815c",
+      "current_sha256": "d264384c92acc29f960925318b7a145a5a11f51e2ab26b08bcbf6e8289d32889",
       "cutover_batch": "batch-5-generated-release",
       "decision_basis": [
         "authoritative upstream generator and command are known"
@@ -705,7 +705,7 @@
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/typescript/index.ts",
-      "target_sha256": "1cca50b4003a6661cd211dff7c655ecf03ecfe4c7bba8e72a5bbc9af33ee5086",
+      "target_sha256": "cad2c5b82900b6bc58cdc36fdb756e2ab8a49274147af96a7ca7ac2aecd0db08",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -755,7 +755,7 @@
         "generated_artifact",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "6477c6477110f19321cfa6aa6029e8a4fb207b7fbae347631de8bb5826d1236a",
+      "current_sha256": "891e4a9f5deaf5ee45cce675ea227de2fe7c99d210e0c0d5aee0a9b836d83de8",
       "cutover_batch": "batch-5-generated-release",
       "decision_basis": [
         "authoritative upstream generator and command are known"
@@ -775,7 +775,7 @@
       },
       "owner_domain": "generated-release",
       "path": "codex-rs/app-server-protocol/schema/typescript/v2/index.ts",
-      "target_sha256": "8124794c0dc05f081c4c0537461d98c3cc38656ec9935564565076e7890ad057",
+      "target_sha256": "37435cfdf48eed3604d92fa30d87f4b8d2fedc44b0d95480a4d61eed7f1562b2",
       "upstream_status": "modified",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -816,7 +816,7 @@
         "app_server_protocol",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "0144731e779baf96057dcba1a98b32077bbce217cf81e854f75a98cb9b10401b",
+      "current_sha256": "f452265231bd7d0c0d6469281853339f950fcd28acf1baa796aabf614b69438e",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -830,7 +830,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/app-server-protocol/src/protocol/common.rs",
-      "target_sha256": "c0cf823533c377d41f4b2c36f6b2672620a6882c62a36d5d7c8f2135f1ca92c0",
+      "target_sha256": "f301b8b3bdcee9275457348ea041f0187c7fd375b57a0fbac48e799fb4bc9235",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -842,7 +842,7 @@
       "categories": [
         "app_server_protocol"
       ],
-      "current_sha256": "78d42926d477c7fc78abcd5d100e96b14fe0330c24047896a6b71587d62a02a2",
+      "current_sha256": "4f370d4566d6c7a4d1e3451f0514a4a2d1da9cf198cc4d1c2915b49285272cd4",
       "cutover_batch": "batch-2-substrate",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -855,7 +855,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/app-server-protocol/src/protocol/v2/mod.rs",
-      "target_sha256": "0ce95e2de06187de221ec14166506d1f37b4267998639816d273a89a805235ed",
+      "target_sha256": "e9c107e9598279f964eca4ee9f1f47e5a0a0a6cb68ed652cf452656c375d7e63",
       "upstream_status": "added",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -923,7 +923,7 @@
         "app_server_protocol",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "27734eb746dbd5f20d442aced8af6cac62fd03e18875b6746b8650dfd6dc9157",
+      "current_sha256": "3f735ab2096cda402d51ea1b06bc2fc690d887411cfc8849d88077c1cc596294",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -937,7 +937,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/app-server/src/message_processor.rs",
-      "target_sha256": "5cda3bc334d2be7cfc54ed156ad94eba2cdd04433fa95453651d0a9cb671b158",
+      "target_sha256": "fcde1d673c5b6c96fb2a4ca1c75e688299b0a0b1206f927f4a53a11baa7d66d4",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -950,7 +950,7 @@
         "app_server_protocol",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "b614f7fa8ce0804a2feb711f6f4569a8f646f29792f27caba83a9041aacf733c",
+      "current_sha256": "3f938a430fc802c8afe59c85bf9b10bd6fbfe72ef37691d7b07c54a1064563b0",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -964,7 +964,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/app-server/src/request_processors.rs",
-      "target_sha256": "714774b0143eb05b34bf8a9cd7c293aa24b9d0eb10b48927fa0616c08477bfa6",
+      "target_sha256": "378651b897a02ebea830eacd3c3dfb0defb9b44e5367aa8abd2442b7d0a53c6f",
       "upstream_status": "added",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -977,7 +977,7 @@
         "app_server_protocol",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "a1a4baa0c00c8548f164a919ee56e220d1990d67dc229690c610188ae6eb4833",
+      "current_sha256": "c46578aa29ca7a0b2a345f76fb838d6a517120bb9f44b0fb68b74e554cb0d7d9",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -991,7 +991,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/app-server/src/request_processors/thread_processor.rs",
-      "target_sha256": "3fbd27112ec6812028be14260ae347c4f9377d3d2ab23ac0c8353bec1789aada",
+      "target_sha256": "49269190a4962d74e51678774c07b2e06bb19e54806f7fecf0cc1ef2250fa8d4",
       "upstream_status": "added",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -1055,7 +1055,7 @@
         "brand_home",
         "test_fixture"
       ],
-      "current_sha256": "9b9edbb08eb78aa3360974ba72ed81eff2d3e5865ccfa616bbcfb79d1de63bd6",
+      "current_sha256": "8d2c889a141baf8578eac97a240db5fc75fb78015894e50cb9e1d67eec219adf",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1066,7 +1066,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/app-server/tests/common/test_app_server.rs",
-      "target_sha256": "1e5d79a05b4596611809d456bcab564b4e1a686863dd4077d91299d8759cface",
+      "target_sha256": "dff2587066ec92eaafce4a3e005ab84d2aa2408becd328933a704d2c7591e142",
       "upstream_status": "added",
       "verification": [
         "cargo test -p codex-cli",
@@ -1131,7 +1131,7 @@
         "brand_home",
         "test_fixture"
       ],
-      "current_sha256": "779dc63426159a20a150909bc7fbe7cad7010173ce17dc036f0a551579fc49c4",
+      "current_sha256": "efdd98dde0c733c6052a82a023f471271bd71ae1884dbb786be70761970f264d",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1142,7 +1142,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/app-server/tests/suite/v2/command_exec.rs",
-      "target_sha256": "7531887bd4b4dc2d79bb723ecdae5c241da59fb9500a1a2a21cbdc00506c0c8e",
+      "target_sha256": "3783f715c449aba945b4d152c828ecb30d1aac58798db7db1b303e7ebe25e4a9",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -1156,7 +1156,7 @@
         "brand_home",
         "test_fixture"
       ],
-      "current_sha256": "f8e7c835cea2a08983c26edc3136b5557fab03259528e086a618040a51ddc9dc",
+      "current_sha256": "16417364fccea36fed7af0321af878103531d4f66119d3dcefd746e16810547b",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1167,7 +1167,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/app-server/tests/suite/v2/connection_handling_websocket.rs",
-      "target_sha256": "d8427947347be4c0f5d1932760cfcaf27cba1ac4d2c7ab0899b3ccf6dbdc05cb",
+      "target_sha256": "c015889621b9bbeb96df240b81c0480997442d4b1f4ad2da55eb6e1567515efd",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -1180,7 +1180,7 @@
         "app_server_protocol",
         "test_fixture"
       ],
-      "current_sha256": "caa7b535e892ca98a84c2599bf5ac4c260466fe49ffbef953665daa51da6fad5",
+      "current_sha256": "41e6095c17400d654f4ce2cff5c7d6183ff4f1ac46793301ce4966b5f90eeccf",
       "cutover_batch": "batch-2-substrate",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1193,7 +1193,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/app-server/tests/suite/v2/executor_mcp.rs",
-      "target_sha256": "bb746f2d8febea75e9f9eac8e7ed3bfb530f975876cb08f0a834cc3fe30782ff",
+      "target_sha256": "3603727506cf4e4afd80c6abd7e0e5237121b1d6ceb924e8d7d2bae582843c41",
       "upstream_status": "added",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -1232,7 +1232,7 @@
         "brand_home",
         "test_fixture"
       ],
-      "current_sha256": "92af581e8aad52be33f928b477462a1df6c4916496b5f38b5c3175c66139e72d",
+      "current_sha256": "31a2f8ffcb227200a0c4f43d2f682b34b09982b6bbc7e59b1592e1f824584d68",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1243,7 +1243,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/app-server/tests/suite/v2/selected_capability_stack.rs",
-      "target_sha256": "5b61c44342bed72407bf50c154691b2bd7df3cafd6825969b608b9cb2279c8d9",
+      "target_sha256": "fbc12893d32f01a65fdbe5d2d63389aa8156490e177649310e60ba8cbbaae012",
       "upstream_status": "added",
       "verification": [
         "cargo test -p codex-cli",
@@ -1257,7 +1257,7 @@
         "taskspace_host_hooks",
         "test_fixture"
       ],
-      "current_sha256": "c9ec4f3930ff35db9fd56c012886576b462728f354ef3b2ce53877e7bbd880ea",
+      "current_sha256": "5707aa9f2377c15c70673d785d125731bfcb0c204376606f2a527451902430a5",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -1271,7 +1271,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/app-server/tests/suite/v2/thread_fork.rs",
-      "target_sha256": "5e2fed6e2ba134523fe9b68c65d38deeecb0b08c6fadadb5764a7e01d0b74e37",
+      "target_sha256": "87585ee92720ce8699d84fc039d838d5d0b3d4716ed3863dfd54daa1a47c1c2e",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -1285,7 +1285,7 @@
         "provider_model",
         "test_fixture"
       ],
-      "current_sha256": "a574ba8e2685a0a4e8c9ec8ace38dd67ae58ed4895c3e126d4308a4c1b83a092",
+      "current_sha256": "c76cf174c6bf10cf240aa427d98de440a431483cd1ceccd53e7d7ed281d6bac1",
       "cutover_batch": "batch-3-deepseek-wire",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -1298,7 +1298,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/app-server/tests/suite/v2/turn_start.rs",
-      "target_sha256": "a4a35574fd9f99647e163ee4978949a8ea710bb522cef93a51ae861bd1a0c915",
+      "target_sha256": "3d946838f8e58b753a37330918cc183bc79d0791d4164182e5c9f982d5cb6034",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -1311,7 +1311,7 @@
         "build_release",
         "cli_surface"
       ],
-      "current_sha256": "24da274c1bd5c250d63a7479eb2b479e6ffe40187961e8d318cf6983fe88bb77",
+      "current_sha256": "4808611e4b05bb1d6d8a08fe1c2eb6520c5f43e5c933bb566a8e4d14c8461fa8",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1322,7 +1322,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/cli/Cargo.toml",
-      "target_sha256": "37a433be6835d07b4ac0241ec99b79ff73905bbd6b1b043db1d459f5f7152de2",
+      "target_sha256": "c3919d0931683404520fd98132122dac9e3764af8d4479f341274db6a0806009",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -1374,7 +1374,7 @@
       "generated_lineage": null,
       "owner_domain": "generated-release",
       "path": "codex-rs/cli/src/doctor/snapshots/codex__doctor__output__tests__doctor_human_report_environment_rows.snap",
-      "target_sha256": "a5e49e40ea36795e5b62ed1b83685d91aa0e2f42b404854cc70edff4151169c3",
+      "target_sha256": "bd34f26ee87389defc58104abef7d914f9cf895dea6534d5a91b6c61a380b5e9",
       "upstream_status": "added",
       "verification": [
         "full workspace tests and generated-tree diff",
@@ -1387,7 +1387,7 @@
         "cli_surface",
         "generated_artifact"
       ],
-      "current_sha256": "a5e49e40ea36795e5b62ed1b83685d91aa0e2f42b404854cc70edff4151169c3",
+      "current_sha256": "bd34f26ee87389defc58104abef7d914f9cf895dea6534d5a91b6c61a380b5e9",
       "cutover_batch": "batch-5-generated-release",
       "decision_basis": [
         "insta-snapshot requires cutover-source integration before regeneration"
@@ -1417,7 +1417,7 @@
         "provider_model",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "22adb2862624e5a712c8948b6af8255cad42b713ae6feed035935ff8cb79f3ff",
+      "current_sha256": "7f9256a463d38a17835e69751d868f120288ee3e4c42595827c892d543a1aec3",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -1431,7 +1431,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/cli/src/main.rs",
-      "target_sha256": "1ca67a651488dd9af26b1328531dfaf68cc4cd3290afeec9dd9ca6f04bcd8091",
+      "target_sha256": "f1a4de102523388f75ed17823584ac22a77991b73590b5dd3f1de43ea9797761",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -1445,7 +1445,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "504d88185fe6bb161cfd8d6ac1b2969b0ddc0b78282162f5b2b518171a3c83e8",
+      "current_sha256": "cdf42670a1404adf18fcc07e54cf4ac5afc0b9d367953ddf80b751ff5956bbb7",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1456,7 +1456,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/cli/tests/app_server.rs",
-      "target_sha256": "e83705e03f16b1c9afa0ce9e34be26817e89f372a680f03ca0eb99dbc2defc66",
+      "target_sha256": "7408b54462915bbdfa95c69548df44ef40312b274458f25485800cf8f2c30bb3",
       "upstream_status": "added",
       "verification": [
         "cargo test -p codex-cli",
@@ -1628,7 +1628,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "7bb868047eb5ddbc8581a1cbf901fc2b61a498a7000c3577a0ba59c64db2829e",
+      "current_sha256": "e12f9e3703f03fa24237351dad751c290ffbac0b615ab951665384dc579af9a9",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1639,7 +1639,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/cli/tests/features.rs",
-      "target_sha256": "2c439a5a4c020c3ef4531ee76c14741ff5c1569503c24b99ecfd00d2115b967c",
+      "target_sha256": "63de8ad389879df2729ad0f9c7d38b9e07ecf4034f2d9adc05ba110d6faff291",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -1653,7 +1653,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "0a142cded0e54042e429b438b7b8505ab65e26e3043bf0b9218f2b31472797c6",
+      "current_sha256": "2555e2c5195e0ce857cf63440d35f7d2dac37bec7c8bcd64672e0e1ab07b510d",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1664,7 +1664,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/cli/tests/login.rs",
-      "target_sha256": "44eda8829cf7bb4f369305622020892dbb6e3b941989c109f0b422de1e5dff38",
+      "target_sha256": "0341fcf8dc499203b27171ef1e145e9be742455f3d3881186f7950be5fed462b",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -1703,7 +1703,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "2b24102f8145ad8df188eb9b2184ec3a8021c0f13a3a1ee2bfb01d216b77fa71",
+      "current_sha256": "b1712b745bd8667ade09bec6629a7b99b67cfae97c956bf5eb191253f494c67c",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1714,7 +1714,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/cli/tests/marketplace_remove.rs",
-      "target_sha256": "82bd06e83dbbe3d6fec22a42e3ecd95fc2d077667fe61ebb9c9e7c7b230da0d7",
+      "target_sha256": "9fe86faeac8553fa0faffad0da52ad0824cd029649f81b5346aa07309d5f8a50",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -1753,7 +1753,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "f553bfcb919b3d056b7b7f03dd6b1727e6b07ff8f79c3f0d78958ec500ce5e91",
+      "current_sha256": "e2f8f056a38c91e17d9260436a698eb760669aa2e0335ee9fe25d4b5882e4cdc",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1764,7 +1764,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/cli/tests/mcp_add_remove.rs",
-      "target_sha256": "0b22464a9e895870ee89021351e27d4c5cb5bf5872cb1a7b1439986b43f0cb91",
+      "target_sha256": "290e3fb1231fead2b45e498abd917e9448bf57dbd6280ea8f12c11e176e35b27",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -1803,7 +1803,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "ca9f59c4cbcc25d19e267c6bb530cefd2f451597d1f726ed5498f2120e6f666f",
+      "current_sha256": "1180cfac393154ddbd32241a1fc8f40c3ed58957146969732fbc894e2c10e4a7",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1814,7 +1814,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/cli/tests/mcp_list.rs",
-      "target_sha256": "493105aa748f4072ec61b7d66e2d4500f11060410927a8ff65a907c8ccb33142",
+      "target_sha256": "95d7bb5b083d34836ae7cc78b5d773ed40f470cd05898fb9fd2e4a76c47215e5",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -1828,7 +1828,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "517750145748f789bd9550e4b23e724777fe0b09faf27cf0f42513d63d1115c4",
+      "current_sha256": "9484e8dc0d3f0c3f434c334fdd59d441203c928f2550f9c2993db27088904571",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -1839,7 +1839,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/cli/tests/plugin_cli.rs",
-      "target_sha256": "12ac1bf34b18a61ba721197d6613b5caddf42722b64935cac2ea715ec7b90792",
+      "target_sha256": "07983038ec395498be9714eb76b3813603c8161ca1f435b36211b4572304b4a7",
       "upstream_status": "added",
       "verification": [
         "cargo test -p codex-cli",
@@ -1929,7 +1929,7 @@
         "provider_transport",
         "wire_sse"
       ],
-      "current_sha256": "63d3fb8449d1c408b540170886b2cbb2e756e3a048426f0de3138d22df650b9d",
+      "current_sha256": "7c87eb2267213ac21e404365e3dd068b59971f2c1146e37b5137289957fb1093",
       "cutover_batch": "batch-3-deepseek-wire",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -1942,7 +1942,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/codex-api/src/sse/responses.rs",
-      "target_sha256": "4995c9c692dd9e3ebf8dcccc3e0f458d1d0f4c21fa60d75042594d00ba961fca",
+      "target_sha256": "61e290b0693868be22061dd5b8a061101e0a874dc32efa2ab9f64bc8d130f68e",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -2009,7 +2009,7 @@
         "configuration",
         "provider_model"
       ],
-      "current_sha256": "34aac1b4892a86f082778394c5ddfed5f869690ed024691ac46d67ad55754bea",
+      "current_sha256": "10f0c89966aa647f78b86d59fdfa85b4e3497314f4470f36557132129c45ce2e",
       "cutover_batch": "batch-3-deepseek-wire",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -2022,7 +2022,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/config/src/config_toml.rs",
-      "target_sha256": "52f71bf2e16f5868fbbdf66f73e3a78179149c45f8ac054588619116d57f335a",
+      "target_sha256": "8cdc16cfab7ccc12f4c2fe47e9a4af9ded3a9f90c424b0ac5922f27b37e89286",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -2035,7 +2035,7 @@
         "build_release",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "d69a5dffd1b486e8ae9fa74aabe32548b57bf908388c18f272b05c15c70b83fa",
+      "current_sha256": "7dbc01a9a01ad50249655d35b6630e57f2a6bda32016085a7cdb85a226c4c8c6",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -2049,7 +2049,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/Cargo.toml",
-      "target_sha256": "28be02ba0c60c4e9f871935768eb230169070024e82d6662255ea2dc3bab2fdc",
+      "target_sha256": "bb20965d538df361d1ae039229b2e0da6b36dd9ab0dd07496af6aa2c1a6e588b",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -2139,7 +2139,7 @@
       "categories": [
         "taskspace_domain"
       ],
-      "current_sha256": "c007d8eb537dd74dc1fc0e88c1dbc08a4aeb4edc419fc3c295ca14319cd59397",
+      "current_sha256": "6621bdbe43e55b1f7d54c04eb0d4d5d6f3e77e9042013414482843fd082df15b",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -2558,7 +2558,7 @@
         "taskspace_host_hooks",
         "wire_sse"
       ],
-      "current_sha256": "2c1d72b8da86647c5e81ab4c99d4df6d0d80319723dec2d22e577c132a51ea91",
+      "current_sha256": "0be58bdfa504063f68e6ebcb5b8a9f7b323c7434f276f8a7592cc07c0083024d",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -2572,7 +2572,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/client.rs",
-      "target_sha256": "ac595b26fb7cf1c222cd273b8c9048a5f4e366dc33b50088302c916a4d9563a5",
+      "target_sha256": "7af5d4c0c15673564b455725c98d34379c4bdf579f52c4d89aecb4ceb4b190fe",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -2586,7 +2586,7 @@
         "taskspace_host_hooks",
         "wire_sse"
       ],
-      "current_sha256": "b6455d4ffb66bc39500c5f5bf5b06ad034966a545503cefd7f4cec7c73e35ef7",
+      "current_sha256": "9e4258263964306efdd064462f6c1eab48249fac0ebd12422710220620022759",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -2600,7 +2600,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/client_common.rs",
-      "target_sha256": "8df99bc983a1bd62db0e445c41789ad2fd92e15de438c265b6032ffac6dafc14",
+      "target_sha256": "149c5cad087f5dbf4370d0019c62071fa8fd2afb75ca41eac5cc39d93c2674e7",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -2614,7 +2614,7 @@
         "provider_transport",
         "wire_sse"
       ],
-      "current_sha256": "b6b8f6985fbb0dd078f2fbbd84adffe26e0d7b0bcd13c88865effb9034e85ba2",
+      "current_sha256": "71436131debb9be773367a96928ac08da50608dc24f5dd01b8a6ba3cd1d73da9",
       "cutover_batch": "batch-3-deepseek-wire",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -2627,7 +2627,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/core/src/client_tests.rs",
-      "target_sha256": "8c01f1bc4672d1338372d3a289fc4960963f486921b7c701c650d97dba0813c3",
+      "target_sha256": "032672ea7ab82de0ddfe1e4ad43c09053ff100a6991c891f602d9d4677f1f75f",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -2639,7 +2639,7 @@
       "categories": [
         "taskspace_host_hooks"
       ],
-      "current_sha256": "216abc0744bd57e0d29b9880f2bf0cef692d1aace52d6574c34f88c2d339339a",
+      "current_sha256": "416ae599e5b013007d10a10584abfb07cddc23f42cffad8229e7591c3b66ef51",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -2653,7 +2653,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/codex_thread.rs",
-      "target_sha256": "c0e040d3cc41c6a7e17e627eaba850505ee0a8e49464ca977c181f3ea91e064f",
+      "target_sha256": "0ebd8ce8b55b8912243224f38c17a1ac858c5642a4b2affa1c8685074a81ed90",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -2666,7 +2666,7 @@
         "provider_model",
         "session_context"
       ],
-      "current_sha256": "890c6ba6a8e5e9ae4bc4382e3348c23c68af5b3db822978d7eabf26c15269e9f",
+      "current_sha256": "d384de80aac840c9f893e2b85b4b5b728acf3a8dd3699ca8a6d92e0e11ae6398",
       "cutover_batch": "batch-3-deepseek-wire",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -2679,7 +2679,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/core/src/compact.rs",
-      "target_sha256": "b6144028b74a97127de7e4728ffc7e909667ca18f873e2b28f96c0a3a3075f51",
+      "target_sha256": "165601dfa5afe454e172a33690d1ce14ffc73739d818e495166160d10ae8ad80",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -2692,7 +2692,7 @@
         "session_context",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "fe31137b258a6058e9251f2d6a7ab441994f46e0143021b05becfa4253502f39",
+      "current_sha256": "e3d0ddf21aa344380a107c948a3f3664332aa89a6eb859b2f3a71d5ecd76feae",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -2706,7 +2706,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/compact_remote_request.rs",
-      "target_sha256": "606cc2155a50671f051c71d7a65ddad9df276ed833145eaf46543e9184cc6a39",
+      "target_sha256": "d77a514dcd43d9c743a1391f7ac647964ae7fe0fde07483cc39b4582bef1f738",
       "upstream_status": "added",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -2719,7 +2719,7 @@
         "session_context",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "399c0f7b9feb9ec956c3cf3a6773347c0deebc5ab330698533bf2db4d734b442",
+      "current_sha256": "0f5d34793fbbde2bde860d631f797b7c9eb60290dba0e3c580eae80276911326",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -2733,7 +2733,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/compact_remote_v2_attempt.rs",
-      "target_sha256": "5e73e53db38960b521044dfeef7c83c8c22e488af91529466537cf110dd47543",
+      "target_sha256": "932c507dbbeb6de77d157f5ba51db6ab28deef9fa385c3da730cc33dbe21c40c",
       "upstream_status": "added",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -2746,7 +2746,7 @@
         "provider_model",
         "session_context"
       ],
-      "current_sha256": "bf32f3fc15b4ac3e0fbae07fb34df0670bbd75b5d0628d5cc8836863a5b3c92d",
+      "current_sha256": "41b463501944e3eae9ca503473510e53234ad151ca1c7c467b16ba8c3f9582f6",
       "cutover_batch": "batch-3-deepseek-wire",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -2759,7 +2759,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/core/src/compact_tests.rs",
-      "target_sha256": "1c2fe9317e75b35d55bc22dea5f1d77dab1738740e0ab1807097145de417d764",
+      "target_sha256": "b62f8c6aa476976a06231c39efcc6b83c9cffb7e90a215855a2d556e3b1d79d1",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -2772,7 +2772,7 @@
         "configuration",
         "provider_model"
       ],
-      "current_sha256": "6cc9b53b1cbb47e2ee8fee1048d269dc7b9ffdf36b44d5be00584df9c940dbce",
+      "current_sha256": "664f596e5da06920272dc837bfb5522bcb83b7a90f403db45b6214f18ec4f129",
       "cutover_batch": "batch-3-deepseek-wire",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -2785,7 +2785,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/core/src/config/config_tests.rs",
-      "target_sha256": "bee62381efeb736d7a8e6489dace764665c94d740a6ed99ec8d891a2174fce53",
+      "target_sha256": "2125a56dada7579e7f9d619baeddb5670091c0a735b9ccbde21e16a53f3e49e5",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -2798,7 +2798,7 @@
         "configuration",
         "provider_model"
       ],
-      "current_sha256": "e13905276b2ac0ca92730c2a5cead7269bf7d0231d567cfb5a649aad9c855f57",
+      "current_sha256": "f6482361f1cf9274f789aca4daf5653eb9db706b26293599dafd8f254de6ce5e",
       "cutover_batch": "batch-3-deepseek-wire",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -2811,7 +2811,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/core/src/config/mod.rs",
-      "target_sha256": "a2d7e4065493687e244504eb3e3d3f497bcdbad15d8718e72beac940742da7b0",
+      "target_sha256": "a463ef6733b46a016c5ba0f9735f16d7d113d9057987cb0aeb22faf5f3225044",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -2823,7 +2823,7 @@
       "categories": [
         "taskspace_host_hooks"
       ],
-      "current_sha256": "905324300ec481f926917b36476a1186c19818917d3ba95c8571d03022f379c0",
+      "current_sha256": "b1c09f2624e7f403ac858164306e4fc982010914c4e8216562804a364482e350",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -2837,7 +2837,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/lib.rs",
-      "target_sha256": "89fe8da4950fa23af91df28f1a5b48ae935bc7e3dcdfb104987d30789a0b2197",
+      "target_sha256": "612e0c247b1590c9d8bd28249fdcaa7f787c238252ede37cddd2d946ad1958e4",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -3010,7 +3010,7 @@
       "categories": [
         "provider_transport"
       ],
-      "current_sha256": "a253a9ab30a95f70cb001b506f5b0a795d11ffffdca8251975e39e1d81220e95",
+      "current_sha256": "f68378e4c0a05836a14af9e954d1051cab8e04f5b94616c9a2c9384ecb4b4df3",
       "cutover_batch": "batch-3-deepseek-wire",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -3023,7 +3023,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/core/src/realtime_conversation.rs",
-      "target_sha256": "313c3611c2543f2accd3d776ab7c67d91c23900bc587554614636b820f00b63d",
+      "target_sha256": "d6681d4e8abc7a68b6cbdcc3a1eb8dec702c70156d955b3cfd502329b17bf288",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -3063,7 +3063,7 @@
         "taskspace_host_hooks",
         "upstream_backport"
       ],
-      "current_sha256": "2c6a987ea67bfa144ac1233bb4d8b256c1bb1b4f4961cd2a533a91c789380b3b",
+      "current_sha256": "b6c0feb1adaeed21c891ccbe10b32a32b9143ece94e522c60b4b0f35e65461ab",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -3077,7 +3077,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/session/handlers.rs",
-      "target_sha256": "192ae948ed99a7391d35106885da8a66fe2c41fc830cee9a8b1e1ab17d46645b",
+      "target_sha256": "5e455a944935d3b84ebd15b9ae23214d86efa54d33d26fb93923e6771e869e89",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -3090,7 +3090,7 @@
         "session_context",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "f6449f636263aa13d850003ce4baba1fb2b2c763d20776e65aa2bb91408cd24f",
+      "current_sha256": "349ee51befcfacb10dde489b4d7892880344fa7e4a18db62f163de321bd9ad88",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -3104,7 +3104,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/session/mod.rs",
-      "target_sha256": "fb464d6b5bff21036c46611643a22e8e2a32d8cfb28c9aeef690656823aca5d0",
+      "target_sha256": "e6218071821f7e1b3858d31c2a0aef5fa5b63dea0ab16dfbced716d825ddbcc9",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -3117,7 +3117,7 @@
         "session_context",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "4d1da019782b9248c216662ed4dd80100d906211a73547a42939202340e01eb7",
+      "current_sha256": "446be129ca50ab090fa957cb598f1983bd01dc244fa6c1d3ed6ea980f0c07884",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -3131,7 +3131,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/session/session.rs",
-      "target_sha256": "9a5a881684c6c83fc68b7d6e73bfd446ca910dd5cf0824b8e6d265927105953f",
+      "target_sha256": "24ed2ac18d58621c404e8dd3c79a9fa844ade5bfc48225fd2467624e068dda89",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -3143,7 +3143,7 @@
       "categories": [
         "session_context"
       ],
-      "current_sha256": "2b784c5d0d961ee76bee6d15233065fa64b658bf28c7928de4e0d0d4693ef4ca",
+      "current_sha256": "b0b207a50d3e2afa718e9ceb1ed2c48af33ae2c91f4f3d7372bed4e589ba2d31",
       "cutover_batch": "batch-2-substrate",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -3156,7 +3156,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/session/step_context.rs",
-      "target_sha256": "8e95b9bffafd871950300e7c55c77ea33f0d23a4b6d9d3b4171fe238014fed37",
+      "target_sha256": "89f025629ac89d2b9e9a3ec39332231b06937291243740241fd2955b7eda8e4f",
       "upstream_status": "added",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -3196,7 +3196,7 @@
         "session_context",
         "taskspace_domain"
       ],
-      "current_sha256": "164f23018f5e05e2aa324e00f138580ad9f5d75aa1f40965d170579fd1a2d2a6",
+      "current_sha256": "f4ab79c37aaf870f30cc1e9b767830813ca0afffb91a037f8a78de783f23fbad",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -3223,7 +3223,7 @@
         "session_context",
         "taskspace_domain"
       ],
-      "current_sha256": "bd7570a69a32280ce3398d6064ae8c1d2caf60e2fafc4d131a0b4fde049fe6ca",
+      "current_sha256": "74955b30c556cc0de5478a739c59904f09132921c1c5671fe5473f1b52b125dd",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -3331,7 +3331,7 @@
         "session_context",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "cef0a5a96809cea894c0104b0c38927463cd4c62023519d734e8188a0cc93e30",
+      "current_sha256": "406a0fe27f1cbee4a6c80780eb6876bd8d720df776d78d43a2cff9c2ffa95515",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -3345,7 +3345,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/session/tests.rs",
-      "target_sha256": "149260f92a57e4330c358a7c820dff93ee2395ccb0d21bf72de88bcc7c0850cb",
+      "target_sha256": "196f526be3d08eccb551de353e1c2d596ea70912b1e0683a844a415d78d56e31",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -3359,7 +3359,7 @@
         "taskspace_host_hooks",
         "upstream_backport"
       ],
-      "current_sha256": "a79d31c2b7c307c1a36bbb58c50ed03bfb19915d384dee198dca3e07be63d22d",
+      "current_sha256": "5a0fb7d1040e3b2b59bbd3bce05f3e3deb0499ee5b71fc06d192b44f0f1519d8",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -3373,7 +3373,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/session/turn.rs",
-      "target_sha256": "9363d0a9fb9dfd330405eec51ad733d324782833fd941761a2a7edc643c41fd0",
+      "target_sha256": "4465f3e33dc8ee65f79ec02cfba8716d6873948e92bc51f30fbab813c2e0c7b6",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -3385,7 +3385,7 @@
       "categories": [
         "taskspace_host_hooks"
       ],
-      "current_sha256": "cb5568c326b2ca931a9bed9b3a7972c381d8d31450f163f2d09f3bf3fc0688fe",
+      "current_sha256": "1b2ed0ca6487ad19020f238be0f8ae1a1236482b1bd370acbc261f93468c3f34",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -3399,7 +3399,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/state/session.rs",
-      "target_sha256": "0b12291f42946ee80c5119cb6bd6da397232e0b72a63d561dba9905294746d41",
+      "target_sha256": "6c2f39f3bca6fa0942b578b41a22085d9424f699b31111facc338b80b089b294",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -3465,6 +3465,33 @@
         "taskspace_host_hooks",
         "tool_runtime"
       ],
+      "current_sha256": "09d51cd458193d4211546f8685b322d9e3f93975008c7bf37d99c93c169c4c2b",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/tools/control_tool_analytics.rs",
+      "target_sha256": "fd8ac689ba43725c4541f6ce4643e960ed26c267f10acedc9864d5562ad5fff4",
+      "upstream_status": "added",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "taskspace_host_hooks",
+        "tool_runtime"
+      ],
       "current_sha256": "8316fa3612c89958d0230e52f4c6ef371af71cbf5c9b6915bd3214d7e6d91382",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
@@ -3493,7 +3520,7 @@
         "provider_model",
         "tool_runtime"
       ],
-      "current_sha256": "3f7707cf4c497866d2f47e22957253ddac776f5ffa53e15eb2845049f0a1e37d",
+      "current_sha256": "e00897766c2d6c622cb91b0ffe8f36a9964877a954131b5ec8687b0272afd3bd",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -3507,7 +3534,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/tools/handlers/multi_agents_tests.rs",
-      "target_sha256": "017c807d8ecbfe67407142dc2031e396332feaa04046a917a72971d63cbcfbb5",
+      "target_sha256": "59ab6baec4ddd5788cf7e29b542fe836298eec90255b193016aa96a97534a3ae",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -3520,7 +3547,7 @@
         "taskspace_host_hooks",
         "tool_runtime"
       ],
-      "current_sha256": "de22b6af288d1ed456322902edc8ebb535dd6e080fbacfd111a5abdf5f5a70fa",
+      "current_sha256": "7d17de51808e515e673ba898d6725b08eb654e2436aad32fb9bdd001d7e679a0",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -3534,7 +3561,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/tools/lifecycle.rs",
-      "target_sha256": "e9d905ccac687fb2df315f5ec252820fed61eaabeae1471fe1587959b50c2959",
+      "target_sha256": "aad9d5e7d0a2c863dac679e1b7f1a0331bdf855052ded8d3a426f9b57e9b5822",
       "upstream_status": "added",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -3547,7 +3574,7 @@
         "taskspace_host_hooks",
         "tool_runtime"
       ],
-      "current_sha256": "8feb8c9dba8b663d66d8a6f0e9ca7bf9f571bec233c8f38690f38db8af535058",
+      "current_sha256": "77a32f8ad19bb7a6ae525a453cabfd4fa48d79e3e53c327b5fe79c38d3b5f30f",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -3561,7 +3588,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/tools/mod.rs",
-      "target_sha256": "04858dbc5acd8a253ab9f52fb19445d384cda0b057946d84c1ec31e125dbfc49",
+      "target_sha256": "d4ff2d1df97f45444f6f350f6b1b2f5046bd8623e7945f985c37ca1976c35738",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -3654,7 +3681,7 @@
         "tool_runtime",
         "upstream_backport"
       ],
-      "current_sha256": "f1f844e3c3c37382d0496e11002eb6d22eba56df42cb528b5bd79a52f860315c",
+      "current_sha256": "4f5f0b27fb92cc42c007250ba3f30f55b95adba59c36d4bdc0e38225847d3fd7",
       "cutover_batch": "batch-2-substrate",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -3667,7 +3694,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/tools/registry.rs",
-      "target_sha256": "bf5cb173ffe783cfa5670064a37aea2e9536085c05a5a9a33b5fe72c3c57ed18",
+      "target_sha256": "0b8a41fceae64696a9406d14c15bc6f2ced930ed3a2e01b456536a3c146b0958",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -3680,7 +3707,7 @@
         "taskspace_host_hooks",
         "tool_runtime"
       ],
-      "current_sha256": "bc5dc31ac26e6591f1f2dd3fd778b0996210b32c6cd78e1c32c6cd690913c712",
+      "current_sha256": "47c0d12ecec223ce00f9f51b255f76a699301ca4a4327d3ea546dca93a46f6d0",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -3694,7 +3721,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/core/src/tools/router.rs",
-      "target_sha256": "ea96f7674b3d21eb547b91ab7f004e028422a4e8670427d3106aaa2f7938d8bb",
+      "target_sha256": "a9fba5bc916ccd19c25ced8fbe06edba0cdc29697485293f2286e0a67bdbd11c",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -3706,7 +3733,7 @@
       "categories": [
         "tool_runtime"
       ],
-      "current_sha256": "e0af03963e367e53e59f3f97cfeb0174d1a5157133a9c5417a85452f2534d8ef",
+      "current_sha256": "ee886ee86fb4c807297c4180817428f02cddf83b9818742f0af924261b0cef7e",
       "cutover_batch": "batch-2-substrate",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -3719,7 +3746,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/src/tools/spec_plan_tests.rs",
-      "target_sha256": "f10ee2a0ef0d6503e4eba6790521deb9f2b462b121682555de3ee1e1ee53a2de",
+      "target_sha256": "25bd0ce2761a40825bd0aab4a3420c79f937ec4e183783887dcea85b84ab10f4",
       "upstream_status": "added",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -4378,7 +4405,7 @@
         "build_release",
         "test_fixture"
       ],
-      "current_sha256": "d5b1d80652198bde689994e4085456392efa410ebc77f62bbb86369f791526aa",
+      "current_sha256": "0294ecb020c071d7081b09235bb31e8bef9845952f558941caff3f5237324417",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -4389,7 +4416,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/core/tests/common/Cargo.toml",
-      "target_sha256": "a7c5db6ec2bd83d5cf20d49a26114365d46672e4d26d59db0984da2cd31a82fa",
+      "target_sha256": "f96f988488fa3b982ae33ab11365b534a1d4d542d5b0cb1140eb3a43e3d4e5ef",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -4452,7 +4479,7 @@
       "categories": [
         "test_fixture"
       ],
-      "current_sha256": "464727975c00667aae6f190bffb6d7f988f5ef9c6f6aa0fbd35cfc3fd68fb3ba",
+      "current_sha256": "d2cd8d45c5a852555c82ab1a0842fa0a2073e157eb01c39255d8b0ad0ceb3f02",
       "cutover_batch": "batch-2-substrate",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -4465,7 +4492,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/tests/common/test_codex.rs",
-      "target_sha256": "2407a5cd93c7376b46f8ad20e1310cc0ecf92e4ed3183fe14f43cfd4eb8629c2",
+      "target_sha256": "f734e2344af8c7d8fb2d13195bb133262fd7ff955cee691e40b5df4908fc1fde",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -4507,7 +4534,7 @@
         "taskspace_host_hooks",
         "test_fixture"
       ],
-      "current_sha256": "91fe06fb7beb7f2154f466aa8a333e7ce229bdba7367dc2fd70fce3a7a44f8a2",
+      "current_sha256": "0e1ce08d11394a7f00e60885ef0aa52b0411f5be3b6a7dead7623deb63502bc8",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -4536,7 +4563,7 @@
         "taskspace_host_hooks",
         "test_fixture"
       ],
-      "current_sha256": "1f2224aa37d6cb33d59d75068dccd6fc2a1d8679fe69395e4199aa233ef13cc5",
+      "current_sha256": "420dd14cdf0a01574da6c5f266f33b67263144eff1fa9c516149e2a5b0823053",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -4587,7 +4614,7 @@
         "provider_model",
         "test_fixture"
       ],
-      "current_sha256": "199a7895bd72446bb28330080ccae5a50759091622cdb0d8cd4d9eb2461d81d0",
+      "current_sha256": "4010ee2dc87a19ab470895fb11294434d46f426cdacf1cdb210cec5584b184a4",
       "cutover_batch": "batch-3-deepseek-wire",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -4600,7 +4627,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/core/tests/suite/compact.rs",
-      "target_sha256": "0bfd7e723bf3e03f9ed45f5f499381c73f551d03f2da2770db4d301367fd19a8",
+      "target_sha256": "9c5fabb2ca23e62eeaa28635664285d080fc115727145d822c32c22c5658c107",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -4636,7 +4663,7 @@
       "categories": [
         "test_fixture"
       ],
-      "current_sha256": "78390ece5ec01ee5666676557e1ddf3e02d72a5fb168d143021970f9680d304a",
+      "current_sha256": "33dfb8ef28d2af1069e7157e813649c2f44664a706e8293193110366aa643265",
       "cutover_batch": "batch-2-substrate",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -4649,7 +4676,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/core/tests/suite/mod.rs",
-      "target_sha256": "d126e1aa09282386676fda3bc00d0b26c57c4b60f14d2592ae44a51267e27275",
+      "target_sha256": "b01bb12564960bb1794afc816c98000cbabfbbd17351e149dadf7e0adf4dbd1c",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -4662,7 +4689,7 @@
         "brand_home",
         "test_fixture"
       ],
-      "current_sha256": "985ccbb6e473f071e9949971f50afd8d0d6f6fc77369a70d47dc530d66443aa1",
+      "current_sha256": "d5f6dfd97b22ab1c775118ca8f814073854202ce45af54071e753bfdb61e295e",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -4673,7 +4700,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/core/tests/suite/multi_exec_server_sandbox.rs",
-      "target_sha256": "111a49150d672e1c26daeb44166f0c2dcff6fc047434d2fcaf623187216f69d2",
+      "target_sha256": "4629140cc7cda79be375fde07a4509fd86f8babb4685ef2c6b1f295006ae6cb0",
       "upstream_status": "added",
       "verification": [
         "cargo test -p codex-cli",
@@ -4686,7 +4713,7 @@
         "brand_home",
         "test_fixture"
       ],
-      "current_sha256": "fd4c62d9b7e974f2c4a543a19bab1f3a3eacb8cdb2e383f76cb2335a0d56b318",
+      "current_sha256": "2946fda1f124c975962374fd85bae6d1f837d68cb089e6f8cf71c148c73efca3",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -4697,7 +4724,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/core/tests/suite/rmcp_client.rs",
-      "target_sha256": "08c888379e86c9f66ce0decf0b590f40e44a6123475ad4dbca504b7ac655a341",
+      "target_sha256": "8d0011485ee44f30594d5566ed2ccb3ba6b016f40c8d777e0bc54a040396eaa3",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -4775,7 +4802,7 @@
         "provider_model",
         "test_fixture"
       ],
-      "current_sha256": "9ee76a7e2ed09c60a55a31dd1fb16f62c35c46b94d31b3be432abb223ca3d0d8",
+      "current_sha256": "e70ba485e0ee59091616380ee5b2f2f2ae5bbcaae1e1c6ddd4c1ea42f2231218",
       "cutover_batch": "batch-3-deepseek-wire",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -4788,7 +4815,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/core/tests/suite/subagent_notifications.rs",
-      "target_sha256": "cbd2e4ac57b6e33d3678a700628d7f491e6d8ccb91ea156ddbd465434b54b283",
+      "target_sha256": "4b9277bd89e66179c50ec2cab17d77b665480ce69055fd7a1b410649ed9a2a2d",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -4852,7 +4879,7 @@
         "sandbox_exec",
         "test_fixture"
       ],
-      "current_sha256": "eca0137152ae6fd5dabac280c38a2b90ee1a0833d997a3941f2d4f51354ace68",
+      "current_sha256": "40a869e473abf2f717b38a5dea1cf7002d919046a8092d4dde3209895e3eb7e6",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -4863,7 +4890,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/exec-server/tests/common/exec_server.rs",
-      "target_sha256": "f9f0d50af13f0b5100b6090399d0fe47623fa5d5c3cf819c3630404bf9053c1c",
+      "target_sha256": "5a8ad34ef0f3367b83dd3d3722dc7362b95ec5c82af1be9b7a3f92e4f7db14b2",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -4877,7 +4904,7 @@
         "sandbox_exec",
         "test_fixture"
       ],
-      "current_sha256": "388d9ea52fa1ddd1e96d88122b8f7f99fb11a6692b22fff306a1b66e2a23fb2f",
+      "current_sha256": "aeedf6902e4d6e6462ae753a0a3eba5a40c46135a065e97f5e121aec03658fbd",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -4888,7 +4915,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/exec-server/tests/relay/version_skew.rs",
-      "target_sha256": "4d40fd72a9f4c8e401d6274dab727970eb08e95acec246d1bbdcf3622f77b9b5",
+      "target_sha256": "c77c1d7b0fdef8b91cb2fe822006829ad33a7facbcfb3057b40bdea9c942e71b",
       "upstream_status": "added",
       "verification": [
         "cargo test -p codex-cli",
@@ -4901,7 +4928,7 @@
         "cli_surface",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "0108c5f335df66e6b2172728ed111beb567fcc5537d7597b85a6645f54d18477",
+      "current_sha256": "089a213f5ee48da24ba4d5c5c5ab96abb28750ac06f68d77a0420184ea9820fb",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -4915,7 +4942,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/exec/src/cli.rs",
-      "target_sha256": "c928cbe54c3ad12b09852b53048b5c7cdf66ca089963e029a503893cd880f1b4",
+      "target_sha256": "bae64c656e10d878b419ac34885141e4113b65d77d1f95f0bcf6542ca9cec76f",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -4928,7 +4955,7 @@
         "cli_surface",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "c223deed3d95f0d28924e8af657698aee0084f9733269a27e665a7cb9acee179",
+      "current_sha256": "1d88d203bf1e434acd5c4d4e2334bcdd7957a84d743df87fb8f2f38174cbb46f",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -4942,7 +4969,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/exec/src/cli_tests.rs",
-      "target_sha256": "4a2f65eb06823ceedbd499ab16bd02b206c433200b5f36386cd6af018fd6bc73",
+      "target_sha256": "2de6ed07a5ab4e2d57c1a1f2da790ec31993be6558282c1545c03d0adef5db68",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -4955,7 +4982,7 @@
         "cli_surface",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "6adc044d0c8f425d8c227fc7ee668a4e55fb6113f1522807344fa2cea2fccdf6",
+      "current_sha256": "36b7e8956c0d2066a9a20c10f7490c1adf78a8afb2a601685e2c0de154836e23",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -4969,7 +4996,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/exec/src/lib.rs",
-      "target_sha256": "52d801c747c18524b42552e9da9080aa43e8eeb04b368570bb0bbfc601f613ae",
+      "target_sha256": "9b112c6e245c409c1395e4b41d4bbcd9fdbafd787cdf6873277084ed3c509b2c",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -4982,7 +5009,7 @@
         "cli_surface",
         "test_fixture"
       ],
-      "current_sha256": "7b8b1e7138e8f9d6fd81dd600e7a80b86ee7cb35c936e942e50b1a29f0970afb",
+      "current_sha256": "b16d5fd705621f79c525de3eda941690ece243464e7801b2a7b453f661046617",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -4993,7 +5020,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/exec/tests/suite/resume.rs",
-      "target_sha256": "9029561aa052df273746cc7bf6dc7a3b4b307a211e4bb970a7f3cc1bee0b3f3c",
+      "target_sha256": "1926675df9b8d90daf0e66c0a1401a732cdfcdf28ab9876d281fb69dcca454c0",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -5005,7 +5032,7 @@
       "categories": [
         "tool_runtime"
       ],
-      "current_sha256": "2e42ed7ce9f06ce0f8ccd6c52d2091c3346c734d3626f5c529b9a083756f3ea7",
+      "current_sha256": "f4e5943e102ec9d78300b2797f5fab53a7fb4ff5b9e3f786e7ae996acaed5158",
       "cutover_batch": "batch-2-substrate",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -5018,7 +5045,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/ext/extension-api/src/contributors.rs",
-      "target_sha256": "dca62b410eb8f102e701897f828cc7d783688f8e492f148cadfa6dd3a0a9899a",
+      "target_sha256": "1a756cadc6d4b7d529dd058c6082f559de0271e178fd67a17fd1dfcaf44bec73",
       "upstream_status": "added",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -5030,7 +5057,7 @@
       "categories": [
         "tool_runtime"
       ],
-      "current_sha256": "8693734375b1eab8b55267ed51765911059dffd51e4497fc9dd0e272467f4d7c",
+      "current_sha256": "c7195038e5c57327e7257c40a6ea6412743f5a67295726379436e68531c10645",
       "cutover_batch": "batch-2-substrate",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -5043,7 +5070,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/ext/extension-api/src/contributors/thread_lifecycle.rs",
-      "target_sha256": "eb75dabdd5ab51db8eebebb430f51f4a8c8580e464bb5c96027608fcdfb444a8",
+      "target_sha256": "2851a487c388bc202946de3689d436b16b95fb369514f44259f66024ffd0e2b1",
       "upstream_status": "added",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -5082,7 +5109,7 @@
         "taskspace_host_hooks",
         "tool_runtime"
       ],
-      "current_sha256": "4f7da4636d14810f783a0f42a6fb47a212e1a38621f2dcd98689b3988c7eb1f9",
+      "current_sha256": "443bedaf338950ef95e5746cc75f71e6ed72f61b3269503e66b57a6501ebfdfd",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -5096,7 +5123,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/ext/extension-api/src/contributors/tool_lifecycle.rs",
-      "target_sha256": "f748ff50d372dcd91270841cf3ca6c5016306f456f173e715f6afff02356ff79",
+      "target_sha256": "f882722f02809bef1bfc1c6336ce4f801f7fe455764e25e393b25cff294b83f8",
       "upstream_status": "added",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -5108,7 +5135,7 @@
       "categories": [
         "tool_runtime"
       ],
-      "current_sha256": "1a02c297741092af38480b223271c9e1ff1da9d863d9504b8ace85473dcf7166",
+      "current_sha256": "6af31077188b1fd18e2b5f0acb5d145ce6d4ef1bacfd071e2413bb6d6a82c4a8",
       "cutover_batch": "batch-2-substrate",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -5121,7 +5148,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/ext/extension-api/src/lib.rs",
-      "target_sha256": "bd399460932176f81eefe3820344258ba9887020e6008610b37a68c01aa869e2",
+      "target_sha256": "6ca3d1c3ade6607151943c115887b379277545ba6cc49029fd5b89cf614f793a",
       "upstream_status": "added",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -5133,7 +5160,7 @@
       "categories": [
         "tool_runtime"
       ],
-      "current_sha256": "2169a1c513c31038781f1b80b3c0e36a1f5261b0baf7e1953cb3bd73d2293887",
+      "current_sha256": "bce675b30af2d2acda5b1ef4468c05893cd56e8f753639940b59698aaae9f798",
       "cutover_batch": "batch-2-substrate",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -5146,7 +5173,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/ext/extension-api/src/registry.rs",
-      "target_sha256": "59473f25ff68a1e7bd29b3ba9c4b4cc3cca90ed95c21f7a25116a71a26137cba",
+      "target_sha256": "c212f55bf26878f9d2f49f94d93330d691fc7a9bcf4828a1aefe6f67dfb9af5a",
       "upstream_status": "added",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -5159,7 +5186,7 @@
         "test_fixture",
         "tool_runtime"
       ],
-      "current_sha256": "ec90d1e1775b7c63680e60cff791c948bcc51c01082adbaaa35c3398050f523d",
+      "current_sha256": "4d443412eb03673a529d150059d1581136f61e91489b05c43d7d3820885eda47",
       "cutover_batch": "batch-2-substrate",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -5172,7 +5199,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/ext/extension-api/tests/registry.rs",
-      "target_sha256": "adbd2c949034131fe387d37b982e553015cb71e972152722cb946db37a04a626",
+      "target_sha256": "7fe7241c4573679e863ef92a38c2bcc5e6d2a2b8d7a9fba6af8990a11226fb37",
       "upstream_status": "added",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -5783,7 +5810,7 @@
       "categories": [
         "configuration"
       ],
-      "current_sha256": "bd09df08479b470e026d7fc29ccebe917512182c76aa97783e03fd1970b39891",
+      "current_sha256": "63d876c504c4bf74e6fddb73c790697b5576171db38da01d6fd6e19b2db5c47c",
       "cutover_batch": "batch-2-substrate",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -5796,7 +5823,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/features/src/lib.rs",
-      "target_sha256": "8437206e83806c546f9c8cf7002384c8d9be1740c1f4c78f44ef9417d7e61344",
+      "target_sha256": "803a1e291c5df27daa9ee7b6ca4d164bf607fb8bbbeefa3c614791eeddf28dcc",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -5808,7 +5835,7 @@
       "categories": [
         "configuration"
       ],
-      "current_sha256": "85ec11b396a06d3c10284586d7170c66068d287e5d238a27b67d86d6bb0ac7f2",
+      "current_sha256": "b3dc78683aaeb5ba63828e59fc5c78c2fea49ac8a134cdd49407dd6532804136",
       "cutover_batch": "batch-2-substrate",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -5821,7 +5848,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/features/src/tests.rs",
-      "target_sha256": "d7e74c13742120e6f93f72f36f9b6dd10f996b95462ba0374ecdf67941f61b57",
+      "target_sha256": "c6a229201286601a90411836f5274c577422c19d6aecb89d9282aac773b5cdf8",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -5880,7 +5907,7 @@
         "mcp",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "665888abd831914e99796af73cb757a939d2c013b183345dda3be930fd90e29f",
+      "current_sha256": "61e2e906b818be97c810ec322cca4f9a99ea07cd24b7b574b10ab816db8d69a0",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -5894,7 +5921,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/mcp-server/src/codex_tool_runner.rs",
-      "target_sha256": "2b509d0bcf652893c8d20c47010abad8164f2ca800e371933ba5ecd0d7023d39",
+      "target_sha256": "e262dd0d32ce0b969f287c08f528644fc49dd2e985333959803eab8e2f3d3536",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -5931,7 +5958,7 @@
       "categories": [
         "provider_model"
       ],
-      "current_sha256": "88d1a2edf4da1af1e4291d5b7e3ef53e04fd98c1b41329bacce9813a37aa4265",
+      "current_sha256": "b53fe85247ffea611ebac3fc9266b1d35857a8e971199e9f6eb1a552be01bc02",
       "cutover_batch": "batch-3-deepseek-wire",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -5944,7 +5971,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/model-provider-info/src/lib.rs",
-      "target_sha256": "12ef4e32bb47b44baac517848e2e07c6ea660250fdcadfb8e37e42b8121eb53c",
+      "target_sha256": "c3aa8df9ffd0ddc8010c7c2057b85f539ae5de92873549f2958e53149cb37dd4",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -5956,7 +5983,7 @@
       "categories": [
         "provider_model"
       ],
-      "current_sha256": "e6d36d6e46a3b8b81fcb7946ea30f497f7e1a2707faecda702aa116dafed12c8",
+      "current_sha256": "c901e7916794f8f3f2898b80c4a1d76519d20b501159a4a9df2354e58f94f749",
       "cutover_batch": "batch-3-deepseek-wire",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -5969,7 +5996,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/model-provider-info/src/model_provider_info_tests.rs",
-      "target_sha256": "65309db91ff58533bd16a622de4cd4f202e6bf15f492e324ef43880a4d8d16c0",
+      "target_sha256": "091d8d1df08e5668d69b7e4e8df8b3447811d0b8253deb35e26deebb35cb46d2",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -5981,7 +6008,7 @@
       "categories": [
         "provider_model"
       ],
-      "current_sha256": "c268a423c9a0deae4be51f93ba88ac9010f59503037484350bd6a885eedd20a9",
+      "current_sha256": "c898677dcf899259442d0a5220666078fc8516a60c91515c73b5b0f8fe4174c3",
       "cutover_batch": "batch-3-deepseek-wire",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -5994,7 +6021,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/models-manager/models.json",
-      "target_sha256": "384ff2e0ca67f65d2866e422e2ec7dfa5ed9e3fec7a84fe14005247a7087a302",
+      "target_sha256": "c18214b1ba88ab9bd164753115324a7a29c0582e8d071f7b3babf749d892f549",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -6031,7 +6058,7 @@
       "categories": [
         "provider_model"
       ],
-      "current_sha256": "b81d0973d552a2e184aeab38e0d2404c80bf22ee79091d34681203765cec7305",
+      "current_sha256": "08ea3c729173a9d1cfd9db93e41714d875ff31a250a34c34e66b6c41a97bffd5",
       "cutover_batch": "batch-3-deepseek-wire",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -6044,7 +6071,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/models-manager/src/manager_tests.rs",
-      "target_sha256": "80272301c765a86b2c11c0cb017343c7d2a699d83aa40f3b9442a505b94ba9d2",
+      "target_sha256": "39fdeac72b3328690f71a949b90906e6e8912f1f1a582f440c49a0715ccc04b4",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -6081,7 +6108,7 @@
       "categories": [
         "protocol_contract"
       ],
-      "current_sha256": "cd46ed9944f6cb231dd41346d788a618ece93baea97461839818e23ba4dcd8ca",
+      "current_sha256": "4dcaa1aa72633bfe3f1bf53fa3cca92a3b855feabeae45a26346838b15ac860f",
       "cutover_batch": "batch-2-substrate",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -6094,7 +6121,7 @@
       "generated_lineage": null,
       "owner_domain": "substrate",
       "path": "codex-rs/protocol/src/lib.rs",
-      "target_sha256": "3b53e8b7bcf53f0df86dd3ebb550a07f1af24a8b6e91d5e1dece59ccea45db89",
+      "target_sha256": "67b5cd3fabf26be4a324954bb829a119a9f15b220eb31fdf9cff8dd089ca5b43",
       "upstream_status": "modified",
       "verification": [
         "cargo nextest run -p codex-core",
@@ -6108,7 +6135,7 @@
         "provider_model",
         "wire_sse"
       ],
-      "current_sha256": "c1abe4e6cbd4186191ca55deefa9c52b213bd1e34a01adc0407e4f758886cd95",
+      "current_sha256": "2af806ace7ef905f83aeffe5a801f2946fbcefac368c0dd13dcc1c5582ed862e",
       "cutover_batch": "batch-3-deepseek-wire",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -6121,7 +6148,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/protocol/src/models.rs",
-      "target_sha256": "d0c9c22c8782fb58162c3560cf6e79ac6e00205d1868586e0a05417063a6df05",
+      "target_sha256": "1891f83f27221cfb0984647e8d8409356dedf7e6d8900b47329e67aaeb948898",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -6163,7 +6190,7 @@
         "protocol_contract",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "dff446a822bedfa75a061cbc5091f5d7bde2d811dc8dcfdabeab7ee3fb63e97d",
+      "current_sha256": "68ce12d88992c12288acef14ae877c424b94b024e1dee3cb1fab40bfeb47e1b4",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -6177,7 +6204,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/protocol/src/protocol.rs",
-      "target_sha256": "6de87633a0a2aa55377d073917e18cda5834fa0841be6bae2c0846d8e7739cec",
+      "target_sha256": "ca51d3b5c624f47708d31be33772406c863bc746920ed67075fca82cd0f8392a",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -6217,7 +6244,7 @@
         "brand_home",
         "mcp"
       ],
-      "current_sha256": "40f2e1adefe912f996e38359e7b0e71c5b2783728dce92f85a6791a17dd0d20e",
+      "current_sha256": "772b822afe26ac861b4fcc812b0980451b1b65514f5b0ac828af6e8d7ab0711f",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -6228,7 +6255,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/rmcp-client/src/oauth/test_support.rs",
-      "target_sha256": "1a4dbf3497211326150bb4984dd77964ced0b173e910a735ce84c8790bf3704d",
+      "target_sha256": "217bd2b5905c9469915d3506f1656e4f521750813e9ee799189a4bd0ba5b89e0",
       "upstream_status": "added",
       "verification": [
         "cargo test -p codex-cli",
@@ -6242,7 +6269,7 @@
         "mcp",
         "test_fixture"
       ],
-      "current_sha256": "24a4f63cae73866ea52f7e23c13302e1bf021310f9332e74f89d92ca41a0a6f0",
+      "current_sha256": "34b7eb6947ba1837141670ac3fa95819fb6a326bc3d0044ca855cbdc74a1335a",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -6253,7 +6280,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/rmcp-client/src/oauth/tests/store_lock_tests.rs",
-      "target_sha256": "7a8783707ff8b80a289f017fe65d52f399f45fa82c105791897fd7a2b9315066",
+      "target_sha256": "f650fd3f8c3484d60cd98ac15229c66784c3ce3b249025ca4c42bc24b8b46b87",
       "upstream_status": "added",
       "verification": [
         "cargo test -p codex-cli",
@@ -6267,7 +6294,7 @@
         "mcp",
         "test_fixture"
       ],
-      "current_sha256": "2c398d94fde5897c070b76865641642c3f016c29a1b01120798f72364d8abeef",
+      "current_sha256": "869c124cf5102e324a059179f82b67c399fda74f9f0410e74aad23c50cc301dd",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -6278,7 +6305,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/rmcp-client/tests/streamable_http_oauth_startup.rs",
-      "target_sha256": "0b7c7bac88f1f4f9ab20efc3580f5a20e8f505c5e8b2323997fe24edcb3bdf11",
+      "target_sha256": "92858f72d82d3adcd2c824b8d332bfb162771377032f31775f9a6f92ac6a4c98",
       "upstream_status": "added",
       "verification": [
         "cargo test -p codex-cli",
@@ -6292,7 +6319,7 @@
         "mcp",
         "test_fixture"
       ],
-      "current_sha256": "973bc877b1d32d491ea1a53d614f3715c0185e954352f6c3e188f3f8a8986f7a",
+      "current_sha256": "68d7a343094b26578789d41e7211adf24ab7bc1a3b1f1b1761b0c1864eaf8e02",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -6303,7 +6330,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/rmcp-client/tests/streamable_http_oauth_store_pinning.rs",
-      "target_sha256": "8d444861ba2da310d82c68fcb0cde0640fa160735eab04aaaf7f8d17457220ca",
+      "target_sha256": "50f4699f043b6bc727dda4325c8dc4a10a8ba46ee9b6847c234c7a3bb9cb4356",
       "upstream_status": "added",
       "verification": [
         "cargo test -p codex-cli",
@@ -6368,7 +6395,7 @@
         "session_context",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "4c2f7865dd4a3c2cb685fa58bdbc0a5be5cf6ced35ac8ba6c8cd2ace7fdaca74",
+      "current_sha256": "0e3249cb9e84549892df88f87e4fc5ee99ad323e4b6da035c9fdcbf1ad8ff3f3",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -6382,7 +6409,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/rollout-trace/src/protocol_event.rs",
-      "target_sha256": "7e00ab4f9576ca2edfdc9a1831ad41d6cc9a2ece871062ca81abcfe6f33d5cb6",
+      "target_sha256": "d71fe3c2861e0c68384b388ac8652c57d1c7f2b151971303403162e09e06f1bb",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -6476,7 +6503,7 @@
         "session_context",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "c2390f5c902d10442c3b8486102b756b80565398e0883355ecc52790eefbb366",
+      "current_sha256": "abb86fee3f29d14710cb81bb841fe8410d407b6e7e6440e7060b115e8f1020b0",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -6490,7 +6517,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/rollout/src/policy.rs",
-      "target_sha256": "ad6c7c408664069dbe2c27b05519add7ee0252a084e6e5e1d2b5ae3b6efb8524",
+      "target_sha256": "6821562eac0d8268d41b77b680a43f02c7592fb655f2703e65d3604214117d65",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -6526,7 +6553,7 @@
         "build_release",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "289ef20d5a274f1da05a8886c5aa57fa4afb98e6ea4f681fd7ca2404fd806544",
+      "current_sha256": "39b7e37549fe90299204485f4965a728833261bcf2d1c17da5629eb18d885090",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -6540,7 +6567,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/state/Cargo.toml",
-      "target_sha256": "05f5b72e1f56002e257b88f73d71c67fa411bb38332c77215f3bd5f37cd4f0dc",
+      "target_sha256": "2989a4c982fb4e1ebc121c9f71fb4b437d2664c8f804c6d47b6864ead678e8d3",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -6565,7 +6592,7 @@
       "generated_kind": null,
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
-      "path": "codex-rs/state/migrations/0047_taskspace_canonical_store.sql",
+      "path": "codex-rs/state/migrations/0051_taskspace_canonical_store.sql",
       "target_sha256": null,
       "upstream_status": "unchanged",
       "verification": [
@@ -6591,7 +6618,7 @@
       "generated_kind": null,
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
-      "path": "codex-rs/state/migrations/0048_taskspace_relational_store.sql",
+      "path": "codex-rs/state/migrations/0052_taskspace_relational_store.sql",
       "target_sha256": null,
       "upstream_status": "unchanged",
       "verification": [
@@ -6658,7 +6685,7 @@
       "categories": [
         "taskspace_host_hooks"
       ],
-      "current_sha256": "b8eec457fe3e5b905d1f681073afe721427dfbaf967ad392aba0338c4438c7b5",
+      "current_sha256": "a15228802c043be198164be664aa38a54e1a56e96b510859cc72bee8a1f93ab3",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -6672,7 +6699,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/state/src/lib.rs",
-      "target_sha256": "c655e233f529d2f7e698c3217ac1a6509b86bf8ac272e06c557a7f574128b042",
+      "target_sha256": "0d85f211cfd01993072ec2f4b905a43fddef3f188571cc63fc12572d948366a7",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -6684,7 +6711,7 @@
       "categories": [
         "taskspace_host_hooks"
       ],
-      "current_sha256": "b581ea6ae44cf1c3ec94db880c988ee36db38cbb0451b985301b1ddf7e3a0efa",
+      "current_sha256": "426e177e70f41fd0ace2c79e539544fb34346e120e57dc9c0e7be4da3f8924a9",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -6711,7 +6738,7 @@
         "provider_model",
         "taskspace_host_hooks"
       ],
-      "current_sha256": "13f3130afd3ad20b7511497465f1c77a3fa17432bfd3035632e1a3b83d8ff034",
+      "current_sha256": "40744c08f61a40b33a1fbfeaf2deccab03f5443ffde125a81192f88d7b156ef1",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -6725,7 +6752,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/state/src/migrations_tests.rs",
-      "target_sha256": "34964fe1e309413c4712d08eb509d547463c69ac3fdb8893cbbb5f3c15e65d4e",
+      "target_sha256": "df39515781f2bba424d70055d60cc54844e23eaca9b66ae4ebc22fa2bcd7ee06",
       "upstream_status": "added",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -6737,7 +6764,7 @@
       "categories": [
         "taskspace_host_hooks"
       ],
-      "current_sha256": "1146e667876fa6026f42846e32a92f8b9d716fbe902cdd38923cfcf8f8e22589",
+      "current_sha256": "c26bbca9ed47b432472635edbbf8235269c3ac57b7b66359581bef8197607761",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -6751,7 +6778,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/state/src/model/mod.rs",
-      "target_sha256": "045d73e6bdbe42ecf713194f76aa5380f10fe02b3fb341c29b5912c32945d96d",
+      "target_sha256": "b2e85b21514d9da187ad84fc48d8da9ef7266a9ca18e31f30183dcdb9abfdc88",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -6789,7 +6816,7 @@
       "categories": [
         "taskspace_host_hooks"
       ],
-      "current_sha256": "638df063de87aa55cf3f5c059f8e61f167a1fe913ac39d7aa71ff027230e9505",
+      "current_sha256": "9b940968cdce375467e26863f9d14cca2844d1dd7e6016e078ee02b1698246b3",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -6803,7 +6830,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/state/src/runtime.rs",
-      "target_sha256": "f30b9a3c6e46e430999f06d128771f37e02c370911d0b7e384469a64058f33eb",
+      "target_sha256": "97f6e97b244ed1b4bbadbfc162823551da4e62357992a56fd8c9577351cc7c0d",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -6997,7 +7024,7 @@
       "categories": [
         "taskspace_host_hooks"
       ],
-      "current_sha256": "2898d2596794f06ef0789b011ccd0763861990b0c2415fa4c4fe9bb78bcd8f73",
+      "current_sha256": "4dcf23c3c06a704557057f979d639686ffea014249368df1e15bcb277ea88319",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -7200,7 +7227,7 @@
         "taskspace_host_hooks",
         "tui_experience"
       ],
-      "current_sha256": "e6ba9e481870541b59b3044a11219c24e575beab1c8db5cedc778d826af6ccf7",
+      "current_sha256": "b1b93b0ffc9cd889316e102dd66fe3ac031357266c4421a31fa5128e5132f1aa",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -7214,7 +7241,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/tui/src/app.rs",
-      "target_sha256": "af56e66db061d62b9703d796f8c48e185fc6dde00d16adc20ccd36d80801f358",
+      "target_sha256": "625c7d9666d69aa8b4f4bf6ffe6836bf084441eff953ed6b321bd74a545f4c58",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -7227,7 +7254,7 @@
         "taskspace_host_hooks",
         "tui_experience"
       ],
-      "current_sha256": "ec791a3fcca74c392a512b6f8e5e40504c74b65160ff6e0465b10b84fb7ac6ba",
+      "current_sha256": "afad00e675488cf45d724551bb8e6af89b9e5ef57fd5bee2dc6e9a4b1d82650d",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -7241,7 +7268,34 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/tui/src/app/app_server_event_targets.rs",
-      "target_sha256": "86ef4ceec96397090380d5eb376ee93413a4f4522b2394444ef1e80355040982",
+      "target_sha256": "5f71cf8378488db0c06c68f309df71f6201be56bf4955d6707c4cc7696283f55",
+      "upstream_status": "added",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ],
+      "whale_status": "modified"
+    },
+    {
+      "categories": [
+        "taskspace_host_hooks",
+        "tui_experience"
+      ],
+      "current_sha256": "90ba6388d375651762956c9be3b733bb6790f3a2518669b86b96fc224f57a86a",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "decision_basis": [
+        "path belongs to a protected Whale semantic domain"
+      ],
+      "depends_on": [
+        "batch-2-substrate",
+        "batch-3-deepseek-wire"
+      ],
+      "disposition": "adapt-semantically",
+      "generated_kind": null,
+      "generated_lineage": null,
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/tui/src/app/startup.rs",
+      "target_sha256": "a4d266800265e158e54e301254714f741ab0f41da1ea82739b22c137ffe9b5b3",
       "upstream_status": "added",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -7281,7 +7335,7 @@
         "taskspace_host_hooks",
         "tui_experience"
       ],
-      "current_sha256": "4aa0f829b7090ab02e3414b988fbee1e339f0bd64685b317b0bd324a32ab373e",
+      "current_sha256": "5be058d03eaa7d5f7f880a8eaa43b8d11de3be16857703198186b4c734615ff9",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -7295,7 +7349,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/tui/src/app/test_support.rs",
-      "target_sha256": "abeaaba9da8475cceae7607aaea6373959a674809ba568a47c993e349f55830a",
+      "target_sha256": "d73069b3f807319b1babd9fb722b50cb5711172faf8f628f9d24494465777f8f",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -7308,7 +7362,7 @@
         "taskspace_host_hooks",
         "tui_experience"
       ],
-      "current_sha256": "e3b1851261a38fd89bb556b5dc118e0f4bcb3ce247f3d032501b98ecc68e5b5e",
+      "current_sha256": "35c4dc6c66898d9516009298476b6810d1737a4058cdb3007399e23f91a7c866",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -7322,7 +7376,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/tui/src/app/tests.rs",
-      "target_sha256": "64e01dd554053f648df0ae05485be4bd2fc4914b2a99cc8f9b14566889d3f293",
+      "target_sha256": "067d407d3569a4ae0daa6137cdb0f32018a9cd1c2909f71077ea26f25da14c79",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -7335,7 +7389,7 @@
         "taskspace_host_hooks",
         "tui_experience"
       ],
-      "current_sha256": "0af1bc3380815bbb0f8110e77726db810c2859c5f2c3516d4cec704d00c790c0",
+      "current_sha256": "b813cfb2f7d0c9fb8b96f85ad938902b2992d25b57f294bf6831105b5b019f55",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -7349,7 +7403,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/tui/src/app/thread_routing.rs",
-      "target_sha256": "022cf1ff1d8bf425b149ca01889213b8adf594145e7c4a4e3ba2aa5fc98afed9",
+      "target_sha256": "3c5360a88cbb4e0aa5e084c728d6a2668264087ed5ee8ac96d4f9d7eb9d468d2",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -7389,7 +7443,7 @@
         "taskspace_host_hooks",
         "tui_experience"
       ],
-      "current_sha256": "c4321ff54a3bc0a8ffd37be74b600b21d064be1f150e667f07cf8cef8cf8793c",
+      "current_sha256": "d92a85ab16969f5eb98059843bccc69f4a910cd2135a22317cbcd2bfe19c4e94",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -7403,7 +7457,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/tui/src/app_server_session.rs",
-      "target_sha256": "f1dad1ce65c43b6a48c93e12c3169fa17c26261ace86a5f8d97c9081dd1a2f0b",
+      "target_sha256": "a2b32e794ab9c02e88235b7d5d61be93e991cce88ff5c5363ff150561ce8f24f",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -7416,7 +7470,7 @@
         "taskspace_host_hooks",
         "tui_experience"
       ],
-      "current_sha256": "f23aca58f619464a55c320d8e0e337d319e4cf1e64c8d71d6ecf64c6aa31bb84",
+      "current_sha256": "25eeb208eb11f1ff96b81919c6000768c577c8f633e30a1c6f8cc33cff20d455",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -7430,7 +7484,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/tui/src/chatwidget/protocol.rs",
-      "target_sha256": "e87cf6968d35110f3c4f23c4fe48c288aa6f100d6c2beced17a8c53f4f5b4d21",
+      "target_sha256": "9473b1f4daca66b135db1e0caefe83f4b021711daed94056abe4012220cc5e6a",
       "upstream_status": "added",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -7549,7 +7603,7 @@
         "taskspace_host_hooks",
         "tui_experience"
       ],
-      "current_sha256": "f7680024b3b71e492437502e100697bcc05f85dfdf96c57012bd8a6a40950a52",
+      "current_sha256": "dd391fe942017fb1009a3ceb5878aaa50db052b4b6883ec5e5ca70bb57fbbf3d",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -7563,7 +7617,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/tui/src/chatwidget/slash_dispatch.rs",
-      "target_sha256": "ffdb85bb40a8715f5b0d98aa2d14f0d41ad3413a50641b5691787dc4a723c0fc",
+      "target_sha256": "0d90d1e2feb461b61cdc2f2cb40a6d5a7669884662ae828295b1c2f7563557f6",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -7607,7 +7661,7 @@
         "test_fixture",
         "tui_experience"
       ],
-      "current_sha256": "454d7ac31921259e834ddf53bfd8936d493c3ba8a679377aee2acba4ba56fde8",
+      "current_sha256": "c10cb41935e786255065b9c96d04efcfe9bea8fed1f8b91d4eddd10961f0262b",
       "cutover_batch": "batch-3-deepseek-wire",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -7620,7 +7674,7 @@
       "generated_lineage": null,
       "owner_domain": "deepseek-wire",
       "path": "codex-rs/tui/src/chatwidget/tests/popups_and_settings.rs",
-      "target_sha256": "8088a5028e502fa5ed067adf9766c90779de4363844ebb6c268e716f452bb964",
+      "target_sha256": "22c02f6e11b6509677a7fa3cd6f12199917e371fba9e0419e4698cd57a9a7485",
       "upstream_status": "modified",
       "verification": [
         "provider wire fixtures and cache regression gate",
@@ -7634,7 +7688,7 @@
         "test_fixture",
         "tui_experience"
       ],
-      "current_sha256": "189d87fe6dd78772d361a62e3237a7e17f295975d5f5d924d7e554c90be22cf2",
+      "current_sha256": "40854ab12c325b957bdae1b62d7a08c94cdfa3ed1c7da7d9b0cfa96c655b316c",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -7648,7 +7702,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/tui/src/chatwidget/tests/slash_commands.rs",
-      "target_sha256": "f7bfeebd45aef8c8eb3e12412a73eab974bd54b46163cd173b23aa388e5d4eb5",
+      "target_sha256": "ed889975fb6f378023c96d65504c1c34057aa13fa0ba1d57bca33934d4e96a47",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -7661,7 +7715,7 @@
         "taskspace_host_hooks",
         "tui_experience"
       ],
-      "current_sha256": "296feeec9cb8d833575f66b9c08530c32febcf19f73b8c3238322c38642faaed",
+      "current_sha256": "4208a9ad89461ff5db78bebe9110e79fad20d8934c62562df4c38882ec88c459",
       "cutover_batch": "batch-4-taskspace-multi-agent",
       "decision_basis": [
         "path belongs to a protected Whale semantic domain"
@@ -7675,7 +7729,7 @@
       "generated_lineage": null,
       "owner_domain": "taskspace-multi-agent",
       "path": "codex-rs/tui/src/slash_command.rs",
-      "target_sha256": "27581fdfce391ac0fd6d49bf2b04963ecf8b559c49b7bb4e8a09d7952227e506",
+      "target_sha256": "bd44dd78ed01fc8a70d34b17e4208c98ccc5c17f16249839d9f34b21da01058f",
       "upstream_status": "modified",
       "verification": [
         "TaskSpace and Multi-Agent targeted nextest suites",
@@ -7689,7 +7743,7 @@
         "test_fixture",
         "tui_experience"
       ],
-      "current_sha256": "5c5154e821960a1d966d14abbde1f276bf4a8ae13c4c9dba8bfccc6870b02efb",
+      "current_sha256": "56d579da6d1e80a70b7b1d7a4747c8fd1fed6996af38deae725c09afbe2fc02d",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -7700,7 +7754,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/tui/tests/suite/focus_palette.rs",
-      "target_sha256": "d9c25a961687ca1186560010d05752e76fccdb803ecb4279d9477aee3937c16f",
+      "target_sha256": "75b954728f2ecbcb7d5881c6046dadcf2d809176bc912b8c5d6cc761551d12c7",
       "upstream_status": "added",
       "verification": [
         "cargo test -p codex-cli",
@@ -7714,7 +7768,7 @@
         "test_fixture",
         "tui_experience"
       ],
-      "current_sha256": "e938d05a8d920cba824875f9ec5c3ef966af0941b50cf46d6f33cb08f4131361",
+      "current_sha256": "011d4d667689fa6f2daaabb6354e6224c7a4dd9c0c9ab34091d1cdfa52ee17b9",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -7725,7 +7779,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "codex-rs/tui/tests/suite/resize_reflow.rs",
-      "target_sha256": "13da1b217611d3e07a99a46a87ca10a80e0e1c34656ccf9bedc74affb5742685",
+      "target_sha256": "8a812c1a06d848e66f9f30c45237aebcdbe1de7be12e117dd6ffe796b96bcf2b",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -7761,7 +7815,7 @@
       "categories": [
         "build_release"
       ],
-      "current_sha256": "8f98c0e98df7f75cfa1f602db4d79a2ea2fafd4571b44e824967da6f0996e7e0",
+      "current_sha256": "2b663565de1fdc6a78259973ae14a805123f542605f640853d90e9a7f595eb17",
       "cutover_batch": "batch-1-brand-home",
       "decision_basis": [
         "upstream and Whale both change the path"
@@ -7772,7 +7826,7 @@
       "generated_lineage": null,
       "owner_domain": "brand-home",
       "path": "justfile",
-      "target_sha256": "a7ca0b1a8542f4bbd503989b113095481fdda2133aa7a1b70d78abe964a60c53",
+      "target_sha256": "21ade5df7707bad66b7cad8e1e5e7517443554769ab833be88bdd7d07669e6d7",
       "upstream_status": "modified",
       "verification": [
         "cargo test -p codex-cli",
@@ -7782,9 +7836,9 @@
     }
   ],
   "summary": {
-    "path_count": 290,
+    "path_count": 292,
     "by_disposition": {
-      "adapt-semantically": 253,
+      "adapt-semantically": 255,
       "defer": 6,
       "reapply-exact": 15,
       "regenerate": 16
@@ -7793,7 +7847,7 @@
       "batch-1-brand-home": 53,
       "batch-2-substrate": 36,
       "batch-3-deepseek-wire": 25,
-      "batch-4-taskspace-multi-agent": 154,
+      "batch-4-taskspace-multi-agent": 156,
       "batch-5-generated-release": 22
     }
   }

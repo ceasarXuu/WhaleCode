@@ -14,11 +14,11 @@ Imported for WhaleCode as a whole-repo upstream substrate.
 | Immutable baseline tarball | https://codeload.github.com/openai/codex/tar.gz/fed0a8f4faa58db3138488cca77628c1d54a2cd8 |
 | Local vendor path | `third_party/codex-cli/` |
 | Nested Git metadata | Not imported |
-| Current vendor state | `rust-v0.147.0` substrate + verified Whale identity, DeepSeek Responses, cache and TaskSpace overlay |
+| Current vendor state | `rust-v0.149.0` substrate + verified Whale identity, DeepSeek Responses, cache and TaskSpace overlay |
 | Overlay inventory | [`overlay-inventory.json`](../../docs/v0.0.5/codex-upstream-sync/overlay-inventory.json) |
 | Authoritative backport ledger | [`backport-ledger.json`](../../docs/v0.0.5/codex-upstream-sync/backport-ledger.json) |
 | Provenance backlog | [`backport-provenance-backlog.json`](../../docs/v0.0.5/codex-upstream-sync/backport-provenance-backlog.json) |
-| Current imported substrate | `rust-v0.147.0` / `be6e8eac029b183056b7e4402879f15d2c85f61b` |
+| Current imported substrate | `rust-v0.149.0` / `758ef40f50c1a458425c7cfbf1eb12cbc07af0b0` |
 | Candidate qualification | [`upstream-candidate.json`](../../docs/v0.0.5/codex-upstream-sync/upstream-candidate.json), direction-supported with known test risks |
 | Upstream delta | [`upstream-delta-inventory.json`](../../docs/v0.0.5/codex-upstream-sync/upstream-delta-inventory.json) |
 | Overlay replay ledger | [`overlay-replay-ledger.json`](../../docs/v0.0.5/codex-upstream-sync/overlay-replay-ledger.json) |
@@ -50,7 +50,7 @@ Current verified Whale overlay:
   retained under `taskspace_v2_*` as a non-active archive during migration.
 
 The current generated overlay inventory is the authority for changed vendor
-paths relative to the immutable `rust-v0.147.0` tree. It includes production
+paths relative to the immutable `rust-v0.149.0` tree. It includes production
 overlay, tests and generated protocol artifacts. OpenAI/ChatGPT login product UI, OpenAI-hosted remote
 plugin sharing and recommendations, Bedrock-specific model catalogs, remaining
 user-facing branding cleanup, Windows validation and the known TaskSpace TUI
