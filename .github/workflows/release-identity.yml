@@ -23,5 +23,7 @@ jobs:
         run: python3 scripts/release/check_distribution_identity.py
       - name: Check Whale user-visible brand identity
         run: python3 scripts/release/check_brand_identity.py
+      - name: Check Whale npm release candidate
+        run: python3 scripts/release/check_npm_release_candidate.py --tag v0.0.5
       - name: Test release identity guard
         run: python3 -m unittest discover -s scripts/release/tests -p 'test_*.py'

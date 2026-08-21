@@ -42,16 +42,16 @@ release candidate:
 
 ```powershell
 python scripts/release/check_release_identity.py --tag v0.0.5
+python scripts/release/check_distribution_identity.py
+python scripts/release/check_brand_identity.py
+python scripts/release/check_npm_release_candidate.py --tag v0.0.5
 ```
 
-Whale adds one checked-in monotonic build number at
-`third_party/codex-cli/BUILD_NUMBER`. Increment it when preparing a release
-build or handing off a locally installed build for user verification. Keep it a
-positive integer, and commit it with the version bump. The TUI embeds it at
-compile time and renders startup/status headers as
-`vX.Y.Z build N`. GitHub Release display names include the build number, while
-artifact names, npm versions, and WinGet versions keep the semver-only Codex
-flow.
+The npm candidate check stages the package into a temporary directory, rewrites
+the development manifest to `0.0.5`, and runs `npm pack --dry-run`. It does not
+publish, contact a model provider, or use another worktree's build output.
+Whale has no separate checked-in build number: product tags and npm versions use
+the Whale semver, while `rust-v0.149.0` remains upstream provenance only.
 
 Run this guard after changing version, build, release workflow, or packaging
 files:

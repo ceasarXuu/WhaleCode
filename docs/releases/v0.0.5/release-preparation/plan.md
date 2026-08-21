@@ -21,7 +21,7 @@
 
 | ID | Decision Surface | Current / Proposed Behavior | Why Material | Evidence | Impact If Changed |
 | --- | --- | --- | --- | --- | --- |
-| P1 | 公开发布渠道 | 当前不配置发布，仅准备 GitHub 可消费的构建与说明 | 会产生外部包、权限和长期升级合同 | vendor 工作流仍指向 OpenAI npm/R2/WinGet/网站 | 渠道确认后需要独立发布阶段和凭据审计 |
+| P1 | v0.0.5 实际发布范围 | npm 是既有 Whale 独立渠道；本轮仅补齐离线候选，是否发布 npm/tag/GitHub Release 仍待明确授权 | 会产生外部包、权限和长期升级合同 | npm 历史发布记录存在；vendor 工作流仍指向 OpenAI 的其他渠道 | 授权后需要核验账号、六平台制品、dist-tag 和回滚责任 |
 
 ## Work Units
 
@@ -47,7 +47,7 @@ Entry: PD1/PD2 active。执行 W1–W4，不触发外部发布。
 
 Product Decision Delta：仅实现 PD1/PD2，发布渠道 P1 保持未决。
 
-Evidence：identity preflight 通过；5 个正反例单元测试通过；`git diff --check` 通过。
+Evidence：release、distribution、brand identity preflight 通过；npm 元包候选离线 staging/pack 门禁通过；release guard 正反例单元测试通过；`git diff --check` 通过。
 
 ## Phase 2：候选构建验证
 
@@ -61,7 +61,7 @@ Evidence：identity preflight 通过；5 个正反例单元测试通过；`git d
 
 Entry: Phase 1 preflight 与测试通过。执行 W5；不运行真实模型或付费 benchmark。
 
-Evidence：`cargo build -p codex-cli --bin whale --locked` 通过；140 个 local workspace package 均为 `0.0.5`；workspace doctor 通过；隔离槽 `whale --version` 输出 `whale 0.0.5`；cache-sensitive index gate 通过（fingerprint `fc11553f3c9ac204cfddf42de6916471f9a755ac1cc21b021ab70558cef3d8ad`）。
+Evidence：`cargo build -p codex-cli --bin whale --locked` 通过；140 个 local workspace package 均为 `0.0.5`；workspace doctor 通过；隔离槽 `whale --version` 输出 `whale 0.0.5`；npm 元包 staging 后为 `@ceasarxuu/whalecode@0.0.5`，离线 pack inventory 与完整性元数据通过；cache-sensitive index gate 通过（fingerprint `9c817b9f59426efa097be43988d4731a2e7ba412bad63bdf69a466fcbcaaaced`）。
 
 Product Decision Delta：`covered`（PD1/PD2）；没有新增产品语义。
 
@@ -69,7 +69,7 @@ Product Decision Delta：`covered`（PD1/PD2）；没有新增产品语义。
 
 #### Pre-Phase Plan Rebase Gate
 
-- Rebase scope: 已确认渠道、发布凭据、候选构建和最终 release notes
+- Rebase scope: Whale npm 账号与凭据、获批六平台构建 run、tag/GitHub Release 范围和最终 release notes
 - Material plan delta: material
 - Plan delta record: pending
 - User approval: required-pending
