@@ -1,6 +1,6 @@
 # WhaleCode v0.0.5 发布准备执行计划
 
-- Status: in-progress
+- Status: prepared-awaiting-release-scope
 - Product Authority: `../../../../prd/2026-08-21-v0.0.5-release-identity.md#confirmed-product-decisions`
 - Applicable Decisions: PD1, PD2
 
@@ -28,10 +28,10 @@
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | W1 | 固定发布身份 | 文档/登记 | PRD、本目录 | PD1/PD2、release.json | 记录产品与 substrate 的独立版本 | 机器和人都能区分两套身份 | 防止错误登记 | 新增少量发布元数据 | JSON/链接检查 | 删除新增登记即可恢复 | verified |
-| W2 | 统一 runtime semver | 构建元数据 | `codex-rs/Cargo.toml`、`Cargo.lock` | workspace package version | 将 Whale workspace 版本改为 `0.0.5` | CLI 编译版本为 `0.0.5` | 用户看到正确产品版本 | workspace 内部 crate 版本机械变化 | cargo metadata + `whale --version` | 恢复版本和 lock | implemented |
+| W2 | 统一 runtime semver | 构建元数据 | `codex-rs/Cargo.toml`、`Cargo.lock` | workspace package version | 将 Whale workspace 版本改为 `0.0.5` | CLI 编译版本为 `0.0.5` | 用户看到正确产品版本 | workspace 内部 crate 版本机械变化 | cargo metadata + `whale --version` | 恢复版本和 lock | verified |
 | W3 | 阻断身份混用 | 发布门禁 | `scripts/release/`、root CI | release identity preflight | 校验 Cargo、登记、tag 和 candidate | 错误版本在发布前失败 | 把口头约束变为机器门禁 | 新增一个 Python 脚本和测试，无网络 | unittest + 正反例 | 可独立移除 | verified |
 | W4 | 提供候选材料 | 文档 | 本目录、README、runbook | release notes/checklist | 写发布说明草稿与人工交接项 | 发布者能看到已验证与未授权边界 | 降低误发布风险 | 文档维护成本 | 链接和 preflight | 文档可回退 | verified |
-| W5 | 验证候选 | 构建/安装 | workspace 隔离环境 | whale binary | 离线检查、构建、安装并执行版本 smoke | 证明源码版本进入真实二进制 | 关闭版本登记到运行时链路 | 本地编译耗时；无模型费用 | doctor + `whale --version` | 保留源码，重建即可 | not-started |
+| W5 | 验证候选 | 构建/安装 | workspace 隔离环境 | whale binary | 离线检查、构建、安装并执行版本 smoke | 证明源码版本进入真实二进制 | 关闭版本登记到运行时链路 | 本地编译耗时；无模型费用 | doctor + `whale --version` | 保留源码，重建即可 | verified |
 
 ## Phase 1：身份与离线门禁
 
@@ -60,6 +60,10 @@ Evidence：identity preflight 通过；5 个正反例单元测试通过；`git d
 - Gate status: ready
 
 Entry: Phase 1 preflight 与测试通过。执行 W5；不运行真实模型或付费 benchmark。
+
+Evidence：`cargo build -p codex-cli --bin whale --locked` 通过；140 个 local workspace package 均为 `0.0.5`；workspace doctor 通过；隔离槽 `whale --version` 输出 `whale 0.0.5`；cache-sensitive index gate 通过（fingerprint `fc11553f3c9ac204cfddf42de6916471f9a755ac1cc21b021ab70558cef3d8ad`）。
+
+Product Decision Delta：`covered`（PD1/PD2）；没有新增产品语义。
 
 ## Phase 3：实际发布
 

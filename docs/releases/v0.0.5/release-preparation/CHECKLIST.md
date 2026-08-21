@@ -2,12 +2,12 @@
 
 ## 自动门禁
 
-- [ ] `python3 scripts/release/check_release_identity.py`
-- [ ] `python3 -m unittest discover -s scripts/release/tests -p 'test_*.py'`
-- [ ] `cargo metadata --locked --no-deps`
-- [ ] `cargo build -p codex-cli --bin whale --locked`
-- [ ] workspace 安装后的 `whale --version` 输出 `whale 0.0.5`
-- [ ] cache-sensitive index gate 通过（若版本改动被门禁判为敏感）
+- [x] `python3 scripts/release/check_release_identity.py`
+- [x] `python3 -m unittest discover -s scripts/release/tests -p 'test_*.py'`
+- [x] `cargo metadata --locked --no-deps`
+- [x] `cargo build -p codex-cli --bin whale --locked`
+- [x] workspace 安装后的 `whale --version` 输出 `whale 0.0.5`
+- [x] cache-sensitive index gate 通过（fingerprint `fc11553f3c9ac204cfddf42de6916471f9a755ac1cc21b021ab70558cef3d8ad`）
 
 ## 人工核对
 
