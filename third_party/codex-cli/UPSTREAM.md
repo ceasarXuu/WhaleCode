@@ -67,4 +67,5 @@ python3 scripts/codex-upstream/validate_sync_metadata.py
 The release-closeout evidence is recorded in
 [`2026-08-14-u17-release-closeout.md`](../../docs/migration/codex-sync/2026-08-14-u17-release-closeout.md). The subsequent project-main rebase and
 R8 semantic migration are recorded in
-[`2026-08-21-u18-main-rebase-r8-semantic-migration.md`](../../docs/migration/codex-sync/2026-08-21-u18-main-rebase-r8-semantic-migration.md).
+[`2026-08-21-u18-main-rebase-r8-semantic-migration.md`](../../docs/migration/codex-sync/2026-08-21-u18-main-rebase-r8-semantic-migration.md). The 0.149 vendor cutover, product-matrix validation and accepted live cache qualification are recorded in
+[`2026-08-21-u19-codex-0149-release-closeout.md`](../../docs/migration/codex-sync/2026-08-21-u19-codex-0149-release-closeout.md).

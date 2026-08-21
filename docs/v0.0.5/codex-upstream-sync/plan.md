@@ -1,13 +1,13 @@
 # Codex CLI 主线融合执行计划
 
-- 文档状态：有效，Phase A–E 与 U18 verified；Phase F（U19）in-progress
+- 文档状态：有效，Phase A–F（U1–U19）verified；Codex CLI 0.149 追赶已收口
 - Plan Validity：`valid-with-qualifications`
 - 计划性质：覆盖已完成里程碑与剩余工作的唯一执行计划
 - 适用版本：WhaleCode v0.0.5
 - 工作空间：仅 `/home/zhangxu/whalecode-codex`
 - Product Authority：[./decisions.md](decisions.md)
 - Applicable Decisions：D1、D2
-- 当前生产 vendor：Codex CLI `rust-v0.149.0` / `758ef40f50c1a458425c7cfbf1eb12cbc07af0b0` + 已重放 Whale identity、DeepSeek Responses/cache 与 TaskSpace overlay（U19 发布门禁收口中）
+- 当前生产 vendor：Codex CLI `rust-v0.149.0` / `758ef40f50c1a458425c7cfbf1eb12cbc07af0b0` + 已验证 Whale identity、DeepSeek Responses/cache 与 TaskSpace overlay
 - 当前追赶目标：Codex CLI `rust-v0.149.0` / `758ef40f50c1a458425c7cfbf1eb12cbc07af0b0`
 - 官方发布依据：[OpenAI Codex 0.149.0 Release（2026-08-20）](https://github.com/openai/codex/releases/tag/rust-v0.149.0)
 
@@ -285,8 +285,8 @@ Phase D 的 PLD-006 采用当前 0.147 源码和以下一手资料校验扩展�
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | U19a | 固定 0.149 候选与同步合同 | qualification/metadata | `scripts/codex-upstream/`、candidate/delta metadata | release identity、generator constants、schema validation | 已将固定 tag/commit/V8 合同更新到 0.149，并完成官方候选隔离资格矩阵；生产 vendor 未改变 | 后续 cutover 以可追溯且可复验的官方对象为输入 | Complexity：只改既有同步脚本常量与测试；Reach/Cost：metadata 与本地构建，0 模型请求 | tag/tree/license/V8 验证；fmt、CLI check、code-mode-host 3/3 通过；core 3573/3580、app-server 1234/1235、TUI 3720/3747，通过项与失败签名均已落日志；同步脚本单测通过 | 候选结论为 direction-supported-with-known-test-risks；生产 vendor 保持 0.147，可独立回滚本单元 | verified |
 | U19b | 应用 0.149 substrate 并解决通用冲突 | vendor/substrate | `third_party/codex-cli/` | 官方 0.147→0.149 差分、Whale identity/home/auth/build seam | 以三方 apply 应用完整官方差分；通用文件优先采用上游，保留最小 Whale identity/home/auth 与已确认 feature 默认值 | vendor substrate 已升至 0.149；CLI 报告 `whale 0.149.0`，通用 crate check 与 schema 生成通过 | Complexity：约 2,014 路径机械变化，人工冲突限定在既有 seam；Reach/Cost：workspace build、CLI、权限与持久化 | 冲突清零、fmt、CLI check、code-mode-host、schema 生成 | vendor 提交 `0044ffee5` 可独立 revert | verified |
-| U19c | 重放 DeepSeek 与缓存合同 | provider/cache | provider/model/core Responses 与 cache fixtures | DeepSeek-only catalog、Flash 默认、Pro、1M/755K、usage/final-wire | 在 0.149 provider/model/compaction seam 上保留 D1，并重新生成及验证 Standard final-wire；不恢复旧 Chat Completions 层 | DeepSeek provider/catalog、compaction、usage 与缓存免费合同通过；Standard final-wire 因 0.149 client metadata 产生可晋升候选 | Complexity：仅适配实际 API 变化；Reach/Cost：provider、model catalog、compaction、cache | DeepSeek 8/8、compact 18/18、usage 18/18、cache Python 232/232、index gate 免费发现通过 | 正在以已批准 3 CNY 总包预算执行最小真实 cache smoke，未通过前不晋升基线 | in-progress |
-| U19d | 重放 TaskSpace 组合链并发布收口 | taskspace/release | extension/state/core/app-server/TUI、generated schemas、provenance | relational store、lifecycle、RPC/events、fork/resume/final-wire | 保持唯一 TaskSpace relational store与 extension seam，适配 0.149 history/permission/multi-agent 变化；重生成 schema/lockfile，刷新 inventory/replay/UPSTREAM 和收口报告 | TaskSpace state/tools/core 与 fork→reload→request 生产组合链已通过；迁移 47/48 冲突以 checksum 精确桥迁至 51/52 | Complexity：未建立第二状态权威；Reach/Cost：state/core/app-server/TUI 与生成物 | state 203/203、tools 106/106、TaskSpace 75/75、生产组合 1/1、metadata validator、CLI smoke | 待真实 cache smoke、baseline 晋升、最终报告与 clean/push 后转 verified | in-progress |
+| U19c | 重放 DeepSeek 与缓存合同 | provider/cache | provider/model/core Responses 与 cache fixtures | DeepSeek-only catalog、Flash 默认、Pro、1M/755K、usage/final-wire | 在 0.149 provider/model/compaction seam 上保留 D1，并重新生成及验证 Standard final-wire；不恢复旧 Chat Completions 层 | DeepSeek provider/catalog、compaction、usage 与缓存免费合同通过；Standard final-wire 已以真实双臂运行复验并晋升稳定基线 | Complexity：仅适配实际 API 变化；Reach/Cost：provider、model catalog、compaction、cache | DeepSeek 8/8、compact 18/18、usage 18/18、cache Python 232/232；真实运行 2 sample run、14 请求、费用 0.03531908 CNY；baseline promotion 与 index gate 通过 | 提交 `44c8f933a` 保存完整账本、结果、acceptance 与稳定基线，可按提交回滚 | verified |
+| U19d | 重放 TaskSpace 组合链并发布收口 | taskspace/release | extension/state/core/app-server/TUI、generated schemas、provenance | relational store、lifecycle、RPC/events、fork/resume/final-wire | 保持唯一 TaskSpace relational store与 extension seam，适配 0.149 history/permission/multi-agent 变化；重生成 schema/lockfile，刷新 inventory/replay/UPSTREAM 和收口报告 | TaskSpace state/tools/core 与 fork→reload→request 生产组合链通过；迁移 47/48 冲突以 checksum 精确桥迁至 51/52；发布证据已闭合 | Complexity：未建立第二状态权威；Reach/Cost：state/core/app-server/TUI 与生成物 | state 203/203、tools 106/106、TaskSpace 75/75、生产组合 1/1、metadata validator、CLI smoke、release-head cache gate | vendor/overlay、metadata、报告和门禁证据均已原子提交并 push；可按 U19 提交序列回滚 | verified |
 
 退出条件：U19a–U19d verified；vendor provenance 指向 0.149；D1/D2 无冲突；所有修改已提交并 push；工作树 clean；延期项未被误报为通过。
 
@@ -306,7 +306,7 @@ Phase D 的 PLD-006 采用当前 0.147 源码和以下一手资料校验扩展�
 | Phase D | 已完成 | U11–U16 verified；旧库 bridge、canonical kernel/store、extension runtime、RPC/event/schema、TUI/viewer 与免费 final-wire/cache 均已闭环；Standard 默认路径不变 | D2 | covered + engineering-only | 进入 Phase E rebase gate |
 | Phase E | 已完成 | U17 已刷新 provenance/overlay/replay，完成 Linux 构建、离线 CLI、schema、免费 cache 与分层测试；非全绿项均保留真实签名和延期边界 | D1、D2 | covered + engineering-only | 主线 0.147 融合计划收口；后续延期项进入各自产品/平台单元 |
 | Phase E / main rebase follow-up | 已完成 | U18 已将全部 0.147 融合提交重放到 `main@df5da4d`，以无损 archive 处理旧 TaskSpace v2 数据，以 relational R8 store 和生产 app-server final-wire 链重新锁定行为；专用 Standard + map-request 双臂资格运行成功，稳定 baseline 已晋升且 index gate 通过 | D1、D2 | covered + engineering-only | 提交并按精确 lease 推送；延期产品面维持原边界 |
-| Phase F | 进行中 | 固定 0.149 为新稳定目标；沿用当前 DeepSeek/TaskSpace 产品语义，以官方差分三方应用并按实际冲突适配 | D1、D2 | covered + engineering-only | 完成 U19a–U19d；出现产品语义冲突时暂停请示 |
+| Phase F | 已完成 | vendor 固定到官方 0.149；保留 DeepSeek Flash 默认/Pro 可见与 TaskSpace 单一 relational state 权威；真实缓存基线和发布门禁通过 | D1、D2 | covered + engineering-only | U19a–U19d verified；未验证的非 Whale 产品面按收口报告延期 |
 
 ## 7. Pending Product Decisions
 
@@ -319,7 +319,7 @@ Phase D 的 PLD-006 采用当前 0.147 源码和以下一手资料校验扩展�
 
 ## 8. 执行与提交边界
 
-执行顺序已到达 `... -> U18 最新 main rebase 与 cache baseline qualification（已验证） -> U19 0.149 稳定版追赶（进行中）`。本轮主线融合仍以这一份文档为唯一计划；不得恢复旧 core/session/provider 专用分支或 `provider_wire_trace`。U19 默认只使用免费本地验证；若缓存敏感面要求新的真实回归，必须另走账本与预算授权。详细证据见 [U17 发布收口报告](../../migration/codex-sync/2026-08-14-u17-release-closeout.md) 与 [U18 main rebase 报告](../../migration/codex-sync/2026-08-21-u18-main-rebase-r8-semantic-migration.md)。
+执行顺序已到达 `... -> U18 最新 main rebase 与 cache baseline qualification（已验证） -> U19 0.149 稳定版追赶（已验证）`。本轮主线融合仍以这一份文档为唯一计划；不得恢复旧 core/session/provider 专用分支或 `provider_wire_trace`。未来缓存敏感面若要求新的真实回归，仍须另走账本与预算授权。详细证据见 [U17 发布收口报告](../../migration/codex-sync/2026-08-14-u17-release-closeout.md)、[U18 main rebase 报告](../../migration/codex-sync/2026-08-21-u18-main-rebase-r8-semantic-migration.md) 与 [U19 0.149 发布收口报告](../../migration/codex-sync/2026-08-21-u19-codex-0149-release-closeout.md)。
 
 - 每个 U 单元至少一个独立、可理解、已基本验证的 commit，并立即 push。
 - 单元内出现两个可独立回滚的行为主题时继续拆 commit；不得把 vendor 机械替换与产品 overlay 混为一个提交。
