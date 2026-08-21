@@ -191,9 +191,17 @@ pub(crate) struct CompactConversationRequestSettings {
     pub(crate) service_tier: Option<String>,
 }
 
-fn reasoning_effort_for_request(effort: ReasoningEffortConfig) -> ReasoningEffortConfig {
+fn reasoning_effort_for_request(
+    effort: ReasoningEffortConfig,
+    is_deepseek: bool,
+) -> ReasoningEffortConfig {
     match effort {
         ReasoningEffortConfig::Ultra => ReasoningEffortConfig::Max,
+        ReasoningEffortConfig::Custom(value) if is_deepseek && value == "standard" => {
+            // `standard` was Whale's pre-GA DeepSeek label. The native
+            // Responses contract uses `high` for the default thinking level.
+            ReasoningEffortConfig::High
+        }
         effort => effort,
     }
 }
@@ -940,7 +948,9 @@ impl ModelClient {
             model: model_info.slug.clone(),
             raw_memories,
             reasoning: effort
-                .map(reasoning_effort_for_request)
+                .map(|effort| {
+                    reasoning_effort_for_request(effort, self.state.provider.info().is_deepseek())
+                })
                 .map(|effort| Reasoning {
                     effort: Some(effort),
                     summary: None,
@@ -1044,11 +1054,12 @@ impl ModelClient {
         model_info: &ModelInfo,
         effort: Option<ReasoningEffortConfig>,
         summary: ReasoningSummaryConfig,
+        is_deepseek: bool,
     ) -> Reasoning {
         Reasoning {
             effort: effort
                 .or_else(|| model_info.default_reasoning_level.clone())
-                .map(reasoning_effort_for_request),
+                .map(|effort| reasoning_effort_for_request(effort, is_deepseek)),
             summary: (model_info.supports_reasoning_summary_parameter
                 && summary != ReasoningSummaryConfig::None)
                 .then_some(summary),
@@ -1113,7 +1124,12 @@ impl ModelClient {
                 Some(create_tools_raw_json_for_responses_api(&prompt.tools)?.into()),
             )
         };
-        let reasoning = Self::build_reasoning(model_info, effort, summary);
+        let reasoning = Self::build_reasoning(
+            model_info,
+            effort,
+            summary,
+            self.state.provider.info().is_deepseek(),
+        );
         let stream_options = (self.state.concurrent_reasoning_summaries_enabled
             && is_openai
             && reasoning.summary.is_some())

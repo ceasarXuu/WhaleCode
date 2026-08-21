@@ -341,6 +341,18 @@ impl ModelProvider for ConfiguredModelProvider {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
+        if self.info.is_deepseek() {
+            return ProviderCapabilities {
+                // DeepSeek Responses supports function tools, hosted web search,
+                // and the apply_patch custom tool. It does not support Codex
+                // namespace tools, image generation, or remote compaction.
+                namespace_tools: false,
+                image_generation: false,
+                web_search: true,
+                external_web_access: true,
+                remote_compaction: RemoteCompactionSupport::Unsupported,
+            };
+        }
         let remote_compaction = if self.info.is_openai()
             || is_azure_responses_provider(&self.info.name, self.info.base_url.as_deref())
         {
@@ -671,6 +683,25 @@ mod tests {
             let provider = create_model_provider(provider_info, /*auth_manager*/ None);
             assert_eq!(provider.capabilities().remote_compaction, expected);
         }
+    }
+
+    #[test]
+    fn deepseek_provider_exposes_only_supported_responses_capabilities() {
+        let provider = create_model_provider(
+            ModelProviderInfo::create_deepseek_provider(),
+            /*auth_manager*/ None,
+        );
+
+        assert_eq!(
+            provider.capabilities(),
+            ProviderCapabilities {
+                namespace_tools: false,
+                image_generation: false,
+                web_search: true,
+                external_web_access: true,
+                remote_compaction: RemoteCompactionSupport::Unsupported,
+            }
+        );
     }
 
     #[test]

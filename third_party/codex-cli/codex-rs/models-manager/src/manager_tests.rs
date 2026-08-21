@@ -1456,25 +1456,36 @@ fn build_available_models_keeps_whale_listing_deepseek_only_and_flash_default() 
     let manager = static_manager_for_tests(ModelsResponse { models: Vec::new() });
     let external = remote_model("external-model", "External", /*priority*/ -10);
     let pro = remote_model("deepseek-v4-pro", "DeepSeek V4 Pro", /*priority*/ 0);
+    let vision = remote_model(
+        "deepseek-v4-flash-vision-exp",
+        "DeepSeek V4 Flash Vision Experimental",
+        /*priority*/ 5,
+    );
     let flash = remote_model(
         "deepseek-v4-flash",
         "DeepSeek V4 Flash",
         /*priority*/ 10,
     );
 
-    let available = manager.build_available_models(vec![external, pro, flash]);
+    let available = manager.build_available_models(vec![external, pro, vision, flash]);
 
     assert_eq!(
         available
             .iter()
             .map(|preset| preset.model.as_str())
             .collect::<Vec<_>>(),
-        vec!["deepseek-v4-pro", "deepseek-v4-flash"]
+        vec![
+            "deepseek-v4-pro",
+            "deepseek-v4-flash-vision-exp",
+            "deepseek-v4-flash"
+        ]
     );
     assert!(available[0].show_in_picker);
     assert!(available[1].show_in_picker);
+    assert!(available[2].show_in_picker);
     assert!(!available[0].is_default);
-    assert!(available[1].is_default);
+    assert!(!available[1].is_default);
+    assert!(available[2].is_default);
     assert_eq!(default_model_from_available(available), "deepseek-v4-flash");
 }
 
@@ -1548,7 +1559,11 @@ fn bundled_deepseek_models_preserve_long_context_contract() {
     let response = crate::bundled_models_response()
         .unwrap_or_else(|err| panic!("bundled models.json should parse: {err}"));
 
-    for slug in ["deepseek-v4-flash", "deepseek-v4-pro"] {
+    for slug in [
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+        "deepseek-v4-flash-vision-exp",
+    ] {
         let model = response
             .models
             .iter()
@@ -1560,7 +1575,29 @@ fn bundled_deepseek_models_preserve_long_context_contract() {
         assert_eq!(model.auto_compact_token_limit, Some(755_000));
         assert!(!model.supports_reasoning_summary_parameter);
         assert_eq!(model.visibility, ModelVisibility::List);
+
+        if slug != "deepseek-v4-flash-vision-exp" {
+            assert_eq!(
+                model.input_modalities,
+                vec![codex_protocol::openai_models::InputModality::Text]
+            );
+            assert!(!model.supports_image_detail_original);
+        }
     }
+
+    let vision = response
+        .models
+        .iter()
+        .find(|model| model.slug == "deepseek-v4-flash-vision-exp")
+        .expect("bundled catalog should contain the vision model");
+    assert_eq!(
+        vision.input_modalities,
+        vec![
+            codex_protocol::openai_models::InputModality::Text,
+            codex_protocol::openai_models::InputModality::Image,
+        ]
+    );
+    assert!(vision.supports_image_detail_original);
 }
 
 #[tokio::test]
@@ -1578,16 +1615,18 @@ async fn bundled_deepseek_models_are_visible_with_flash_default() {
             .iter()
             .map(|preset| preset.model.as_str())
             .collect::<Vec<_>>(),
-        vec!["deepseek-v4-flash", "deepseek-v4-pro"]
+        vec![
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+            "deepseek-v4-flash-vision-exp"
+        ]
     );
     assert!(models[0].is_default);
     assert!(!models[1].is_default);
+    assert!(!models[2].is_default);
     for model in models {
         assert!(model.show_in_picker);
-        assert_eq!(
-            model.default_reasoning_effort,
-            ReasoningEffort::Custom("standard".into())
-        );
+        assert_eq!(model.default_reasoning_effort, ReasoningEffort::High);
         assert_eq!(
             model
                 .supported_reasoning_efforts
@@ -1595,7 +1634,8 @@ async fn bundled_deepseek_models_are_visible_with_flash_default() {
                 .map(|preset| preset.effort.clone())
                 .collect::<Vec<_>>(),
             vec![
-                ReasoningEffort::Custom("standard".into()),
+                ReasoningEffort::None,
+                ReasoningEffort::Low,
                 ReasoningEffort::High,
                 ReasoningEffort::Max,
             ]

@@ -301,10 +301,24 @@ fn test_session_telemetry() -> SessionTelemetry {
 fn ultra_reasoning_uses_max_for_requests() {
     assert_eq!(
         (
-            super::reasoning_effort_for_request(ReasoningEffort::Ultra),
-            super::reasoning_effort_for_request(ReasoningEffort::High),
+            super::reasoning_effort_for_request(ReasoningEffort::Ultra, /*is_deepseek*/ false),
+            super::reasoning_effort_for_request(ReasoningEffort::High, /*is_deepseek*/ false),
         ),
         (ReasoningEffort::Max, ReasoningEffort::High,)
+    );
+}
+
+#[test]
+fn legacy_deepseek_standard_reasoning_uses_official_high_effort() {
+    let standard = ReasoningEffort::Custom("standard".to_string());
+
+    assert_eq!(
+        super::reasoning_effort_for_request(standard.clone(), /*is_deepseek*/ true),
+        ReasoningEffort::High
+    );
+    assert_eq!(
+        super::reasoning_effort_for_request(standard.clone(), /*is_deepseek*/ false),
+        standard
     );
 }
 

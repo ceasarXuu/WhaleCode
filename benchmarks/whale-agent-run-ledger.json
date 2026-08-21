@@ -1,7 +1,168 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-21T08:09:37+08:00",
+  "updated_at": "2026-08-22T05:32:44+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260822-051940-DEEPSEEK-RESPONSES-R3",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-22T05:30:32+08:00",
+      "ended_at": "2026-08-22T05:30:36+08:00",
+      "elapsed_calendar_seconds": 4.454,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "验证 WhaleCode 对 DeepSeek 当前三个 Responses API 模型的原生文本、工具调用、reasoning 流式事件与视觉输入支持。",
+      "authorization": {
+        "required": false,
+        "status": "granted",
+        "id": "user-approved-deepseek-responses-under-cny1",
+        "reference": "2026-08-22 user: 最大限度完整补齐deepseek 能力支持，批准1元的总测试预算包用于验证，开始",
+        "budget_summary": {
+          "maximum_sample_runs": 3,
+          "maximum_api_requests": 12,
+          "input_tokens": 30000,
+          "output_tokens": 6000,
+          "elapsed_seconds": 600,
+          "estimated_cost": 1.0,
+          "currency": "CNY"
+        },
+        "note": "仅限 deepseek-v4-flash、deepseek-v4-pro、deepseek-v4-flash-vision-exp 各一个样本；共享请求硬门禁，零自动重试；任一失败、usage 缺失或预算风险立即停止。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "model": "deepseek-current-three-models",
+        "batch_count": 1,
+        "sample_ids": [
+          "flash-tool-roundtrip",
+          "pro-reasoning-stream",
+          "vision-image-input"
+        ],
+        "arm_ids": [
+          "native-responses"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 3,
+        "actual_sample_runs": 2,
+        "api_requests": 3,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "estimated_partial",
+        "currency": "CNY",
+        "amount": 0.9,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": {
+          "captured_at": "2026-08-22",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "peak_usd_per_million": {
+            "flash_cached_input": 0.014,
+            "flash_uncached_input": 0.44,
+            "flash_output": 1.32,
+            "pro_cached_input": 0.044,
+            "pro_uncached_input": 1.32,
+            "pro_output": 3.96,
+            "vision_cached_input": 0.014,
+            "vision_uncached_input": 0.44,
+            "vision_output": 1.32
+          }
+        },
+        "formula": "硬上限 CNY 1.00；按 30K 全部使用 Pro 峰值 uncached input 与 6K Pro 峰值 output，USD 0.06336，按 8 CNY/USD 保守折算约 CNY 0.507。",
+        "note": "Flash 与 Pro 共 3 个 provider requests；harness 在写汇总前因 Vision CLI 参数解析失败退出，usage 无法恢复，因此以总包扣除 Vision 预留后的 CNY 0.90 保守上限记为 estimated_partial。"
+      },
+      "evidence": {
+        "subject_commit": "d605ed7f9b66c29ff5283bedda6a934b17aa4869",
+        "prd": "prd/2026-08-22-deepseek-responses-capability-completion.md",
+        "planned_evidence_root": "benchmarks/deepseek-responses/evidence/WAR-20260822-051940-DEEPSEEK-RESPONSES-R3",
+        "stop_conditions": "零自动重试；任一模型失败、usage 缺失、12 requests、30K input、6K output、CNY 1.00 或 10 分钟任一先到即停止。",
+        "provider_request_counter": "benchmarks/deepseek-responses/evidence/WAR-20260822-051940-DEEPSEEK-RESPONSES-R3/provider-request-count.txt",
+        "usage_evidence_status": "unavailable",
+        "stop_reason": "vision_harness_prompt_consumed_by_multi_value_image_option_before_provider_dispatch",
+        "outcome": "Flash tool round-trip and Pro text samples completed using 3 provider requests. Vision did not dispatch because --image consumed the trailing prompt. The batch stopped immediately; no same-record retry was attempted."
+      }
+    },
+    {
+      "record_id": "WAR-20260822-053058-DEEPSEEK-VISION-R1",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-22T05:32:42+08:00",
+      "ended_at": "2026-08-22T05:32:44+08:00",
+      "elapsed_calendar_seconds": 1.528,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "完成原定三模型包中尚未发起 provider 请求的 DeepSeek Vision Responses 图片输入样本；修复仅限 harness 的参数终止符。",
+      "authorization": {
+        "required": false,
+        "status": "granted",
+        "id": "user-approved-deepseek-responses-under-cny1-vision-remainder",
+        "reference": "2026-08-22 user: 最大限度完整补齐deepseek 能力支持，批准1元的总测试预算包用于验证，开始",
+        "budget_summary": {
+          "maximum_sample_runs": 1,
+          "maximum_api_requests": 1,
+          "input_tokens": 12000,
+          "output_tokens": 1000,
+          "elapsed_seconds": 180,
+          "estimated_cost": 0.1,
+          "currency": "CNY"
+        },
+        "note": "关联失败记录 WAR-20260822-051940-DEEPSEEK-RESPONSES-R3；Vision 在前一记录中未 dispatch，本记录只补足原定第三个模型样本，不增加总模型样本范围，零重试。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash-vision-exp",
+        "batch_count": 1,
+        "sample_ids": [
+          "vision-image-input"
+        ],
+        "arm_ids": [
+          "native-responses"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "estimated_partial",
+        "currency": "CNY",
+        "amount": 0.1,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": {
+          "model": "deepseek-v4-flash-vision-exp",
+          "captured_at": "2026-08-22",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "peak_usd_per_million": {
+            "cached_input": 0.014,
+            "uncached_input": 0.44,
+            "output": 1.32
+          }
+        },
+        "formula": "单请求硬门禁；12K peak uncached input + 1K peak output = USD 0.0066，按 8 CNY/USD 约 CNY 0.0528，保守硬上限 CNY 0.10。",
+        "note": "请求正常返回但固定 marker 判定失败；harness 在写汇总前退出，usage 无法恢复，以 CNY 0.10 子预算上限保守记为 estimated_partial。"
+      },
+      "evidence": {
+        "subject_commit": "d605ed7f9b66c29ff5283bedda6a934b17aa4869",
+        "parent_failed_record": "WAR-20260822-051940-DEEPSEEK-RESPONSES-R3",
+        "planned_evidence_root": "benchmarks/deepseek-responses/evidence/WAR-20260822-053058-DEEPSEEK-VISION-R1",
+        "stop_conditions": "零重试；任一失败、usage 缺失、1 request、12K input、1K output、CNY 0.10 或 3 分钟任一先到即停止。",
+        "provider_request_counter": "benchmarks/deepseek-responses/evidence/WAR-20260822-053058-DEEPSEEK-VISION-R1/provider-request-count.txt",
+        "usage_evidence_status": "unavailable",
+        "stop_reason": "vision_response_missing_expected_semantic_marker",
+        "outcome": "One Vision Responses request completed, but the final assistant message did not contain the required image-recognition marker. The run stopped at the one-request hard limit and no further retry was attempted."
+      }
+    },
     {
       "record_id": "WAR-20260821-080834-CACHE-REGRESSION-8DC2D672",
       "record_type": "run_batch",

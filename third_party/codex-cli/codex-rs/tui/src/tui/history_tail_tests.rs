@@ -1,4 +1,4 @@
-use super::replace_visible_terminal_history_tail;
+use super::replace_visible_history_tail_in_terminal;
 use crate::custom_terminal::Terminal;
 use crate::insert_history::HistoryLineWrapPolicy;
 use crate::insert_history::InsertHistoryMode;
@@ -50,7 +50,7 @@ fn replacing_visible_history_tail_preserves_existing_terminal_scrollback() {
         Line::from("new closing border"),
     ]);
     assert!(
-        replace_visible_terminal_history_tail(
+        replace_visible_history_tail_in_terminal(
             &mut terminal,
             &previous_lines,
             &replacement,
@@ -93,7 +93,7 @@ fn inaccessible_history_tail_is_preserved_for_non_destructive_append() {
     let replacement = plain_hyperlink_lines(vec![Line::from("Thread usage: 50 credits")]);
 
     assert!(
-        !replace_visible_terminal_history_tail(
+        !replace_visible_history_tail_in_terminal(
             &mut terminal,
             &previous_lines,
             &replacement,
@@ -130,7 +130,7 @@ fn replacing_soft_wrapped_history_counts_physical_terminal_rows() {
     let replacement = plain_hyperlink_lines(vec![Line::from("new billing")]);
 
     assert!(
-        replace_visible_terminal_history_tail(
+        replace_visible_history_tail_in_terminal(
             &mut terminal,
             &previous_lines,
             &replacement,

@@ -1592,7 +1592,7 @@ async fn spawn_agent_uses_configured_subagent_defaults() -> Result<()> {
     Some(REQUESTED_MODEL),
     None,
     REQUESTED_MODEL,
-    Some(ReasoningEffort::Custom("standard".to_string()));
+    Some(ReasoningEffort::High);
     "model only"
 )]
 #[test_case(
@@ -1690,9 +1690,9 @@ async fn spawned_agent_uses_summary_support_for_final_model(
     };
     assert_eq!(child_body["model"], json!(REQUESTED_MODEL));
     let expected_reasoning = if child_supports_summary {
-        json!({"effort": "standard", "summary": "detailed"})
+        json!({"effort": "high", "summary": "detailed"})
     } else {
-        json!({"effort": "standard"})
+        json!({"effort": "high"})
     };
     assert_eq!(child_body["reasoning"], expected_reasoning);
     assert_eq!(

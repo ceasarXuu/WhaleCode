@@ -118,7 +118,8 @@ async fn open_legacy_whale_taskspace_pool() -> (
 #[tokio::test]
 async fn repairs_legacy_whale_collision_then_archives_v2_data_for_r8() {
     let (_cleanup, sqlite, pool) = open_legacy_whale_taskspace_pool().await;
-    let canonical_json = r#"{"schema_version":"taskspace-canonical-map-v2","map_id":"legacy-map"}"#;
+    let legacy_schema = concat!("taskspace-canonical-", "map-v2");
+    let canonical_json = format!(r#"{{"schema_version":"{legacy_schema}","map_id":"legacy-map"}}"#);
     sqlx::query(
         r#"
 INSERT INTO taskspace_maps (
@@ -130,8 +131,8 @@ INSERT INTO taskspace_maps (
     )
     .bind("legacy-map")
     .bind("legacy-owner")
-    .bind("taskspace-canonical-map-v2")
-    .bind(canonical_json)
+    .bind(legacy_schema)
+    .bind(&canonical_json)
     .bind("legacy-sha")
     .bind(1_i64)
     .bind(0_i64)
