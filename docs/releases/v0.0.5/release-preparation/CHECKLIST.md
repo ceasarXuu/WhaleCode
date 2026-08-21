@@ -30,6 +30,7 @@
 
 ### npm 账号与版本
 
+- [x] 发布者已在 Chrome 的 `@ceasarxuu/whalecode` access 页面确认当前账号具备 owner/maintainer 发布权限，包为 public scoped package
 - [ ] `npm whoami` 返回有权发布 `@ceasarxuu/whalecode` 的账号
 - [ ] `npm view @ceasarxuu/whalecode versions --json` 确认 `0.0.5` 及六个平台后缀版本尚未存在
 - [ ] 确认 granular token/OTP 可用、发布时 2FA 策略明确，凭据未写入仓库或用户级共享配置
@@ -39,7 +40,7 @@
 ### 原生制品
 
 - [ ] 选择并批准一个 WhaleCode 仓库的原生构建 run URL；不得使用 OpenAI/Codex vendor release run
-- [ ] 手动触发 `whale-native-artifacts`，确认来源为 main 的最终提交、输入版本为 `0.0.5`
+- [x] 已获用户授权并手动触发 `whale-native-artifacts`：run `32488260664`，来源为 main `ab0188232`，输入版本为 `0.0.5`
 - [ ] 六个平台制品齐全：Linux x64/arm64、macOS x64/arm64、Windows x64/arm64
 - [ ] 每个平台归档内的可执行文件名为 `whale` 或 `whale.exe`，且 `--version` 返回 `whale 0.0.5`
 - [ ] 记录最终七个 npm tarball 的 SHA-256，并核对 staging 没有混入本机路径、凭据、日志或额外文件
@@ -47,7 +48,7 @@
 
 ### 发布与回滚授权
 
-- [ ] 明确批准本次外部副作用：创建/推送 `v0.0.5` tag、发布七个 npm 版本，以及是否创建 GitHub Release
+- [ ] 已确认创建 GitHub Release 作为发布页；创建/推送 `v0.0.5` tag 与发布七个 npm 版本仍须在制品和账号核验完成后执行
 - [ ] 确认发布顺序为六个平台包先发布，根元包最后发布
 - [ ] 确认失败停止条件：任一平台缺失、版本冲突、完整性不符或安装 smoke 失败时，不发布根元包
 - [ ] 确认回滚负责人和操作：修正 npm dist-tag、deprecate 错误版本、撤下 GitHub Release；npm 已发布版本不可覆盖或删除后复用
