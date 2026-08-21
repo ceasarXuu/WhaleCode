@@ -200,7 +200,7 @@ fn create_expected_elicitation_request_params(
     thread_id: codex_protocol::ThreadId,
 ) -> anyhow::Result<serde_json::Value> {
     let expected_message = format!(
-        "Allow Codex to run `{}` in `{}`?",
+        "Allow Whale to run `{}` in `{}`?",
         shlex::try_join(command.iter().map(std::convert::AsRef::as_ref))?,
         workdir.to_string_lossy()
     );
@@ -474,13 +474,13 @@ async fn codex_tool_passes_base_instructions() -> anyhow::Result<()> {
     let developer_text = developer_contents.join("\n");
     assert_eq!(
         developer_text
-            .matches("Co-authored-by: Codex <noreply@openai.com>")
+            .matches("Co-authored-by: Whale <noreply@whalecode.local>")
             .count(),
         1
     );
     assert_eq!(
         developer_text
-            .matches("Generated with [Codex](https://openai.com/codex/).")
+            .matches("Generated with [Whale](https://github.com/ceasarXuu/WhaleCode).")
             .count(),
         1
     );
@@ -603,7 +603,7 @@ fn create_expected_patch_approval_elicitation_request_params(
     if let Some(r) = &reason {
         message_lines.push(r.clone());
     }
-    message_lines.push("Allow Codex to apply proposed code changes?".to_string());
+    message_lines.push("Allow Whale to apply proposed code changes?".to_string());
     let params_json = serde_json::to_value(PatchApprovalElicitRequestParams {
         message: message_lines.join("\n"),
         requested_schema: json!({"type":"object","properties":{}}),

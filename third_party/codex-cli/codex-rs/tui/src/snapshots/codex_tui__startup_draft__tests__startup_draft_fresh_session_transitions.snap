@@ -1,11 +1,12 @@
 ---
 source: tui/src/startup_draft_tests.rs
+assertion_line: 201
 expression: "snapshots.join(\"\\n---\\n\")"
 ---
 resume lookup fallback:
 before:
 ╭───────────────────────────────────────╮
-│ >_ OpenAI Codex (v<VERSION>)              │
+│ >_ Whale (v<VERSION>)                     │
 │                                       │
 │ model:     loading   /model to change │
 │ directory: loading                    │
@@ -17,7 +18,7 @@ before:
 
 after:
 ╭───────────────────────────────────────╮
-│ >_ OpenAI Codex (v<VERSION>)              │
+│ >_ Whale (v<VERSION>)                     │
 │                                       │
 │ model:     loading   /model to change │
 │ directory: loading                    │
@@ -31,7 +32,7 @@ after:
 fork lookup fallback:
 before:
 ╭───────────────────────────────────────╮
-│ >_ OpenAI Codex (v<VERSION>)              │
+│ >_ Whale (v<VERSION>)                     │
 │                                       │
 │ model:     loading   /model to change │
 │ directory: loading                    │
@@ -43,7 +44,7 @@ before:
 
 after:
 ╭───────────────────────────────────────╮
-│ >_ OpenAI Codex (v<VERSION>)              │
+│ >_ Whale (v<VERSION>)                     │
 │                                       │
 │ model:     loading   /model to change │
 │ directory: loading                    │
@@ -59,14 +60,14 @@ before:
 hidden while picker owns input
 after:
 ╭───────────────────────────────────────╮
-│ >_ OpenAI Codex (v<VERSION>)              │
+│ >_ Whale (v<VERSION>)                     │
 │                                       │
 │ model:     loading   /model to change │
 │ directory: loading                    │
 ╰───────────────────────────────────────╯
 
 
-› Ask Codex to do anything
+› Ask Whale to do anything
 
   ? for shortcuts
 ---
@@ -75,13 +76,13 @@ before:
 hidden while picker owns input
 after:
 ╭───────────────────────────────────────╮
-│ >_ OpenAI Codex (v<VERSION>)              │
+│ >_ Whale (v<VERSION>)                     │
 │                                       │
 │ model:     loading   /model to change │
 │ directory: loading                    │
 ╰───────────────────────────────────────╯
 
 
-› Ask Codex to do anything
+› Ask Whale to do anything
 
   ? for shortcuts

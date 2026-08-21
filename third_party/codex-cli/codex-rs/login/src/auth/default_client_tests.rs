@@ -51,7 +51,7 @@ fn is_first_party_originator_matches_known_values() {
     assert_eq!(is_first_party_originator(DEFAULT_ORIGINATOR), true);
     assert_eq!(is_first_party_originator("codex-tui"), true);
     assert_eq!(is_first_party_originator("codex_vscode"), true);
-    assert_eq!(is_first_party_originator("Codex Something Else"), true);
+    assert_eq!(is_first_party_originator("Whale Something Else"), true);
     assert_eq!(is_first_party_originator("codex_cli"), false);
     assert_eq!(is_first_party_originator("Other"), false);
 }
@@ -157,7 +157,7 @@ async fn test_create_client_sets_default_headers() {
         .expect("originator header missing");
     assert_eq!(originator_header.to_str().unwrap(), originator().value);
 
-    // User-Agent matches the computed Codex UA for that originator
+    // User-Agent matches the computed Whale UA for that originator
     let expected_ua = get_codex_user_agent();
     let ua_header = headers
         .get("user-agent")

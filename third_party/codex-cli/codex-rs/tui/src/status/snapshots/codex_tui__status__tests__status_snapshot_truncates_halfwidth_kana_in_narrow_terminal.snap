@@ -5,14 +5,10 @@ expression: sanitized
 /status
 
 ╭────────────────────────────────────────╮
-│  >_ OpenAI Codex (v0.0.0)              │
-│                                        │
-│ Visit                                  │
-│ https://chatgpt.com/codex/settings/usa │
-│ for up-to-date                         │
-│ information on rate limits and credits │
+│  >_ Whale (v0.0.5)                     │
 │                                        │
 │  Model:                ｶﾞﾊﾟｶﾞﾊﾟｶﾞﾊﾟｶﾞ  │
+│  Model provider:       DeepSeek        │
 │  Directory: [[workspace]]              │
 │  Permissions:          Custom (workspa │
 │  Agents.md:            <none>          │

@@ -43,7 +43,7 @@ fn check_with_paths(
     ));
     let mut lowest = None;
 
-    for (label, path) in [("CODEX_HOME", home.as_deref()), ("worktree", Some(cwd))] {
+    for (label, path) in [("WHALE_HOME", home.as_deref()), ("worktree", Some(cwd))] {
         let field = format!("{label} available");
         let available = path
             .and_then(|path| path.ancestors().find(|ancestor| ancestor.is_dir()))

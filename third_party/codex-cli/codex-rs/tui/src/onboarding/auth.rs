@@ -97,7 +97,7 @@ pub(crate) enum SignInOption {
     ApiKey,
 }
 
-const API_KEY_DISABLED_MESSAGE: &str = "API key login is disabled.";
+const API_KEY_DISABLED_MESSAGE: &str = "Legacy ChatGPT sign-in is required.";
 fn onboarding_request_id() -> codex_app_server_protocol::RequestId {
     codex_app_server_protocol::RequestId::String(Uuid::new_v4().to_string())
 }
@@ -319,24 +319,25 @@ impl AuthModeWidget {
     }
 
     fn displayed_sign_in_options(&self) -> Vec<SignInOption> {
-        let mut options = vec![SignInOption::ChatGpt];
-        if self.is_chatgpt_login_allowed() {
-            options.push(SignInOption::DeviceCode);
-        }
+        let mut options = Vec::new();
         if self.is_api_login_allowed() {
             options.push(SignInOption::ApiKey);
+        }
+        if self.is_chatgpt_login_allowed() {
+            options.push(SignInOption::ChatGpt);
+            options.push(SignInOption::DeviceCode);
         }
         options
     }
 
     fn selectable_sign_in_options(&self) -> Vec<SignInOption> {
         let mut options = Vec::new();
+        if self.is_api_login_allowed() {
+            options.push(SignInOption::ApiKey);
+        }
         if self.is_chatgpt_login_allowed() {
             options.push(SignInOption::ChatGpt);
             options.push(SignInOption::DeviceCode);
-        }
-        if self.is_api_login_allowed() {
-            options.push(SignInOption::ApiKey);
         }
         options
     }
@@ -396,11 +397,11 @@ impl AuthModeWidget {
         let mut lines: Vec<Line> = vec![
             Line::from(vec![
                 "  ".into(),
-                "Sign in with ChatGPT to use Codex as part of your paid plan".into(),
+                "Connect a DeepSeek API key to use Whale".into(),
             ]),
             Line::from(vec![
                 "  ".into(),
-                "or connect an API key for usage-based billing".into(),
+                "or use the legacy ChatGPT integration".into(),
             ]),
             "".into(),
         ];
@@ -437,7 +438,7 @@ impl AuthModeWidget {
         let chatgpt_description = if !self.is_chatgpt_login_allowed() {
             "ChatGPT login is disabled"
         } else {
-            "Usage included with Plus, Pro, Business, and Enterprise plans"
+            "Legacy ChatGPT plan login"
         };
         let device_code_description = "Sign in from another device with a one-time code";
 
@@ -447,7 +448,7 @@ impl AuthModeWidget {
                     lines.extend(create_mode_item(
                         idx,
                         option,
-                        "Sign in with ChatGPT",
+                        "Sign in with legacy ChatGPT",
                         chatgpt_description,
                     ));
                 }
@@ -463,7 +464,7 @@ impl AuthModeWidget {
                     lines.extend(create_mode_item(
                         idx,
                         option,
-                        "Provide your own API key",
+                        "Provide your DeepSeek API key",
                         "Pay for what you use",
                     ));
                 }
@@ -473,7 +474,7 @@ impl AuthModeWidget {
 
         if !self.is_api_login_allowed() {
             lines.push(
-                "  API key login is disabled by this workspace. Sign in with ChatGPT to continue."
+                "  API key login is disabled by this workspace. Legacy ChatGPT sign-in is required."
                     .dim()
                     .into(),
             );
@@ -552,8 +553,8 @@ impl AuthModeWidget {
     fn render_chatgpt_success_message(&self, area: Rect, buf: &mut Buffer) {
         let mut docs_line = HyperlinkLine::new(Line::from("  For more details see the ").dim());
         docs_line.push_span(
-            "Codex docs".underlined(),
-            Some("https://developers.openai.com/codex/security"),
+            "Whale docs".underlined(),
+            Some("https://github.com/ceasarXuu/WhaleCode"),
         );
         let mut preferences_line =
             HyperlinkLine::new(Line::from("  Uses your plan's rate limits and ").dim());
@@ -571,10 +572,10 @@ impl AuthModeWidget {
             "".into(),
             "  Before you start:".into(),
             "".into(),
-            "  Decide how much autonomy you want to grant Codex".into(),
+            "  Decide how much autonomy you want to grant Whale".into(),
             docs_line,
             "".into(),
-            "  Codex can make mistakes".into(),
+            "  Whale can make mistakes".into(),
             HyperlinkLine::new(
                 "  Review the code it writes and commands it runs"
                     .dim()
@@ -613,7 +614,7 @@ impl AuthModeWidget {
         let lines = vec![
             "✓ API key configured".fg(Color::Green).into(),
             "".into(),
-            "  Codex will use usage-based billing with your API key.".into(),
+            "  Whale will use usage-based billing with your API key.".into(),
         ];
 
         Paragraph::new(lines)
@@ -632,14 +633,14 @@ impl AuthModeWidget {
         let mut intro_lines: Vec<Line> = vec![
             Line::from(vec![
                 "> ".into(),
-                "Use your own OpenAI API key for usage-based billing".bold(),
+                "Use your DeepSeek API key for usage-based billing".bold(),
             ]),
             "".into(),
             "  Paste or type your API key below. It will be stored locally in auth.json.".into(),
             "".into(),
         ];
         if state.prepopulated_from_env {
-            intro_lines.push("  Detected OPENAI_API_KEY environment variable.".into());
+            intro_lines.push("  Detected DEEPSEEK_API_KEY environment variable.".into());
             intro_lines.push(
                 "  Paste a different key if you prefer to use another account."
                     .dim()
@@ -1263,8 +1264,8 @@ mod tests {
         widget.render_chatgpt_success_message(area, &mut buf);
 
         assert_eq!(
-            collect_osc8_chars(&buf, area, "https://developers.openai.com/codex/security"),
-            "Codex docs"
+            collect_osc8_chars(&buf, area, "https://github.com/ceasarXuu/WhaleCode"),
+            "Whale docs"
         );
         assert_eq!(
             collect_osc8_chars(&buf, area, "https://chatgpt.com/#settings"),
@@ -1303,10 +1304,10 @@ mod tests {
 
           Before you start:
 
-          Decide how much autonomy you want to grant Codex
-          For more details see the Codex docs
+          Decide how much autonomy you want to grant Whale
+          For more details see the Whale docs
 
-          Codex can make mistakes
+          Whale can make mistakes
           Review the code it writes and commands it runs
 
           Powered by your ChatGPT account

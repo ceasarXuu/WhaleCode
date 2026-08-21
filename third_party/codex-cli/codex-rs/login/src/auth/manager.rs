@@ -83,7 +83,7 @@ pub enum CodexAuth {
     BedrockApiKey(BedrockApiKeyAuth),
 }
 
-/// Policy for resolving Agent Identity auth from a broader Codex auth snapshot.
+/// Policy for resolving Agent Identity auth from a broader Whale auth snapshot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentIdentityAuthPolicy {
     /// Use Agent Identity auth only when the current auth is already Agent Identity.
@@ -558,12 +558,12 @@ impl CodexAuth {
             )),
             Self::PersonalAccessToken(auth) => Ok(auth.access_token().to_string()),
             Self::BedrockApiKey(_) => Err(std::io::Error::other(
-                "Bedrock API key auth does not expose a Codex bearer token",
+                "Bedrock API key auth does not expose a Whale bearer token",
             )),
         }
     }
 
-    /// Returns `None` if Codex backend auth does not expose an account id.
+    /// Returns `None` if Whale backend auth does not expose an account id.
     pub fn get_account_id(&self) -> Option<String> {
         match self {
             Self::Headers(headers) => headers
@@ -578,7 +578,7 @@ impl CodexAuth {
         }
     }
 
-    /// Returns false if Codex backend auth omits the FedRAMP claim.
+    /// Returns false if Whale backend auth omits the FedRAMP claim.
     pub fn is_fedramp_account(&self) -> bool {
         match self {
             Self::Headers(_) => false,
@@ -590,7 +590,7 @@ impl CodexAuth {
         }
     }
 
-    /// Returns `None` if Codex backend auth does not expose an account email.
+    /// Returns `None` if Whale backend auth does not expose an account email.
     pub fn get_account_email(&self) -> Option<String> {
         match self {
             Self::Headers(_) => None,
@@ -600,7 +600,7 @@ impl CodexAuth {
         }
     }
 
-    /// Returns `None` if Codex backend auth does not expose a ChatGPT user id.
+    /// Returns `None` if Whale backend auth does not expose a ChatGPT user id.
     pub fn get_chatgpt_user_id(&self) -> Option<String> {
         match self {
             Self::Headers(_) => None,
@@ -994,7 +994,7 @@ pub async fn login_with_access_token(
             let auth = PersonalAccessTokenAuth::load(access_token, auth_route_config).await?;
             ensure_auth_workspace_allowed(forced_chatgpt_workspace_id, auth.account_id())?;
             AuthDotJson {
-                // Infer PAT auth from the credential field so older Codex builds can still
+                // Infer PAT auth from the credential field so older Whale builds can still
                 // deserialize auth.json after a rollback.
                 auth_mode: None,
                 openai_api_key: None,
@@ -2023,7 +2023,7 @@ pub struct AuthManager {
 /// `codex_core::config::Config`, but this trait keeps `codex-login` independent
 /// from `codex-core`.
 pub trait AuthManagerConfig {
-    /// Returns the Codex home directory used for auth storage.
+    /// Returns the Whale home directory used for auth storage.
     fn codex_home(&self) -> PathBuf;
 
     /// Returns the CLI auth credential storage mode for auth loading.

@@ -15,7 +15,6 @@ use codex_cli::read_api_key_from_stdin;
 use codex_cli::run_login_status;
 use codex_cli::run_login_with_access_token;
 use codex_cli::run_login_with_api_key;
-use codex_cli::run_login_with_chatgpt;
 use codex_cli::run_login_with_device_code;
 use codex_cli::run_logout;
 use codex_cloud_config::cloud_config_bundle_loader_for_storage;
@@ -142,7 +141,7 @@ enum Subcommand {
     /// Browse all agent sessions on the shared local app-server daemon.
     Agents(AgentsCommand),
 
-    /// Run Codex non-interactively.
+    /// Run Whale non-interactively.
     #[clap(visible_alias = "e")]
     Exec(ExecCli),
 
@@ -155,13 +154,13 @@ enum Subcommand {
     /// Remove stored authentication credentials.
     Logout(LogoutCommand),
 
-    /// Manage external MCP servers for Codex.
+    /// Manage external MCP servers for Whale.
     Mcp(McpCli),
 
-    /// Manage Codex plugins.
+    /// Manage Whale plugins.
     Plugin(PluginCli),
 
-    /// Start Codex as an MCP server (stdio).
+    /// Start Whale as an MCP server (stdio).
     McpServer(McpServerCommand),
 
     /// [experimental] Run the app server or related tooling.
@@ -177,13 +176,13 @@ enum Subcommand {
     /// Generate shell completion scripts.
     Completion(CompletionCommand),
 
-    /// Update Codex to the latest version.
+    /// Update Whale to the latest version.
     Update,
 
-    /// Diagnose local Codex installation, config, auth, and runtime health.
+    /// Diagnose local Whale installation, config, auth, and runtime health.
     Doctor(DoctorCommand),
 
-    /// Run commands within a Codex-provided sandbox.
+    /// Run commands within a Whale-provided sandbox.
     Sandbox(HostSandboxArgs),
 
     /// Debugging tools.
@@ -193,7 +192,7 @@ enum Subcommand {
     #[clap(hide = true)]
     Execpolicy(ExecpolicyCommand),
 
-    /// Apply the latest diff produced by Codex agent as a `git apply` to your local working tree.
+    /// Apply the latest diff produced by Whale agent as a `git apply` to your local working tree.
     #[clap(visible_alias = "a")]
     Apply(ApplyCommand),
 
@@ -218,8 +217,8 @@ enum Subcommand {
     /// Fork a previous interactive session (picker by default; use --last to fork the most recent).
     Fork(ForkCommand),
 
-    /// [EXPERIMENTAL] Browse tasks from Codex Cloud and apply changes locally.
-    #[clap(name = "cloud", alias = "cloud-tasks")]
+    /// Inherited cloud task client; unavailable in Whale distributions.
+    #[clap(name = "cloud", alias = "cloud-tasks", hide = true)]
     Cloud(CloudTasksCli),
 
     /// Internal: run the responses API proxy.
@@ -316,7 +315,7 @@ struct DebugModelsCommand {
 
 #[derive(Debug, Parser)]
 struct ReviewCommand {
-    /// Error out when config.toml contains fields that are not recognized by this version of Codex.
+    /// Error out when config.toml contains fields that are not recognized by this version of Whale.
     #[arg(long = "strict-config", default_value_t = false)]
     strict_config: bool,
 
@@ -326,7 +325,7 @@ struct ReviewCommand {
 
 #[derive(Debug, Parser)]
 struct McpServerCommand {
-    /// Error out when config.toml contains fields that are not recognized by this version of Codex.
+    /// Error out when config.toml contains fields that are not recognized by this version of Whale.
     #[arg(long = "strict-config", default_value_t = false)]
     strict_config: bool,
 }
@@ -411,7 +410,7 @@ struct SessionArchiveConfigOverrides {
     #[clap(flatten)]
     shared: SharedCliOptions,
 
-    /// Error out when config.toml contains fields that are not recognized by this version of Codex.
+    /// Error out when config.toml contains fields that are not recognized by this version of Whale.
     #[arg(long = "strict-config", default_value_t = false)]
     strict_config: bool,
 
@@ -490,7 +489,7 @@ type HostSandboxArgs = UnsupportedSandboxArgs;
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 #[derive(Debug, Parser)]
 struct UnsupportedSandboxArgs {
-    /// Layer $CODEX_HOME/<name>.config.toml on top of the base user config.
+    /// Layer $WHALE_HOME/<name>.config.toml on top of the base user config.
     #[arg(long = "profile", short = 'p')]
     pub config_profile: Option<ProfileV2Name>,
 
@@ -522,13 +521,14 @@ struct LoginCommand {
 
     #[arg(
         long = "with-api-key",
-        help = "Read the API key from stdin (e.g. `printenv OPENAI_API_KEY | codex login --with-api-key`)"
+        help = "Read the DeepSeek API key from stdin (e.g. `printenv DEEPSEEK_API_KEY | whale login --with-api-key`)"
     )]
     with_api_key: bool,
 
     #[arg(
         long = "with-access-token",
-        help = "Read the access token from stdin (e.g. `printenv CODEX_ACCESS_TOKEN | codex login --with-access-token`)"
+        help = "Read a legacy ChatGPT access token from stdin",
+        hide = true
     )]
     with_access_token: bool,
 
@@ -542,7 +542,7 @@ struct LoginCommand {
     )]
     api_key: Option<String>,
 
-    #[arg(long = "device-auth")]
+    #[arg(long = "device-auth", hide = true)]
     use_device_code: bool,
 
     /// EXPERIMENTAL: Use custom OAuth issuer base URL (advanced)
@@ -579,7 +579,7 @@ struct AppServerCommand {
     #[command(flatten)]
     code_mode_host: codex_app_server::AppServerCodeModeHostArgs,
 
-    /// Error out when config.toml contains fields that are not recognized by this version of Codex.
+    /// Error out when config.toml contains fields that are not recognized by this version of Whale.
     #[arg(long = "strict-config", default_value_t = false)]
     strict_config: bool,
 
@@ -627,7 +627,7 @@ struct ExecServerCommand {
     #[command(subcommand)]
     command: Option<ExecServerSubcommand>,
 
-    /// Error out when config.toml contains fields that are not recognized by this version of Codex.
+    /// Error out when config.toml contains fields that are not recognized by this version of Whale.
     #[arg(
         id = "exec_server_strict_config",
         long = "strict-config",
@@ -713,7 +713,7 @@ enum AppServerSubcommand {
     /// [experimental] Generate JSON Schema for the app server protocol.
     GenerateJsonSchema(GenerateJsonSchemaCommand),
 
-    /// [internal] Generate internal JSON Schema artifacts for Codex tooling.
+    /// [internal] Generate internal JSON Schema artifacts for Whale tooling.
     #[clap(hide = true)]
     GenerateInternalJsonSchema(GenerateInternalJsonSchemaCommand),
 }
@@ -1086,7 +1086,7 @@ async fn cli_main(
         && let Some(agents_endpoint) = &options.remote.remote
         && root_endpoint != agents_endpoint
     {
-        anyhow::bail!("`codex agents` received conflicting remote server endpoints");
+        anyhow::bail!("`whale agents` received conflicting remote server endpoints");
     }
     let root_remote = agents_options
         .and_then(|options| options.remote.remote.clone())
@@ -1128,12 +1128,12 @@ async fn cli_main(
                     || interactive.web_search
                 {
                     anyhow::bail!(
-                        "`codex agents` cannot attach to shared sessions with invocation-specific configuration overrides"
+                        "`whale agents` cannot attach to shared sessions with invocation-specific configuration overrides"
                     );
                 }
                 if is_workload_identity_selected() {
                     anyhow::bail!(
-                        "`codex agents` is unavailable while workload identity is active"
+                        "`whale agents` is unavailable while workload identity is active"
                     );
                 }
                 if root_remote.is_none() {
@@ -1142,7 +1142,7 @@ async fn cli_main(
                         root_remote_auth_token_env.clone(),
                     )?;
                     #[cfg(not(unix))]
-                    anyhow::bail!("`codex agents` requires `--remote` on this platform");
+                    anyhow::bail!("`whale agents` requires `--remote` on this platform");
                 }
                 interactive.agents_overview = true;
             }
@@ -1198,7 +1198,7 @@ async fn cli_main(
         }
         Some(Subcommand::McpServer(McpServerCommand { strict_config })) => {
             eprintln!(
-                "warning: `codex mcp-server` is deprecated and will be removed in a future release."
+                "warning: `whale mcp-server` is deprecated and will be removed in a future release."
             );
             reject_remote_mode_for_subcommand(
                 root_remote.as_deref(),
@@ -1559,7 +1559,7 @@ async fn cli_main(
                         .await;
                     } else if login_cli.api_key.is_some() {
                         eprintln!(
-                            "The --api-key flag is no longer supported. Pipe the key instead, e.g. `printenv OPENAI_API_KEY | codex login --with-api-key`."
+                            "The --api-key flag is no longer supported. Pipe the key instead, e.g. `printenv DEEPSEEK_API_KEY | whale login --with-api-key`."
                         );
                         std::process::exit(1);
                     } else if login_cli.with_api_key {
@@ -1569,7 +1569,10 @@ async fn cli_main(
                         let access_token = read_access_token_from_stdin();
                         run_login_with_access_token(login_cli.config_overrides, access_token).await;
                     } else {
-                        run_login_with_chatgpt(login_cli.config_overrides).await;
+                        eprintln!(
+                            "Whale uses DeepSeek by default. Pipe DEEPSEEK_API_KEY to `whale login --with-api-key`."
+                        );
+                        std::process::exit(1);
                     }
                 }
             }
@@ -1616,18 +1619,13 @@ async fn cli_main(
             )
             .await?;
         }
-        Some(Subcommand::Cloud(mut cloud_cli)) => {
+        Some(Subcommand::Cloud(_)) => {
             reject_remote_mode_for_subcommand(
                 root_remote.as_deref(),
                 root_remote_auth_token_env.as_deref(),
                 "cloud",
             )?;
-            prepend_config_flags(
-                &mut cloud_cli.config_overrides,
-                root_config_overrides.clone(),
-            );
-            codex_cloud_tasks::run_main(cloud_cli, arg0_paths.codex_linux_sandbox_exe.clone())
-                .await?;
+            anyhow::bail!("Cloud tasks are not available in Whale.");
         }
         Some(Subcommand::Sandbox(mut sandbox_cli)) => {
             let config_profile = sandbox_cli
@@ -1682,7 +1680,7 @@ async fn cli_main(
             #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
             {
                 let _ = loader_overrides;
-                anyhow::bail!("`codex sandbox` is not supported on this operating system");
+                anyhow::bail!("`whale sandbox` is not supported on this operating system");
             }
         }
         Some(Subcommand::Debug(DebugCommand { subcommand })) => match subcommand {
@@ -1880,7 +1878,7 @@ fn profile_v2_for_subcommand<'a>(
             subcommand: DebugSubcommand::PromptInput(_),
         }) => Ok(Some(profile_v2)),
         _ => anyhow::bail!(
-            "--profile only applies to runtime commands and `codex mcp`: `codex`, `codex exec`, `codex review`, `codex resume`, `codex queue`, `codex archive`, `codex delete`, `codex unarchive`, `codex fork`, `codex mcp`, `codex sandbox`, and `codex debug prompt-input`."
+            "--profile only applies to runtime commands and `whale mcp`: `whale`, `whale exec`, `whale review`, `whale resume`, `whale queue`, `whale archive`, `whale delete`, `whale unarchive`, `whale fork`, `whale mcp`, `whale sandbox`, and `whale debug prompt-input`."
         ),
     }
 }
@@ -1894,7 +1892,7 @@ async fn run_exec_server_command(
     let codex_self_exe = arg0_paths
         .codex_self_exe
         .clone()
-        .ok_or_else(|| anyhow::anyhow!("Codex executable path is not configured"))?;
+        .ok_or_else(|| anyhow::anyhow!("Whale executable path is not configured"))?;
     let runtime_paths = codex_exec_server::ExecServerRuntimePaths::new(
         codex_self_exe,
         arg0_paths.codex_linux_sandbox_exe.clone(),
@@ -2026,7 +2024,7 @@ async fn load_exec_server_remote_auth_provider(
 
     let (auth_manager, auth) = load_exec_server_remote_auth(
         config,
-        "remote exec-server registration requires ChatGPT authentication or API key authentication; run `codex login` or set CODEX_API_KEY",
+        "remote exec-server registration requires ChatGPT authentication or API key authentication; run `whale login` or set CODEX_API_KEY",
     )
     .await?;
 
@@ -2589,12 +2587,12 @@ fn reject_remote_mode_for_subcommand(
 ) -> anyhow::Result<()> {
     if let Some(remote) = remote {
         anyhow::bail!(
-            "`--remote {remote}` is only supported for interactive TUI commands, not `codex {subcommand}`"
+            "`--remote {remote}` is only supported for interactive TUI commands, not `whale {subcommand}`"
         );
     }
     if remote_auth_token_env.is_some() {
         anyhow::bail!(
-            "`--remote-auth-token-env` is only supported for interactive TUI commands, not `codex {subcommand}`"
+            "`--remote-auth-token-env` is only supported for interactive TUI commands, not `whale {subcommand}`"
         );
     }
     Ok(())
@@ -2688,7 +2686,7 @@ fn reject_strict_config_for_unsupported_subcommand(
     subcommand: &str,
 ) -> anyhow::Result<()> {
     if strict_config {
-        anyhow::bail!("`--strict-config` is not supported for `codex {subcommand}`");
+        anyhow::bail!("`--strict-config` is not supported for `whale {subcommand}`");
     }
     Ok(())
 }
@@ -2796,7 +2794,7 @@ async fn run_interactive_tui(
         }
 
         eprintln!(
-            "WARNING: TERM is set to \"dumb\". Codex's interactive TUI may not work in this terminal."
+            "WARNING: TERM is set to \"dumb\". Whale's interactive TUI may not work in this terminal."
         );
         if !confirm("Continue anyway? [y/N]: ")? {
             return Ok(AppExitInfo::fatal(
@@ -2865,7 +2863,7 @@ async fn run_interactive_tui(
             Err(backup_err) => {
                 local_state_db::print_diagnostic_guidance(startup_error);
                 return Ok(AppExitInfo::fatal(format!(
-                    "failed to move damaged Codex local database files into a backup folder automatically: {backup_err}"
+                    "failed to move damaged Whale local database files into a backup folder automatically: {backup_err}"
                 )));
             }
         }
@@ -2921,7 +2919,7 @@ fn confirm(prompt: &str) -> std::io::Result<bool> {
     Ok(answer.eq_ignore_ascii_case("y") || answer.eq_ignore_ascii_case("yes"))
 }
 
-/// Build the final `TuiCli` for a `codex resume` invocation.
+/// Build the final `TuiCli` for a `whale resume` invocation.
 fn finalize_resume_interactive(
     mut interactive: TuiCli,
     root_config_overrides: CliConfigOverrides,
@@ -2956,7 +2954,7 @@ fn finalize_resume_interactive(
     interactive
 }
 
-/// Build the final `TuiCli` for a `codex fork` invocation.
+/// Build the final `TuiCli` for a `whale fork` invocation.
 fn finalize_fork_interactive(
     mut interactive: TuiCli,
     root_config_overrides: CliConfigOverrides,
@@ -3084,7 +3082,7 @@ mod tests {
 
     #[tokio::test]
     async fn updater_http_client_factory_honors_respect_system_proxy() {
-        let codex_home = tempfile::tempdir().expect("temporary Codex home");
+        let codex_home = tempfile::tempdir().expect("temporary Whale home");
         let config = ConfigBuilder::default()
             .codex_home(codex_home.path().to_path_buf())
             .cli_overrides(vec![(
@@ -3938,7 +3936,7 @@ mod tests {
             lines,
             vec![
                 "Token usage: total=2 input=0 output=2".to_string(),
-                "To continue this session, run codex resume 123e4567-e89b-12d3-a456-426614174000"
+                "To continue this session, run whale resume 123e4567-e89b-12d3-a456-426614174000"
                     .to_string(),
             ]
         );
@@ -3955,7 +3953,7 @@ mod tests {
             lines,
             vec![
                 "Token usage: total=2 input=0 output=2".to_string(),
-                "To continue this session, run codex resume 123e4567-e89b-12d3-a456-426614174000"
+                "To continue this session, run whale resume 123e4567-e89b-12d3-a456-426614174000"
                     .to_string(),
             ]
         );
@@ -3983,7 +3981,7 @@ mod tests {
             lines,
             vec![
                 "Token usage: total=2 input=0 output=2".to_string(),
-                "To continue this session, run codex resume, then select my-thread (123e4567-e89b-12d3-a456-426614174000)".to_string(),
+                "To continue this session, run whale resume, then select my-thread (123e4567-e89b-12d3-a456-426614174000)".to_string(),
             ]
         );
     }
@@ -4303,6 +4301,28 @@ mod tests {
     }
 
     #[test]
+    fn public_help_uses_whale_identity_and_hides_inherited_cloud() {
+        let mut command = MultitoolCli::command();
+        let root_help = command.render_long_help().to_string();
+        assert!(root_help.contains("Whale CLI"));
+        assert!(root_help.contains("~/.whale/config.toml"));
+        assert!(root_help.contains("$WHALE_HOME/<name>.config.toml"));
+        assert!(!root_help.contains("Codex"));
+        assert!(!root_help.contains("~/.codex"));
+        assert!(!root_help.contains("\n  cloud"));
+
+        let login_help = command
+            .find_subcommand_mut("login")
+            .expect("login subcommand")
+            .render_long_help()
+            .to_string();
+        assert!(login_help.contains("DEEPSEEK_API_KEY"));
+        assert!(!login_help.contains("OPENAI_API_KEY"));
+        assert!(!login_help.contains("device-auth"));
+        assert!(!login_help.contains("with-access-token"));
+    }
+
+    #[test]
     fn exec_server_forward_parses_shared_remote_options() {
         let cli = MultitoolCli::try_parse_from([
             "codex",
@@ -4380,7 +4400,7 @@ mod tests {
 
         assert_eq!(
             err.to_string(),
-            "`--strict-config` is not supported for `codex mcp`"
+            "`--strict-config` is not supported for `whale mcp`"
         );
 
         let cli = MultitoolCli::try_parse_from(["codex", "--strict-config", "remote-control"])
@@ -4393,7 +4413,7 @@ mod tests {
 
         assert_eq!(
             err.to_string(),
-            "`--strict-config` is not supported for `codex remote-control`"
+            "`--strict-config` is not supported for `whale remote-control`"
         );
     }
 
@@ -4409,7 +4429,7 @@ mod tests {
 
         assert_eq!(
             err.to_string(),
-            "`--strict-config` is not supported for `codex app-server proxy`"
+            "`--strict-config` is not supported for `whale app-server proxy`"
         );
     }
 

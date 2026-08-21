@@ -1,7 +1,7 @@
 # Problem P-001: Whale 用户界面仍暴露 Codex/OpenAI 品牌
-- Status: diagnosed
+- Status: fixed
 - Created: 2026-08-21 18:42
-- Updated: 2026-08-21 18:42
+- Updated: 2026-08-21 21:02
 - Objective: 复查 v0.0.5 分发身份修复后，Whale 的用户可达 CLI、TUI、doctor、提示和文档入口是否仍错误暴露 Codex/OpenAI 品牌。
 - Symptoms:
   - `whale --help` 多个命令仍描述为 Codex；TUI 和 doctor 仍显示 OpenAI Codex/Codex Doctor。
@@ -26,14 +26,14 @@
   - npm/release owner 再次回退。
 - Fix criteria:
   - CLI help、doctor、TUI 标题/占位符/通知/导出、daemon remediation 和用户可见命令统一为 Whale；外部服务入口明确标注为集成或禁用；新增品牌门禁；定向 snapshots 与 runtime smoke 通过。
-- Current conclusion: 仍有广泛且真实的错误品牌露出。根因是上游同步后只恢复了分发 identity overlay，未恢复完整的用户界面 brand overlay；OpenAI 服务绑定和兼容性标识需单独分类，不能全局替换。
+- Current conclusion: 已恢复 Whale 用户界面、运行时提示、分发路径、模型提示词和 Git 归属 overlay，并新增发布品牌门禁；真实 OpenAI/ChatGPT 兼容入口、Codex upstream provenance 与稳定内部协议标识按分类保留。
 - Related hypotheses:
   - H-001
   - H-002
 - Resolution basis:
   - H-001 由 E-001、E-002、E-003 确认；H-002 由 E-004、E-005 确认分类边界。
 - Close reason:
-  - not closed
+  - 根因修复、实际二进制 smoke、定向 Rust 测试、发布门禁、worktree 隔离门禁和缓存 final-wire 门禁均通过。
 
 ## Hypothesis H-001: Whale 的用户界面品牌 overlay 在 vendor 同步后仍不完整
 - Status: confirmed
@@ -72,12 +72,12 @@
   - E-002
   - E-003
 - Conclusion: 通用产品品牌 overlay 确实不完整，且范围跨 CLI、TUI、doctor 和 daemon。
-- Repair design readiness: ready after user confirmation
-- Next step: 用户授权后按“纯品牌机械替换 → 服务绑定分类 → 兼容性标识保留/迁移 → 品牌门禁”实施。
+- Repair design readiness: implemented
+- Next step: closed by verified repair
 - Blocker:
-  - 修复尚未获得用户授权。
+  - none
 - Close reason:
-  - not closed
+  - repaired and verified by E-006 and E-007
 
 ## Hypothesis H-002: 所有 OpenAI/Codex 命中都能直接替换为 Whale
 - Status: refuted
@@ -225,3 +225,35 @@
   ```
 - Interpretation: 纯展示可直接 Whale 化；服务入口需要产品决策；兼容性和 provenance 必须保留或迁移，不能机械替换。
 - Time: 2026-08-21 18:42
+
+## Evidence E-006: Whale 品牌与分发门禁覆盖修复面并通过
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: test-output
+- Source: release identity、distribution identity、brand identity、workspace reference gates 与 release gate unit tests。
+- Prediction or plan link:
+  - P-001 fix criteria。
+- Matched signal:
+  - WhaleCode v0.0.5 与 Codex substrate rust-v0.149.0 被分别登记；活动分发路由均归属 Whale；用户可见源码通过品牌扫描；14 个门禁单测通过；workspace reference gate 通过。
+- Correlation keys:
+  - branch `main`
+  - workspace `whalecode-d17d6279e0`
+- Interpretation: 发布身份、用户品牌和 worktree 隔离均有自动化回归保护。
+- Time: 2026-08-21 21:02
+
+## Evidence E-007: 实际 Whale 二进制与缓存 final-wire 验证通过
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: runtime-state
+- Source: workspace-isolated `target/debug/whale` smoke 与 staged-index cache regression gate。
+- Prediction or plan link:
+  - P-001 fix criteria。
+- Matched signal:
+  - `whale 0.0.5`；根帮助、plugin/marketplace、login、doctor 均使用 Whale/DeepSeek 路径；Cloud 明确禁用；缓存门禁以指纹 `9c817b9f59426efa097be43988d4731a2e7ba412bad63bdf69a466fcbcaaaced` 完成免费 final-wire 验证。
+- Correlation keys:
+  - version `0.0.5`
+  - cache fingerprint `9c817b9f59426efa097be43988d4731a2e7ba412bad63bdf69a466fcbcaaaced`
+- Interpretation: 修复已进入实际运行时，且模型提示词变化未破坏 provider 缓存前缀合同。
+- Time: 2026-08-21 21:02

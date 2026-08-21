@@ -162,7 +162,7 @@ impl McpProcess {
                 },
                 "serverInfo": {
                     "name": "codex-mcp-server",
-                    "title": "Codex",
+                    "title": "Whale",
                     "version": build_version,
                     "user_agent": user_agent
                 },

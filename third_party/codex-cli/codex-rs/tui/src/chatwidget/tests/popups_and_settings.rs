@@ -276,7 +276,7 @@ async fn plugins_popup_truncates_long_descriptions_in_list_rows() {
         .expect("expected verbose plugin row in popup");
     insta::assert_snapshot!(
         verbose_row,
-        @"  [-] Verbose Plugin  Available · OpenAI Curated · This description…"
+        @"  [-] Verbose Plugin  Available · Legacy OpenAI Curated · This desc…"
     );
     assert!(
         !popup
@@ -1246,7 +1246,7 @@ async fn plugins_popup_remote_section_fallback_states_when_remote_plugin_disable
         ])),
     );
     let curated_loading_popup =
-        select_tab_containing(&mut chat, "Loading OpenAI Curated plugins...");
+        select_tab_containing(&mut chat, "Loading Legacy OpenAI Curated plugins...");
     let workspace_loading_popup = select_tab_containing(&mut chat, "Loading Workspace plugins.");
     let shared_loading_popup = select_tab_containing(&mut chat, "Loading Shared with me plugins.");
     let _ = select_tab_containing(&mut chat, "Loading Workspace plugins.");
@@ -1280,8 +1280,11 @@ async fn plugins_popup_remote_section_fallback_states_when_remote_plugin_disable
             plugins_test_curated_marketplace(Vec::new()),
         ])),
     );
-    let remote_curated_empty_popup =
-        select_tab_containing(&mut remote_chat, "No OpenAI Curated plugins available");
+    remote_chat.on_plugin_remote_sections_loaded(remote_cwd.to_path_buf(), Vec::new(), Vec::new());
+    let remote_curated_empty_popup = select_tab_containing(
+        &mut remote_chat,
+        "No Legacy OpenAI Curated plugins available",
+    );
 
     insta::assert_snapshot!(
         [
@@ -1293,8 +1296,8 @@ async fn plugins_popup_remote_section_fallback_states_when_remote_plugin_disable
         ]
         .join("\n\n"),
         @r###"
-        OpenAI Curated marketplace.
-        Loading OpenAI Curated plugins...  This updates when OpenAI Curated plugins finish loading.
+        Legacy OpenAI Curated marketplace.
+        Loading Legacy OpenAI Curated plugins...  This updates when Legacy OpenAI Curated plugins finis…
 
         Loading Workspace plugins.
         Loading Workspace plugins...  This updates when workspace plugins finish loading.
@@ -1305,8 +1308,8 @@ async fn plugins_popup_remote_section_fallback_states_when_remote_plugin_disable
         Workspace unavailable.
         Workspace unavailable  Sign in to ChatGPT to load workspace plugins.
 
-        OpenAI Curated marketplace.
-        No OpenAI Curated plugins available  No OpenAI Curated plugins available.
+        Legacy OpenAI Curated marketplace.
+        No Legacy OpenAI Curated plugins available  No Legacy OpenAI Curated plugins available.
         "###
     );
 }
@@ -1945,12 +1948,12 @@ async fn plugins_popup_openai_curated_tab_omits_marketplace_in_rows() {
 
     let popup = render_bottom_popup(&chat, /*width*/ 100);
     assert!(
-        popup.contains("OpenAI Curated marketplace."),
-        "expected OpenAI Curated tab header, got:\n{popup}"
+        popup.contains("Legacy OpenAI Curated marketplace."),
+        "expected Legacy OpenAI Curated tab header, got:\n{popup}"
     );
     assert!(
         popup.contains("Calendar") && !popup.contains("Repo Plugin"),
-        "expected OpenAI Curated tab to show only official marketplace plugins, got:\n{popup}"
+        "expected Legacy OpenAI Curated tab to show only official marketplace plugins, got:\n{popup}"
     );
     assert!(
         !popup.contains("ChatGPT Marketplace ·"),

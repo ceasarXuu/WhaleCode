@@ -832,7 +832,7 @@ impl CodexMessageProcessor {
             Ok(enabled) => enabled,
             Err(err) => {
                 warn!(
-                    "failed to fetch workspace Codex plugins setting; allowing Codex plugins: {err:#}"
+                    "failed to fetch workspace Whale plugins setting; allowing Whale plugins: {err:#}"
                 );
                 true
             }

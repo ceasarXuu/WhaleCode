@@ -34,8 +34,8 @@ pub use feedback_diagnostics::FEEDBACK_DIAGNOSTICS_ATTACHMENT_FILENAME;
 pub use feedback_diagnostics::FeedbackDiagnostic;
 pub use feedback_diagnostics::FeedbackDiagnostics;
 
-/// Filename used for the redacted `codex doctor --json` feedback attachment.
-pub const DOCTOR_REPORT_ATTACHMENT_FILENAME: &str = "codex-doctor-report.json";
+/// Filename used for the redacted `whale doctor --json` feedback attachment.
+pub const DOCTOR_REPORT_ATTACHMENT_FILENAME: &str = "whale-doctor-report.json";
 /// Filename used for the raw Codex Apps MCP tools cache feedback attachment.
 pub const CODEX_APPS_TOOLS_CACHE_ATTACHMENT_FILENAME: &str = "codex-apps-tools-cache.json";
 /// Filename used for the raw connector directory cache feedback attachment.
@@ -469,7 +469,7 @@ impl FeedbackSnapshot {
 
         let mut envelope = Envelope::new();
         let title = format!(
-            "[{}]: Codex session {}",
+            "[{}]: Whale session {}",
             display_classification(options.classification),
             self.thread_id
         );

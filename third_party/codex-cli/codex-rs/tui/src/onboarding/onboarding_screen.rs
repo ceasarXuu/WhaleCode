@@ -132,12 +132,11 @@ impl OnboardingScreen {
             config.animations,
         )));
         if show_login_screen {
-            let highlighted_mode =
-                if auth_config.is_login_method_allowed(ForcedLoginMethod::Chatgpt) {
-                    SignInOption::ChatGpt
-                } else {
-                    SignInOption::ApiKey
-                };
+            let highlighted_mode = if auth_config.is_login_method_allowed(ForcedLoginMethod::Api) {
+                SignInOption::ApiKey
+            } else {
+                SignInOption::ChatGpt
+            };
             if let Some(app_server_request_handle) = app_server_request_handle {
                 steps.push(Step::Auth(AuthModeWidget {
                     request_frame: tui.frame_requester(),

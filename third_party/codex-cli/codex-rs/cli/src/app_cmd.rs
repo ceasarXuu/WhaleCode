@@ -11,6 +11,6 @@ pub struct AppCommand {
 pub async fn run_app(cmd: AppCommand) -> anyhow::Result<()> {
     let _ = cmd;
     anyhow::bail!(
-        "Whale Desktop is not distributed yet; this command will not install OpenAI Codex Desktop."
+        "Whale Desktop is not distributed yet; this command will not install Whale Desktop."
     )
 }

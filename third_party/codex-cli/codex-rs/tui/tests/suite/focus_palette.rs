@@ -104,7 +104,7 @@ impl PtyCodex {
             .stdout(stdout)
             .stderr(slave)
             .spawn()
-            .context("start Codex in focus-test pseudo-terminal")?;
+            .context("start Whale in focus-test pseudo-terminal")?;
 
         Ok(Self {
             master,
@@ -126,20 +126,20 @@ impl PtyCodex {
             self.read_output(Duration::from_millis(/*millis*/ 50))?;
             self.answer_startup_queries()?;
 
-            if self.palette_answered && self.screen_contains("OpenAI Codex") {
+            if self.palette_answered && self.screen_contains("Whale") {
                 return Ok(());
             }
 
             if let Some(status) = self.child.try_wait()? {
                 bail!(
-                    "Codex exited before the focus test started ({status}); screen:\n{}",
+                    "Whale exited before the focus test started ({status}); screen:\n{}",
                     self.screen_contents(),
                 );
             }
         }
 
         bail!(
-            "Codex did not initialize within {:?}; screen:\n{}",
+            "Whale did not initialize within {:?}; screen:\n{}",
             STARTUP_TIMEOUT,
             self.screen_contents(),
         );

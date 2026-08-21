@@ -10,8 +10,8 @@ fn runtime_paths_include_desktop_parent_and_primary_runtime_roots() {
     assert_eq!(
         runtime_paths(Some(local_app_data), Some(user_profile)),
         vec![
-            PathBuf::from(r"C:\Users\user\AppData\Local\OpenAI\Codex"),
-            PathBuf::from(r"C:\Users\user\.cache\codex-runtimes"),
+            PathBuf::from(r"C:\Users\user\AppData\Local\WhaleCode\Whale"),
+            PathBuf::from(r"C:\Users\user\.cache\whale-runtimes"),
         ]
     );
 }
