@@ -18,13 +18,15 @@
 - [x] Whale 根仓库已建立手动触发、只读权限、六平台并行的未签名原生候选 workflow
 - [x] workflow 静态门禁确认不含 tag trigger、npm publish、GitHub Release、写权限或 vendor release workflow 调用
 - [x] 每个平台输出 npm staging 兼容归档、SHA-256 和 Whale 制品合同，并汇总六平台 manifest
+- [x] run `32495900738` 的六个平台构建、打包和上传全部成功；本地隔离聚合合同校验通过
+- [x] 同一 run 已离线生成七个 npm tarball，并记录 SHA-256；Linux x64 实机返回 `whale 0.0.5`
 
 ## 发布者必须人工核验
 
 ### 版本与内容
 
-- [ ] 确认产品 tag 为 `v0.0.5`，不是 `rust-v0.149.0`
-- [ ] 确认 GitHub/npm 发布标题与说明使用 WhaleCode `v0.0.5`
+- [x] 确认产品 tag 为 `v0.0.5`，不是 `rust-v0.149.0`
+- [x] 确认 GitHub/npm 发布标题与说明使用 WhaleCode `v0.0.5`
 - [ ] 通读 `RELEASE_NOTES.md`，确认功能描述、已知边界和“不宣称 upstream 全量测试全绿”准确
 - [ ] 确认最终提交就是获准发布的 main HEAD，并记录 commit SHA
 
@@ -32,32 +34,32 @@
 
 - [x] 发布者已在 Chrome 的 `@ceasarxuu/whalecode` access 页面确认当前账号具备 owner/maintainer 发布权限，包为 public scoped package
 - [ ] `npm whoami` 返回有权发布 `@ceasarxuu/whalecode` 的账号
-- [ ] `npm view @ceasarxuu/whalecode versions --json` 确认 `0.0.5` 及六个平台后缀版本尚未存在
+- [x] `npm view @ceasarxuu/whalecode versions --json` 确认 `0.0.5` 及六个平台后缀版本尚未存在
 - [ ] 确认 granular token/OTP 可用、发布时 2FA 策略明确，凭据未写入仓库或用户级共享配置
 - [ ] 确认根包使用 `latest`，平台包使用 `linux-x64`、`linux-arm64`、`darwin-x64`、`darwin-arm64`、`win32-x64`、`win32-arm64` dist-tag
 - [ ] 确认 scoped 包发布命令全部带 `--access public`
 
 ### 原生制品
 
-- [ ] 选择并批准一个 WhaleCode 仓库的原生构建 run URL；不得使用 OpenAI/Codex vendor release run
-- [x] 已获用户授权并手动触发 `whale-native-artifacts`：run `32488260664`，来源为 main `ab0188232`，输入版本为 `0.0.5`
-- [ ] 六个平台制品齐全：Linux x64/arm64、macOS x64/arm64、Windows x64/arm64
+- [x] 选择 WhaleCode 原生构建 run `32495900738`；未使用 OpenAI/Codex vendor release run
+- [x] 已获用户授权并手动触发 `whale-native-artifacts`：最终候选来源为 main `77d6bf093`，输入版本为 `0.0.5`
+- [x] 六个平台制品齐全：Linux x64/arm64、macOS x64/arm64、Windows x64/arm64
 - [ ] 每个平台归档内的可执行文件名为 `whale` 或 `whale.exe`，且 `--version` 返回 `whale 0.0.5`
-- [ ] 记录最终七个 npm tarball 的 SHA-256，并核对 staging 没有混入本机路径、凭据、日志或额外文件
+- [x] 记录最终七个 npm tarball 的 SHA-256，并核对 staging 没有混入本机路径、凭据、日志或额外文件
 - [ ] 至少在 Linux、macOS、Windows 各完成一次全新 prefix 安装 smoke；同时确认已有官方 `codex` 命令未被覆盖
 
 ### 发布与回滚授权
 
-- [ ] 已确认创建 GitHub Release 作为发布页；创建/推送 `v0.0.5` tag 与发布七个 npm 版本仍须在制品和账号核验完成后执行
+- [x] 已确认创建 GitHub Release 作为发布页；创建/推送 `v0.0.5` tag 与发布七个 npm 版本仍须另行明确授权
 - [ ] 确认发布顺序为六个平台包先发布，根元包最后发布
 - [ ] 确认失败停止条件：任一平台缺失、版本冲突、完整性不符或安装 smoke 失败时，不发布根元包
 - [ ] 确认回滚负责人和操作：修正 npm dist-tag、deprecate 错误版本、撤下 GitHub Release；npm 已发布版本不可覆盖或删除后复用
 
 ## 尚待外部输入
 
-- Whale 自有六平台 workflow 已建立但尚未实际触发；仍需由发布者选定并批准具体 run URL，并人工核验六个平台 runner 的首次结果。
-- Windows ARM64 使用 GitHub hosted public-preview runner；首次运行必须确认 runner 可用性和实际二进制 smoke，失败时不得改用 vendor runner 或减少平台发布范围。
-- npm 发布账号、token/OTP 与 2FA 状态只能由发布者在发布环境确认。
+- 六个平台构建均成功；manifest runner 因 GitHub 账户付款失败或 spending limit 被平台拒绝启动，本地使用同一 run 制品完成了相同聚合合同校验。发布者仍须修复 GitHub Actions 计费门禁。
+- Windows ARM64 hosted public-preview runner 已成功构建并上传；Windows/macOS 的实际安装 smoke 仍须在对应系统执行。
+- Chrome 网页账号权限已确认，但本机 `npm whoami` 返回 `ENEEDAUTH`；发布前仍须在 CLI 发布环境完成登录并确认 token/OTP 与 2FA。
 - `release.json` 保持 `status=preparing`、`publish_authorized=false`，直到上述人工项签核且用户明确授权实际发布。
 
 ## 当前禁止

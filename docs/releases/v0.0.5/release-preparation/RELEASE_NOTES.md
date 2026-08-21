@@ -15,3 +15,5 @@ npm install -g @ceasarxuu/whalecode@0.0.5
 ```
 
 WhaleCode 产品版本为 `v0.0.5`；Codex `0.149.0` 仅表示本版本采用的底层 substrate 版本。
+
+本版原生二进制未签名；发布制品附带 SHA-256 校验文件。
