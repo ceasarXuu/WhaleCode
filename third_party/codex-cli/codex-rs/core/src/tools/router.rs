@@ -1,16 +1,19 @@
 use crate::function_tool::FunctionCallError;
-use crate::sandboxing::SandboxPermissions;
 use crate::session::session::Session;
+use crate::session::step_context::StepContext;
+#[cfg(test)]
 use crate::session::turn_context::TurnContext;
 use crate::tools::context::SharedTurnDiffTracker;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolPayload;
+#[cfg(test)]
+use crate::tools::handlers::ToolSearchHandlerCache;
 use crate::tools::registry::AnyToolResult;
+use crate::tools::registry::CoreToolRuntime;
 use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::registry::ToolRegistry;
-use crate::tools::registry::ToolRegistryBuilder;
-use crate::tools::spec::build_specs_with_discoverable_tools;
-use crate::tools::taskspace_exec::TASKSPACE_EXEC_TOOL_NAME;
+#[cfg(test)]
+use crate::tools::spec_plan::finalize_tool_router;
 use crate::tools::taskspace_exec::TaskSpaceExecCatalog;
 use crate::tools::taskspace_exec::TaskSpaceExecCatalogError;
 use crate::tools::taskspace_exec::TaskSpaceExecHandler;
@@ -18,173 +21,145 @@ use crate::tools::taskspace_exec::TaskSpaceExecResponseScope;
 use crate::tools::taskspace_exec::TaskSpaceExecSelfHeal;
 use crate::tools::taskspace_exec::retain_available_deferred_specs;
 use crate::tools::taskspace_exec::self_heal_taskspace_exec_response_item;
-use codex_mcp::ToolInfo;
-use codex_protocol::dynamic_tools::DynamicToolSpec;
-use codex_protocol::models::LocalShellAction;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::models::SearchToolCallParams;
-use codex_protocol::models::ShellToolCallParams;
-use codex_tools::ConfiguredToolSpec;
 use codex_tools::DiscoverableTool;
-use codex_tools::ResponsesApiNamespaceTool;
 use codex_tools::ToolName;
 use codex_tools::ToolSpec;
-use codex_tools::ToolsConfig;
-use serde_json::Value as JsonValue;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
-const NATIVE_READ_FILE_MAX_LINES: usize = 240;
-
 pub use crate::tools::context::ToolCallSource;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ToolCall {
-    /// Exact identity emitted by the provider and visible in the Tool schema.
-    ///
-    /// This remains distinct from `dispatch_tool_name`, which may be normalized
-    /// to an internal handler identity before dispatch.
-    pub provider_tool_name: ToolName,
-    pub dispatch_tool_name: ToolName,
+    pub tool_name: ToolName,
     pub call_id: String,
     pub payload: ToolPayload,
+    pub encrypted_function_args: Option<Vec<String>>,
 }
 
 impl ToolCall {
-    pub(crate) fn provider_tool_name_display(&self) -> String {
-        self.provider_tool_name.display()
+    pub(crate) fn direct_source(&self) -> ToolCallSource {
+        if self.tool_name.namespace.as_deref() == Some("collaboration")
+            && matches!(
+                self.tool_name.name.as_str(),
+                "spawn_agent" | "send_message" | "followup_task"
+            )
+            && self
+                .encrypted_function_args
+                .as_ref()
+                .is_some_and(Vec::is_empty)
+        {
+            ToolCallSource::DirectPlaintextMessage
+        } else {
+            ToolCallSource::Direct
+        }
     }
+}
+
+pub(crate) fn tool_log_payload<'a>(
+    payload: &'a ToolPayload,
+    source: &ToolCallSource,
+) -> Cow<'a, str> {
+    if matches!(source, ToolCallSource::DirectPlaintextMessage) {
+        return Cow::Borrowed("[plaintext arguments]");
+    }
+    payload.log_payload()
 }
 
 pub struct ToolRouter {
     registry: ToolRegistry,
-    specs: Vec<ConfiguredToolSpec>,
-    model_visible_specs: Vec<ToolSpec>,
-    parallel_mcp_server_names: HashSet<String>,
+    model_visible_specs: Arc<[ToolSpec]>,
     taskspace_response_scope: Option<Arc<TaskSpaceExecResponseScope>>,
     taskspace_catalog: Option<Arc<TaskSpaceExecCatalog>>,
 }
 
-pub(crate) struct ToolRouterParams<'a> {
-    pub(crate) mcp_tools: Option<HashMap<String, ToolInfo>>,
-    pub(crate) deferred_mcp_tools: Option<HashMap<String, ToolInfo>>,
-    pub(crate) unavailable_called_tools: Vec<ToolName>,
-    pub(crate) parallel_mcp_server_names: HashSet<String>,
-    pub(crate) discoverable_tools: Option<Vec<DiscoverableTool>>,
-    pub(crate) dynamic_tools: &'a [DynamicToolSpec],
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ToolSuggestPresentation {
+    ListTool,
+    RecommendationContext,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ToolSuggestCandidates {
+    pub(crate) tools: Vec<DiscoverableTool>,
+    pub(crate) presentation: ToolSuggestPresentation,
 }
 
 impl ToolRouter {
     #[cfg(test)]
-    pub(crate) fn from_builder_for_test(builder: ToolRegistryBuilder) -> Self {
-        let (specs, registry) = builder.build();
-        let model_visible_specs: Vec<ToolSpec> =
-            specs.iter().map(|item| item.spec.clone()).collect();
+    pub(crate) fn from_registry(
+        turn_context: &TurnContext,
+        registry: ToolRegistry,
+        hosted_specs: Vec<ToolSpec>,
+        tool_search_handler_cache: &ToolSearchHandlerCache,
+    ) -> Self {
+        finalize_tool_router(
+            turn_context,
+            registry,
+            hosted_specs,
+            tool_search_handler_cache,
+        )
+        .expect("test tool registry should not contain duplicate tools")
+    }
+
+    pub(crate) fn from_parts(registry: ToolRegistry, model_visible_specs: Vec<ToolSpec>) -> Self {
         Self {
             registry,
-            specs,
-            model_visible_specs,
-            parallel_mcp_server_names: HashSet::new(),
+            model_visible_specs: model_visible_specs.into(),
             taskspace_response_scope: None,
             taskspace_catalog: None,
         }
     }
 
-    pub fn from_config(config: &ToolsConfig, params: ToolRouterParams<'_>) -> Self {
-        let ToolRouterParams {
-            mcp_tools,
-            deferred_mcp_tools,
-            unavailable_called_tools,
-            parallel_mcp_server_names,
-            discoverable_tools,
-            dynamic_tools,
-        } = params;
-        let builder = build_specs_with_discoverable_tools(
-            config,
-            mcp_tools,
-            deferred_mcp_tools,
-            unavailable_called_tools,
-            discoverable_tools,
-            dynamic_tools,
-        );
-        let (specs, registry) = builder.build();
-        let model_visible_specs = if config.code_mode_only_enabled {
-            specs
-                .iter()
-                .filter_map(|configured_tool| {
-                    if !codex_code_mode::is_code_mode_nested_tool(configured_tool.name()) {
-                        Some(configured_tool.spec.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        } else {
-            specs
-                .iter()
-                .map(|configured_tool| configured_tool.spec.clone())
-                .collect()
-        };
-
-        Self {
-            registry,
-            specs,
-            model_visible_specs,
-            parallel_mcp_server_names,
-            taskspace_response_scope: None,
-            taskspace_catalog: None,
-        }
-    }
-
-    pub(crate) fn into_taskspace(
-        self,
+    pub(crate) fn taskspace_view(
+        client_router: Arc<Self>,
         loaded_deferred_specs: &[ToolSpec],
     ) -> Result<Self, TaskSpaceExecCatalogError> {
         let loaded_deferred_specs =
             retain_available_deferred_specs(loaded_deferred_specs, |name| {
-                self.registry.has_handler(name)
+                client_router.registry.tool(name).is_some()
             });
-        let client_router = Arc::new(self);
+        let mut capability_specs = client_router
+            .registry
+            .entries()
+            .map(|tool| tool.runtime.spec())
+            .collect::<Vec<_>>();
+        capability_specs.extend(
+            client_router
+                .model_visible_specs
+                .iter()
+                .filter(|spec| matches!(spec, ToolSpec::WebSearch { .. }))
+                .cloned(),
+        );
         let catalog = Arc::new(TaskSpaceExecCatalog::build_with_loaded_deferred(
-            &client_router.taskspace_capability_specs(),
+            &capability_specs,
             &loaded_deferred_specs,
         )?);
         let response_scope = Arc::new(TaskSpaceExecResponseScope::new(
             catalog.capability_identity_arc(),
             catalog.hosted_tool_identities(),
         ));
-        let mut builder = ToolRegistryBuilder::new();
-        builder.push_spec(ToolSpec::Function(catalog.declaration().clone()));
-        for spec in client_router
-            .model_visible_specs()
-            .into_iter()
-            .filter(|spec| {
-                matches!(
-                    spec,
-                    ToolSpec::WebSearch { .. } | ToolSpec::ImageGeneration { .. }
-                )
-            })
-        {
-            builder.push_spec_with_parallel_support(spec, true);
-        }
-        builder.register_handler(
-            TASKSPACE_EXEC_TOOL_NAME,
-            Arc::new(TaskSpaceExecHandler::new(
-                Arc::clone(&catalog),
-                client_router,
-                Arc::clone(&response_scope),
-            )),
+        let mut registry = ToolRegistry::default();
+        registry.add(TaskSpaceExecHandler::new(
+            Arc::clone(&catalog),
+            client_router,
+            Arc::clone(&response_scope),
+        ));
+        let mut model_visible_specs = vec![ToolSpec::Function(catalog.declaration().clone())];
+        model_visible_specs.extend(
+            capability_specs
+                .into_iter()
+                .filter(|spec| matches!(spec, ToolSpec::WebSearch { .. })),
         );
-        let (specs, registry) = builder.build();
-        let model_visible_specs = specs.iter().map(|item| item.spec.clone()).collect();
         Ok(Self {
             registry,
-            specs,
-            model_visible_specs,
-            parallel_mcp_server_names: HashSet::new(),
+            model_visible_specs: model_visible_specs.into(),
             taskspace_response_scope: Some(response_scope),
             taskspace_catalog: Some(catalog),
         })
@@ -204,51 +179,28 @@ impl ToolRouter {
         &self,
         item: &mut ResponseItem,
     ) -> Option<TaskSpaceExecSelfHeal> {
-        let catalog = self.taskspace_catalog.as_deref()?;
-        self_heal_taskspace_exec_response_item(item, catalog)
+        self_heal_taskspace_exec_response_item(item, self.taskspace_catalog.as_deref()?)
     }
 
-    pub fn specs(&self) -> Vec<ToolSpec> {
-        self.specs
-            .iter()
-            .map(|config| config.spec.clone())
-            .collect()
+    pub(crate) fn model_visible_specs(&self) -> Arc<[ToolSpec]> {
+        Arc::clone(&self.model_visible_specs)
     }
 
-    pub fn model_visible_specs(&self) -> Vec<ToolSpec> {
-        self.model_visible_specs.clone()
+    pub(crate) fn deferred_tool_namespaces(&self) -> BTreeMap<String, String> {
+        self.registry.deferred_tool_namespaces()
     }
 
-    pub(crate) fn taskspace_capability_specs(&self) -> Vec<ToolSpec> {
-        self.specs
-            .iter()
-            .map(|configured| configured.native_spec.clone())
-            .collect()
+    #[cfg(test)]
+    pub(crate) fn registered_tool_names_for_test(&self) -> Vec<ToolName> {
+        self.registry.tool_names_for_test()
     }
 
-    pub fn find_spec(&self, tool_name: &ToolName) -> Option<ToolSpec> {
-        self.specs.iter().find_map(|config| match &config.spec {
-            ToolSpec::Function(tool)
-                if tool_name.namespace.is_none() && tool.name == tool_name.name =>
-            {
-                Some(config.spec.clone())
-            }
-            ToolSpec::Freeform(tool)
-                if tool_name.namespace.is_none() && tool.name == tool_name.name =>
-            {
-                Some(config.spec.clone())
-            }
-            ToolSpec::Namespace(namespace) => namespace.tools.iter().find_map(|tool| match tool {
-                ResponsesApiNamespaceTool::Function(tool)
-                    if tool_name.namespace.as_deref() == Some(namespace.name.as_str())
-                        && tool.name == tool_name.name =>
-                {
-                    Some(ToolSpec::Function(tool.clone()))
-                }
-                _ => None,
-            }),
-            _ => None,
-        })
+    #[cfg(test)]
+    pub(crate) fn tool_exposure_for_test(
+        &self,
+        name: &ToolName,
+    ) -> Option<crate::tools::registry::ToolExposure> {
+        self.registry.tool_exposure(name)
     }
 
     pub(crate) fn create_diff_consumer(
@@ -258,71 +210,40 @@ impl ToolRouter {
         self.registry.create_diff_consumer(tool_name)
     }
 
-    fn configured_tool_supports_parallel(&self, tool_name: &ToolName) -> bool {
-        if tool_name.namespace.is_some() {
-            return false;
-        }
-
-        self.specs
-            .iter()
-            .filter(|config| config.supports_parallel_tool_calls)
-            .any(|config| match &config.spec {
-                ToolSpec::Function(tool) => tool.name == tool_name.name.as_str(),
-                ToolSpec::Freeform(tool) => tool.name == tool_name.name.as_str(),
-                ToolSpec::Namespace(_)
-                | ToolSpec::ToolSearch { .. }
-                | ToolSpec::LocalShell {}
-                | ToolSpec::ImageGeneration { .. }
-                | ToolSpec::WebSearch { .. } => false,
-            })
+    pub fn tool_supports_parallel(&self, call: &ToolCall) -> bool {
+        self.registry
+            .supports_parallel_tool_calls(&call.tool_name)
+            .unwrap_or(false)
     }
 
-    pub fn tool_supports_parallel(&self, call: &ToolCall) -> bool {
-        match &call.payload {
-            // MCP parallel support is configured per server, including for deferred
-            // tools that may not have a matching spec entry. Use the parsed payload
-            // server so similarly named servers/tools cannot collide.
-            ToolPayload::Mcp { server, .. } => self.parallel_mcp_server_names.contains(server),
-            _ => self.configured_tool_supports_parallel(&call.dispatch_tool_name),
-        }
+    pub(crate) fn tool_runtime(&self, call: &ToolCall) -> Option<Arc<dyn CoreToolRuntime>> {
+        self.registry.tool(&call.tool_name)
+    }
+
+    pub fn tool_waits_for_runtime_cancellation(&self, call: &ToolCall) -> bool {
+        self.registry
+            .waits_for_runtime_cancellation(&call.tool_name)
+            .unwrap_or(false)
     }
 
     #[instrument(level = "trace", skip_all, err)]
-    pub async fn build_tool_call(
-        session: &Session,
-        item: ResponseItem,
-    ) -> Result<Option<ToolCall>, FunctionCallError> {
+    pub fn build_tool_call(item: ResponseItem) -> Result<Option<ToolCall>, FunctionCallError> {
         match item {
             ResponseItem::FunctionCall {
                 name,
                 namespace,
                 arguments,
+                encrypted_function_args,
                 call_id,
                 ..
             } => {
-                let tool_name = ToolName::new(namespace, name);
-                if let Some(tool_info) = session.resolve_mcp_tool_info(&tool_name).await {
-                    Ok(Some(ToolCall {
-                        provider_tool_name: tool_name,
-                        dispatch_tool_name: tool_info.canonical_tool_name(),
-                        call_id,
-                        payload: ToolPayload::Mcp {
-                            server: tool_info.server_name,
-                            tool: tool_info.tool.name.to_string(),
-                            raw_arguments: arguments,
-                        },
-                    }))
-                } else {
-                    let provider_tool_name = tool_name.clone();
-                    let (tool_name, arguments) =
-                        normalize_native_function_alias(tool_name, arguments)?;
-                    Ok(Some(ToolCall {
-                        provider_tool_name,
-                        dispatch_tool_name: tool_name,
-                        call_id,
-                        payload: ToolPayload::Function { arguments },
-                    }))
-                }
+                let tool_name = ToolName::new(namespace, name).with_default_namespace();
+                Ok(Some(ToolCall {
+                    tool_name,
+                    call_id,
+                    payload: ToolPayload::Function { arguments },
+                    encrypted_function_args,
+                }))
             }
             ResponseItem::ToolSearchCall {
                 call_id: Some(call_id),
@@ -337,85 +258,100 @@ impl ToolRouter {
                         ))
                     })?;
                 Ok(Some(ToolCall {
-                    provider_tool_name: ToolName::plain("tool_search"),
-                    dispatch_tool_name: ToolName::plain("tool_search"),
+                    tool_name: ToolName::plain("tool_search"),
                     call_id,
                     payload: ToolPayload::ToolSearch { arguments },
+                    encrypted_function_args: None,
                 }))
             }
-            ResponseItem::ToolSearchCall {
-                call_id: None,
-                execution,
-                ..
-            } if execution == "client" => Err(FunctionCallError::RespondToModel(
-                "client tool_search call is missing call_id".to_string(),
-            )),
             ResponseItem::ToolSearchCall { .. } => Ok(None),
             ResponseItem::CustomToolCall {
                 name,
+                namespace,
                 input,
                 call_id,
                 ..
             } => Ok(Some(ToolCall {
-                provider_tool_name: ToolName::plain(name.clone()),
-                dispatch_tool_name: ToolName::plain(name),
+                tool_name: ToolName::new(namespace, name).with_default_namespace(),
                 call_id,
                 payload: ToolPayload::Custom { input },
+                encrypted_function_args: None,
             })),
-            ResponseItem::LocalShellCall {
-                id,
-                call_id,
-                action,
-                ..
-            } => {
-                let call_id = call_id
-                    .or(id)
-                    .ok_or(FunctionCallError::MissingLocalShellCallId)?;
-
-                match action {
-                    LocalShellAction::Exec(exec) => {
-                        let params = ShellToolCallParams {
-                            command: exec.command,
-                            workdir: exec.working_directory,
-                            timeout_ms: exec.timeout_ms,
-                            sandbox_permissions: Some(SandboxPermissions::UseDefault),
-                            additional_permissions: None,
-                            prefix_rule: None,
-                            justification: None,
-                        };
-                        Ok(Some(ToolCall {
-                            provider_tool_name: ToolName::plain("local_shell"),
-                            dispatch_tool_name: ToolName::plain("local_shell"),
-                            call_id,
-                            payload: ToolPayload::LocalShell { params },
-                        }))
-                    }
-                }
-            }
             _ => Ok(None),
         }
     }
 
+    #[allow(dead_code)]
     #[instrument(level = "trace", skip_all, err)]
     pub async fn dispatch_tool_call_with_code_mode_result(
         &self,
         session: Arc<Session>,
-        turn: Arc<TurnContext>,
+        step_context: Arc<StepContext>,
         cancellation_token: CancellationToken,
         tracker: SharedTurnDiffTracker,
         call: ToolCall,
         source: ToolCallSource,
     ) -> Result<AnyToolResult, FunctionCallError> {
+        self.dispatch_tool_call_with_code_mode_result_inner(
+            session,
+            step_context,
+            cancellation_token,
+            tracker,
+            call,
+            source,
+            /*terminal_outcome_reached*/ None,
+        )
+        .await
+    }
+
+    #[instrument(level = "trace", skip_all, err)]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn dispatch_tool_call_with_terminal_outcome(
+        &self,
+        session: Arc<Session>,
+        step_context: Arc<StepContext>,
+        cancellation_token: CancellationToken,
+        tracker: SharedTurnDiffTracker,
+        call: ToolCall,
+        source: ToolCallSource,
+        terminal_outcome_reached: Arc<AtomicBool>,
+    ) -> Result<AnyToolResult, FunctionCallError> {
+        self.dispatch_tool_call_with_code_mode_result_inner(
+            session,
+            step_context,
+            cancellation_token,
+            tracker,
+            call,
+            source,
+            Some(terminal_outcome_reached),
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn dispatch_tool_call_with_code_mode_result_inner(
+        &self,
+        session: Arc<Session>,
+        step_context: Arc<StepContext>,
+        cancellation_token: CancellationToken,
+        tracker: SharedTurnDiffTracker,
+        call: ToolCall,
+        source: ToolCallSource,
+        terminal_outcome_reached: Option<Arc<AtomicBool>>,
+    ) -> Result<AnyToolResult, FunctionCallError> {
         let ToolCall {
-            provider_tool_name: _,
-            dispatch_tool_name: tool_name,
+            tool_name,
             call_id,
             payload,
+            ..
         } = call;
 
+        // Keep the legacy ToolInvocation.turn field tied to the same request state until handlers migrate.
+        let turn = Arc::clone(&step_context.turn);
         let invocation = ToolInvocation {
             session,
             turn,
+            step_context,
             cancellation_token,
             tracker,
             call_id,
@@ -424,149 +360,9 @@ impl ToolRouter {
             payload,
         };
 
-        self.registry.dispatch_any(invocation).await
-    }
-}
-
-fn normalize_native_function_alias(
-    tool_name: ToolName,
-    arguments: String,
-) -> Result<(ToolName, String), FunctionCallError> {
-    if tool_name.namespace.is_some() {
-        return Ok((tool_name, arguments));
-    }
-
-    match tool_name.name.as_str() {
-        "exec_command" => Ok((
-            ToolName::plain("shell_command"),
-            normalize_exec_command_arguments(arguments)?,
-        )),
-        "read_file" => Ok((
-            ToolName::plain("shell_command"),
-            normalize_read_file_arguments(arguments)?,
-        )),
-        _ => Ok((tool_name, arguments)),
-    }
-}
-
-fn normalize_exec_command_arguments(arguments: String) -> Result<String, FunctionCallError> {
-    let mut value = parse_alias_arguments("exec_command", &arguments)?;
-    let Some(object) = value.as_object_mut() else {
-        return Err(FunctionCallError::RespondToModel(
-            "failed to parse exec_command arguments: expected object".to_string(),
-        ));
-    };
-
-    if let Some(command) = shell_command_text_from_alias_object(object) {
-        object.insert("command".to_string(), JsonValue::String(command));
-        Ok(value.to_string())
-    } else {
-        Err(FunctionCallError::RespondToModel(
-            "failed to parse exec_command arguments: missing `cmd` or `command`".to_string(),
-        ))
-    }
-}
-
-fn normalize_read_file_arguments(arguments: String) -> Result<String, FunctionCallError> {
-    let value = parse_alias_arguments("read_file", &arguments)?;
-    let Some(object) = value.as_object() else {
-        return Err(FunctionCallError::RespondToModel(
-            "failed to parse read_file arguments: expected object".to_string(),
-        ));
-    };
-    let path = ["path", "file_path", "filename"]
-        .iter()
-        .find_map(|key| object.get(*key).and_then(JsonValue::as_str))
-        .ok_or_else(|| {
-            FunctionCallError::RespondToModel(
-                "failed to parse read_file arguments: missing `path` or `file_path`".to_string(),
-            )
-        })?;
-
-    let mut normalized = serde_json::Map::new();
-    normalized.insert(
-        "command".to_string(),
-        JsonValue::String(native_read_file_shell_command(path)),
-    );
-    if let Some(workdir) = object
-        .get("workdir")
-        .or_else(|| object.get("cwd"))
-        .or_else(|| object.get("working_directory"))
-        .and_then(JsonValue::as_str)
-    {
-        normalized.insert(
-            "workdir".to_string(),
-            JsonValue::String(workdir.to_string()),
-        );
-    }
-    if let Some(timeout) = object.get("timeout_ms").or_else(|| object.get("timeout")) {
-        normalized.insert("timeout_ms".to_string(), timeout.clone());
-    }
-
-    Ok(JsonValue::Object(normalized).to_string())
-}
-
-fn parse_alias_arguments(tool_name: &str, arguments: &str) -> Result<JsonValue, FunctionCallError> {
-    serde_json::from_str(arguments).map_err(|err| {
-        FunctionCallError::RespondToModel(format!("failed to parse {tool_name} arguments: {err}"))
-    })
-}
-
-fn shell_command_text_from_alias_object(
-    object: &serde_json::Map<String, JsonValue>,
-) -> Option<String> {
-    object
-        .get("command")
-        .and_then(command_value_to_shell_text)
-        .or_else(|| {
-            object
-                .get("cmd")
-                .and_then(JsonValue::as_str)
-                .map(str::to_string)
-        })
-}
-
-fn command_value_to_shell_text(value: &JsonValue) -> Option<String> {
-    if let Some(command) = value.as_str() {
-        return Some(command.to_string());
-    }
-    let command = value.as_array()?;
-    let parts = command
-        .iter()
-        .map(|value| value.as_str().map(str::to_string))
-        .collect::<Option<Vec<_>>>()?;
-    Some(codex_shell_command::parse_command::shlex_join(&parts))
-}
-
-fn native_read_file_shell_command(path: &str) -> String {
-    if cfg!(windows) {
-        let summary_path = path.replace('"', "`\"");
-        format!(
-            "Get-Content -LiteralPath {path:?} -TotalCount {NATIVE_READ_FILE_MAX_LINES}; \
-$ReadFileCount = @(Get-Content -LiteralPath {path:?} -TotalCount {}).Count; \
-$ReadFileLines = [Math]::Min($ReadFileCount, {NATIVE_READ_FILE_MAX_LINES}); \
-$ReadFileEof = if ($ReadFileCount -le {NATIVE_READ_FILE_MAX_LINES}) {{ 'true' }} else {{ 'false' }}; \
-Write-Output \"ReadFileSummaryV1: path={summary_path} lines_read=$ReadFileLines eof_reached=$ReadFileEof max_lines={NATIVE_READ_FILE_MAX_LINES}\"",
-            NATIVE_READ_FILE_MAX_LINES + 1,
-        )
-    } else {
-        let sed_args = vec![
-            "sed".to_string(),
-            "-n".to_string(),
-            format!("1,{NATIVE_READ_FILE_MAX_LINES}p"),
-            "--".to_string(),
-            path.to_string(),
-        ];
-        let summary_script = format!(
-            "NR == {} {{ truncated = 1; exit }} {{ lines = NR }} END {{ eof = truncated ? \"false\" : \"true\"; if ({NATIVE_READ_FILE_MAX_LINES} < lines) lines = {NATIVE_READ_FILE_MAX_LINES}; printf \"\\nReadFileSummaryV1: path=%s lines_read=%d eof_reached=%s max_lines={NATIVE_READ_FILE_MAX_LINES}\\n\", FILENAME, lines + 0, eof }}",
-            NATIVE_READ_FILE_MAX_LINES + 1,
-        );
-        let awk_args = vec!["awk".to_string(), summary_script, path.to_string()];
-        format!(
-            "{} && {}",
-            codex_shell_command::parse_command::shlex_join(&sed_args),
-            codex_shell_command::parse_command::shlex_join(&awk_args)
-        )
+        self.registry
+            .dispatch_any_with_terminal_outcome(invocation, terminal_outcome_reached)
+            .await
     }
 }
 

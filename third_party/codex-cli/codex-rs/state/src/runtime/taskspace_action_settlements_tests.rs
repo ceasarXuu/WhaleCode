@@ -10,6 +10,7 @@ use codex_protocol::taskspace::TaskSpaceCanonicalMap;
 use codex_protocol::taskspace::TaskSpaceMapNode;
 use codex_protocol::taskspace::TaskSpaceNodeAction;
 use codex_protocol::taskspace::TaskSpaceNodeState;
+use codex_utils_absolute_path::test_support::PathExt;
 use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
@@ -56,9 +57,12 @@ fn node(
 
 async fn runtime() -> (std::path::PathBuf, Arc<StateRuntime>) {
     let home = std::env::temp_dir().join(format!("taskspace-settlement-{}", Uuid::new_v4()));
-    let runtime = StateRuntime::init(home.clone(), "test-provider".to_string())
-        .await
-        .expect("initialize state runtime");
+    let runtime = StateRuntime::init(
+        crate::SqliteConfig::new_for_testing(home.as_path().abs()),
+        "test-provider".to_string(),
+    )
+    .await
+    .expect("initialize state runtime");
     (home, runtime)
 }
 

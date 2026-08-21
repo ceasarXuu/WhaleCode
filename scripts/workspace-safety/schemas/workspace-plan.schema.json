@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://whalecode.dev/schemas/workspace-plan-v1.json",
+  "title": "WhaleCode workspace bootstrap plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source",
+    "context",
+    "existing_marker",
+    "state",
+    "can_apply",
+    "blocking_reason_codes",
+    "warnings",
+    "actions",
+    "untouched",
+    "fingerprint_basis",
+    "fingerprint"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "source": { "const": "workspace-bootstrap-plan-read-only" },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workspace_id",
+        "display_name",
+        "canonical_root",
+        "git_dir",
+        "git_common_dir",
+        "branch",
+        "detached_head",
+        "head",
+        "working_tree_dirty",
+        "resources",
+        "marker_path",
+        "legacy_home"
+      ]
+    },
+    "existing_marker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["present", "sha256", "parse_status"],
+      "properties": {
+        "present": { "type": "boolean" },
+        "sha256": { "type": ["string", "null"] },
+        "parse_status": { "enum": ["missing", "parsed", "invalid_json", "invalid_type"] }
+      }
+    },
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "reason_code"],
+      "properties": {
+        "code": { "enum": ["Unbootstrapped", "Ready", "Stale", "Conflict", "DoctorFailed"] },
+        "reason_code": { "type": "string" }
+      }
+    },
+    "can_apply": { "type": "boolean" },
+    "blocking_reason_codes": { "type": "array", "items": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["action", "target"]
+      }
+    },
+    "untouched": { "type": "array", "items": { "type": "string" } },
+    "fingerprint_basis": { "type": "object" },
+    "fingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  }
+}

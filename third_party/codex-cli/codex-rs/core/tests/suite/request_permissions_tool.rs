@@ -1,22 +1,28 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used)]
 #![cfg(target_os = "macos")]
 
 use anyhow::Result;
+use codex_core::TurnInputRequest;
 use codex_core::config::Constrained;
 use codex_features::Feature;
 use codex_protocol::config_types::ApprovalsReviewer;
+use codex_protocol::config_types::CollaborationMode;
+use codex_protocol::config_types::ModeKind;
+use codex_protocol::config_types::Settings;
 use codex_protocol::models::FileSystemPermissions;
+use codex_protocol::models::PermissionProfile;
+use codex_protocol::permissions::NetworkSandboxPolicy;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::Op;
 use codex_protocol::protocol::ReviewDecision;
-use codex_protocol::protocol::SandboxPolicy;
+use codex_protocol::protocol::ThreadSettingsOverrides;
 use codex_protocol::request_permissions::PermissionGrantScope;
 use codex_protocol::request_permissions::RequestPermissionProfile;
 use codex_protocol::request_permissions::RequestPermissionsResponse;
 use codex_protocol::user_input::UserInput;
 use codex_utils_absolute_path::AbsolutePathBuf;
-use core_test_support::responses::ev_apply_patch_function_call;
+use core_test_support::responses::ev_apply_patch_custom_tool_call;
 use core_test_support::responses::ev_assistant_message;
 use core_test_support::responses::ev_completed;
 use core_test_support::responses::ev_function_call;
@@ -27,7 +33,9 @@ use core_test_support::responses::start_mock_server;
 use core_test_support::skip_if_no_network;
 use core_test_support::skip_if_sandbox;
 use core_test_support::test_codex::TestCodex;
+use core_test_support::test_codex::local_selections;
 use core_test_support::test_codex::test_codex;
+use core_test_support::test_codex::turn_permission_fields;
 use core_test_support::wait_for_event;
 use pretty_assertions::assert_eq;
 use regex_lite::Regex;
@@ -35,6 +43,7 @@ use serde_json::Value;
 use serde_json::json;
 use std::fs;
 use std::path::Path;
+use test_case::test_case;
 
 fn absolute_path(path: &Path) -> AbsolutePathBuf {
     AbsolutePathBuf::try_from(path).expect("absolute path")
@@ -70,13 +79,13 @@ fn build_add_file_patch(patch_path: &Path, content: &str) -> String {
     )
 }
 
-fn workspace_write_excluding_tmp() -> SandboxPolicy {
-    SandboxPolicy::WorkspaceWrite {
-        writable_roots: vec![],
-        network_access: false,
-        exclude_tmpdir_env_var: true,
-        exclude_slash_tmp: true,
-    }
+fn workspace_write_excluding_tmp() -> PermissionProfile {
+    PermissionProfile::workspace_write_with(
+        &[],
+        NetworkSandboxPolicy::Restricted,
+        /*exclude_tmpdir_env_var*/ true,
+        /*exclude_slash_tmp*/ true,
+    )
 }
 
 fn requested_directory_write_permissions(path: &Path) -> RequestPermissionProfile {
@@ -106,15 +115,12 @@ fn parse_result(item: &Value) -> (Option<i64>, String) {
         .expect("shell output payload");
     match serde_json::from_str::<Value>(output_str) {
         Ok(parsed) => {
-            let exit_code = parsed["metadata"]["shell_exit_code"].as_i64();
+            let exit_code = parsed["metadata"]["exit_code"].as_i64();
             let stdout = parsed["output"].as_str().unwrap_or_default().to_string();
             (exit_code, stdout)
         }
         Err(_) => {
-            let structured = Regex::new(
-                r"(?s)^Execution outcome:\s*exited.*?Shell exit code:\s*(-?\d+).*?Output:\n(.*)$",
-            )
-            .unwrap();
+            let structured = Regex::new(r"(?s)^Exit code:\s*(-?\d+).*?Output:\n(.*)$").unwrap();
             let regex =
                 Regex::new(r"(?s)^.*?Process exited with code (\d+)\n.*?Output:\n(.*)$").unwrap();
             if let Some(captures) = structured.captures(output_str) {
@@ -136,30 +142,35 @@ async fn submit_turn(
     test: &TestCodex,
     prompt: &str,
     approval_policy: AskForApproval,
-    sandbox_policy: SandboxPolicy,
+    permission_profile: PermissionProfile,
     approvals_reviewer: Option<ApprovalsReviewer>,
 ) -> Result<()> {
     let session_model = test.session_configured.model.clone();
+    let (sandbox_policy, permission_profile) =
+        turn_permission_fields(permission_profile, test.config.cwd.as_path());
     test.codex
-        .submit(Op::UserTurn {
-            environments: None,
-            items: vec![UserInput::Text {
+        .start_or_steer_turn(
+            TurnInputRequest::user_input(vec![UserInput::Text {
                 text: prompt.into(),
                 text_elements: Vec::new(),
-            }],
-            final_output_json_schema: None,
-            cwd: test.cwd.path().to_path_buf(),
-            approval_policy,
-            approvals_reviewer,
-            sandbox_policy,
-            permission_profile: None,
-            model: session_model,
-            effort: None,
-            summary: None,
-            service_tier: None,
-            collaboration_mode: None,
-            personality: None,
-        })
+            }])
+            .with_thread_settings(ThreadSettingsOverrides {
+                environments: Some(local_selections(test.config.cwd.clone())),
+                approval_policy: Some(approval_policy),
+                approvals_reviewer,
+                sandbox_policy: Some(sandbox_policy),
+                permission_profile,
+                collaboration_mode: Some(CollaborationMode {
+                    mode: ModeKind::Default,
+                    settings: Settings {
+                        model: session_model,
+                        reasoning_effort: None,
+                        developer_instructions: None,
+                    },
+                }),
+                ..Default::default()
+            }),
+        )
         .await?;
     Ok(())
 }
@@ -202,12 +213,15 @@ async fn approved_folder_write_request_permissions_unblocks_later_exec_without_s
 
     let server = start_mock_server().await;
     let approval_policy = AskForApproval::OnRequest;
-    let sandbox_policy = workspace_write_excluding_tmp();
-    let sandbox_policy_for_config = sandbox_policy.clone();
+    let permission_profile = workspace_write_excluding_tmp();
+    let permission_profile_for_config = permission_profile.clone();
 
     let mut builder = test_codex().with_config(move |config| {
         config.permissions.approval_policy = Constrained::allow_any(approval_policy);
-        config.permissions.sandbox_policy = Constrained::allow_any(sandbox_policy_for_config);
+        config
+            .permissions
+            .set_permission_profile(permission_profile_for_config)
+            .expect("set permission profile");
         config
             .features
             .enable(Feature::ExecPermissionApprovals)
@@ -259,8 +273,8 @@ async fn approved_folder_write_request_permissions_unblocks_later_exec_without_s
         &test,
         "write outside the workspace",
         approval_policy,
-        sandbox_policy,
-        /*approvals_reviewer*/ None,
+        permission_profile,
+        Some(ApprovalsReviewer::User),
     )
     .await?;
 
@@ -304,7 +318,7 @@ async fn approved_folder_write_request_permissions_unblocks_later_exec_without_s
     let exec_output = responses
         .function_call_output_text("exec-call")
         .map(|output| json!({ "output": output }))
-        .unwrap_or_else(|| panic!("expected exec-call output"));
+        .expect("expected exec-call output");
     let (exit_code, stdout) = parse_result(&exec_output);
     assert!(exit_code.is_none() || exit_code == Some(0));
     assert!(stdout.contains("folder-grant-ok"));
@@ -317,27 +331,31 @@ async fn approved_folder_write_request_permissions_unblocks_later_exec_without_s
     Ok(())
 }
 
-#[tokio::test(flavor = "current_thread")]
+#[test_case(false ; "without_strict_auto_review")]
+#[test_case(true ; "with_strict_auto_review")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[cfg(target_os = "macos")]
-async fn approved_folder_write_request_permissions_unblocks_later_apply_patch() -> Result<()> {
+async fn approved_folder_write_request_permissions_unblocks_later_apply_patch(
+    strict_auto_review: bool,
+) -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
 
-    apply_patch_after_request_permissions(/*strict_auto_review*/ false).await?;
-    apply_patch_after_request_permissions(/*strict_auto_review*/ true).await?;
-
-    Ok(())
+    apply_patch_after_request_permissions(strict_auto_review).await
 }
 
 async fn apply_patch_after_request_permissions(strict_auto_review: bool) -> Result<()> {
     let server = start_mock_server().await;
     let approval_policy = AskForApproval::OnRequest;
-    let sandbox_policy = workspace_write_excluding_tmp();
-    let sandbox_policy_for_config = sandbox_policy.clone();
+    let permission_profile = workspace_write_excluding_tmp();
+    let permission_profile_for_config = permission_profile.clone();
 
     let mut builder = test_codex().with_config(move |config| {
         config.permissions.approval_policy = Constrained::allow_any(approval_policy);
-        config.permissions.sandbox_policy = Constrained::allow_any(sandbox_policy_for_config);
+        config
+            .permissions
+            .set_permission_profile(permission_profile_for_config)
+            .expect("set permission profile");
         config
             .features
             .enable(Feature::ExecPermissionApprovals)
@@ -360,7 +378,10 @@ async fn apply_patch_after_request_permissions(strict_auto_review: bool) -> Resu
     } else {
         "patched-via-request-permissions"
     };
-    let requested_file = requested_dir.path().join(requested_file_name);
+    let requested_file = requested_dir
+        .path()
+        .canonicalize()?
+        .join(requested_file_name);
     let requested_permissions = requested_directory_write_permissions(requested_dir.path());
     let normalized_requested_permissions =
         normalized_directory_write_permissions(requested_dir.path())?;
@@ -383,7 +404,7 @@ async fn apply_patch_after_request_permissions(strict_auto_review: bool) -> Resu
         ]),
         sse(vec![
             ev_response_created(&format!("{response_prefix}-2")),
-            ev_apply_patch_function_call("apply-patch-call", &patch),
+            ev_apply_patch_custom_tool_call("apply-patch-call", &patch),
             ev_completed(&format!("{response_prefix}-2")),
         ]),
     ];
@@ -414,8 +435,8 @@ async fn apply_patch_after_request_permissions(strict_auto_review: bool) -> Resu
         &test,
         "patch outside the workspace",
         approval_policy,
-        sandbox_policy,
-        strict_auto_review.then_some(ApprovalsReviewer::User),
+        permission_profile,
+        Some(ApprovalsReviewer::User),
     )
     .await?;
 
@@ -456,8 +477,7 @@ async fn apply_patch_after_request_permissions(strict_auto_review: bool) -> Resu
             EventMsg::TurnComplete(_) => {}
             EventMsg::ApplyPatchApprovalRequest(approval) => {
                 panic!(
-                    "unexpected apply_patch approval request after granted permissions: {:?}",
-                    approval.call_id
+                    "unexpected apply_patch approval request after granted permissions: {approval:?}",
                 )
             }
             other => panic!("unexpected event: {other:?}"),
@@ -465,9 +485,24 @@ async fn apply_patch_after_request_permissions(strict_auto_review: bool) -> Resu
     }
 
     let patch_output = responses
-        .function_call_output_text("apply-patch-call")
+        .requests()
+        .into_iter()
+        .find_map(|request| {
+            request
+                .input()
+                .into_iter()
+                .find(|item| {
+                    item.get("type").and_then(Value::as_str) == Some("custom_tool_call_output")
+                        && item.get("call_id").and_then(Value::as_str) == Some("apply-patch-call")
+                })
+                .and_then(|item| {
+                    item.get("output")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+        })
         .map(|output| json!({ "output": output }))
-        .unwrap_or_else(|| panic!("expected apply-patch-call output"));
+        .expect("expected apply-patch-call output");
     let (exit_code, stdout) = parse_result(&patch_output);
     assert!(exit_code.is_none() || exit_code == Some(0));
     assert!(
@@ -478,6 +513,8 @@ async fn apply_patch_after_request_permissions(strict_auto_review: bool) -> Resu
         fs::read_to_string(&requested_file)?,
         format!("{patch_content}\n")
     );
+
+    test.codex.shutdown_and_wait().await?;
 
     Ok(())
 }

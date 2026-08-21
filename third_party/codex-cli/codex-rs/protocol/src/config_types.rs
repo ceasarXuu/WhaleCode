@@ -8,13 +8,33 @@ use schemars::schema::SchemaObject;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
+use std::collections::HashMap;
+use std::fmt;
 use std::num::NonZeroU64;
+use std::ops::Deref;
+use std::str::FromStr;
 use std::time::Duration;
 use strum_macros::Display;
 use strum_macros::EnumIter;
 use ts_rs::TS;
+use wildmatch::WildMatchPattern;
 
 use crate::openai_models::ReasoningEffort;
+
+/// Selects which part of the active context is charged against
+/// `model_auto_compact_token_limit`.
+#[derive(
+    Debug, Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq, Display, JsonSchema, TS,
+)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum AutoCompactTokenLimitScope {
+    /// Count the full active context against the limit.
+    #[default]
+    Total,
+    /// Count sampled output and later growth after the carried window prefix.
+    BodyAfterPrefix,
+}
 
 /// A summary of the reasoning performed by the model. This can be useful for
 /// debugging and understanding the model's reasoning process.
@@ -75,6 +95,65 @@ pub enum SandboxMode {
     DangerFullAccess,
 }
 
+/// Validated plain profile-v2 name used to select `$CODEX_HOME/<name>.config.toml`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProfileV2Name(String);
+
+impl ProfileV2Name {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ProfileV2NameParseError {
+    value: String,
+}
+
+impl fmt::Display for ProfileV2NameParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "invalid --profile value `{}`; pass a plain name such as `work`",
+            self.value
+        )
+    }
+}
+
+impl std::error::Error for ProfileV2NameParseError {}
+
+impl FromStr for ProfileV2Name {
+    type Err = ProfileV2NameParseError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if value.is_empty()
+            || !value
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+        {
+            return Err(ProfileV2NameParseError {
+                value: value.to_string(),
+            });
+        }
+
+        Ok(Self(value.to_string()))
+    }
+}
+
+impl Deref for ProfileV2Name {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_str()
+    }
+}
+
+impl fmt::Display for ProfileV2Name {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 #[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Display, TS)]
 #[strum(serialize_all = "snake_case")]
 #[ts(type = r#""user" | "auto_review" | "guardian_subagent""#)]
@@ -87,8 +166,8 @@ pub enum ApprovalsReviewer {
     #[default]
     #[serde(rename = "user")]
     User,
-    #[serde(rename = "guardian_subagent", alias = "auto_review")]
-    #[strum(serialize = "guardian_subagent")]
+    #[serde(rename = "auto_review", alias = "guardian_subagent")]
+    #[strum(serialize = "auto_review")]
     AutoReview,
 }
 
@@ -102,6 +181,75 @@ impl JsonSchema for ApprovalsReviewer {
             &["user", "auto_review", "guardian_subagent"],
             "Configures who approval requests are routed to for review. Examples include sandbox escapes, blocked network access, MCP approval prompts, and ARC escalations. Defaults to `user`. `auto_review` uses a carefully prompted subagent to gather relevant context and apply a risk-based decision framework before approving or denying the request. The legacy value `guardian_subagent` is accepted for compatibility.",
         )
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum ShellEnvironmentPolicyInherit {
+    /// "Core" environment variables for the platform. On UNIX, this would
+    /// include HOME, LOGNAME, PATH, SHELL, and USER, among others.
+    Core,
+
+    /// Inherits the full environment from the parent process.
+    #[default]
+    All,
+
+    /// Do not inherit any environment variables from the parent process.
+    None,
+}
+
+/// Assigns a shell environment variable pattern to the include-only or exclude
+/// set. Includes do not re-add variables removed by another exclude pattern.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, JsonSchema, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export_to = "v2/")]
+pub enum ShellEnvironmentPolicyFilter {
+    Include,
+    Exclude,
+}
+
+pub type EnvironmentVariablePattern = WildMatchPattern<'*', '?'>;
+
+/// Deriving the `env` based on this policy works as follows:
+/// 1. Create an initial map based on the `inherit` policy.
+/// 2. If `ignore_default_excludes` is false, filter the map using the default
+///    exclude pattern(s), which are: `"*KEY*"`, `"*SECRET*"`, and `"*TOKEN*"`.
+/// 3. If `exclude` is not empty, filter the map using the provided patterns.
+/// 4. Insert any entries from `r#set` into the map.
+/// 5. If non-empty, filter the map using the `include_only` patterns.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShellEnvironmentPolicy {
+    /// Starting point when building the environment.
+    pub inherit: ShellEnvironmentPolicyInherit,
+
+    /// True to skip the check to exclude default environment variables that
+    /// contain "KEY", "SECRET", or "TOKEN" in their name. Defaults to true.
+    pub ignore_default_excludes: bool,
+
+    /// Environment variable names to exclude from the environment.
+    pub exclude: Vec<EnvironmentVariablePattern>,
+
+    /// (key, value) pairs to insert in the environment.
+    pub r#set: HashMap<String, String>,
+
+    /// Environment variable names to retain in the environment.
+    pub include_only: Vec<EnvironmentVariablePattern>,
+
+    /// If true, the shell profile will be used to run the command.
+    pub use_profile: bool,
+}
+
+impl Default for ShellEnvironmentPolicy {
+    fn default() -> Self {
+        Self {
+            inherit: ShellEnvironmentPolicyInherit::All,
+            ignore_default_excludes: true,
+            exclude: Vec::new(),
+            r#set: HashMap::new(),
+            include_only: Vec::new(),
+            use_profile: false,
+        }
     }
 }
 
@@ -135,6 +283,16 @@ pub enum WindowsSandboxLevel {
     Elevated,
 }
 
+/// Controls whether a Windows sandbox launch reconciles persistent proxy settings or preserves
+/// the settings established by another launch.
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WindowsSandboxProxySettingsMode {
+    #[default]
+    Reconcile,
+    Preserve,
+}
+
 #[derive(
     Debug,
     Serialize,
@@ -158,87 +316,35 @@ pub enum Personality {
     Pragmatic,
 }
 
-#[derive(
-    Debug,
-    Serialize,
-    Deserialize,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    Display,
-    JsonSchema,
-    TS,
-    Default,
-)]
-#[serde(rename_all = "lowercase")]
-#[strum(serialize_all = "lowercase")]
-pub enum WebSearchMode {
-    Disabled,
+/// Controls the effective multi-agent delegation instructions for a turn. `custom` means the
+/// configured mode hint defines the policy instead of a built-in policy.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Display, JsonSchema, TS, Default)]
+#[serde(rename_all = "camelCase", from = "MultiAgentModeWire")]
+#[ts(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
+pub enum MultiAgentMode {
+    Custom(String),
     #[default]
-    Cached,
-    Live,
+    ExplicitRequestOnly,
+    Proactive,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Display, JsonSchema, TS)]
-#[serde(rename_all = "lowercase")]
-#[strum(serialize_all = "lowercase")]
-pub enum WebSearchContextSize {
-    Low,
-    Medium,
-    High,
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum MultiAgentModeWire {
+    None,
+    Custom(String),
+    ExplicitRequestOnly,
+    Proactive,
 }
 
-#[derive(
-    Debug,
-    Serialize,
-    Deserialize,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    Display,
-    JsonSchema,
-    TS,
-    Default,
-)]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
-pub enum WebSearchProvider {
-    #[default]
-    Brave,
-    Jina,
-    Github,
-    Exa,
-    Tavily,
-    StackExchange,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Display, JsonSchema, TS)]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
-pub enum WebSearchFallbackProvider {
-    Brave,
-    Jina,
-    Github,
-    Exa,
-    Tavily,
-    StackExchange,
-    Off,
-}
-
-impl WebSearchFallbackProvider {
-    fn into_runtime_provider(self) -> Option<WebSearchProvider> {
-        match self {
-            WebSearchFallbackProvider::Brave => Some(WebSearchProvider::Brave),
-            WebSearchFallbackProvider::Jina => Some(WebSearchProvider::Jina),
-            WebSearchFallbackProvider::Github => Some(WebSearchProvider::Github),
-            WebSearchFallbackProvider::Exa => Some(WebSearchProvider::Exa),
-            WebSearchFallbackProvider::Tavily => Some(WebSearchProvider::Tavily),
-            WebSearchFallbackProvider::StackExchange => Some(WebSearchProvider::StackExchange),
-            WebSearchFallbackProvider::Off => None,
+impl From<MultiAgentModeWire> for MultiAgentMode {
+    fn from(value: MultiAgentModeWire) -> Self {
+        match value {
+            MultiAgentModeWire::None => Self::Custom(String::new()),
+            MultiAgentModeWire::Custom(hint_text) => Self::Custom(hint_text),
+            MultiAgentModeWire::ExplicitRequestOnly => Self::ExplicitRequestOnly,
+            MultiAgentModeWire::Proactive => Self::Proactive,
         }
     }
 }
@@ -248,22 +354,46 @@ impl WebSearchFallbackProvider {
 )]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
-pub enum WebSearchStrategy {
+pub enum WebSearchMode {
+    Disabled,
     #[default]
-    Auto,
-    Single,
-    Fanout,
+    Cached,
+    Indexed,
+    Live,
 }
 
-#[derive(
-    Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Display, JsonSchema, TS, Default,
-)]
+impl WebSearchMode {
+    /// Restricts search to the access permitted by both modes.
+    pub fn restrict_to(self, requested: Self) -> Self {
+        match (self, requested) {
+            (Self::Disabled, _) | (_, Self::Disabled) => Self::Disabled,
+            (Self::Cached, _) | (_, Self::Cached) => Self::Cached,
+            (Self::Indexed, _) | (_, Self::Indexed) => Self::Indexed,
+            (Self::Live, Self::Live) => Self::Live,
+        }
+    }
+}
+
+/// A model-facing surface on which a tool can be exposed.
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Display, JsonSchema, TS)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum ToolExposureSurface {
+    /// Nested tools available to Code Mode scripts.
+    CodeMode,
+    /// Tools discovered later through tool search.
+    Deferred,
+    /// Tools present in the model's initial tool list.
+    Direct,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Display, JsonSchema, TS)]
 #[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "lowercase")]
-pub enum WebFetchProvider {
-    #[default]
-    Jina,
-    Direct,
+pub enum WebSearchContextSize {
+    Low,
+    Medium,
+    High,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq, JsonSchema, TS)]
@@ -289,21 +419,6 @@ impl WebSearchLocation {
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq, JsonSchema, TS)]
 #[schemars(deny_unknown_fields)]
 pub struct WebSearchToolConfig {
-    pub enabled: Option<bool>,
-    pub provider: Option<WebSearchProvider>,
-    pub fallback_provider: Option<WebSearchFallbackProvider>,
-    pub configured_providers: Option<Vec<WebSearchProvider>>,
-    pub strategy: Option<WebSearchStrategy>,
-    pub max_providers_per_query: Option<usize>,
-    pub brave_api_key_env: Option<String>,
-    pub exa_api_key_env: Option<String>,
-    pub tavily_api_key_env: Option<String>,
-    pub jina_api_key_env: Option<String>,
-    pub github_token_env: Option<String>,
-    pub stack_exchange_key_env: Option<String>,
-    pub stack_exchange_site: Option<String>,
-    pub max_results: Option<usize>,
-    pub timeout_ms: Option<u64>,
     pub context_size: Option<WebSearchContextSize>,
     pub allowed_domains: Option<Vec<String>>,
     pub location: Option<WebSearchLocation>,
@@ -312,47 +427,6 @@ pub struct WebSearchToolConfig {
 impl WebSearchToolConfig {
     pub fn merge(&self, other: &Self) -> Self {
         Self {
-            enabled: other.enabled.or(self.enabled),
-            provider: other.provider.or(self.provider),
-            fallback_provider: other.fallback_provider.or(self.fallback_provider),
-            configured_providers: other
-                .configured_providers
-                .clone()
-                .or_else(|| self.configured_providers.clone()),
-            strategy: other.strategy.or(self.strategy),
-            max_providers_per_query: other
-                .max_providers_per_query
-                .or(self.max_providers_per_query),
-            brave_api_key_env: other
-                .brave_api_key_env
-                .clone()
-                .or_else(|| self.brave_api_key_env.clone()),
-            exa_api_key_env: other
-                .exa_api_key_env
-                .clone()
-                .or_else(|| self.exa_api_key_env.clone()),
-            tavily_api_key_env: other
-                .tavily_api_key_env
-                .clone()
-                .or_else(|| self.tavily_api_key_env.clone()),
-            jina_api_key_env: other
-                .jina_api_key_env
-                .clone()
-                .or_else(|| self.jina_api_key_env.clone()),
-            github_token_env: other
-                .github_token_env
-                .clone()
-                .or_else(|| self.github_token_env.clone()),
-            stack_exchange_key_env: other
-                .stack_exchange_key_env
-                .clone()
-                .or_else(|| self.stack_exchange_key_env.clone()),
-            stack_exchange_site: other
-                .stack_exchange_site
-                .clone()
-                .or_else(|| self.stack_exchange_site.clone()),
-            max_results: other.max_results.or(self.max_results),
-            timeout_ms: other.timeout_ms.or(self.timeout_ms),
             context_size: other.context_size.or(self.context_size),
             allowed_domains: other
                 .allowed_domains
@@ -364,26 +438,6 @@ impl WebSearchToolConfig {
                 (None, Some(other_location)) => Some(other_location.clone()),
                 (None, None) => None,
             },
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq, JsonSchema, TS)]
-#[schemars(deny_unknown_fields)]
-pub struct WebFetchToolConfig {
-    pub enabled: Option<bool>,
-    pub provider: Option<WebFetchProvider>,
-    pub max_chars: Option<usize>,
-    pub timeout_ms: Option<u64>,
-}
-
-impl WebFetchToolConfig {
-    pub fn merge(&self, other: &Self) -> Self {
-        Self {
-            enabled: other.enabled.or(self.enabled),
-            provider: other.provider.or(self.provider),
-            max_chars: other.max_chars.or(self.max_chars),
-            timeout_ms: other.timeout_ms.or(self.timeout_ms),
         }
     }
 }
@@ -421,70 +475,6 @@ pub struct WebSearchConfig {
     pub filters: Option<WebSearchFilters>,
     pub user_location: Option<WebSearchUserLocation>,
     pub search_context_size: Option<WebSearchContextSize>,
-    pub client: WebSearchClientConfig,
-    pub fetch: WebFetchConfig,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema, TS)]
-#[schemars(deny_unknown_fields)]
-pub struct WebSearchClientConfig {
-    pub enabled: bool,
-    pub provider: WebSearchProvider,
-    pub fallback_provider: Option<WebSearchProvider>,
-    pub configured_providers: Vec<WebSearchProvider>,
-    pub strategy: WebSearchStrategy,
-    pub max_providers_per_query: usize,
-    pub brave_api_key_env: String,
-    pub exa_api_key_env: String,
-    pub tavily_api_key_env: String,
-    pub jina_api_key_env: String,
-    pub github_token_env: String,
-    pub stack_exchange_key_env: String,
-    pub stack_exchange_site: String,
-    pub max_results: usize,
-    pub timeout_ms: u64,
-}
-
-impl Default for WebSearchClientConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            provider: WebSearchProvider::Brave,
-            fallback_provider: Some(WebSearchProvider::Jina),
-            configured_providers: Vec::new(),
-            strategy: WebSearchStrategy::Auto,
-            max_providers_per_query: 2,
-            brave_api_key_env: "BRAVE_SEARCH_API_KEY".to_string(),
-            exa_api_key_env: "EXA_API_KEY".to_string(),
-            tavily_api_key_env: "TAVILY_API_KEY".to_string(),
-            jina_api_key_env: "JINA_API_KEY".to_string(),
-            github_token_env: "GITHUB_TOKEN".to_string(),
-            stack_exchange_key_env: "STACK_EXCHANGE_KEY".to_string(),
-            stack_exchange_site: "stackoverflow".to_string(),
-            max_results: 8,
-            timeout_ms: 10_000,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, JsonSchema, TS)]
-#[schemars(deny_unknown_fields)]
-pub struct WebFetchConfig {
-    pub enabled: bool,
-    pub provider: WebFetchProvider,
-    pub max_chars: usize,
-    pub timeout_ms: u64,
-}
-
-impl Default for WebFetchConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            provider: WebFetchProvider::Jina,
-            max_chars: 50_000,
-            timeout_ms: 15_000,
-        }
-    }
 }
 
 impl From<WebSearchLocation> for WebSearchUserLocation {
@@ -501,12 +491,6 @@ impl From<WebSearchLocation> for WebSearchUserLocation {
 
 impl From<WebSearchToolConfig> for WebSearchConfig {
     fn from(config: WebSearchToolConfig) -> Self {
-        let default_client = WebSearchClientConfig::default();
-        let explicit_provider = config.provider;
-        let explicit_fallback_provider = config.fallback_provider;
-        let configured_providers = config.configured_providers.unwrap_or_else(|| {
-            legacy_configured_web_search_providers(explicit_provider, explicit_fallback_provider)
-        });
         Self {
             filters: config
                 .allowed_domains
@@ -515,79 +499,6 @@ impl From<WebSearchToolConfig> for WebSearchConfig {
                 }),
             user_location: config.location.map(Into::into),
             search_context_size: config.context_size,
-            client: WebSearchClientConfig {
-                enabled: config.enabled.unwrap_or(default_client.enabled),
-                provider: explicit_provider.unwrap_or(default_client.provider),
-                fallback_provider: explicit_fallback_provider
-                    .map(WebSearchFallbackProvider::into_runtime_provider)
-                    .unwrap_or(default_client.fallback_provider),
-                configured_providers,
-                strategy: config.strategy.unwrap_or(default_client.strategy),
-                max_providers_per_query: config
-                    .max_providers_per_query
-                    .unwrap_or(default_client.max_providers_per_query),
-                brave_api_key_env: config
-                    .brave_api_key_env
-                    .unwrap_or(default_client.brave_api_key_env),
-                exa_api_key_env: config
-                    .exa_api_key_env
-                    .unwrap_or(default_client.exa_api_key_env),
-                tavily_api_key_env: config
-                    .tavily_api_key_env
-                    .unwrap_or(default_client.tavily_api_key_env),
-                jina_api_key_env: config
-                    .jina_api_key_env
-                    .unwrap_or(default_client.jina_api_key_env),
-                github_token_env: config
-                    .github_token_env
-                    .unwrap_or(default_client.github_token_env),
-                stack_exchange_key_env: config
-                    .stack_exchange_key_env
-                    .unwrap_or(default_client.stack_exchange_key_env),
-                stack_exchange_site: config
-                    .stack_exchange_site
-                    .unwrap_or(default_client.stack_exchange_site),
-                max_results: config.max_results.unwrap_or(default_client.max_results),
-                timeout_ms: config.timeout_ms.unwrap_or(default_client.timeout_ms),
-            },
-            fetch: WebFetchConfig::default(),
-        }
-    }
-}
-
-fn legacy_configured_web_search_providers(
-    provider: Option<WebSearchProvider>,
-    fallback_provider: Option<WebSearchFallbackProvider>,
-) -> Vec<WebSearchProvider> {
-    let mut providers = Vec::new();
-    if let Some(provider) = provider {
-        push_unique_web_search_provider(&mut providers, provider);
-    }
-    if let Some(provider) =
-        fallback_provider.and_then(WebSearchFallbackProvider::into_runtime_provider)
-    {
-        push_unique_web_search_provider(&mut providers, provider);
-    }
-    providers
-}
-
-fn push_unique_web_search_provider(
-    providers: &mut Vec<WebSearchProvider>,
-    provider: WebSearchProvider,
-) {
-    if !providers.contains(&provider) {
-        providers.push(provider);
-    }
-}
-
-impl From<WebFetchToolConfig> for WebFetchConfig {
-    fn from(config: WebFetchToolConfig) -> Self {
-        let default_fetch = WebFetchConfig::default();
-        Self {
-            enabled: config.enabled.unwrap_or(default_fetch.enabled),
-            provider: config.provider.unwrap_or(default_fetch.provider),
-            max_chars: config.max_chars.unwrap_or(default_fetch.max_chars),
-            timeout_ms: config.timeout_ms.unwrap_or(default_fetch.timeout_ms),
         }
     }
 }
@@ -598,6 +509,29 @@ impl From<WebFetchToolConfig> for WebFetchConfig {
 pub enum ServiceTier {
     Fast,
     Flex,
+}
+
+/// Request/config sentinel for explicit standard routing.
+///
+/// This is not a catalog service tier id. It means the user intentionally
+/// selected no service tier, so model catalog defaults should not apply.
+pub const SERVICE_TIER_DEFAULT_REQUEST_VALUE: &str = "default";
+
+impl ServiceTier {
+    pub const fn request_value(self) -> &'static str {
+        match self {
+            Self::Fast => "priority",
+            Self::Flex => "flex",
+        }
+    }
+
+    pub fn from_request_value(value: &str) -> Option<Self> {
+        match value {
+            "fast" | "priority" => Some(Self::Fast),
+            "flex" => Some(Self::Flex),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Display, JsonSchema, TS)]
@@ -693,22 +627,9 @@ pub enum TrustLevel {
 
 /// Controls whether the TUI uses the terminal's alternate screen buffer.
 ///
-/// **Background:** The alternate screen buffer provides a cleaner fullscreen experience
-/// without polluting the terminal's scrollback history. However, it conflicts with terminal
-/// multiplexers like Zellij that strictly follow the xterm specification, which defines
-/// that alternate screen buffers should not have scrollback.
-///
-/// **Zellij's behavior:** Zellij intentionally disables scrollback in alternate screen mode
-/// (see https://github.com/zellij-org/zellij/pull/1032) to comply with the xterm spec. This
-/// is by design and not configurable in Zellij—there is no option to enable scrollback in
-/// alternate screen mode.
-///
-/// **Solution:** This setting provides a pragmatic workaround:
-/// - `auto` (default): Automatically detect the terminal multiplexer. If running in Zellij,
-///   disable alternate screen to preserve scrollback. Enable it everywhere else.
-/// - `always`: Always use alternate screen mode (original behavior before this fix).
-/// - `never`: Never use alternate screen mode. Runs in inline mode, preserving scrollback
-///   in all multiplexers.
+/// - `auto` (default): Use alternate screen mode.
+/// - `always`: Always use alternate screen mode.
+/// - `never`: Never use alternate screen mode. Runs in inline mode, preserving scrollback.
 ///
 /// The CLI flag `--no-alt-screen` can override this setting at runtime.
 #[derive(
@@ -717,10 +638,10 @@ pub enum TrustLevel {
 #[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "lowercase")]
 pub enum AltScreenMode {
-    /// Auto-detect: disable alternate screen in Zellij, enable elsewhere.
+    /// Use alternate screen mode.
     #[default]
     Auto,
-    /// Always use alternate screen (original behavior).
+    /// Always use alternate screen mode.
     Always,
     /// Never use alternate screen (inline mode only).
     Never,
@@ -741,16 +662,6 @@ pub enum ModeKind {
         alias = "custom"
     )]
     Default,
-    #[doc(hidden)]
-    #[serde(skip_serializing, skip_deserializing)]
-    #[schemars(skip)]
-    #[ts(skip)]
-    PairProgramming,
-    #[doc(hidden)]
-    #[serde(skip_serializing, skip_deserializing)]
-    #[schemars(skip)]
-    #[ts(skip)]
-    Execute,
 }
 
 pub const TUI_VISIBLE_COLLABORATION_MODES: [ModeKind; 2] = [ModeKind::Default, ModeKind::Plan];
@@ -760,8 +671,6 @@ impl ModeKind {
         match self {
             Self::Plan => "Plan",
             Self::Default => "Default",
-            Self::PairProgramming => "Pair Programming",
-            Self::Execute => "Execute",
         }
     }
 
@@ -793,7 +702,7 @@ impl CollaborationMode {
     }
 
     pub fn reasoning_effort(&self) -> Option<ReasoningEffort> {
-        self.settings_ref().reasoning_effort
+        self.settings_ref().reasoning_effort.clone()
     }
 
     /// Updates the collaboration mode with new model and/or effort values.
@@ -812,7 +721,7 @@ impl CollaborationMode {
         let settings = self.settings_ref();
         let updated_settings = Settings {
             model: model.unwrap_or_else(|| settings.model.clone()),
-            reasoning_effort: effort.unwrap_or(settings.reasoning_effort),
+            reasoning_effort: effort.unwrap_or_else(|| settings.reasoning_effort.clone()),
             developer_instructions: developer_instructions
                 .unwrap_or_else(|| settings.developer_instructions.clone()),
         };
@@ -834,7 +743,10 @@ impl CollaborationMode {
             mode: mask.mode.unwrap_or(self.mode),
             settings: Settings {
                 model: mask.model.clone().unwrap_or_else(|| settings.model.clone()),
-                reasoning_effort: mask.reasoning_effort.unwrap_or(settings.reasoning_effort),
+                reasoning_effort: mask
+                    .reasoning_effort
+                    .clone()
+                    .unwrap_or_else(|| settings.reasoning_effort.clone()),
                 developer_instructions: mask
                     .developer_instructions
                     .clone()
@@ -867,6 +779,32 @@ pub struct CollaborationModeMask {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn web_search_mode_restrictions_never_expand_either_mode() {
+        use WebSearchMode::Cached;
+        use WebSearchMode::Disabled;
+        use WebSearchMode::Indexed;
+        use WebSearchMode::Live;
+
+        let modes = [Disabled, Cached, Indexed, Live];
+        let expected = [
+            [Disabled, Disabled, Disabled, Disabled],
+            [Disabled, Cached, Cached, Cached],
+            [Disabled, Cached, Indexed, Indexed],
+            [Disabled, Cached, Indexed, Live],
+        ];
+
+        for (parent_index, parent) in modes.into_iter().enumerate() {
+            for (requested_index, requested) in modes.into_iter().enumerate() {
+                assert_eq!(
+                    parent.restrict_to(requested),
+                    expected[parent_index][requested_index],
+                    "parent: {parent:?}, requested: {requested:?}",
+                );
+            }
+        }
+    }
 
     #[test]
     fn apply_mask_can_clear_optional_fields() {
@@ -915,7 +853,7 @@ mod tests {
         );
         assert_eq!(
             serde_json::to_string(&ApprovalsReviewer::AutoReview).expect("serialize reviewer"),
-            "\"guardian_subagent\""
+            "\"auto_review\""
         );
 
         for value in ["user", "auto_review", "guardian_subagent"] {
@@ -932,6 +870,24 @@ mod tests {
     }
 
     #[test]
+    fn profile_v2_name_rejects_paths_and_empty_names() {
+        assert_eq!(
+            ProfileV2Name::from_str("../foo"),
+            Err(ProfileV2NameParseError {
+                value: "../foo".to_string(),
+            }),
+            "dots and slashes are disallowed to prevent reading arbitrary files"
+        );
+        assert_eq!(
+            ProfileV2Name::from_str(""),
+            Err(ProfileV2NameParseError {
+                value: String::new(),
+            }),
+            "profile name cannot be empty"
+        );
+    }
+
+    #[test]
     fn tui_visible_collaboration_modes_match_mode_kind_visibility() {
         let expected = [ModeKind::Default, ModeKind::Plan];
         assert_eq!(expected, TUI_VISIBLE_COLLABORATION_MODES);
@@ -939,9 +895,6 @@ mod tests {
         for mode in TUI_VISIBLE_COLLABORATION_MODES {
             assert!(mode.is_tui_visible());
         }
-
-        assert!(!ModeKind::PairProgramming.is_tui_visible());
-        assert!(!ModeKind::Execute.is_tui_visible());
     }
 
     #[test]
@@ -980,13 +933,8 @@ mod tests {
                 city: None,
                 timezone: Some("America/Los_Angeles".to_string()),
             }),
-            ..Default::default()
         };
         let overlay = WebSearchToolConfig {
-            enabled: Some(false),
-            provider: Some(WebSearchProvider::Jina),
-            fallback_provider: Some(WebSearchFallbackProvider::Off),
-            configured_providers: Some(vec![WebSearchProvider::Jina]),
             context_size: Some(WebSearchContextSize::High),
             allowed_domains: None,
             location: Some(WebSearchLocation {
@@ -995,14 +943,9 @@ mod tests {
                 city: Some("Seattle".to_string()),
                 timezone: None,
             }),
-            ..Default::default()
         };
 
         let expected = WebSearchToolConfig {
-            enabled: Some(false),
-            provider: Some(WebSearchProvider::Jina),
-            fallback_provider: Some(WebSearchFallbackProvider::Off),
-            configured_providers: Some(vec![WebSearchProvider::Jina]),
             context_size: Some(WebSearchContextSize::High),
             allowed_domains: Some(vec!["openai.com".to_string()]),
             location: Some(WebSearchLocation {
@@ -1011,40 +954,8 @@ mod tests {
                 city: Some("Seattle".to_string()),
                 timezone: Some("America/Los_Angeles".to_string()),
             }),
-            ..Default::default()
         };
 
         assert_eq!(expected, base.merge(&overlay));
-    }
-
-    #[test]
-    fn web_search_tool_config_builds_configured_provider_markers() {
-        let explicit = WebSearchConfig::from(WebSearchToolConfig {
-            provider: Some(WebSearchProvider::Brave),
-            fallback_provider: Some(WebSearchFallbackProvider::Jina),
-            configured_providers: Some(vec![WebSearchProvider::Tavily]),
-            ..Default::default()
-        });
-
-        assert_eq!(
-            explicit.client.configured_providers,
-            vec![WebSearchProvider::Tavily]
-        );
-
-        let legacy = WebSearchConfig::from(WebSearchToolConfig {
-            provider: Some(WebSearchProvider::Tavily),
-            fallback_provider: Some(WebSearchFallbackProvider::Jina),
-            configured_providers: None,
-            ..Default::default()
-        });
-
-        assert_eq!(
-            legacy.client.configured_providers,
-            vec![WebSearchProvider::Tavily, WebSearchProvider::Jina]
-        );
-
-        let default_config = WebSearchConfig::from(WebSearchToolConfig::default());
-
-        assert!(default_config.client.configured_providers.is_empty());
     }
 }

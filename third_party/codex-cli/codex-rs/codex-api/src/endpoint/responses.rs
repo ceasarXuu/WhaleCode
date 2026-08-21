@@ -1,23 +1,19 @@
 use crate::auth::SharedAuthProvider;
 use crate::common::ResponseStream;
 use crate::common::ResponsesApiRequest;
-use crate::endpoint::chat_completions::chat_messages_from_response_items;
 use crate::endpoint::session::EndpointSession;
 use crate::error::ApiError;
 use crate::provider::Provider;
-use crate::provider::WireApi;
 use crate::requests::Compression;
-use crate::requests::attach_item_ids;
-use crate::requests::headers::build_conversation_headers;
+use crate::requests::headers::build_session_headers;
 use crate::requests::headers::insert_header;
 use crate::requests::headers::subagent_header;
-use crate::sse::spawn_chat_completions_stream;
 use crate::sse::spawn_response_stream;
 use crate::telemetry::SseTelemetry;
+use codex_client::EncodedJsonBody;
 use codex_client::HttpTransport;
 use codex_client::RequestCompression;
 use codex_client::RequestTelemetry;
-use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
 use codex_protocol::protocol::SessionSource;
 use http::HeaderMap;
 use http::HeaderValue;
@@ -34,7 +30,8 @@ pub struct ResponsesClient<T: HttpTransport> {
 
 #[derive(Default)]
 pub struct ResponsesOptions {
-    pub conversation_id: Option<String>,
+    pub session_id: Option<String>,
+    pub thread_id: Option<String>,
     pub session_source: Option<SessionSource>,
     pub extra_headers: HeaderMap,
     pub compression: Compression,
@@ -75,81 +72,29 @@ impl<T: HttpTransport> ResponsesClient<T> {
         request: ResponsesApiRequest,
         options: ResponsesOptions,
     ) -> Result<ResponseStream, ApiError> {
-        if self.session.provider().wire_api == WireApi::ChatCompletions {
-            return self.stream_chat_completions_request(request, options).await;
-        }
-
         let ResponsesOptions {
-            conversation_id,
+            session_id,
+            thread_id,
             session_source,
             extra_headers,
             compression,
             turn_state,
         } = options;
 
-        let mut body = serde_json::to_value(&request)
+        let body = EncodedJsonBody::encode(&request)
             .map_err(|e| ApiError::Stream(format!("failed to encode responses request: {e}")))?;
-        if request.store && self.session.provider().is_azure_responses_endpoint() {
-            attach_item_ids(&mut body, &request.input);
-        }
 
         let mut headers = extra_headers;
-        if let Some(ref conv_id) = conversation_id {
-            insert_header(&mut headers, "x-client-request-id", conv_id);
+        if let Some(ref thread_id) = thread_id {
+            insert_header(&mut headers, "x-client-request-id", thread_id);
         }
-        headers.extend(build_conversation_headers(conversation_id));
+        headers.extend(build_session_headers(session_id, thread_id));
         if let Some(subagent) = subagent_header(&session_source) {
             insert_header(&mut headers, "x-openai-subagent", &subagent);
         }
 
-        self.stream(body, headers, compression, turn_state).await
-    }
-
-    async fn stream_chat_completions_request(
-        &self,
-        request: ResponsesApiRequest,
-        options: ResponsesOptions,
-    ) -> Result<ResponseStream, ApiError> {
-        let ResponsesOptions {
-            conversation_id,
-            session_source,
-            extra_headers,
-            turn_state,
-            ..
-        } = options;
-
-        let mut headers = extra_headers;
-        if let Some(ref conv_id) = conversation_id {
-            insert_header(&mut headers, "x-client-request-id", conv_id);
-        }
-        headers.extend(build_conversation_headers(conversation_id));
-        if let Some(subagent) = subagent_header(&session_source) {
-            insert_header(&mut headers, "x-openai-subagent", &subagent);
-        }
-
-        let body = build_chat_completions_body(&request);
-        let stream_response = self
-            .session
-            .stream_with(
-                Method::POST,
-                "chat/completions",
-                headers,
-                Some(body),
-                |req| {
-                    req.headers.insert(
-                        http::header::ACCEPT,
-                        HeaderValue::from_static("text/event-stream"),
-                    );
-                },
-            )
-            .await?;
-
-        Ok(spawn_chat_completions_stream(
-            stream_response,
-            self.session.provider().stream_idle_timeout,
-            self.sse_telemetry.clone(),
-            turn_state,
-        ))
+        self.stream_encoded(body, headers, compression, turn_state)
+            .await
     }
 
     fn path() -> &'static str {
@@ -174,6 +119,19 @@ impl<T: HttpTransport> ResponsesClient<T> {
         compression: Compression,
         turn_state: Option<Arc<OnceLock<String>>>,
     ) -> Result<ResponseStream, ApiError> {
+        let body = EncodedJsonBody::encode(&body)
+            .map_err(|e| ApiError::Stream(format!("failed to encode responses request: {e}")))?;
+        self.stream_encoded(body, extra_headers, compression, turn_state)
+            .await
+    }
+
+    async fn stream_encoded(
+        &self,
+        body: EncodedJsonBody,
+        extra_headers: HeaderMap,
+        compression: Compression,
+        turn_state: Option<Arc<OnceLock<String>>>,
+    ) -> Result<ResponseStream, ApiError> {
         let request_compression = match compression {
             Compression::None => RequestCompression::None,
             Compression::Zstd => RequestCompression::Zstd,
@@ -181,7 +139,7 @@ impl<T: HttpTransport> ResponsesClient<T> {
 
         let stream_response = self
             .session
-            .stream_with(
+            .stream_encoded_json_with(
                 Method::POST,
                 Self::path(),
                 extra_headers,
@@ -202,373 +160,5 @@ impl<T: HttpTransport> ResponsesClient<T> {
             self.sse_telemetry.clone(),
             turn_state,
         ))
-    }
-}
-
-pub fn build_chat_completions_body(request: &ResponsesApiRequest) -> Value {
-    let mut body = serde_json::Map::new();
-    body.insert("model".to_string(), Value::String(request.model.clone()));
-    body.insert("stream".to_string(), Value::Bool(true));
-    body.insert(
-        "stream_options".to_string(),
-        serde_json::json!({ "include_usage": true }),
-    );
-
-    let mut messages = Vec::new();
-    if !request.instructions.trim().is_empty() {
-        messages.push(serde_json::json!({
-            "role": "system",
-            "content": request.instructions.clone(),
-        }));
-    }
-    messages.extend(chat_messages_from_response_items(&request.input, true));
-    body.insert("messages".to_string(), Value::Array(messages));
-
-    let tools = chat_tools_from_responses_tools(&request.tools);
-    if !tools.is_empty() {
-        body.insert("tools".to_string(), Value::Array(tools));
-        if let Some(mode) = request.tool_choice.mode() {
-            body.insert("tool_choice".to_string(), Value::String(mode.to_string()));
-        } else if let Some(name) = request.tool_choice.function_name() {
-            body.insert(
-                "tool_choice".to_string(),
-                serde_json::json!({
-                    "type": "function",
-                    "function": { "name": name },
-                }),
-            );
-        }
-    }
-    if let Some(reasoning) = &request.reasoning {
-        match reasoning.effort {
-            Some(ReasoningEffortConfig::None) => {
-                body.insert(
-                    "thinking".to_string(),
-                    serde_json::json!({ "type": "disabled" }),
-                );
-            }
-            Some(effort) => {
-                body.insert(
-                    "thinking".to_string(),
-                    serde_json::json!({ "type": "enabled" }),
-                );
-                body.insert(
-                    "reasoning_effort".to_string(),
-                    Value::String(effort.to_string()),
-                );
-            }
-            None => {
-                body.insert(
-                    "thinking".to_string(),
-                    serde_json::json!({ "type": "enabled" }),
-                );
-            }
-        }
-    }
-
-    Value::Object(body)
-}
-
-fn chat_tools_from_responses_tools(tools: &[Value]) -> Vec<Value> {
-    tools
-        .iter()
-        .filter_map(|tool| {
-            let object = tool.as_object()?;
-            if object.get("type").and_then(Value::as_str) == Some("web_search") {
-                return Some(chat_web_search_function_tool());
-            }
-            if object.get("type").and_then(Value::as_str) == Some("custom")
-                && object.get("name").and_then(Value::as_str) == Some("apply_patch")
-            {
-                return Some(chat_apply_patch_function_tool(object));
-            }
-            if object.get("type").and_then(Value::as_str) != Some("function") {
-                return None;
-            }
-            let name = object.get("name")?.as_str()?;
-            let mut function = serde_json::Map::new();
-            function.insert("name".to_string(), Value::String(name.to_string()));
-            if let Some(description) = object.get("description").and_then(Value::as_str) {
-                function.insert(
-                    "description".to_string(),
-                    Value::String(description.to_string()),
-                );
-            }
-            if let Some(parameters) = object.get("parameters") {
-                function.insert("parameters".to_string(), parameters.clone());
-            }
-            Some(serde_json::json!({
-                "type": "function",
-                "function": Value::Object(function),
-            }))
-        })
-        .collect()
-}
-
-fn chat_apply_patch_function_tool(object: &serde_json::Map<String, Value>) -> Value {
-    let description = object
-        .get("description")
-        .and_then(Value::as_str)
-        .unwrap_or("Use apply_patch to edit files. Pass the entire patch text in input.");
-    serde_json::json!({
-        "type": "function",
-        "function": {
-            "name": "apply_patch",
-            "description": description,
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "input": {
-                        "type": "string",
-                        "description": "The entire contents of the apply_patch command."
-                    }
-                },
-                "required": ["input"],
-                "additionalProperties": false
-            }
-        }
-    })
-}
-
-fn chat_web_search_function_tool() -> Value {
-    serde_json::json!({
-        "type": "function",
-        "function": {
-            "name": "web_search",
-            "description": "Search the web for candidate sources and return lightweight ranked results. Use web_fetch separately to read selected URLs.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": { "type": "string", "description": "Search query." },
-                    "max_results": { "type": "integer", "description": "Maximum number of results to return." },
-                    "freshness": {
-                        "type": "string",
-                        "enum": ["any", "day", "week", "month", "year"],
-                        "description": "Optional recency preference."
-                    },
-                    "domains": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Optional domains to prefer, such as github.com or docs.rs."
-                    },
-                    "exclude_domains": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Optional domains to exclude."
-                    },
-                    "source_hint": {
-                        "type": "string",
-                        "enum": ["general", "technical", "github", "docs", "community", "research", "news"],
-                        "description": "Optional source type hint for query shaping."
-                    },
-                    "provider_policy": {
-                        "type": "string",
-                        "enum": ["auto", "single", "fanout"],
-                        "description": "Routing policy. Use auto by default, single for a selected provider, fanout for multi-provider comparison."
-                    },
-                    "preferred_providers": {
-                        "type": "array",
-                        "items": {
-                            "type": "string",
-                            "enum": ["brave", "jina", "github", "exa", "tavily", "stack_exchange"]
-                        },
-                        "description": "Optional provider order for this query."
-                    },
-                    "github": {
-                        "type": "object",
-                        "properties": {
-                            "search_type": {
-                                "type": "string",
-                                "enum": ["repositories", "code", "issues", "commits", "users"]
-                            },
-                            "repo": { "type": "string" },
-                            "org": { "type": "string" },
-                            "user": { "type": "string" },
-                            "language": { "type": "string" },
-                            "path": { "type": "string" },
-                            "filename": { "type": "string" }
-                        },
-                        "additionalProperties": false
-                    },
-                    "stack_exchange": {
-                        "type": "object",
-                        "properties": {
-                            "site": { "type": "string", "description": "Stack Exchange site, defaults to stackoverflow." },
-                            "tags": { "type": "array", "items": { "type": "string" } },
-                            "accepted": { "type": "boolean" },
-                            "sort": { "type": "string" }
-                        },
-                        "additionalProperties": false
-                    }
-                },
-                "required": ["query"],
-                "additionalProperties": false
-            }
-        }
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::common::Reasoning;
-    use codex_protocol::models::ResponseItem;
-    use serde_json::json;
-
-    fn chat_request(reasoning: Option<Reasoning>) -> ResponsesApiRequest {
-        ResponsesApiRequest {
-            model: "deepseek-v4-pro".to_string(),
-            instructions: String::new(),
-            input: Vec::new(),
-            tools: Vec::new(),
-            tool_choice: crate::common::ToolChoice::Auto,
-            parallel_tool_calls: true,
-            reasoning,
-            store: false,
-            stream: true,
-            include: Vec::new(),
-            service_tier: None,
-            prompt_cache_key: None,
-            text: None,
-            client_metadata: None,
-        }
-    }
-
-    #[test]
-    fn chat_completions_body_preserves_official_deepseek_reasoning_effort() {
-        let body = build_chat_completions_body(&chat_request(Some(Reasoning {
-            effort: Some(ReasoningEffortConfig::Max),
-            summary: None,
-        })));
-
-        assert_eq!(body["thinking"], json!({ "type": "enabled" }));
-        assert_eq!(body["reasoning_effort"], json!("max"));
-    }
-
-    #[test]
-    fn chat_completions_body_can_disable_deepseek_thinking() {
-        let body = build_chat_completions_body(&chat_request(Some(Reasoning {
-            effort: Some(ReasoningEffortConfig::None),
-            summary: None,
-        })));
-
-        assert_eq!(body["thinking"], json!({ "type": "disabled" }));
-        assert!(body.get("reasoning_effort").is_none());
-    }
-
-    #[test]
-    fn chat_completions_maps_hosted_web_search_to_function_tool() {
-        let mut request = chat_request(None);
-        request.tools = vec![json!({ "type": "web_search", "external_web_access": true })];
-
-        let body = build_chat_completions_body(&request);
-
-        assert_eq!(body["tools"][0]["type"], json!("function"));
-        assert_eq!(body["tools"][0]["function"]["name"], json!("web_search"));
-        assert_eq!(
-            body["tools"][0]["function"]["parameters"]["required"],
-            json!(["query"])
-        );
-    }
-
-    #[test]
-    fn chat_completions_maps_custom_apply_patch_to_function_tool() {
-        let mut request = chat_request(None);
-        request.tools = vec![json!({
-            "type": "custom",
-            "name": "apply_patch",
-            "description": "Edit files with a patch",
-            "format": {
-                "type": "grammar",
-                "syntax": "lark",
-                "definition": "start: /.+/"
-            }
-        })];
-
-        let body = build_chat_completions_body(&request);
-
-        assert_eq!(body["tools"][0]["type"], json!("function"));
-        assert_eq!(body["tools"][0]["function"]["name"], json!("apply_patch"));
-        assert_eq!(
-            body["tools"][0]["function"]["parameters"]["required"],
-            json!(["input"])
-        );
-    }
-
-    #[test]
-    fn chat_completions_body_preserves_required_tool_choice() {
-        let mut request = chat_request(None);
-        request.tool_choice = crate::common::ToolChoice::Required;
-        request.tools = vec![json!({
-            "type": "function",
-            "name": "shell_command",
-            "description": "Run shell command",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": { "type": "string" }
-                },
-                "required": ["command"]
-            }
-        })];
-
-        let body = build_chat_completions_body(&request);
-
-        assert_eq!(body["tool_choice"], json!("required"));
-    }
-
-    #[test]
-    fn chat_completions_body_preserves_named_tool_choice() {
-        let mut request = chat_request(None);
-        request.tool_choice = crate::common::ToolChoice::function("example_tool");
-        request.tools = vec![json!({
-            "type": "function",
-            "name": "example_tool",
-            "description": "Control state",
-            "parameters": { "type": "object", "properties": {} }
-        })];
-
-        let body = build_chat_completions_body(&request);
-
-        assert_eq!(
-            body["tool_choice"],
-            json!({
-                "type": "function",
-                "function": { "name": "example_tool" }
-            })
-        );
-    }
-
-    #[test]
-    fn chat_completions_body_keeps_tool_history_shape_stable_across_thinking_modes() {
-        let mut request = chat_request(Some(Reasoning {
-            effort: Some(ReasoningEffortConfig::None),
-            summary: None,
-        }));
-        request.input = vec![
-            ResponseItem::FunctionCall {
-                id: None,
-                name: "example_tool".to_string(),
-                namespace: None,
-                arguments: r#"{"action":"initialize_map"}"#.to_string(),
-                call_id: "call_init".to_string(),
-            },
-            ResponseItem::FunctionCallOutput {
-                call_id: "call_init".to_string(),
-                output: codex_protocol::models::FunctionCallOutputPayload::from_text(
-                    "ok".to_string(),
-                ),
-            },
-        ];
-
-        let disabled_body = build_chat_completions_body(&request);
-        request.reasoning = Some(Reasoning {
-            effort: Some(ReasoningEffortConfig::Max),
-            summary: None,
-        });
-        let enabled_body = build_chat_completions_body(&request);
-
-        assert_eq!(disabled_body["messages"], enabled_body["messages"]);
-        assert_eq!(disabled_body["messages"][0]["reasoning_content"], json!(""));
     }
 }

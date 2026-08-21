@@ -6,11 +6,18 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import sys
 import time
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+WORKSPACE_SAFETY = Path(__file__).resolve().parents[1] / "workspace-safety"
+if str(WORKSPACE_SAFETY) not in sys.path:
+    sys.path.insert(0, str(WORKSPACE_SAFETY))
+
+from workspace_entrypoint import WorkspacePreflightError, resolve_workspace_binary
 
 from cache_cleanup_contract import cleanup_verified
 from cache_binary_health import run_whale_binary_health_preflight
@@ -351,12 +358,14 @@ def main() -> int:
     parser.add_argument("--proposal", type=Path, required=True)
     parser.add_argument("--authorization", type=Path, required=True)
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
-    parser.add_argument(
-        "--whale-bin", type=Path, default=Path.home() / ".whale/bin/whale"
-    )
+    parser.add_argument("--whale-bin", type=Path)
     parser.add_argument("--run-root", type=Path)
     args = parser.parse_args()
     repo = args.repo_root.resolve()
+    try:
+        whale_bin = resolve_workspace_binary(repo, args.whale_bin)
+    except WorkspacePreflightError as error:
+        raise SystemExit(str(error)) from error
     contract_path = repo / "benchmarks/cache-regression/cache-surface-contract.json"
     contract = load_contract(contract_path)
     try:
@@ -378,12 +387,12 @@ def main() -> int:
     try:
         run_whale_binary_health_preflight(
             repo,
-            args.whale_bin,
+            whale_bin,
             route_preflight_path.parent / "whale-binary-health.json",
         )
         provider_route = run_provider_route_preflight(
             repo,
-            args.whale_bin,
+            whale_bin,
             route_preflight_path,
             proposal["selection"]["model"],
         )
@@ -440,7 +449,7 @@ def main() -> int:
         if claim_error is None:
             stop_at, cancelled, cleanup_failed, supervision_failed = execute_attempts(
                 repo,
-                args.whale_bin,
+                whale_bin,
                 run_root,
                 record_id,
                 proposal,

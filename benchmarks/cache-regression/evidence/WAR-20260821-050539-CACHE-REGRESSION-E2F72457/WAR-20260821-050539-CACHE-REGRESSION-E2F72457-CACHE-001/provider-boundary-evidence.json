@@ -1,0 +1,70 @@
+{
+  "schema_version": "whalecode-provider-boundary-evidence-v2",
+  "request_facts_analyzer_version": "i07-review-fixes-v3",
+  "status": "mismatch",
+  "boundary_availability": "measured",
+  "boundary_correlation_availability": "incomparable",
+  "expected_model": "deepseek-v4-flash",
+  "allowed_method": "POST",
+  "allowed_path": "/responses",
+  "boundary_request_count": 7,
+  "wire_request_count": null,
+  "local_attempt_count": 0,
+  "local_only_attempt_count": 0,
+  "boundary_requests": [
+    {
+      "count": 1,
+      "method": "POST",
+      "path": "/responses",
+      "model": "deepseek-v4-flash",
+      "body_sha256": "245b0682c3b3e082e4c9ac82528e50c2c88454a35dfd1156dddd2184e2f1c621"
+    },
+    {
+      "count": 2,
+      "method": "POST",
+      "path": "/responses",
+      "model": "deepseek-v4-flash",
+      "body_sha256": "996b8a6e5e8f31b951abad5fa87157ed68da221c89e8762b320e34d46bd8b4a4"
+    },
+    {
+      "count": 3,
+      "method": "POST",
+      "path": "/responses",
+      "model": "deepseek-v4-flash",
+      "body_sha256": "57ddeae62bd21032cb39d623a1d71c355f87d105fe7fdd60bd5c00753bd3c7ef"
+    },
+    {
+      "count": 4,
+      "method": "POST",
+      "path": "/responses",
+      "model": "deepseek-v4-flash",
+      "body_sha256": "8f47c4fcb41a5b5e30d3b719d34d5dbf723c7041c82adc4971830196fb989851"
+    },
+    {
+      "count": 5,
+      "method": "POST",
+      "path": "/responses",
+      "model": "deepseek-v4-flash",
+      "body_sha256": "c0851e6fa22a825550da7c7dec32815822be7eca3f3b8046ac456fc13dd57b6f"
+    },
+    {
+      "count": 6,
+      "method": "POST",
+      "path": "/responses",
+      "model": "deepseek-v4-flash",
+      "body_sha256": "ad5fb177b6162f86291ecd9a2d6a5ade17132a184ebe14d8b9053a1272fd1c6e"
+    },
+    {
+      "count": 7,
+      "method": "POST",
+      "path": "/responses",
+      "model": "deepseek-v4-flash",
+      "body_sha256": "04bc8d6a3129e5eebd15a94126de2fd076a23f8259c2f1c3d08a6563b2495f2a"
+    }
+  ],
+  "wire_requests": [],
+  "local_attempts": [],
+  "errors": [
+    "boundary_unattributed"
+  ]
+}

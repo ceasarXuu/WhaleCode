@@ -57,8 +57,6 @@ export type McpToolCallItem = {
   tool: string;
   /** Arguments forwarded to the tool invocation. */
   arguments: unknown;
-  /** Plugin that owns the MCP server, when the server came from a plugin. */
-  plugin_id?: string;
   /** Result payload returned by the MCP server for successful calls. */
   result?: {
     content: McpContentBlock[];

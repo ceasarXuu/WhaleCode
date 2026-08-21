@@ -1,3 +1,48 @@
+mod interface;
+mod invocation;
+mod loading;
+mod mentions;
+mod model;
+mod name_counts;
+mod parser;
+mod selection;
+
+pub use interface::SkillInterfaceAssetPolicy;
+pub use interface::SkillInterfaceFile;
+pub use interface::resolve_skill_interface;
+pub use invocation::ImplicitSkillAccess;
+pub use invocation::ImplicitSkillLookup;
+pub use invocation::detect_implicit_skill_invocation_for_command;
+pub use invocation::implicit_skill_accesses_for_command;
+pub use loading::LoadedSkillRoot;
+pub use loading::LoadedSkills;
+pub use loading::SkillError;
+pub use loading::SkillLoadFuture;
+pub use loading::SkillRootLoadRequest;
+pub use loading::SkillRootLoader;
+pub use loading::SkillRootSnapshotCache;
+pub use loading::SkillRootSnapshots;
+pub use mentions::ToolMentionKind;
+pub use mentions::ToolMentions;
+pub use mentions::app_id_from_path;
+pub use mentions::extract_tool_mentions;
+pub use mentions::extract_tool_mentions_with_sigil;
+pub use mentions::normalize_skill_path;
+pub use mentions::plugin_config_name_from_path;
+pub use mentions::tool_kind_for_path;
+pub use model::EnvironmentSkillMetadata;
+pub use model::SkillDependencies;
+pub use model::SkillInterface;
+pub use model::SkillMetadata;
+pub use model::SkillPolicy;
+pub use model::SkillToolDependency;
+pub use name_counts::build_skill_name_counts;
+pub use parser::ParsedSkillFrontmatter;
+pub use parser::SkillParseError;
+pub use parser::parse_skill_frontmatter_metadata;
+pub use selection::ExplicitSkillLookup;
+pub use selection::collect_explicit_skill_mentions;
+
 use codex_utils_absolute_path::AbsolutePathBuf;
 use include_dir::Dir;
 use std::collections::hash_map::DefaultHasher;
@@ -44,34 +89,14 @@ pub fn install_system_skills(codex_home: &AbsolutePathBuf) -> Result<(), SystemS
         return Ok(());
     }
 
-    clear_active_system_skills(&dest_system)?;
+    if dest_system.as_path().exists() {
+        fs::remove_dir_all(dest_system.as_path())
+            .map_err(|source| SystemSkillsError::io("remove existing system skills dir", source))?;
+    }
 
     write_embedded_dir(&SYSTEM_SKILLS_DIR, &dest_system)?;
     fs::write(marker_path.as_path(), format!("{expected_fingerprint}\n"))
         .map_err(|source| SystemSkillsError::io("write system skills marker", source))?;
-    Ok(())
-}
-
-fn clear_active_system_skills(dest_system: &AbsolutePathBuf) -> Result<(), SystemSkillsError> {
-    if !dest_system.as_path().exists() {
-        return Ok(());
-    }
-    let entries = fs::read_dir(dest_system.as_path())
-        .map_err(|source| SystemSkillsError::io("read existing system skills dir", source))?;
-    for entry in entries {
-        let entry = entry
-            .map_err(|source| SystemSkillsError::io("read existing system skill entry", source))?;
-        let path = entry.path();
-        if path.is_dir() {
-            fs::remove_dir_all(&path).map_err(|source| {
-                SystemSkillsError::io("remove existing system skill dir", source)
-            })?;
-        } else {
-            fs::remove_file(&path).map_err(|source| {
-                SystemSkillsError::io("remove existing system skill file", source)
-            })?;
-        }
-    }
     Ok(())
 }
 

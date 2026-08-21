@@ -36,6 +36,7 @@ def main() -> int:
         required=True,
     )
     parser.add_argument("--selection-reason", required=True)
+    parser.add_argument("--json-output", type=Path)
     args = parser.parse_args()
 
     repo = args.repo_root.resolve()
@@ -68,7 +69,14 @@ def main() -> int:
         )
     except (KeyError, TypeError, ValueError) as error:
         raise SystemExit(str(error)) from error
-    print(json.dumps(proposal, ensure_ascii=False, indent=2))
+    rendered = json.dumps(proposal, ensure_ascii=False, indent=2)
+    if args.json_output:
+        output = args.json_output
+        if not output.is_absolute():
+            output = repo / output
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(rendered + "\n", encoding="utf-8")
+    print(rendered)
     return 0
 
 

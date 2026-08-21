@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -30,6 +31,7 @@ from run_cache_hit_regression import (
     ensure_deepseek_api_key,
     execution_completed,
     stop_reason,
+    main,
 )
 
 
@@ -91,6 +93,26 @@ class CacheHitRegressionAnalysisTest(unittest.TestCase):
                         validate_provider_boundary_evidence(
                             boundary, 1, "deepseek-v4-flash"
                         )
+
+    def test_workspace_preflight_fails_before_contract_or_ledger_work(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            repo = Path(root)
+            argv = [
+                "run_cache_hit_regression.py", "--repo-root", str(repo),
+                "--proposal", "proposal.json", "--authorization", "authorization.json",
+            ]
+            with (
+                patch.object(sys, "argv", argv),
+                patch(
+                    "run_cache_hit_regression.resolve_workspace_binary",
+                    side_effect=RuntimeError("workspace-preflight-blocked"),
+                ),
+                patch("run_cache_hit_regression.load_contract") as load_contract,
+                self.assertRaisesRegex(RuntimeError, "workspace-preflight-blocked"),
+            ):
+                main()
+            load_contract.assert_not_called()
+            self.assertFalse((repo / "benchmarks/whale-agent-run-ledger.json").exists())
 
     def test_loads_only_deepseek_key_from_env_local(self) -> None:
         with tempfile.TemporaryDirectory() as root:

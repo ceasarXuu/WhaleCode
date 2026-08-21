@@ -6,7 +6,6 @@ use crate::action_map::rooted_dag::ActionOutcome;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum HostedToolKind {
     WebSearch,
-    ImageGeneration,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,7 +18,6 @@ impl HostedToolIdentity {
     pub(super) fn from_spec(spec: &ToolSpec) -> Option<Self> {
         let kind = match spec {
             ToolSpec::WebSearch { .. } => HostedToolKind::WebSearch,
-            ToolSpec::ImageGeneration { .. } => HostedToolKind::ImageGeneration,
             _ => return None,
         };
         Some(Self {
@@ -47,9 +45,6 @@ pub(super) fn hosted_response_fact(
     let observed = match item {
         ResponseItem::WebSearchCall { status, .. } => {
             Some((HostedToolKind::WebSearch, status.as_deref()))
-        }
-        ResponseItem::ImageGenerationCall { status, .. } => {
-            Some((HostedToolKind::ImageGeneration, Some(status.as_str())))
         }
         _ => None,
     };
@@ -93,44 +88,29 @@ mod tests {
     fn spec_and_response_items_share_the_same_hosted_identity() {
         let web_spec = ToolSpec::WebSearch {
             external_web_access: Some(true),
+            indexed_web_access: None,
             filters: None,
             user_location: None,
             search_context_size: None,
             search_content_types: None,
         };
-        let image_spec = ToolSpec::ImageGeneration {
-            output_format: "png".into(),
-        };
         let web_identity = HostedToolIdentity::from_spec(&web_spec).unwrap();
-        let image_identity = HostedToolIdentity::from_spec(&image_spec).unwrap();
         assert_eq!(web_identity.native_name, web_spec.name());
-        assert_eq!(image_identity.native_name, image_spec.name());
 
         let web = hosted_response_fact(&ResponseItem::WebSearchCall {
-            id: Some("ws-1".into()),
+            id: None,
             status: Some("failed".into()),
             action: Some(WebSearchAction::Search {
                 query: Some("query".into()),
                 queries: None,
             }),
-        })
-        .unwrap()
-        .unwrap();
-        let image = hosted_response_fact(&ResponseItem::ImageGenerationCall {
-            id: "ig-1".into(),
-            status: "cancelled".into(),
-            revised_prompt: None,
-            result: String::new(),
+            internal_chat_message_metadata_passthrough: None,
         })
         .unwrap()
         .unwrap();
         assert_eq!(
             (web.kind, web.outcome),
             (web_identity.kind, ActionOutcome::Failed)
-        );
-        assert_eq!(
-            (image.kind, image.outcome),
-            (image_identity.kind, ActionOutcome::Cancelled)
         );
     }
 

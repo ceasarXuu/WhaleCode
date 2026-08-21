@@ -1,0 +1,6 @@
+command: cargo fetch
+cwd: codex-rs
+proxy_environment: inherited
+exit_code: 0
+
+    Updating crates.io index

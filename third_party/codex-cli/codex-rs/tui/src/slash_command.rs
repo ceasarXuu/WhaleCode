@@ -13,46 +13,57 @@ pub enum SlashCommand {
     // DO NOT ALPHA-SORT! Enum order is presentation order in the popup, so
     // more frequently used commands should be listed first.
     Model,
-    Fast,
-    Approvals,
-    #[strum(to_string = "permissions", serialize = "permission")]
+    Ide,
     Permissions,
+    Keymap,
+    Vim,
     #[strum(serialize = "setup-default-sandbox")]
     ElevateSandbox,
     #[strum(serialize = "sandbox-add-read-dir")]
     SandboxReadRoot,
     Experimental,
+    #[strum(to_string = "approve")]
+    AutoReview,
     Memories,
     Skills,
+    Import,
+    Hooks,
     Review,
     Rename,
     New,
+    Archive,
+    Delete,
     Resume,
     Fork,
+    App,
     Init,
     Compact,
     Plan,
     Goal,
-    Collab,
     #[strum(serialize = "taskspace")]
     TaskSpace,
-    MapRequest,
-    MapAppend,
-    MapAlways,
     #[strum(serialize = "task-show")]
     TaskShow,
     Agent,
+    Agents,
     Side,
-    // Undo,
+    Btw,
     Copy,
+    Export,
+    Raw,
     Diff,
     Mention,
     Status,
-    SearchProvider,
+    Cd,
+    #[strum(to_string = "pwd", serialize = "cwd")]
+    Pwd,
+    Usage,
     DebugConfig,
     Title,
     Statusline,
     Theme,
+    #[strum(to_string = "pets", serialize = "pet")]
+    Pets,
     Mcp,
     Apps,
     Plugins,
@@ -66,8 +77,6 @@ pub enum SlashCommand {
     Stop,
     Clear,
     Personality,
-    Realtime,
-    Settings,
     TestApproval,
     #[strum(serialize = "subagents")]
     MultiAgents,
@@ -84,58 +93,66 @@ impl SlashCommand {
         match self {
             SlashCommand::Feedback => "send logs to maintainers",
             SlashCommand::New => "start a new chat during a conversation",
-            SlashCommand::Init => "create an AGENTS.md file with instructions for Whale",
+            SlashCommand::Init => "create an AGENTS.md file with instructions for Codex",
             SlashCommand::Compact => "summarize conversation to prevent hitting the context limit",
             SlashCommand::Review => "review my current changes and find issues",
             SlashCommand::Rename => "rename the current thread",
             SlashCommand::Resume => "resume a saved chat",
+            SlashCommand::Archive => "archive this session and exit",
+            SlashCommand::Delete => "permanently delete this session and exit",
             SlashCommand::Clear => "clear the terminal and start a new chat",
             SlashCommand::Fork => "fork the current chat",
-            // SlashCommand::Undo => "ask Whale to undo a turn",
-            SlashCommand::Quit | SlashCommand::Exit => "exit Whale",
+            SlashCommand::App => "continue this session in the Desktop app",
+            SlashCommand::Quit | SlashCommand::Exit => "exit Codex",
             SlashCommand::Copy => "copy last response as markdown",
+            SlashCommand::Export => "export the conversation as markdown",
+            SlashCommand::Raw => "toggle raw scrollback mode for copy-friendly terminal selection",
             SlashCommand::Diff => "show git diff (including untracked files)",
             SlashCommand::Mention => "mention a file",
-            SlashCommand::Skills => "use skills to improve how Whale performs specific tasks",
+            SlashCommand::Skills => "use skills to improve how Codex performs specific tasks",
+            SlashCommand::Import => "import setup, this project, and recent chats from Claude Code",
+            SlashCommand::Hooks => "view and manage lifecycle hooks",
             SlashCommand::Status => "show current session configuration and token usage",
-            SlashCommand::SearchProvider => "show or configure web search providers",
+            SlashCommand::Cd => "change the current working directory",
+            SlashCommand::Pwd => "show the current working directory",
+            SlashCommand::Usage => "view account usage or use a usage limit reset",
             SlashCommand::DebugConfig => "show config layers and requirement sources for debugging",
             SlashCommand::Title => "configure which items appear in the terminal title",
             SlashCommand::Statusline => "configure which items appear in the status line",
             SlashCommand::Theme => "choose a syntax highlighting theme",
+            SlashCommand::Pets => "choose or hide the terminal pet",
             SlashCommand::Ps => "list background terminals",
             SlashCommand::Stop => "stop all background terminals",
             SlashCommand::MemoryDrop => "DO NOT USE",
             SlashCommand::MemoryUpdate => "DO NOT USE",
             SlashCommand::Model => "choose what model and reasoning effort to use",
-            SlashCommand::Fast => {
-                "toggle Fast mode to enable fastest inference with increased plan usage"
+            SlashCommand::Ide => {
+                "include current selection, open files, and other context from your IDE"
             }
-            SlashCommand::Personality => "choose a communication style for Whale",
-            SlashCommand::Realtime => "toggle realtime voice mode (experimental)",
-            SlashCommand::Settings => "configure realtime microphone/speaker",
+            SlashCommand::Personality => "choose a communication style for Codex",
             SlashCommand::Plan => "switch to Plan mode",
             SlashCommand::Goal => "set or view the goal for a long-running task",
-            SlashCommand::Collab => "change collaboration mode (experimental)",
-            SlashCommand::TaskSpace => "enter TaskSpace mode and open the live viewer",
-            SlashCommand::MapRequest => "show the Map only when the agent requests it",
-            SlashCommand::MapAppend => "append each new Map projection to context",
-            SlashCommand::MapAlways => "keep the latest Map projection in every request",
-            SlashCommand::TaskShow => "open the live TaskSpace browser viewer",
+            SlashCommand::TaskSpace => "enter TaskSpace mode and show the current map",
+            SlashCommand::TaskShow => "show the current TaskSpace map",
             SlashCommand::Agent | SlashCommand::MultiAgents => "switch the active agent thread",
-            SlashCommand::Side => "start a side conversation in an ephemeral fork",
-            SlashCommand::Approvals => "choose what Whale is allowed to do",
-            SlashCommand::Permissions => "choose what Whale is allowed to do",
+            SlashCommand::Agents => "view and switch between all active agent sessions",
+            SlashCommand::Side | SlashCommand::Btw => {
+                "start a side conversation in an ephemeral fork"
+            }
+            SlashCommand::Permissions => "choose what Codex is allowed to do",
+            SlashCommand::Keymap => "remap TUI shortcuts",
+            SlashCommand::Vim => "toggle Vim mode for the composer",
             SlashCommand::ElevateSandbox => "set up elevated agent sandbox",
             SlashCommand::SandboxReadRoot => {
                 "let sandbox read a directory: /sandbox-add-read-dir <absolute_path>"
             }
             SlashCommand::Experimental => "toggle experimental features",
+            SlashCommand::AutoReview => "approve one retry of a recent auto-review denial",
             SlashCommand::Memories => "configure memory use and generation",
             SlashCommand::Mcp => "list configured MCP tools; use /mcp verbose for details",
             SlashCommand::Apps => "manage apps",
             SlashCommand::Plugins => "browse plugins",
-            SlashCommand::Logout => "log out of Whale",
+            SlashCommand::Logout => "log out of Codex",
             SlashCommand::Rollout => "print the rollout file path",
             SlashCommand::TestApproval => "test approval request",
         }
@@ -153,12 +170,22 @@ impl SlashCommand {
             self,
             SlashCommand::Review
                 | SlashCommand::Rename
+                | SlashCommand::New
+                | SlashCommand::Clear
+                | SlashCommand::Fork
                 | SlashCommand::Plan
                 | SlashCommand::Goal
-                | SlashCommand::Fast
+                | SlashCommand::Ide
+                | SlashCommand::Keymap
                 | SlashCommand::Mcp
-                | SlashCommand::SearchProvider
+                | SlashCommand::Export
+                | SlashCommand::Raw
+                | SlashCommand::Cd
+                | SlashCommand::Pwd
+                | SlashCommand::Usage
+                | SlashCommand::Pets
                 | SlashCommand::Side
+                | SlashCommand::Btw
                 | SlashCommand::Resume
                 | SlashCommand::SandboxReadRoot
         )
@@ -168,7 +195,16 @@ impl SlashCommand {
     pub fn available_in_side_conversation(self) -> bool {
         matches!(
             self,
-            SlashCommand::Copy | SlashCommand::Diff | SlashCommand::Mention | SlashCommand::Status
+            SlashCommand::Copy
+                | SlashCommand::Agents
+                | SlashCommand::Export
+                | SlashCommand::Raw
+                | SlashCommand::Diff
+                | SlashCommand::Mention
+                | SlashCommand::Status
+                | SlashCommand::Pwd
+                | SlashCommand::Usage
+                | SlashCommand::Ide
         )
     }
 
@@ -176,58 +212,63 @@ impl SlashCommand {
     pub fn available_during_task(self) -> bool {
         match self {
             SlashCommand::New
-            | SlashCommand::Resume
+            | SlashCommand::Archive
+            | SlashCommand::Delete
             | SlashCommand::Fork
             | SlashCommand::Init
             | SlashCommand::Compact
-            // | SlashCommand::Undo
-            | SlashCommand::Model
-            | SlashCommand::Fast
-            | SlashCommand::Personality
-            | SlashCommand::Approvals
-            | SlashCommand::Permissions
+            | SlashCommand::Export
+            | SlashCommand::Keymap
+            | SlashCommand::Vim
             | SlashCommand::ElevateSandbox
             | SlashCommand::SandboxReadRoot
             | SlashCommand::Experimental
             | SlashCommand::Memories
+            | SlashCommand::Import
             | SlashCommand::Review
             | SlashCommand::Plan
             | SlashCommand::TaskSpace
-            | SlashCommand::MapRequest
-            | SlashCommand::MapAppend
-            | SlashCommand::MapAlways
+            | SlashCommand::Cd
             | SlashCommand::Clear
             | SlashCommand::Logout
             | SlashCommand::MemoryDrop
             | SlashCommand::MemoryUpdate => false,
             SlashCommand::Diff
+            | SlashCommand::Resume
+            | SlashCommand::Model
+            | SlashCommand::Personality
+            | SlashCommand::Permissions
             | SlashCommand::Copy
+            | SlashCommand::Raw
             | SlashCommand::Rename
             | SlashCommand::Mention
             | SlashCommand::Skills
+            | SlashCommand::Hooks
             | SlashCommand::Status
+            | SlashCommand::Pwd
+            | SlashCommand::Usage
             | SlashCommand::DebugConfig
             | SlashCommand::Ps
             | SlashCommand::Stop
+            | SlashCommand::App
             | SlashCommand::Goal
+            | SlashCommand::TaskShow
             | SlashCommand::Mcp
-            | SlashCommand::SearchProvider
             | SlashCommand::Apps
             | SlashCommand::Plugins
+            | SlashCommand::Title
+            | SlashCommand::Statusline
+            | SlashCommand::AutoReview
             | SlashCommand::Feedback
+            | SlashCommand::Ide
             | SlashCommand::Quit
             | SlashCommand::Exit
             | SlashCommand::Side
-            | SlashCommand::TaskShow => true,
+            | SlashCommand::Btw => true,
             SlashCommand::Rollout => true,
             SlashCommand::TestApproval => true,
-            SlashCommand::Realtime => true,
-            SlashCommand::Settings => true,
-            SlashCommand::Collab => true,
-            SlashCommand::Agent | SlashCommand::MultiAgents => true,
-            SlashCommand::Statusline => false,
-            SlashCommand::Theme => false,
-            SlashCommand::Title => false,
+            SlashCommand::Agent | SlashCommand::Agents | SlashCommand::MultiAgents => true,
+            SlashCommand::Theme | SlashCommand::Pets => false,
         }
     }
 
@@ -235,6 +276,7 @@ impl SlashCommand {
         match self {
             SlashCommand::SandboxReadRoot => cfg!(target_os = "windows"),
             SlashCommand::Copy => !cfg!(target_os = "android"),
+            SlashCommand::App => cfg!(any(target_os = "macos", target_os = "windows")),
             SlashCommand::Rollout | SlashCommand::TestApproval => cfg!(debug_assertions),
             _ => true,
         }
@@ -267,21 +309,30 @@ mod tests {
     }
 
     #[test]
-    fn singular_permission_alias_parses_to_permissions_command() {
-        assert_eq!(
-            SlashCommand::from_str("permissions"),
-            Ok(SlashCommand::Permissions)
-        );
-        assert_eq!(
-            SlashCommand::from_str("permission"),
-            Ok(SlashCommand::Permissions)
-        );
-        assert_eq!(SlashCommand::Permissions.command(), "permissions");
+    fn pet_alias_parses_to_pets_command() {
+        assert_eq!(SlashCommand::Pets.command(), "pets");
+        assert_eq!(SlashCommand::from_str("pet"), Ok(SlashCommand::Pets));
     }
 
     #[test]
-    fn goal_command_is_available_during_task() {
+    fn certain_commands_are_available_during_task() {
         assert!(SlashCommand::Goal.available_during_task());
+        assert!(SlashCommand::Ide.available_during_task());
+        assert!(SlashCommand::Title.available_during_task());
+        assert!(SlashCommand::Statusline.available_during_task());
+        assert!(SlashCommand::Raw.available_during_task());
+        assert!(SlashCommand::Raw.available_in_side_conversation());
+        assert!(SlashCommand::Raw.supports_inline_args());
+        assert!(SlashCommand::App.available_during_task());
+    }
+
+    #[test]
+    fn auto_review_command_is_approve() {
+        assert_eq!(SlashCommand::AutoReview.command(), "approve");
+        assert_eq!(
+            SlashCommand::from_str("approve"),
+            Ok(SlashCommand::AutoReview)
+        );
     }
 
     #[test]
@@ -290,23 +341,12 @@ mod tests {
             SlashCommand::from_str("taskspace"),
             Ok(SlashCommand::TaskSpace)
         );
-        assert!(!SlashCommand::TaskSpace.supports_inline_args());
-        assert!(!SlashCommand::TaskSpace.available_during_task());
-
         assert_eq!(
             SlashCommand::from_str("task-show"),
             Ok(SlashCommand::TaskShow)
         );
-        assert!(!SlashCommand::TaskShow.supports_inline_args());
+        assert!(!SlashCommand::TaskSpace.supports_inline_args());
+        assert!(!SlashCommand::TaskSpace.available_during_task());
         assert!(SlashCommand::TaskShow.available_during_task());
-    }
-
-    #[test]
-    fn legacy_map_commands_do_not_parse_as_user_slash_commands() {
-        assert!(SlashCommand::from_str("map-mode").is_err());
-        assert!(SlashCommand::from_str("map-restart").is_err());
-        assert!(SlashCommand::from_str("map-show").is_err());
-        assert!(SlashCommand::from_str("map-node").is_err());
-        assert!(SlashCommand::from_str("task-reborn").is_err());
     }
 }

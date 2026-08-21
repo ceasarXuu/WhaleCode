@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "entries": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "classification": {"enum": ["snapshot_review", "functional_assertion", "environment", "flaky_candidate", "unknown", null], "type": ["string", "null"]},
+          "name": {"type": "string"},
+          "result": {"enum": ["passed", "failed", "ignored"]}
+        },
+        "required": ["name", "result", "classification"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "environment": {
+      "additionalProperties": false,
+      "properties": {
+        "INSTA_UPDATE": {"const": "no"},
+        "RUST_MIN_STACK": {"const": "8388608"}
+      },
+      "required": ["INSTA_UPDATE", "RUST_MIN_STACK"],
+      "type": "object"
+    },
+    "package": {"const": "codex-tui"},
+    "profile": {"const": "whale-baseline"},
+    "runner": {"const": "cargo-nextest"},
+    "schema_version": {"const": 1},
+    "summary": {"type": "object"}
+  },
+  "required": ["schema_version", "runner", "package", "profile", "environment", "entries", "summary"],
+  "title": "Whale codex-tui normalized test baseline",
+  "type": "object"
+}

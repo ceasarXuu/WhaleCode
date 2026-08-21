@@ -1,7 +1,6 @@
 use codex_api::ResponsesApiRequest;
-use codex_api::WireApi;
-use codex_api::build_chat_completions_body;
-use codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_STANDARD;
+use codex_model_provider_info::WireApi;
+use codex_protocol::models::BASE_INSTRUCTIONS_DEFAULT;
 use codex_protocol::models::BASE_INSTRUCTIONS_WHALECODE_TASKSPACE;
 use codex_protocol::protocol::TokenUsage;
 use serde::Serialize;
@@ -15,17 +14,18 @@ use std::sync::Mutex;
 use tracing::info;
 use tracing::warn;
 
-use crate::context::WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256;
-use crate::context::WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION;
-use crate::context::WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256;
-use crate::context::WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION;
-
 #[path = "provider_wire_sections.rs"]
 mod provider_wire_sections;
 
 use provider_wire_sections::ProviderWireSectionCost;
 
 const TRACE_PATH_ENV: &str = "WHALE_PROVIDER_WIRE_TRACE_PATH";
+const WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION: &str = "codex-0.147-default";
+const WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256: &str =
+    "ac8ae107a0d72fe3476b430afb161ea4e67da2e446d778aefc44828160559807";
+const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "whalecode-taskspace-0.147";
+const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256: &str =
+    "f1a963f8476d98dee15cba3118e962981c8f0b7231b28a5884c32fc4be234363";
 
 #[derive(Debug)]
 pub(crate) struct ProviderWireTrace {
@@ -172,18 +172,12 @@ impl ProviderWireTrace {
         taskspace_capability_identity: Option<&str>,
     ) -> Value {
         let pre_wire = serde_json::to_value(request).unwrap_or(Value::Null);
-        let wire = wire_override.unwrap_or_else(|| match provider_wire_api {
-            WireApi::ChatCompletions => build_chat_completions_body(request),
-            WireApi::Responses => pre_wire.clone(),
-        });
+        let wire = wire_override.unwrap_or_else(|| pre_wire.clone());
         let Some(path) = self.path.as_ref() else {
             return wire;
         };
 
-        let messages_field = match provider_wire_api {
-            WireApi::ChatCompletions => "messages",
-            WireApi::Responses => "input",
-        };
+        let messages_field = "input";
         let messages = wire
             .get(messages_field)
             .and_then(Value::as_array)
@@ -192,8 +186,8 @@ impl ProviderWireTrace {
         let message_shapes = message_shapes(&messages);
         let tools = wire.get("tools").unwrap_or(&Value::Null);
         let tools_hash = json_hash(tools);
-        let tool_choice_kind = request.tool_choice.kind();
-        let tool_choice_name = request.tool_choice.function_name();
+        let tool_choice_kind = request.tool_choice.as_str();
+        let tool_choice_name = None;
         let cache_shape_hash = cache_shape_hash(&tools_hash, tool_choice_kind, tool_choice_name);
         let tools_count = tools.as_array().map(Vec::len).unwrap_or(0);
         let messages_hash = json_hash(wire.get(messages_field).unwrap_or(&Value::Null));
@@ -237,8 +231,7 @@ impl ProviderWireTrace {
             Some(false) => "provider.chat_wire_prefix_broken",
             None => "provider.chat_wire_shape_recorded",
         };
-        let base_instructions_identity =
-            base_instructions_identity(&wire, provider_wire_api, &messages);
+        let base_instructions_identity = base_instructions_identity(&wire);
         let event = WireShapeEvent {
             schema_version: "provider-chat-wire-trace-v11",
             event_name,
@@ -349,50 +342,19 @@ fn reset_epoch_if_needed(state: &mut ProviderWireTraceState, epoch_id: &str) {
     state.active_request_identity = None;
 }
 
-fn base_instructions_identity(
-    wire: &Value,
-    provider_wire_api: WireApi,
-    messages: &[Value],
-) -> BaseInstructionsWireIdentity {
+fn base_instructions_identity(wire: &Value) -> BaseInstructionsWireIdentity {
     let mut matches = Vec::new();
-    match provider_wire_api {
-        WireApi::Responses => {
-            if let Some(instructions) = wire.get("instructions").and_then(Value::as_str)
-                && let Some((profile, version, sha256)) = known_base_instructions(instructions)
-            {
-                matches.push((
-                    None,
-                    "instructions",
-                    profile,
-                    version,
-                    sha256,
-                    json_bytes(&Value::String(instructions.to_string())).len(),
-                ));
-            }
-        }
-        WireApi::ChatCompletions => {
-            for (index, message) in messages.iter().enumerate() {
-                let Some(role @ ("developer" | "system")) =
-                    message.get("role").and_then(Value::as_str)
-                else {
-                    continue;
-                };
-                let mut strings = Vec::new();
-                collect_strings(message.get("content").unwrap_or(&Value::Null), &mut strings);
-                for text in strings {
-                    if let Some((profile, version, sha256)) = known_base_instructions(text) {
-                        matches.push((
-                            Some(index),
-                            role,
-                            profile,
-                            version,
-                            sha256,
-                            json_bytes(message).len(),
-                        ));
-                    }
-                }
-            }
-        }
+    if let Some(instructions) = wire.get("instructions").and_then(Value::as_str)
+        && let Some((profile, version, sha256)) = known_base_instructions(instructions)
+    {
+        matches.push((
+            None,
+            "instructions",
+            profile,
+            version,
+            sha256,
+            json_bytes(&Value::String(instructions.to_string())).len(),
+        ));
     }
     if matches.is_empty() {
         return unavailable_base_instructions_identity(0, "base_instructions_unrecognized");
@@ -419,7 +381,7 @@ fn base_instructions_identity(
 }
 
 fn known_base_instructions(text: &str) -> Option<(&'static str, &'static str, &'static str)> {
-    if text == BASE_INSTRUCTIONS_WHALECODE_STANDARD {
+    if text == BASE_INSTRUCTIONS_DEFAULT {
         Some((
             "standard",
             WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION,
@@ -451,23 +413,6 @@ fn unavailable_base_instructions_identity(
         sha256: None,
         matches_current_contract: false,
         unavailable_reason: Some(reason),
-    }
-}
-
-fn collect_strings<'a>(value: &'a Value, strings: &mut Vec<&'a str>) {
-    match value {
-        Value::String(text) => strings.push(text),
-        Value::Array(values) => {
-            for value in values {
-                collect_strings(value, strings);
-            }
-        }
-        Value::Object(values) => {
-            for value in values.values() {
-                collect_strings(value, strings);
-            }
-        }
-        Value::Null | Value::Bool(_) | Value::Number(_) => {}
     }
 }
 
@@ -598,17 +543,31 @@ mod tests {
         serde_json::json!({"role": role, "content": content})
     }
 
+    #[test]
+    fn base_instruction_hashes_match_embedded_prompts() {
+        let digest = |text: &str| format!("{:x}", Sha256::digest(text.as_bytes()));
+        assert_eq!(
+            digest(BASE_INSTRUCTIONS_DEFAULT),
+            WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256
+        );
+        assert_eq!(
+            digest(BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
+            WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256
+        );
+    }
+
     fn trace_request() -> ResponsesApiRequest {
         ResponsesApiRequest {
             model: "test-model".to_string(),
             instructions: String::new(),
             input: Vec::new(),
-            tools: Vec::new(),
+            tools: None,
             tool_choice: "auto".into(),
             parallel_tool_calls: true,
             reasoning: None,
             store: false,
             stream: true,
+            stream_options: None,
             include: Vec::new(),
             service_tier: None,
             prompt_cache_key: None,
@@ -654,9 +613,11 @@ mod tests {
         let usage = TokenUsage {
             input_tokens: 10,
             cached_input_tokens: 8,
+            cache_write_input_tokens: 0,
             output_tokens: 2,
             reasoning_output_tokens: 0,
             total_tokens: 12,
+            codex_rollout_budget_units: None,
         };
         let second = trace
             .record_terminal("response_completed", Some(&usage))
@@ -722,19 +683,13 @@ mod tests {
 
     #[test]
     fn standard_base_identity_tracks_version_hash_and_position() {
-        let messages = vec![
-            message("developer", BASE_INSTRUCTIONS_WHALECODE_STANDARD),
-            message("user", "task"),
-        ];
-
-        let identity = base_instructions_identity(
-            &serde_json::json!({"messages": messages}),
-            WireApi::ChatCompletions,
-            &messages,
-        );
+        let identity = base_instructions_identity(&serde_json::json!({
+            "instructions": BASE_INSTRUCTIONS_DEFAULT,
+            "input": [message("user", "task")],
+        }));
         assert_eq!(identity.count, 1);
-        assert_eq!(identity.message_index, Some(0));
-        assert_eq!(identity.wire_role.as_deref(), Some("developer"));
+        assert_eq!(identity.message_index, None);
+        assert_eq!(identity.wire_role.as_deref(), Some("instructions"));
         assert_eq!(identity.profile, Some("standard"));
         assert_eq!(
             identity.version,
@@ -750,19 +705,13 @@ mod tests {
 
     #[test]
     fn taskspace_base_identity_tracks_version_hash_and_position() {
-        let messages = vec![
-            message("developer", BASE_INSTRUCTIONS_WHALECODE_TASKSPACE),
-            message("user", "task"),
-        ];
-
-        let identity = base_instructions_identity(
-            &serde_json::json!({"messages": messages}),
-            WireApi::ChatCompletions,
-            &messages,
-        );
+        let identity = base_instructions_identity(&serde_json::json!({
+            "instructions": BASE_INSTRUCTIONS_WHALECODE_TASKSPACE,
+            "input": [message("user", "task")],
+        }));
         assert_eq!(identity.count, 1);
-        assert_eq!(identity.message_index, Some(0));
-        assert_eq!(identity.wire_role.as_deref(), Some("developer"));
+        assert_eq!(identity.message_index, None);
+        assert_eq!(identity.wire_role.as_deref(), Some("instructions"));
         assert_eq!(identity.profile, Some("taskspace"));
         assert_eq!(
             identity.version,
@@ -778,13 +727,10 @@ mod tests {
 
     #[test]
     fn unknown_or_user_quoted_base_is_not_counted() {
-        let messages = vec![message("user", BASE_INSTRUCTIONS_WHALECODE_STANDARD)];
-
-        let identity = base_instructions_identity(
-            &serde_json::json!({"messages": messages}),
-            WireApi::ChatCompletions,
-            &messages,
-        );
+        let identity = base_instructions_identity(&serde_json::json!({
+            "instructions": "unknown",
+            "input": [message("user", BASE_INSTRUCTIONS_DEFAULT)],
+        }));
         assert_eq!(identity.count, 0);
         assert_eq!(
             identity.unavailable_reason,
@@ -800,7 +746,7 @@ mod tests {
             "input": messages,
         });
 
-        let identity = base_instructions_identity(&wire, WireApi::Responses, &messages);
+        let identity = base_instructions_identity(&wire);
 
         assert_eq!(identity.count, 1);
         assert_eq!(identity.message_index, None);

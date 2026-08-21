@@ -1,0 +1,10 @@
+[profile.whale-baseline]
+fail-fast = false
+retries = 0
+status-level = "fail"
+final-status-level = "fail"
+
+[profile.whale-baseline.junit]
+path = "junit.xml"
+store-success-output = false
+store-failure-output = true

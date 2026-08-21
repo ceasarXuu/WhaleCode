@@ -4,7 +4,6 @@ use crate::models::PermissionProfile;
 use crate::parse_command::ParsedCommand;
 use crate::protocol::FileChange;
 use crate::protocol::ReviewDecision;
-use crate::protocol::SandboxPolicy;
 use crate::request_permissions::RequestPermissionProfile;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use schemars::JsonSchema;
@@ -16,13 +15,9 @@ use std::path::PathBuf;
 use ts_rs::TS;
 
 /// Fully resolved permissions for rerunning an intercepted child process.
-///
-/// `permission_profile` is the canonical permission model. `sandbox_policy`
-/// remains as the legacy adapter for sandbox backends that still require it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedPermissionProfile {
     pub permission_profile: PermissionProfile,
-    pub sandbox_policy: SandboxPolicy,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -188,10 +183,24 @@ pub struct GuardianAssessmentEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub target_item_id: Option<String>,
+    /// Trusted plugin attribution for command items synthesized from this review.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub plugin_id: Option<String>,
+    /// Safe plugin-relative path for command items synthesized from this review.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub script_path: Option<String>,
     /// Turn ID that this assessment belongs to.
     /// Uses `#[serde(default)]` for backwards compatibility.
     #[serde(default)]
     pub turn_id: String,
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub started_at_ms: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub completed_at_ms: Option<i64>,
     pub status: GuardianAssessmentStatus,
     /// Coarse risk label. Omitted while the assessment is in progress.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -217,6 +226,14 @@ pub struct GuardianAssessmentEvent {
 pub struct ExecApprovalRequestEvent {
     /// Identifier for the associated command execution item.
     pub call_id: String,
+    /// Trusted plugin attribution for the command item, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub plugin_id: Option<String>,
+    /// Safe plugin-relative path for the command item, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub script_path: Option<String>,
     /// Identifier for this specific approval callback.
     ///
     /// When absent, the approval is for the command item itself (`call_id`).
@@ -228,6 +245,18 @@ pub struct ExecApprovalRequestEvent {
     /// Uses `#[serde(default)]` for backwards compatibility.
     #[serde(default)]
     pub turn_id: String,
+    /// Environment in which the command will run.
+    #[serde(
+        default,
+        rename = "environmentId",
+        alias = "environment_id",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[ts(optional)]
+    #[ts(rename = "environmentId")]
+    pub environment_id: Option<String>,
+    #[ts(type = "number")]
+    pub started_at_ms: i64,
     /// The command to be executed.
     pub command: Vec<String>,
     /// The command's working directory.
@@ -329,6 +358,15 @@ pub enum ElicitationRequest {
         message: String,
         requested_schema: JsonValue,
     },
+    #[serde(rename = "openai/form")]
+    #[ts(rename = "openai/form")]
+    OpenAiForm {
+        #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, rename = "_meta")]
+        meta: Option<JsonValue>,
+        message: String,
+        requested_schema: JsonValue,
+    },
     Url {
         #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none")]
         #[ts(optional, rename = "_meta")]
@@ -337,14 +375,6 @@ pub enum ElicitationRequest {
         url: String,
         elicitation_id: String,
     },
-}
-
-impl ElicitationRequest {
-    pub fn message(&self) -> &str {
-        match self {
-            Self::Form { message, .. } | Self::Url { message, .. } => message,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, JsonSchema, TS)]
@@ -375,6 +405,8 @@ pub struct ApplyPatchApprovalRequestEvent {
     /// Uses `#[serde(default)]` for backwards compatibility with older senders.
     #[serde(default)]
     pub turn_id: String,
+    #[ts(type = "number")]
+    pub started_at_ms: i64,
     pub changes: HashMap<PathBuf, FileChange>,
     /// Optional explanatory reason (e.g. request for extra write access).
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -5,7 +5,7 @@ use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use ts_rs::TS;
 
-/// Top-level JSONL events emitted by whale exec
+/// Top-level JSONL events emitted by codex exec
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
 #[serde(tag = "type")]
 pub enum ThreadEvent {
@@ -63,6 +63,9 @@ pub struct Usage {
     pub input_tokens: i64,
     /// The number of cached input tokens used during the turn.
     pub cached_input_tokens: i64,
+    /// The number of input tokens written to the prompt cache during the turn.
+    #[serde(default)]
+    pub cache_write_input_tokens: i64,
     /// The number of output tokens used during the turn.
     pub output_tokens: i64,
     /// The number of reasoning output tokens used during the turn.
@@ -285,9 +288,6 @@ pub struct McpToolCallItem {
     pub tool: String,
     #[serde(default)]
     pub arguments: JsonValue,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub plugin_id: Option<String>,
     pub result: Option<McpToolCallItemResult>,
     pub error: Option<McpToolCallItemError>,
     pub status: McpToolCallStatus,

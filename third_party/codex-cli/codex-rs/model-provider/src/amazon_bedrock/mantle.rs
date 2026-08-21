@@ -1,7 +1,11 @@
 use codex_aws_auth::AwsAuthConfig;
+use codex_login::auth::BedrockApiKeyAuth;
 use codex_model_provider_info::ModelProviderAwsAuthInfo;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result;
+
+use super::BedrockEndpoint;
+use super::auth::resolve_region;
 
 const BEDROCK_MANTLE_SERVICE_NAME: &str = "bedrock-mantle";
 const BEDROCK_MANTLE_SUPPORTED_REGIONS: [&str; 12] = [
@@ -35,14 +39,27 @@ pub(super) fn region_from_config(aws: &ModelProviderAwsAuthInfo) -> Option<Strin
         .map(str::to_string)
 }
 
+/// Returns whether Amazon Bedrock Mantle is available in `region`.
+pub fn is_supported_amazon_bedrock_region(region: &str) -> bool {
+    BEDROCK_MANTLE_SUPPORTED_REGIONS.contains(&region)
+}
+
 pub(super) fn base_url(region: &str) -> Result<String> {
-    if BEDROCK_MANTLE_SUPPORTED_REGIONS.contains(&region) {
-        Ok(format!("https://bedrock-mantle.{region}.api.aws/v1"))
+    if is_supported_amazon_bedrock_region(region) {
+        Ok(format!("https://bedrock-mantle.{region}.api.aws/openai/v1"))
     } else {
         Err(CodexErr::Fatal(format!(
             "Amazon Bedrock Mantle does not support region `{region}`"
         )))
     }
+}
+
+pub(super) async fn bedrock_mantle_runtime_base_url(
+    managed_auth: Option<&BedrockApiKeyAuth>,
+    aws: &ModelProviderAwsAuthInfo,
+) -> Result<String> {
+    let region = resolve_region(managed_auth, aws, BedrockEndpoint::Mantle).await?;
+    base_url(&region)
 }
 
 #[cfg(test)]
@@ -55,7 +72,7 @@ mod tests {
     fn base_url_uses_region_endpoint() {
         assert_eq!(
             base_url("ap-northeast-1").expect("supported region"),
-            "https://bedrock-mantle.ap-northeast-1.api.aws/v1"
+            "https://bedrock-mantle.ap-northeast-1.api.aws/openai/v1"
         );
     }
 
@@ -75,6 +92,7 @@ mod tests {
             aws_auth_config(&ModelProviderAwsAuthInfo {
                 profile: Some("codex-bedrock".to_string()),
                 region: None,
+                auth_refresh: None,
             }),
             AwsAuthConfig {
                 profile: Some("codex-bedrock".to_string()),
@@ -90,6 +108,7 @@ mod tests {
             aws_auth_config(&ModelProviderAwsAuthInfo {
                 profile: None,
                 region: Some(" us-west-2 ".to_string()),
+                auth_refresh: None,
             }),
             AwsAuthConfig {
                 profile: None,

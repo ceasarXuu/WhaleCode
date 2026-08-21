@@ -236,6 +236,12 @@ pub fn paste_image_to_temp_png() -> Result<(PathBuf, PastedImageInfo), PasteImag
     ))
 }
 
+/// Normalize pasted text for a single-line search query.
+pub(crate) fn normalize_pasted_search_query(pasted: &str) -> Option<String> {
+    let normalized = pasted.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!normalized.is_empty()).then_some(normalized)
+}
+
 /// Normalize pasted text that may represent a filesystem path.
 ///
 /// Supports:
@@ -258,7 +264,7 @@ pub fn normalize_pasted_path(pasted: &str) -> Option<PathBuf> {
     }
 
     // TODO: We'll improve the implementation/unit tests over time, as appropriate.
-    // Possibly use typed-path in a future clipboard refactor.
+    // Possibly use typed-path: https://github.com/openai/codex/pull/2567/commits/3cc92b78e0a1f94e857cf4674d3a9db918ed352e
     //
     // Detect unquoted Windows paths and bypass POSIX shlex which
     // treats backslashes as escapes (e.g., C:\Users\Alice\file.png).
@@ -365,6 +371,19 @@ pub fn pasted_image_format(path: &Path) -> EncodedImageFormat {
         Some("png") => EncodedImageFormat::Png,
         Some("jpg") | Some("jpeg") => EncodedImageFormat::Jpeg,
         _ => EncodedImageFormat::Other,
+    }
+}
+
+#[cfg(test)]
+mod pasted_search_query_tests {
+    use super::*;
+
+    #[test]
+    fn collapses_whitespace() {
+        assert_eq!(
+            normalize_pasted_search_query("  alpha\n\tbeta\r\n gamma  "),
+            Some(String::from("alpha beta gamma"))
+        );
     }
 }
 

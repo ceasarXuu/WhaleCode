@@ -1,4 +1,5 @@
 use assert_cmd::Command;
+use codex_apply_patch::CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS_ENV_VAR;
 use pretty_assertions::assert_eq;
 use std::fs;
 use std::path::Path;
@@ -7,12 +8,34 @@ use tempfile::tempdir;
 
 fn run_apply_patch_in_dir(dir: &Path, patch: &str) -> anyhow::Result<assert_cmd::assert::Assert> {
     let mut cmd = Command::new(codex_utils_cargo_bin::cargo_bin("apply_patch")?);
+    cmd.env(CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS_ENV_VAR, "1");
     cmd.current_dir(dir);
     Ok(cmd.arg(patch).assert())
 }
 
+fn assert_apply_patch_updates_file(
+    file_name: &str,
+    original: &[u8],
+    patch: &str,
+    expected: &[u8],
+) -> anyhow::Result<()> {
+    let tmp = tempdir()?;
+    let target_path = tmp.path().join(file_name);
+    fs::write(&target_path, original)?;
+
+    run_apply_patch_in_dir(tmp.path(), patch)?
+        .success()
+        .stdout(format!(
+            "Success. Updated the following files:\nM {file_name}\n"
+        ));
+
+    assert_eq!(fs::read(target_path)?, expected);
+    Ok(())
+}
+
 fn apply_patch_command(dir: &Path) -> anyhow::Result<Command> {
     let mut cmd = Command::new(codex_utils_cargo_bin::cargo_bin("apply_patch")?);
+    cmd.env(CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS_ENV_VAR, "1");
     cmd.current_dir(dir);
     Ok(cmd)
 }
@@ -62,6 +85,141 @@ fn test_apply_patch_cli_applies_multiple_chunks() -> anyhow::Result<()> {
     );
 
     Ok(())
+}
+
+#[test]
+fn test_apply_patch_cli_rejects_overlapping_end_of_file_chunks() -> anyhow::Result<()> {
+    let tmp = tempdir()?;
+    let target_path = tmp.path().join("overlapping.txt");
+    let expected_target_path = resolved_under(tmp.path(), "overlapping.txt")?;
+    fs::write(&target_path, "one\n")?;
+
+    let patch = "*** Begin Patch\n*** Update File: overlapping.txt\n@@\n-one\n+first\n@@\n-one\n+second\n*** End of File\n*** End Patch";
+
+    run_apply_patch_in_dir(tmp.path(), patch)?
+        .failure()
+        .stderr(format!(
+            "Failed to find expected lines in {}:\none\n",
+            expected_target_path.display()
+        ));
+
+    assert_eq!(fs::read_to_string(target_path)?, "one\n");
+    Ok(())
+}
+
+#[test]
+fn test_apply_patch_cli_allows_overlapping_eof_chunks_in_legacy_mode() -> anyhow::Result<()> {
+    let tmp = tempdir()?;
+    let target_path = tmp.path().join("overlapping.txt");
+    fs::write(&target_path, "one\n")?;
+
+    let patch = "*** Begin Patch\n*** Update File: overlapping.txt\n@@\n-one\n+first\n@@\n-one\n+second\n*** End of File\n*** End Patch";
+
+    Command::new(codex_utils_cargo_bin::cargo_bin("apply_patch")?)
+        .env_remove(CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS_ENV_VAR)
+        .arg(patch)
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stdout("Success. Updated the following files:\nM overlapping.txt\n");
+
+    assert_eq!(fs::read_to_string(target_path)?, "first\n");
+    Ok(())
+}
+
+#[test]
+fn test_apply_patch_cli_preserves_crlf_from_target_file() -> anyhow::Result<()> {
+    let patch = "*** Begin Patch\n*** Update File: crlf.txt\n@@\n-one\n+uno\n@@\n two\n+\n+between\n three\n*** End Patch";
+
+    assert_apply_patch_updates_file(
+        "crlf.txt",
+        b"one\r\ntwo\r\nthree\r\n",
+        patch,
+        b"uno\r\ntwo\r\n\r\nbetween\r\nthree\r\n",
+    )
+}
+
+#[test]
+fn test_apply_patch_cli_appends_after_trailing_blank_crlf_line() -> anyhow::Result<()> {
+    let patch = "*** Begin Patch\n*** Update File: trailing_blank.txt\n@@\n+new\n*** End Patch";
+
+    assert_apply_patch_updates_file(
+        "trailing_blank.txt",
+        b"a\r\n\r\n",
+        patch,
+        b"a\r\n\r\nnew\r\n",
+    )
+}
+
+#[test]
+fn test_apply_patch_cli_uses_legacy_line_handling_without_rollout_env() -> anyhow::Result<()> {
+    let tmp = tempdir()?;
+    let target_path = tmp.path().join("crlf.txt");
+    fs::write(&target_path, b"one\r\n")?;
+    let patch = "*** Begin Patch\n*** Update File: crlf.txt\n@@\n-one\n+uno\n*** End Patch";
+
+    Command::new(codex_utils_cargo_bin::cargo_bin("apply_patch")?)
+        .env_remove(CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS_ENV_VAR)
+        .arg(patch)
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+
+    assert_eq!(fs::read(target_path)?, b"uno\n");
+    Ok(())
+}
+
+#[test]
+fn test_apply_patch_cli_preserves_cr_from_target_file() -> anyhow::Result<()> {
+    let patch = "*** Begin Patch\n*** Update File: cr.txt\n@@\n-one\n+uno\n@@\n two\n+\n+between\n three\n*** End Patch";
+
+    assert_apply_patch_updates_file(
+        "cr.txt",
+        b"one\rtwo\rthree\r",
+        patch,
+        b"uno\rtwo\r\rbetween\rthree\r",
+    )
+}
+
+#[test]
+fn test_apply_patch_cli_preserves_change_order_with_repeated_lines() -> anyhow::Result<()> {
+    let patch =
+        "*** Begin Patch\n*** Update File: repeated.txt\n@@\n-a\n-b\n+b\n+b\n+a\n*** End Patch";
+
+    assert_apply_patch_updates_file("repeated.txt", b"a\nb\n", patch, b"b\nb\na\n")
+}
+
+#[test]
+fn test_apply_patch_cli_preserves_repeated_context_line_ending() -> anyhow::Result<()> {
+    let patch =
+        "*** Begin Patch\n*** Update File: repeated_context.txt\n@@\n-same\n same\n*** End Patch";
+
+    assert_apply_patch_updates_file("repeated_context.txt", b"same\r\nsame\n", patch, b"same\n")
+}
+
+#[test]
+fn test_apply_patch_cli_preserves_untouched_mixed_line_endings() -> anyhow::Result<()> {
+    let patch = "*** Begin Patch\n*** Update File: mixed.txt\n@@\n one\n two\n-three\n+THREE\n four\n*** End Patch";
+
+    assert_apply_patch_updates_file(
+        "mixed.txt",
+        b"one\r\ntwo\rthree\nfour\r\n",
+        patch,
+        b"one\r\ntwo\rTHREE\r\nfour\r\n",
+    )
+}
+
+#[test]
+fn test_apply_patch_cli_uses_crlf_for_new_trailing_newline() -> anyhow::Result<()> {
+    let patch =
+        "*** Begin Patch\n*** Update File: no_trailing_newline.txt\n@@\n-one\n+ONE\n*** End Patch";
+
+    assert_apply_patch_updates_file(
+        "no_trailing_newline.txt",
+        b"one\r\ntwo",
+        patch,
+        b"ONE\r\ntwo\r\n",
+    )
 }
 
 #[test]
@@ -258,7 +416,7 @@ fn test_apply_patch_cli_updates_file_appends_trailing_newline() -> anyhow::Resul
 }
 
 #[test]
-fn test_apply_patch_cli_validation_failure_has_zero_side_effects() -> anyhow::Result<()> {
+fn test_apply_patch_cli_failure_after_partial_success_leaves_changes() -> anyhow::Result<()> {
     let tmp = tempdir()?;
     let new_file = tmp.path().join("created.txt");
     let missing_file = resolved_under(tmp.path(), "missing.txt")?;
@@ -273,110 +431,7 @@ fn test_apply_patch_cli_validation_failure_has_zero_side_effects() -> anyhow::Re
             missing_file.display()
         ));
 
-    assert!(!new_file.exists());
+    assert_eq!(fs::read_to_string(&new_file)?, "hello\n");
 
-    Ok(())
-}
-
-#[test]
-fn test_apply_patch_cli_late_delete_validation_preserves_earlier_update() -> anyhow::Result<()> {
-    let tmp = tempdir()?;
-    let existing_file = tmp.path().join("existing.txt");
-    let missing_file = resolved_under(tmp.path(), "missing.txt")?;
-    fs::write(&existing_file, "before\n")?;
-
-    apply_patch_command(tmp.path())?
-        .arg("*** Begin Patch\n*** Update File: existing.txt\n@@\n-before\n+after\n*** Delete File: missing.txt\n*** End Patch")
-        .assert()
-        .failure()
-        .stdout("")
-        .stderr(format!("Failed to delete file {}\n", missing_file.display()));
-
-    assert_eq!(fs::read_to_string(existing_file)?, "before\n");
-    Ok(())
-}
-
-#[test]
-fn test_apply_patch_cli_rejects_conflicting_paths_before_writing() -> anyhow::Result<()> {
-    let tmp = tempdir()?;
-    let path = resolved_under(tmp.path(), "same.txt")?;
-
-    apply_patch_command(tmp.path())?
-        .arg("*** Begin Patch\n*** Add File: same.txt\n+first\n*** Add File: same.txt\n+second\n*** End Patch")
-        .assert()
-        .failure()
-        .stdout("")
-        .stderr(format!(
-            "Patch contains conflicting operations for {}\n",
-            path.display()
-        ));
-
-    assert!(!path.exists());
-    Ok(())
-}
-
-#[test]
-fn test_apply_patch_cli_rejects_move_to_same_path_without_writing() -> anyhow::Result<()> {
-    let tmp = tempdir()?;
-    let path = resolved_under(tmp.path(), "same.txt")?;
-    fs::write(&path, "before\n")?;
-
-    apply_patch_command(tmp.path())?
-        .arg("*** Begin Patch\n*** Update File: same.txt\n*** Move to: same.txt\n@@\n-before\n+after\n*** End Patch")
-        .assert()
-        .failure()
-        .stdout("")
-        .stderr(format!(
-            "Patch move source and destination are identical: {}\n",
-            path.display()
-        ));
-
-    assert_eq!(fs::read_to_string(path)?, "before\n");
-    Ok(())
-}
-
-#[test]
-fn test_apply_patch_cli_rejects_non_directory_parent_before_writing() -> anyhow::Result<()> {
-    let tmp = tempdir()?;
-    let parent = resolved_under(tmp.path(), "parent")?;
-    fs::write(&parent, "not a directory\n")?;
-
-    apply_patch_command(tmp.path())?
-        .arg("*** Begin Patch\n*** Add File: parent/child.txt\n+child\n*** End Patch")
-        .assert()
-        .failure()
-        .stdout("")
-        .stderr(format!(
-            "Patch parent path is not a directory: {}\n",
-            parent.display()
-        ));
-
-    assert_eq!(fs::read_to_string(parent)?, "not a directory\n");
-    Ok(())
-}
-
-#[cfg(unix)]
-#[test]
-fn test_apply_patch_cli_rejects_symlink_before_writing() -> anyhow::Result<()> {
-    use std::os::unix::fs::symlink;
-
-    let tmp = tempdir()?;
-    let target = resolved_under(tmp.path(), "target.txt")?;
-    let link = resolved_under(tmp.path(), "link.txt")?;
-    fs::write(&target, "before\n")?;
-    symlink(&target, &link)?;
-
-    apply_patch_command(tmp.path())?
-        .arg("*** Begin Patch\n*** Update File: link.txt\n@@\n-before\n+after\n*** End Patch")
-        .assert()
-        .failure()
-        .stdout("")
-        .stderr(format!(
-            "Patch path is a symbolic link and cannot be rolled back safely: {}\n",
-            link.display()
-        ));
-
-    assert_eq!(fs::read_to_string(target)?, "before\n");
-    assert!(fs::symlink_metadata(link)?.file_type().is_symlink());
     Ok(())
 }

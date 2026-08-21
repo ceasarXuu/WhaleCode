@@ -83,6 +83,7 @@ def run_free_validation(repo: Path, config: dict[str, Any]) -> dict[str, Any]:
     host_home = Path.home()
     environment["INSTA_UPDATE"] = "no"
     environment["CARGO_TERM_COLOR"] = "never"
+    environment.setdefault("RUST_MIN_STACK", "8388608")
     environment.setdefault("CARGO_HOME", str(host_home / ".cargo"))
     environment.setdefault("RUSTUP_HOME", str(host_home / ".rustup"))
     for command in config["commands"]:

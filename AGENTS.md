@@ -51,3 +51,13 @@
 - 缓存敏感面变更必须通过 `python3 scripts/cache-regression/check_cache_regression_gate.py --source index`。门禁阻断时，先向用户说明具体变更路径、可能破坏的 provider 前缀结构和验证理由，再申请专用真实回归预算；不得使用 `--no-verify` 绕过。获批后只允许使用专用 runner，真实结果通过且与当前敏感面指纹一致时方可晋升基线。
 - `third_party/codex-cli/` 未来作为 Codex upstream vendor 快照时，应尽量保持上游原样；上游文件可保留原始长度和结构，不受本项目普通单文件 500 行限制。Whale 自有代码仍遵守 500 行原则。
 - 严禁为自然语言用户输入设置本地固定答复、寒暄模板、关键词答复或绕过模型的“智能回复”；所有自然语言输入必须进入 Agent/Model 路径，由 Agent 生成回答。CLI/slash 命令只能输出明确的机械状态、错误、路径或配置结果，不能伪装成 Agent 回答。
+
+# 工作空间开工门禁
+
+- 新clone、worktree或切换branch后，在执行安装、Whale运行、cache regression、TaskSpace benchmark等workspace敏感命令前，必须先运行`python3 scripts/workspace-safety/workspace_context.py bootstrap plan --json`。
+- `bootstrap plan`只读；检查输出后，只能把该次计划的精确`fingerprint`传给`bootstrap apply --expect <fingerprint>`。不得跳过确认、复用过期fingerprint或手工创建marker。
+- 初次bootstrap按`plan → apply → bash scripts/install-whale-local.sh --scope workspace → doctor --require-binary`执行。日常开工至少运行`require-ready`；需要隔离运行时环境时通过`workspace_context.py exec -- <command>`启动。
+- 门禁失败必须先按稳定诊断码恢复；禁止fallback到PATH上的全局`whale`，禁止复制或迁移legacy `~/.whale`、凭据、history、sessions、plugins或skills。
+- 真实模型运行的账本与预算批准仍是开发流程约束，不得把它实现成Whale产品逻辑或自然语言运行时授权协议。
+- 在本机对当前 Codex vendor 执行完整 crate 回归时，使用 `python3 scripts/codex-upstream/run_isolated_tests.py <nextest 参数>`；不得用宿主代理或共享临时目录产生的失败判断产品回归。定向测试仍可按上游 `just test` 运行。
+- VS Code用户使用`Workspace: Bootstrap Plan`、`Workspace: Bootstrap Apply`、`Workspace: Doctor`任务；权威合同仍是workspace-safety CLI。完整流程见`runbooks/local-workspace-safety.md`。

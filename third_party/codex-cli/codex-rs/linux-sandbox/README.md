@@ -12,10 +12,10 @@ outside the current working directory whenever it is available. If `bwrap` is
 present but too old to support
 `--argv0`, the helper keeps using system bubblewrap and switches to a
 no-`--argv0` compatibility path for the inner re-exec. If `bwrap` is missing,
-the helper falls back to the vendored bubblewrap path compiled into this
-binary.
+the helper falls back to the bundled `codex-resources/bwrap` binary shipped
+with Codex.
 Codex also surfaces a startup warning when `bwrap` is missing so users know it
-is falling back to the vendored helper. Codex surfaces the same startup warning
+is falling back to the bundled helper. Codex surfaces the same startup warning
 path when bubblewrap cannot create user namespaces. WSL2 follows the normal
 Linux bubblewrap path. WSL1 is not supported for bubblewrap sandboxing because
 it cannot create the required user namespaces, so Codex rejects sandboxed shell
@@ -28,8 +28,8 @@ commands that would enter the bubblewrap path.
   helper uses it.
 - If `bwrap` is present but too old to support `--argv0`, the helper uses a
   no-`--argv0` compatibility path for the inner re-exec.
-- If `bwrap` is missing, the helper falls back to the vendored bubblewrap
-  path.
+- If `bwrap` is missing, the helper falls back to the bundled
+  `codex-resources/bwrap` path.
 - If `bwrap` is missing, Codex also surfaces a startup warning instead of
   printing directly from the sandbox helper.
 - If bubblewrap cannot create user namespaces, Codex surfaces a startup warning
@@ -74,7 +74,7 @@ commands that would enter the bubblewrap path.
   [permissions.workspace.filesystem]
   glob_scan_max_depth = 2
 
-  [permissions.workspace.filesystem.":project_roots"]
+  [permissions.workspace.filesystem.":workspace_roots"]
   "**/*.env" = "none"
   ```
 
@@ -83,27 +83,15 @@ commands that would enter the bubblewrap path.
   missing component.
 - When bubblewrap is active, the helper explicitly isolates the user namespace via
   `--unshare-user` and the PID namespace via `--unshare-pid`.
-- Before launching bubblewrap, the helper probes whether the current host can
-  create user namespaces, network namespaces, and a fresh `/proc` mount.
-- When bubblewrap is active and network is restricted without proxy routing, the
-  helper prefers to isolate the network namespace via `--unshare-net`.
-- If a non-proxy restricted-network policy cannot create an isolated network
-  namespace, the helper may continue with bubblewrap full-network mode while
-  the in-process seccomp filter still blocks new network sockets for the user
-  command.
+- When bubblewrap is active and network is restricted without proxy routing, the helper also
+  isolates the network namespace via `--unshare-net`.
 - In managed proxy mode, the helper uses `--unshare-net` plus an internal
   TCP->UDS->TCP routing bridge so tool traffic reaches only configured proxy
   endpoints.
-- Managed proxy mode does not downgrade away from `--unshare-net`, because the
-  proxy bridge depends on network namespace isolation.
 - In managed proxy mode, after the bridge is live, seccomp blocks new
   AF_UNIX/socketpair creation for the user command.
 - When bubblewrap is active, it mounts a fresh `/proc` via `--proc /proc` by default, but
   you can skip this in restrictive container environments with `--no-proc`.
-- If bubblewrap bootstrap is unsupported in the current host but the requested
-  filesystem policy is legacy-compatible and no managed proxy is required, the
-  helper can fall back to the legacy Landlock + seccomp path and run the
-  original command there.
 
 **Notes**
-- The CLI surface still uses legacy names like `codex debug landlock`.
+- The CLI surface is `codex sandbox`; the host OS selects the sandbox backend.

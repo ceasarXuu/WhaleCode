@@ -63,6 +63,11 @@ WhaleCode is under active development. The repository currently vendors Codex
 CLI under `third_party/codex-cli/` and layers Whale-specific work around that
 upstream substrate.
 
+The current Codex `rust-v0.147.0` overlay has been rebased onto the latest
+project main and revalidated across DeepSeek Responses and the TaskSpace R8
+fork/restart/final-wire path. See the [U18 rebase and semantic migration
+report](docs/migration/codex-sync/2026-08-21-u18-main-rebase-r8-semantic-migration.md).
+
 The active Rust workspace lives here:
 
 ```powershell
@@ -70,6 +75,26 @@ cd third_party/codex-cli/codex-rs
 cargo check -p codex-cli --locked
 cargo run --quiet -p codex-cli --bin whale -- --version
 ```
+
+### Linux development workspace safety
+
+Every clone or worktree uses its own Whale runtime home, SQLite state, sessions,
+logs, temporary files, and installed development binary. Before workspace-sensitive
+development, create or refresh that binding:
+
+```bash
+python3 scripts/workspace-safety/workspace_context.py bootstrap plan --json
+python3 scripts/workspace-safety/workspace_context.py bootstrap apply --expect <fingerprint>
+bash scripts/install-whale-local.sh --scope workspace
+python3 scripts/workspace-safety/workspace_context.py doctor --require-binary
+```
+
+Use the exact fingerprint printed by the immediately preceding plan. On later
+starts, run `workspace_context.py require-ready`; after a branch change, plan and
+apply again. Do not copy legacy `~/.whale` data or fall back to a global `whale`.
+VS Code exposes matching Bootstrap Plan, Bootstrap Apply, Doctor, and Rust Check
+tasks. See [Local workspace safety](runbooks/local-workspace-safety.md) for the
+full workflow and recovery table.
 
 On Windows, local Whale builds should be installed through:
 
@@ -97,6 +122,7 @@ change, the work should be documented so future Codex syncs remain manageable.
 ## Documentation
 
 - [Development workflow](docs/runbooks/development-workflow.md)
+- [Local workspace safety](runbooks/local-workspace-safety.md)
 - [Windows development restore](docs/runbooks/windows-development-restore.md)
 - [Cross-system restore](docs/runbooks/cross-system-restore.md)
 - [Codex upstream substrate ADR](docs/adr/2026-04-27-codex-cli-upstream-substrate.md)

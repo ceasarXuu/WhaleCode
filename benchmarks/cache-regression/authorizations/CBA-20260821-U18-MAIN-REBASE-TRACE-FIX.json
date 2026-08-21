@@ -1,0 +1,29 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v2",
+  "status": "granted",
+  "approved_by": "user",
+  "authorization_id": "CBA-20260821-U18-MAIN-REBASE-TRACE-FIX",
+  "approval_reference": "用户于 2026-08-21 明确批准整个 rebase 与 Codex 合入工作 3.00 CNY 总包预算，并允许在预算内按需执行。本授权仅覆盖 deepseek-v4-flash、single-file-fast-fix 的 standard 与 map-request 各 1 次，零重试，单次提案费用硬上限 0.40 CNY；此前缺失 usage 的失败运行按其 0.40 CNY 上限保守占用，总包剩余上限 2.60 CNY。",
+  "approved_at": "2026-08-21T05:27:08+08:00",
+  "proposal_id": "CBP-818AC8EF81FB25DD",
+  "proposal_sha256": "854b913a18ab361ad49615a989fd42546e9f730cd0b6ba47893d397024bf2290",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": ["single-file-fast-fix"],
+    "arms": ["standard", "map-request"],
+    "repeat": 1,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": ["after_any_run_failure", "after_any_business_failure", "after_any_usage_gap", "after_any_budget_observation_exceeded"],
+    "selection_reason": "Validate the restored Codex 0.147 provider wire trace producer on one Standard and one map-request run; package budget is 3.00 CNY with 0.40 CNY conservatively reserved for the prior unmetered failed run."
+  },
+  "approved_maximums": {
+    "provider_requests": 36,
+    "input_tokens": 360000,
+    "output_tokens": 20000,
+    "elapsed_seconds": 1440,
+    "estimated_cost": 0.4,
+    "currency": "CNY"
+  }
+}

@@ -1,7 +1,7 @@
 //! Entry-point for the `codex-exec` binary.
 //!
 //! When this CLI is invoked normally, it parses the standard `codex-exec` CLI
-//! options and launches the non-interactive Whale agent. However, if it is
+//! options and launches the non-interactive Codex agent. However, if it is
 //! invoked with arg0 as `codex-linux-sandbox`, we instead treat the invocation
 //! as a request to run the logic for the standalone `codex-linux-sandbox`
 //! executable (i.e., parse any -s args and then run a *sandboxed* command under
@@ -32,8 +32,7 @@ fn main() -> anyhow::Result<()> {
         let mut inner = top_cli.inner;
         inner
             .config_overrides
-            .raw_overrides
-            .splice(0..0, top_cli.config_overrides.raw_overrides);
+            .prepend_root_overrides(top_cli.config_overrides);
 
         run_main(inner, arg0_paths).await?;
         Ok(())

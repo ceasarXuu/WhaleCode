@@ -2,14 +2,15 @@
 //!
 //! Wraps [syntect] with the [two_face] grammar and theme bundles to provide
 //! ~250-language syntax highlighting and 32 bundled color themes.  The module
-//! owns four process-global singletons:
+//! owns five process-global singletons:
 //!
 //! | Singleton | Type | Purpose |
 //! |---|---|---|
 //! | `SYNTAX_SET` | `OnceLock<SyntaxSet>` | Grammar database, immutable after init |
 //! | `THEME` | `OnceLock<RwLock<Theme>>` | Active color theme, swappable at runtime |
+//! | `THEME_REVISION` | `AtomicU64` | Invalidates rendered-content caches after theme swaps |
 //! | `THEME_OVERRIDE` | `OnceLock<Option<String>>` | Persisted user preference (write-once) |
-//! | `WHALE_HOME` | `OnceLock<Option<PathBuf>>` | Root for custom `.tmTheme` discovery |
+//! | `CODEX_HOME` | `OnceLock<Option<PathBuf>>` | Root for custom `.tmTheme` discovery |
 //!
 //! **Lifecycle:** call [`set_theme_override`] once at startup (after the final
 //! config is resolved) to persist the user preference and seed the `THEME`
@@ -17,9 +18,10 @@
 //! swap/snapshot the theme for live preview.  All highlighting functions read
 //! the theme via `theme_lock()`.
 //!
-//! **Guardrails:** inputs exceeding 512 KB or 10 000 lines are rejected early
-//! (returns `None`) to prevent pathological CPU/memory usage.  Callers must
-//! fall back to plain unstyled text.
+//! **Guardrails:** inputs exceeding 512 KB or 10 000 lines, or containing an
+//! individual line longer than 4 KiB, are rejected early (returns `None`) to
+//! prevent pathological CPU/memory usage.  Callers must fall back to plain
+//! unstyled text.
 
 use ratatui::style::Color as RtColor;
 use ratatui::style::Modifier;
@@ -30,6 +32,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::sync::RwLock;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::Color as SyntectColor;
 use syntect::highlighting::FontStyle;
@@ -43,12 +47,18 @@ use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 use two_face::theme::EmbeddedThemeName;
 
+#[path = "highlight_streaming.rs"]
+mod streaming;
+
+pub(crate) use streaming::StreamingCodeHighlighter;
+
 // -- Global singletons -------------------------------------------------------
 
 static SYNTAX_SET: OnceLock<SyntaxSet> = OnceLock::new();
 static THEME: OnceLock<RwLock<Theme>> = OnceLock::new();
+static THEME_REVISION: AtomicU64 = AtomicU64::new(0);
 static THEME_OVERRIDE: OnceLock<Option<String>> = OnceLock::new();
-static WHALE_HOME: OnceLock<Option<PathBuf>> = OnceLock::new();
+static CODEX_HOME: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 // Syntect/bat encode ANSI palette semantics in alpha:
 // `a=0` => indexed ANSI palette via RGB payload, `a=1` => terminal default.
@@ -84,7 +94,7 @@ pub(crate) fn set_theme_override(
 ) -> Option<String> {
     let warning = validate_theme_name(name.as_deref(), codex_home.as_deref());
     let override_set_ok = THEME_OVERRIDE.set(name.clone()).is_ok();
-    let codex_home_set_ok = WHALE_HOME.set(codex_home.clone()).is_ok();
+    let codex_home_set_ok = CODEX_HOME.set(codex_home.clone()).is_ok();
     if THEME.get().is_some() {
         set_syntax_theme(resolve_theme_with_override(
             name.as_deref(),
@@ -106,7 +116,7 @@ pub(crate) fn validate_theme_name(name: Option<&str>, codex_home: Option<&Path>)
     let name = name?;
     let custom_theme_path_display = codex_home
         .map(|home| custom_theme_path(name, home).display().to_string())
-        .unwrap_or_else(|| format!("$WHALE_HOME/themes/{name}.tmTheme"));
+        .unwrap_or_else(|| format!("$CODEX_HOME/themes/{name}.tmTheme"));
     // Bundled themes always resolve.
     if parse_theme_name(name).is_some() {
         return None;
@@ -211,7 +221,7 @@ fn resolve_theme_with_override(name: Option<&str>, codex_home: Option<&Path>) ->
         if let Some(theme_name) = parse_theme_name(name) {
             return ts.get(theme_name).clone();
         }
-        // 2. Try loading {WHALE_HOME}/themes/{name}.tmTheme from disk.
+        // 2. Try loading {CODEX_HOME}/themes/{name}.tmTheme from disk.
         if let Some(home) = codex_home
             && let Some(theme) = load_custom_theme(name, home)
         {
@@ -227,7 +237,7 @@ fn resolve_theme_with_override(name: Option<&str>, codex_home: Option<&Path>) ->
 /// Extracted from the old `theme()` init closure so it can be reused.
 fn build_default_theme() -> Theme {
     let name = THEME_OVERRIDE.get().and_then(|name| name.as_deref());
-    let codex_home = WHALE_HOME
+    let codex_home = CODEX_HOME
         .get()
         .and_then(|codex_home| codex_home.as_deref());
     resolve_theme_with_override(name, codex_home)
@@ -237,13 +247,19 @@ fn theme_lock() -> &'static RwLock<Theme> {
     THEME.get_or_init(|| RwLock::new(build_default_theme()))
 }
 
-/// Swap the active syntax theme at runtime (for live preview).
+/// Swap the active syntax theme at runtime and invalidate rendered-content caches.
 pub(crate) fn set_syntax_theme(theme: Theme) {
     let mut guard = match theme_lock().write() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
     *guard = theme;
+    THEME_REVISION.fetch_add(1, Ordering::Release);
+}
+
+/// Return the revision of the active syntax theme for rendered-content caches.
+pub(crate) fn syntax_theme_revision() -> u64 {
+    THEME_REVISION.load(Ordering::Acquire)
 }
 
 /// Clone the current syntax theme (e.g. to save for cancel-restore).
@@ -298,6 +314,22 @@ fn scope_background_rgb(highlighter: &Highlighter<'_>, scope_name: &str) -> Opti
     Some((bg.r, bg.g, bg.b))
 }
 
+/// Query the active syntax theme for the first foreground style provided by the
+/// supplied TextMate scopes.
+pub(crate) fn foreground_style_for_scopes(scope_names: &[&str]) -> Option<Style> {
+    let theme = current_syntax_theme();
+    foreground_style_for_scopes_with_theme(&theme, scope_names)
+}
+
+fn foreground_style_for_scopes_with_theme(theme: &Theme, scope_names: &[&str]) -> Option<Style> {
+    let highlighter = Highlighter::new(theme);
+    scope_names.iter().find_map(|scope_name| {
+        let scope = Scope::new(scope_name).ok()?;
+        let fg = highlighter.style_mod_for_stack(&[scope]).foreground?;
+        convert_syntect_color(fg).map(|fg| Style::default().fg(fg))
+    })
+}
+
 /// Return the configured kebab-case theme name when it resolves; otherwise
 /// return the adaptive auto-detected default theme name.
 ///
@@ -309,7 +341,7 @@ pub(crate) fn configured_theme_name() -> String {
         if parse_theme_name(name).is_some() {
             return name.clone();
         }
-        if let Some(Some(home)) = WHALE_HOME.get()
+        if let Some(Some(home)) = CODEX_HOME.get()
             && load_custom_theme(name, home).is_some()
         {
             return name.clone();
@@ -336,7 +368,7 @@ pub(crate) fn resolve_theme_by_name(name: &str, codex_home: Option<&Path>) -> Op
 }
 
 /// A theme available in the picker, either bundled or loaded from a custom
-/// `.tmTheme` file under `{WHALE_HOME}/themes/`.
+/// `.tmTheme` file under `{CODEX_HOME}/themes/`.
 pub(crate) struct ThemeEntry {
     /// Kebab-case identifier used for config persistence and theme resolution.
     pub name: String,
@@ -510,8 +542,12 @@ fn find_syntax(lang: &str) -> Option<&'static SyntaxReference> {
     let ss = syntax_set();
 
     // Aliases that two-face does not resolve on its own.
-    let patched = match lang {
+    let normalized = lang.to_ascii_lowercase();
+    let patched = match normalized.as_str() {
         "csharp" | "c-sharp" => "c#",
+        // CUDA source (.cu) and header (.cuh) files use C++ highlighting as a fallback.
+        "cu" | "cuh" => "cpp",
+        "cppm" | "cxxm" | "ixx" => "cpp",
         "golang" => "go",
         "python3" => "python",
         "shell" => "bash",
@@ -551,6 +587,9 @@ const MAX_HIGHLIGHT_BYTES: usize = 512 * 1024;
 /// Skip highlighting for inputs with more than 10,000 lines.
 const MAX_HIGHLIGHT_LINES: usize = 10_000;
 
+/// Skip highlighting when an individual line is longer than 4 KiB.
+pub(crate) const MAX_HIGHLIGHT_LINE_BYTES: usize = 4 * 1024;
+
 /// Check whether an input exceeds the safe highlighting limits.
 ///
 /// Callers that highlight content in a loop (e.g. per diff-line) should
@@ -581,7 +620,12 @@ fn highlight_to_line_spans_with_theme(
     // Bail out early for oversized inputs to avoid excessive resource usage.
     // Count actual lines (not newline bytes) to avoid an off-by-one when
     // the input does not end with a newline.
-    if code.len() > MAX_HIGHLIGHT_BYTES || code.lines().count() > MAX_HIGHLIGHT_LINES {
+    if code.len() > MAX_HIGHLIGHT_BYTES
+        || code.lines().count() > MAX_HIGHLIGHT_LINES
+        || code
+            .lines()
+            .any(|line| line.len() > MAX_HIGHLIGHT_LINE_BYTES)
+    {
         return None;
     }
 
@@ -591,23 +635,28 @@ fn highlight_to_line_spans_with_theme(
 
     for line in LinesWithEndings::from(code) {
         let ranges = h.highlight_line(line, syntax_set()).ok()?;
-        let mut spans: Vec<Span<'static>> = Vec::new();
-        for (style, text) in ranges {
-            // Strip trailing line endings (LF and CR) since we handle line
-            // breaks ourselves.  CRLF inputs would otherwise leave a stray \r.
-            let text = text.trim_end_matches(['\n', '\r']);
-            if text.is_empty() {
-                continue;
-            }
-            spans.push(Span::styled(text.to_string(), convert_style(style)));
-        }
-        if spans.is_empty() {
-            spans.push(Span::raw(String::new()));
-        }
-        lines.push(spans);
+        lines.push(highlighted_line_spans(ranges));
     }
 
     Some(lines)
+}
+
+/// Convert one highlighted line into the spans shared by full and streaming renders.
+///
+/// Source line endings are omitted, while empty lines retain their canonical empty span.
+fn highlighted_line_spans(ranges: Vec<(SyntectStyle, &str)>) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    for (style, text) in ranges {
+        // Line breaks are represented by the surrounding Line, not its spans.
+        let text = text.trim_end_matches(['\n', '\r']);
+        if !text.is_empty() {
+            spans.push(Span::styled(text.to_string(), convert_style(style)));
+        }
+    }
+    if spans.is_empty() {
+        spans.push(Span::raw(String::new()));
+    }
+    spans
 }
 
 /// Parse `code` using syntect for `lang` and return per-line styled spans.
@@ -776,6 +825,28 @@ mod tests {
                 ..StyleModifier::default()
             },
         }
+    }
+
+    fn theme_item_with_foreground(scope: &str, foreground: (u8, u8, u8)) -> ThemeItem {
+        ThemeItem {
+            scope: ScopeSelectors::from_str(scope).expect("scope selector should parse"),
+            style: StyleModifier {
+                foreground: Some(SyntectColor {
+                    r: foreground.0,
+                    g: foreground.1,
+                    b: foreground.2,
+                    a: 255,
+                }),
+                ..StyleModifier::default()
+            },
+        }
+    }
+
+    fn assert_rgb(color: Option<RtColor>, expected: (u8, u8, u8)) {
+        let Some(RtColor::Rgb(r, g, b)) = color else {
+            panic!("expected RGB color {expected:?}, got {color:?}");
+        };
+        assert_eq!((r, g, b), expected);
     }
 
     #[test]
@@ -1088,6 +1159,18 @@ mod tests {
     }
 
     #[test]
+    fn long_single_line_bash_skips_highlighting_and_preserves_text() {
+        let token = "eHh4".repeat(MAX_HIGHLIGHT_LINE_BYTES / 4 + 1);
+        let code = format!("printf %s {token} | base64 -d >/dev/null");
+
+        assert!(highlight_code_to_styled_spans(&code, "bash").is_none());
+        assert_eq!(
+            highlight_code_to_lines(&code, "bash"),
+            vec![Line::from(code)]
+        );
+    }
+
+    #[test]
     fn highlight_many_lines_falls_back() {
         // Input exceeding MAX_HIGHLIGHT_LINES should return None.
         let many_lines = "let x = 1;\n".repeat(MAX_HIGHLIGHT_LINES + 1);
@@ -1165,7 +1248,10 @@ mod tests {
             );
         }
         // Patched aliases that two-face cannot resolve on its own.
-        for alias in ["csharp", "c-sharp", "golang", "python3", "shell"] {
+        for alias in [
+            "csharp", "c-sharp", "cu", "cuh", "cppm", "CPPM", "cxxm", "CxXm", "ixx", "IXX",
+            "golang", "python3", "shell",
+        ] {
             assert!(
                 find_syntax(alias).is_some(),
                 "find_syntax({alias:?}) returned None — patched alias broken"
@@ -1208,6 +1294,34 @@ mod tests {
                 deleted: None,
             }
         );
+    }
+
+    #[test]
+    fn foreground_style_for_scopes_reads_matching_theme_scope() {
+        let theme = Theme {
+            settings: ThemeSettings::default(),
+            scopes: vec![theme_item_with_foreground("keyword", (10, 20, 30))],
+            ..Theme::default()
+        };
+
+        let style = foreground_style_for_scopes_with_theme(&theme, &["keyword"])
+            .expect("expected keyword foreground style");
+
+        assert_rgb(style.fg, (10, 20, 30));
+    }
+
+    #[test]
+    fn foreground_style_for_scopes_uses_first_scope_with_foreground() {
+        let theme = Theme {
+            settings: ThemeSettings::default(),
+            scopes: vec![theme_item_with_foreground("string", (40, 50, 60))],
+            ..Theme::default()
+        };
+
+        let style = foreground_style_for_scopes_with_theme(&theme, &["keyword", "string"])
+            .expect("expected string foreground style");
+
+        assert_rgb(style.fg, (40, 50, 60));
     }
 
     #[test]

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "baseline_commit": {"pattern": "^[0-9a-f]{40}$", "type": "string"},
+    "baseline_tree": {"pattern": "^[0-9a-f]{40}$", "type": "string"},
+    "entries": {"items": {"type": "object"}, "type": "array"},
+    "schema_version": {"const": 1},
+    "source": {"const": "git-tree"},
+    "summary": {"type": "object"},
+    "target_commit": {"pattern": "^[0-9a-f]{40}$", "type": "string"},
+    "target_tree": {"pattern": "^[0-9a-f]{40}$", "type": "string"}
+  },
+  "required": ["schema_version", "baseline_commit", "baseline_tree", "target_commit", "target_tree", "source", "entries", "summary"],
+  "title": "Codex baseline to target delta inventory",
+  "type": "object"
+}

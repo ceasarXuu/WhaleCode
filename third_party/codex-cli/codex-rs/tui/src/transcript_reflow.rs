@@ -1,8 +1,8 @@
-//! Tracks when Whale-owned transcript scrollback must be repaired after terminal resize.
+//! Tracks when Codex-owned transcript scrollback must be repaired after terminal resize.
 //!
-//! Terminal scrollback is not a retained widget tree: once Whale writes wrapped lines into the
+//! Terminal scrollback is not a retained widget tree: once Codex writes wrapped lines into the
 //! terminal, the terminal owns those rows. Width resize reflow treats the in-memory transcript cells
-//! as the source of truth, clears Whale-owned history, and re-emits the cells at the current width.
+//! as the source of truth, clears Codex-owned history, and re-emits the cells at the current width.
 //! Height-only growth also schedules a rebuild so rows exposed above the inline viewport are
 //! restored from the same source of truth.
 //!
@@ -21,7 +21,7 @@ pub(crate) const TRANSCRIPT_REFLOW_DEBOUNCE: Duration = Duration::from_millis(75
 ///
 /// The state intentionally separates observed terminal width from rebuilt terminal width. Terminal
 /// emulators can report an intermediate size during drag-resize, then settle on the final size after
-/// Whale has already rebuilt scrollback. Keeping those widths distinct lets the next draw request a
+/// Codex has already rebuilt scrollback. Keeping those widths distinct lets the next draw request a
 /// final rebuild instead of assuming the latest observed size has already been repaired.
 #[derive(Debug, Default)]
 pub(crate) struct TranscriptReflowState {
@@ -29,6 +29,7 @@ pub(crate) struct TranscriptReflowState {
     last_reflow_width: Option<u16>,
     pending_reflow_width: Option<u16>,
     pending_until: Option<Instant>,
+    visible_history_rows: Option<u16>,
     ran_during_stream: bool,
     resize_requested_during_stream: bool,
 }
@@ -36,11 +37,21 @@ pub(crate) struct TranscriptReflowState {
 impl TranscriptReflowState {
     /// Reset all width, pending deadline, and stream repair state.
     ///
-    /// Call this when resize reflow is disabled or when the app discards the transcript state that
-    /// pending reflow work would have rebuilt. Leaving stale deadlines behind would make a later
-    /// draw attempt to rebuild history from unrelated cells.
+    /// Call this when the app discards the transcript state that pending reflow work would have
+    /// rebuilt. Leaving stale deadlines behind would make a later draw attempt to rebuild history
+    /// from unrelated cells.
     pub(crate) fn clear(&mut self) {
         *self = Self::default();
+    }
+
+    /// Cache the history rows left above the composer for the current terminal size.
+    pub(crate) fn set_visible_history_rows(&mut self, rows: u16) {
+        self.visible_history_rows = Some(rows.max(/*other*/ 1));
+    }
+
+    /// Return the last viewport budget without querying the terminal during cell replay.
+    pub(crate) fn visible_history_rows(&self) -> Option<u16> {
+        self.visible_history_rows
     }
 
     /// Record the width observed during a draw and report whether it is new or changed.
@@ -177,6 +188,24 @@ pub(crate) struct TranscriptWidthChange {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn visible_history_rows_are_cached_for_resize_replay() {
+        let mut state = TranscriptReflowState::default();
+
+        state.set_visible_history_rows(/*rows*/ 19);
+
+        assert_eq!(state.visible_history_rows(), Some(19));
+    }
+
+    #[test]
+    fn visible_history_rows_keep_one_row_for_a_full_height_composer() {
+        let mut state = TranscriptReflowState::default();
+
+        state.set_visible_history_rows(/*rows*/ 0);
+
+        assert_eq!(state.visible_history_rows(), Some(1));
+    }
 
     #[test]
     fn schedule_debounced_postpones_existing_reflow() {

@@ -1,50 +1,66 @@
 #[cfg(any(not(debug_assertions), test))]
 use codex_install_context::InstallContext;
 #[cfg(any(not(debug_assertions), test))]
+use codex_install_context::InstallMethod;
+#[cfg(any(not(debug_assertions), test))]
 use codex_install_context::StandalonePlatform;
 
 /// Update action the CLI should perform after the TUI exits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdateAction {
-    /// Update via the Whale npm release channel.
+    /// Update via `npm install -g @openai/codex@latest`.
     NpmGlobalLatest,
-    /// Update via the Whale bun release channel.
+    /// Update via `bun install -g @openai/codex@latest`.
     BunGlobalLatest,
-    /// Update via the Whale Homebrew cask.
+    /// Update via `pnpm add -g @openai/codex@latest`.
+    PnpmGlobalLatest,
+    /// Update via `brew upgrade codex`.
     BrewUpgrade,
-    /// Update via the Whale standalone Unix installer.
+    /// Update via `curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh`.
     StandaloneUnix,
-    /// Update via the Whale standalone Windows installer.
+    /// Update via `$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/codex/install.ps1 | iex`.
     StandaloneWindows,
 }
 
 impl UpdateAction {
     #[cfg(any(not(debug_assertions), test))]
     pub(crate) fn from_install_context(context: &InstallContext) -> Option<Self> {
-        match context {
-            InstallContext::Npm => Some(UpdateAction::NpmGlobalLatest),
-            InstallContext::Bun => Some(UpdateAction::BunGlobalLatest),
-            InstallContext::Brew => Some(UpdateAction::BrewUpgrade),
-            InstallContext::Standalone { platform, .. } => Some(match platform {
+        match &context.method {
+            InstallMethod::Npm => Some(UpdateAction::NpmGlobalLatest),
+            InstallMethod::Bun => Some(UpdateAction::BunGlobalLatest),
+            InstallMethod::Pnpm => Some(UpdateAction::PnpmGlobalLatest),
+            InstallMethod::Brew => Some(UpdateAction::BrewUpgrade),
+            InstallMethod::Standalone { platform, .. } => Some(match platform {
                 StandalonePlatform::Unix => UpdateAction::StandaloneUnix,
                 StandalonePlatform::Windows => UpdateAction::StandaloneWindows,
             }),
-            InstallContext::Other => None,
+            InstallMethod::Other => None,
         }
     }
 
     /// Returns the list of command-line arguments for invoking the update.
     pub fn command_args(self) -> (&'static str, &'static [&'static str]) {
         match self {
-            UpdateAction::NpmGlobalLatest => {
-                ("npm", &["install", "-g", "@ceasarxuu/whalecode@latest"])
-            }
-            UpdateAction::BunGlobalLatest => {
-                ("bun", &["install", "-g", "@ceasarxuu/whalecode@latest"])
-            }
-            UpdateAction::BrewUpgrade => ("brew", &["upgrade", "--cask", "whale"]),
-            UpdateAction::StandaloneUnix => ("sh", &["-c", "whale update"]),
-            UpdateAction::StandaloneWindows => ("powershell", &["-c", "whale update"]),
+            UpdateAction::NpmGlobalLatest => ("npm", &["install", "-g", "@openai/codex"]),
+            UpdateAction::BunGlobalLatest => ("bun", &["install", "-g", "@openai/codex"]),
+            UpdateAction::PnpmGlobalLatest => ("pnpm", &["add", "-g", "@openai/codex"]),
+            UpdateAction::BrewUpgrade => ("brew", &["upgrade", "--cask", "codex"]),
+            UpdateAction::StandaloneUnix => (
+                "sh",
+                &[
+                    "-c",
+                    "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh",
+                ],
+            ),
+            UpdateAction::StandaloneWindows => (
+                "powershell",
+                &[
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-c",
+                    "$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/codex/install.ps1 | iex",
+                ],
+            ),
         }
     }
 
@@ -57,50 +73,76 @@ impl UpdateAction {
 }
 
 #[cfg(not(debug_assertions))]
-pub(crate) fn get_update_action() -> Option<UpdateAction> {
-    let _ = InstallContext::current();
-    None
+pub fn get_update_action() -> Option<UpdateAction> {
+    UpdateAction::from_install_context(InstallContext::current())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codex_utils_absolute_path::AbsolutePathBuf;
     use pretty_assertions::assert_eq;
-    use std::path::PathBuf;
 
     #[test]
     fn maps_install_context_to_update_action() {
-        let native_release_dir = PathBuf::from("/tmp/native-release");
+        let native_release_dir =
+            AbsolutePathBuf::from_absolute_path(std::env::temp_dir().join("native-release"))
+                .expect("temp dir path should be absolute");
 
         assert_eq!(
-            UpdateAction::from_install_context(&InstallContext::Other),
+            UpdateAction::from_install_context(&InstallContext {
+                method: InstallMethod::Other,
+                package_layout: None,
+            }),
             None
         );
         assert_eq!(
-            UpdateAction::from_install_context(&InstallContext::Npm),
+            UpdateAction::from_install_context(&InstallContext {
+                method: InstallMethod::Npm,
+                package_layout: None,
+            }),
             Some(UpdateAction::NpmGlobalLatest)
         );
         assert_eq!(
-            UpdateAction::from_install_context(&InstallContext::Bun),
+            UpdateAction::from_install_context(&InstallContext {
+                method: InstallMethod::Bun,
+                package_layout: None,
+            }),
             Some(UpdateAction::BunGlobalLatest)
         );
         assert_eq!(
-            UpdateAction::from_install_context(&InstallContext::Brew),
+            UpdateAction::from_install_context(&InstallContext {
+                method: InstallMethod::Pnpm,
+                package_layout: None,
+            }),
+            Some(UpdateAction::PnpmGlobalLatest)
+        );
+        assert_eq!(
+            UpdateAction::from_install_context(&InstallContext {
+                method: InstallMethod::Brew,
+                package_layout: None,
+            }),
             Some(UpdateAction::BrewUpgrade)
         );
         assert_eq!(
-            UpdateAction::from_install_context(&InstallContext::Standalone {
-                platform: StandalonePlatform::Unix,
-                release_dir: native_release_dir.clone(),
-                resources_dir: Some(native_release_dir.join("whale-resources")),
+            UpdateAction::from_install_context(&InstallContext {
+                method: InstallMethod::Standalone {
+                    platform: StandalonePlatform::Unix,
+                    release_dir: native_release_dir.clone(),
+                    resources_dir: Some(native_release_dir.join("codex-resources")),
+                },
+                package_layout: None,
             }),
             Some(UpdateAction::StandaloneUnix)
         );
         assert_eq!(
-            UpdateAction::from_install_context(&InstallContext::Standalone {
-                platform: StandalonePlatform::Windows,
-                release_dir: native_release_dir.clone(),
-                resources_dir: Some(native_release_dir.join("whale-resources")),
+            UpdateAction::from_install_context(&InstallContext {
+                method: InstallMethod::Standalone {
+                    platform: StandalonePlatform::Windows,
+                    release_dir: native_release_dir.clone(),
+                    resources_dir: Some(native_release_dir.join("codex-resources")),
+                },
+                package_layout: None,
             }),
             Some(UpdateAction::StandaloneWindows)
         );
@@ -110,23 +152,25 @@ mod tests {
     fn standalone_update_commands_rerun_latest_installer() {
         assert_eq!(
             UpdateAction::StandaloneUnix.command_args(),
-            ("sh", &["-c", "whale update"][..])
+            (
+                "sh",
+                &[
+                    "-c",
+                    "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh"
+                ][..],
+            )
         );
         assert_eq!(
             UpdateAction::StandaloneWindows.command_args(),
-            ("powershell", &["-c", "whale update"][..])
-        );
-    }
-
-    #[test]
-    fn package_manager_update_commands_target_whalecode() {
-        assert_eq!(
-            UpdateAction::NpmGlobalLatest.command_args(),
-            ("npm", &["install", "-g", "@ceasarxuu/whalecode@latest"][..])
-        );
-        assert_eq!(
-            UpdateAction::BunGlobalLatest.command_args(),
-            ("bun", &["install", "-g", "@ceasarxuu/whalecode@latest"][..])
+            (
+                "powershell",
+                &[
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-c",
+                    "$env:CODEX_NON_INTERACTIVE=1; irm https://chatgpt.com/codex/install.ps1 | iex"
+                ][..],
+            )
         );
     }
 }

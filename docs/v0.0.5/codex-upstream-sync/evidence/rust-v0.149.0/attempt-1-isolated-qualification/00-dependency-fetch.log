@@ -1,0 +1,31 @@
+command: cargo fetch
+cwd: codex-rs
+proxy_environment: inherited
+exit_code: 0
+
+    Updating git repository `https://github.com/openai-oss-forks/crossterm`
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded protoc-bin-vendored v3.2.0
+  Downloaded lru v0.18.2
+  Downloaded darling_macro v0.24.0
+  Downloaded jni-sys-macros v0.4.1
+  Downloaded jni-sys v0.4.1
+  Downloaded rmcp-macros v3.1.2
+  Downloaded darling v0.24.0
+  Downloaded jni-macros v0.22.4
+  Downloaded darling_core v0.24.0
+  Downloaded webbrowser v1.2.4
+  Downloaded h2 v0.4.16
+  Downloaded jni v0.22.4
+  Downloaded tree-sitter-powershell v0.26.4
+  Downloaded simd_cesu8 v1.2.0
+  Downloaded rmcp v3.1.2
+  Downloaded protoc-bin-vendored-macos-aarch_64 v3.2.0
+  Downloaded protoc-bin-vendored-macos-x86_64 v3.2.0
+  Downloaded protoc-bin-vendored-linux-aarch_64 v3.2.0
+  Downloaded protoc-bin-vendored-linux-x86_64 v3.2.0
+  Downloaded protoc-bin-vendored-win32 v3.2.0
+  Downloaded protoc-bin-vendored-linux-x86_32 v3.2.0
+  Downloaded protoc-bin-vendored-linux-ppcle_64 v3.2.0
+  Downloaded protoc-bin-vendored-linux-s390_64 v3.2.0

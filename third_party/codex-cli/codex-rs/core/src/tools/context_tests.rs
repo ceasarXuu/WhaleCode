@@ -1,5 +1,6 @@
 use super::*;
 use codex_protocol::models::DEFAULT_IMAGE_DETAIL;
+use codex_protocol::models::SearchToolCallParams;
 use core_test_support::assert_regex_match;
 use pretty_assertions::assert_eq;
 use serde_json::json;
@@ -45,7 +46,7 @@ fn function_payloads_remain_function_outputs() {
 }
 
 #[test]
-fn mcp_code_mode_result_serializes_full_call_tool_result() {
+fn mcp_code_mode_result_omits_private_metadata() {
     let output = CallToolResult {
         content: vec![serde_json::json!({
             "type": "text",
@@ -61,10 +62,8 @@ fn mcp_code_mode_result_serializes_full_call_tool_result() {
         })),
     };
 
-    let result = output.code_mode_result(&ToolPayload::Mcp {
-        server: "server".to_string(),
-        tool: "tool".to_string(),
-        raw_arguments: "{}".to_string(),
+    let result = output.code_mode_result(&ToolPayload::Function {
+        arguments: "{}".to_string(),
     });
 
     assert_eq!(
@@ -79,11 +78,9 @@ fn mcp_code_mode_result_serializes_full_call_tool_result() {
                 "content": "done",
             },
             "isError": false,
-            "_meta": {
-                "source": "mcp",
-            },
         })
     );
+    assert_eq!(output.meta, Some(serde_json::json!({ "source": "mcp" })));
 }
 
 #[test]
@@ -106,10 +103,8 @@ fn mcp_tool_output_response_item_includes_wall_time() {
 
     let response = output.to_response_item(
         "mcp-call-1",
-        &ToolPayload::Mcp {
-            server: "server".to_string(),
-            tool: "tool".to_string(),
-            raw_arguments: "{}".to_string(),
+        &ToolPayload::Function {
+            arguments: "{}".to_string(),
         },
     );
 
@@ -160,10 +155,8 @@ fn mcp_tool_output_response_item_truncates_large_structured_content() {
 
     let response = output.to_response_item(
         "mcp-call-large",
-        &ToolPayload::Mcp {
-            server: "server".to_string(),
-            tool: "tool".to_string(),
-            raw_arguments: "{}".to_string(),
+        &ToolPayload::Function {
+            arguments: "{}".to_string(),
         },
     );
 
@@ -205,10 +198,8 @@ fn mcp_tool_output_response_item_preserves_content_items() {
 
     let response = output.to_response_item(
         "mcp-call-2",
-        &ToolPayload::Mcp {
-            server: "server".to_string(),
-            tool: "tool".to_string(),
-            raw_arguments: "{}".to_string(),
+        &ToolPayload::Function {
+            arguments: "{}".to_string(),
         },
     );
 
@@ -239,7 +230,7 @@ fn mcp_tool_output_response_item_preserves_content_items() {
 }
 
 #[test]
-fn mcp_tool_output_code_mode_result_stays_raw_call_tool_result() {
+fn mcp_tool_output_code_mode_result_preserves_content_without_private_metadata() {
     let large_content = "large structured value ".repeat(1_000);
     let output = McpToolOutput {
         result: CallToolResult {
@@ -251,7 +242,9 @@ fn mcp_tool_output_code_mode_result_stays_raw_call_tool_result() {
                 "content": large_content,
             })),
             is_error: Some(false),
-            meta: None,
+            meta: Some(serde_json::json!({
+                "hive_dispatch_id": "private-dispatch-id",
+            })),
         },
         tool_input: json!({}),
         wall_time: std::time::Duration::from_millis(1250),
@@ -259,18 +252,9 @@ fn mcp_tool_output_code_mode_result_stays_raw_call_tool_result() {
         truncation_policy: TruncationPolicy::Bytes(64),
     };
 
-    let payload = ToolPayload::Mcp {
-        server: "server".to_string(),
-        tool: "tool".to_string(),
-        raw_arguments: "{}".to_string(),
-    };
-    let nested = output.nested_result(&payload);
-    let result = output.code_mode_result(&payload);
-
-    let NestedToolResult::Mcp { output: nested } = nested else {
-        panic!("MCP nested result must preserve the raw CallToolResult")
-    };
-    assert_eq!(nested, output.result);
+    let result = output.code_mode_result(&ToolPayload::Function {
+        arguments: "{}".to_string(),
+    });
 
     assert_eq!(
         result,
@@ -284,6 +268,10 @@ fn mcp_tool_output_code_mode_result_stays_raw_call_tool_result() {
             },
             "isError": false,
         })
+    );
+    assert_eq!(
+        output.result.meta,
+        Some(serde_json::json!({ "hive_dispatch_id": "private-dispatch-id" }))
     );
 }
 
@@ -388,84 +376,6 @@ fn tool_search_payloads_roundtrip_as_tool_search_outputs() {
 }
 
 #[test]
-fn tool_search_code_mode_result_preserves_loadable_specs() {
-    let payload = ToolPayload::ToolSearch {
-        arguments: SearchToolCallParams {
-            query: "calendar".to_string(),
-            limit: None,
-        },
-    };
-    let output = ToolSearchOutput {
-        tools: vec![LoadableToolSpec::Function(codex_tools::ResponsesApiTool {
-            name: "create_event".to_string(),
-            description: "Create an event.".to_string(),
-            strict: false,
-            defer_loading: Some(true),
-            parameters: codex_tools::JsonSchema::object(
-                /*properties*/ Default::default(),
-                /*required*/ None,
-                /*additional_properties*/ None,
-            ),
-            output_schema: None,
-        })],
-    };
-
-    assert_eq!(
-        serde_json::to_value(output.nested_result(&payload)).unwrap(),
-        json!({
-            "type": "tool_search",
-            "status": "completed",
-            "execution": "client",
-            "tools": [{
-                "type": "function",
-                "name": "create_event",
-                "description": "Create an event.",
-                "strict": false,
-                "defer_loading": true,
-                "parameters": {
-                    "type": "object",
-                    "properties": {}
-                }
-            }]
-        })
-    );
-
-    assert_eq!(
-        output.code_mode_result(&payload),
-        json!([{
-            "type": "function",
-            "name": "create_event",
-            "description": "Create an event.",
-            "strict": false,
-            "defer_loading": true,
-            "parameters": {
-                "type": "object",
-                "properties": {}
-            }
-        }])
-    );
-}
-
-#[test]
-fn apply_patch_code_mode_policy_drops_feedback_preserved_by_standard_output() {
-    let payload = ToolPayload::Custom {
-        input: "*** Begin Patch\n*** End Patch".to_string(),
-    };
-    let output = ApplyPatchToolOutput::from_text("Success. Updated files.".to_string());
-
-    assert_eq!(output.code_mode_result(&payload), json!({}));
-    assert_eq!(
-        serde_json::to_value(output.nested_result(&payload)).unwrap(),
-        json!({"type": "custom", "output": "Success. Updated files."})
-    );
-    let response = output.to_response_item("patch-1", &payload);
-    assert_eq!(
-        response_input_to_code_mode_result(response),
-        json!("Success. Updated files.")
-    );
-}
-
-#[test]
 fn log_preview_uses_content_items_when_plain_text_is_missing() {
     let output = FunctionToolOutput::from_content(
         vec![FunctionCallOutputContentItem::InputText {
@@ -479,189 +389,6 @@ fn log_preview_uses_content_items_when_plain_text_is_missing() {
         function_call_output_content_items_to_text(&output.body),
         Some("preview".to_string())
     );
-}
-
-#[test]
-fn model_visible_preview_uses_response_item_not_log_preview() {
-    struct DivergentToolOutput;
-
-    impl ToolOutput for DivergentToolOutput {
-        fn log_preview(&self) -> String {
-            "log-only-preview".to_string()
-        }
-
-        fn success_for_logging(&self) -> bool {
-            true
-        }
-
-        fn to_response_item(&self, call_id: &str, payload: &ToolPayload) -> ResponseInputItem {
-            function_tool_response(
-                call_id,
-                payload,
-                vec![FunctionCallOutputContentItem::InputText {
-                    text: "standard model-visible feedback".to_string(),
-                }],
-                Some(true),
-            )
-        }
-    }
-
-    let payload = ToolPayload::Function {
-        arguments: "{}".to_string(),
-    };
-    let preview = tool_output_model_visible_preview(&DivergentToolOutput, "call-1", &payload);
-
-    assert!(preview.contains("standard model-visible feedback"));
-    assert!(!preview.contains("log-only-preview"));
-}
-
-#[test]
-fn taskspace_preview_preserves_raw_exec_output_without_semantic_summary() {
-    let raw_output = format!(
-        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
-        "{'name': 'Madrid', 'member_ids': ['E001']}: 'members' is a required property",
-        "{'name': 'Ferrari', 'member_ids': ['E002']}: 'members' is a required property",
-        "x".repeat(TELEMETRY_PREVIEW_MAX_BYTES + 256),
-        "{'statistics': {}}: 'averageDepartmentBudget' is a required property",
-        "{'statistics': {}}: 'totalEmployees' is a required property",
-        "{'statistics': {}}: 'skillDistribution' is a required property",
-        "{'statistics': {}}: 'departmentSizes' is a required property",
-        "{'statistics': {}}: 'projectStatusDistribution' is a required property",
-        "{'statistics': {}}: 'averageYearsOfService' is a required property",
-    );
-    let output = ExecCommandToolOutput {
-        event_call_id: "event-1".to_string(),
-        chunk_id: "chunk-1".to_string(),
-        wall_time: std::time::Duration::from_millis(200),
-        raw_output: raw_output.into_bytes(),
-        artifact_ref: None,
-        max_output_tokens: None,
-        process_id: None,
-        exit_code: Some(1),
-        original_token_count: None,
-        hook_command: None,
-    };
-    let payload = ToolPayload::Function {
-        arguments: serde_json::json!({
-            "command": "python generate_org.py && python -m jsonschema -i organization.json schema.json"
-        })
-        .to_string(),
-    };
-
-    let preview = tool_output_model_visible_preview(&output, "call-1", &payload);
-
-    assert!(!preview.contains("TaskSpaceToolSemanticSummaryV1"));
-    assert!(preview.contains("'members' is a required property"));
-    assert!(preview.contains(TELEMETRY_PREVIEW_TRUNCATION_NOTICE));
-}
-
-#[test]
-fn taskspace_preview_preserves_read_file_summary_after_telemetry_truncation() {
-    let summary = "TaskSpaceReadFileSummaryV1: path=process_csv.py lines_read=240 eof_reached=false max_lines=240";
-    let raw_output = format!(
-        "import csv\n{}\n{summary}\n",
-        "x".repeat(TELEMETRY_PREVIEW_MAX_BYTES + 256)
-    );
-    let output = ExecCommandToolOutput {
-        event_call_id: "event-1".to_string(),
-        chunk_id: "chunk-1".to_string(),
-        wall_time: std::time::Duration::from_millis(200),
-        raw_output: raw_output.into_bytes(),
-        artifact_ref: None,
-        max_output_tokens: None,
-        process_id: None,
-        exit_code: Some(0),
-        original_token_count: None,
-        hook_command: None,
-    };
-    let payload = ToolPayload::Function {
-        arguments: serde_json::json!({
-            "command": "sed -n '1,240p' -- process_csv.py && awk '{ printf \"TaskSpaceReadFileSummaryV1: path=%s\" }' process_csv.py"
-        })
-        .to_string(),
-    };
-
-    let preview = tool_output_model_visible_preview(&output, "call-1", &payload);
-
-    assert!(preview.contains(TELEMETRY_PREVIEW_TRUNCATION_NOTICE));
-    assert!(preview.contains("TaskSpaceToolTailSentinelV1"));
-    assert!(preview.contains(summary));
-    assert!(
-        preview.rfind(summary).expect("summary present")
-            > preview
-                .find(TELEMETRY_PREVIEW_TRUNCATION_NOTICE)
-                .expect("truncation present")
-    );
-}
-
-#[test]
-fn taskspace_preview_preserves_complete_read_file_content_beyond_telemetry_limit() {
-    let summary = "TaskSpaceReadFileSummaryV1: path=generate_organization.py lines_read=95 eof_reached=true max_lines=240";
-    let body = (0..90)
-        .map(|idx| {
-            format!(
-                "line_{idx:02} = 'schema repair context averageDepartmentBudget members projects'"
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    let late_line = "line_94 = 'late project members and averageDepartmentBudget fix target'";
-    let raw_output = format!("{body}\n{late_line}\n{summary}\n");
-    assert!(raw_output.len() > TELEMETRY_PREVIEW_MAX_BYTES);
-    let output = ExecCommandToolOutput {
-        event_call_id: "event-1".to_string(),
-        chunk_id: "chunk-1".to_string(),
-        wall_time: std::time::Duration::from_millis(200),
-        raw_output: raw_output.into_bytes(),
-        artifact_ref: None,
-        max_output_tokens: None,
-        process_id: None,
-        exit_code: Some(0),
-        original_token_count: None,
-        hook_command: None,
-    };
-    let payload = ToolPayload::Function {
-        arguments: serde_json::json!({
-            "command": "sed -n '1,240p' -- generate_organization.py && awk '{ printf \"TaskSpaceReadFileSummaryV1\" }' generate_organization.py"
-        })
-        .to_string(),
-    };
-
-    let preview = tool_output_model_visible_preview(&output, "call-1", &payload);
-
-    assert!(!preview.contains(TELEMETRY_PREVIEW_TRUNCATION_NOTICE));
-    assert!(preview.contains("line_00 = 'schema repair context"));
-    assert!(preview.contains(late_line));
-    assert!(preview.contains(summary));
-}
-
-#[test]
-fn taskspace_preview_does_not_add_schema_summary_for_plain_exec_output() {
-    let output = ExecCommandToolOutput {
-        event_call_id: "event-1".to_string(),
-        chunk_id: "chunk-1".to_string(),
-        wall_time: std::time::Duration::from_millis(200),
-        raw_output: format!(
-            "ordinary failure\n{}",
-            "x".repeat(TELEMETRY_PREVIEW_MAX_BYTES + 32)
-        )
-        .into_bytes(),
-        artifact_ref: None,
-        max_output_tokens: None,
-        process_id: None,
-        exit_code: Some(1),
-        original_token_count: None,
-        hook_command: None,
-    };
-    let payload = ToolPayload::Function {
-        arguments: serde_json::json!({ "command": "pytest" }).to_string(),
-    };
-
-    let preview = tool_output_model_visible_preview(&output, "call-1", &payload);
-
-    assert!(!preview.contains("TaskSpaceToolSemanticSummaryV1"));
-    assert!(!preview.contains("missing_required_properties:"));
-    assert!(preview.contains("ordinary failure"));
 }
 
 #[test]
@@ -706,11 +433,12 @@ fn exec_command_tool_output_formats_truncated_response() {
         chunk_id: "abc123".to_string(),
         wall_time: std::time::Duration::from_millis(1250),
         raw_output: b"token one token two token three token four token five".to_vec(),
-        artifact_ref: None,
+        truncation_policy: TruncationPolicy::Tokens(10_000),
         max_output_tokens: Some(4),
         process_id: None,
         exit_code: Some(0),
         original_token_count: Some(10),
+        output_omitted_bytes: None,
         hook_command: None,
     }
     .to_response_item("call-42", &payload);
@@ -740,100 +468,40 @@ fn exec_command_tool_output_formats_truncated_response() {
 }
 
 #[test]
-fn exec_command_tool_output_referenceizes_large_response() {
+fn exec_command_tool_output_preserves_omission_metadata_when_truncated() {
     let payload = ToolPayload::Function {
         arguments: "{}".to_string(),
     };
-    let mut raw_output = Vec::new();
-    raw_output.extend_from_slice(b"head-visible\n");
-    raw_output.extend_from_slice("middle-secret-marker\n".repeat(4_000).as_bytes());
-    raw_output.extend_from_slice(b"tail-visible\n");
-
-    let output = ExecCommandToolOutput {
-        event_call_id: "call-large".to_string(),
-        chunk_id: "chunk-large".to_string(),
-        wall_time: std::time::Duration::from_millis(250),
-        raw_output,
-        artifact_ref: Some("output-ref://sha256/test-large".to_string()),
-        max_output_tokens: Some(100_000),
-        process_id: None,
-        exit_code: Some(0),
-        original_token_count: Some(12_000),
-        hook_command: None,
-    };
-    let nested = output.nested_result(&payload);
-    let response = output.to_response_item("call-large", &payload);
-
-    let NestedToolResult::Function { output } = nested else {
-        panic!("exec nested result must use the neutral function result")
-    };
-    let nested_text = output.body.to_text().unwrap();
-    assert!(nested_text.contains("OutputReferenceV1:"));
-    assert!(nested_text.contains("artifact_ref: output-ref://sha256/test-large"));
-
-    match response {
-        ResponseInputItem::FunctionCallOutput { call_id, output } => {
-            assert_eq!(call_id, "call-large");
-            let text = output
-                .body
-                .to_text()
-                .expect("exec output should serialize as text");
-            assert!(text.contains("OutputReferenceV1:"));
-            assert!(text.contains("policy: referenced_large_output"));
-            assert!(text.contains("artifact_ref: output-ref://sha256/test-large"));
-            assert!(text.contains("sha256:"));
-            assert!(text.contains("head-visible"));
-            assert!(text.contains("tail-visible"));
-            assert!(
-                text.matches("middle-secret-marker").count() < 300,
-                "large middle output should not replay inline"
-            );
-        }
-        other => panic!("expected FunctionCallOutput, got {other:?}"),
-    }
-}
-
-#[test]
-fn exec_command_tool_output_summarizes_medium_response() {
-    let payload = ToolPayload::Function {
-        arguments: "{}".to_string(),
-    };
-    let mut raw_output = Vec::new();
-    raw_output.extend_from_slice(b"medium-head\n");
-    raw_output.extend_from_slice("medium-middle-marker\n".repeat(900).as_bytes());
-    raw_output.extend_from_slice(b"medium-tail\n");
-
+    let marker = format_output_omission_marker(/*omitted_bytes*/ 123_456);
+    let raw_output = format!(
+        "HEAD-{}\n{marker}\nTAIL-{}",
+        "a".repeat(/*n*/ 100),
+        "z".repeat(/*n*/ 100)
+    )
+    .into_bytes();
     let response = ExecCommandToolOutput {
-        event_call_id: "call-medium".to_string(),
-        chunk_id: "chunk-medium".to_string(),
-        wall_time: std::time::Duration::from_millis(250),
+        event_call_id: "call-omitted".to_string(),
+        chunk_id: "abc123".to_string(),
+        wall_time: std::time::Duration::from_millis(/*millis*/ 1250),
         raw_output,
-        artifact_ref: Some("output-ref://sha256/test-medium".to_string()),
-        max_output_tokens: Some(100_000),
+        truncation_policy: TruncationPolicy::Tokens(10_000),
+        max_output_tokens: Some(4),
         process_id: None,
         exit_code: Some(0),
-        original_token_count: Some(4_000),
+        original_token_count: Some(42_000),
+        output_omitted_bytes: NonZeroUsize::new(/*n*/ 123_456),
         hook_command: None,
     }
-    .to_response_item("call-medium", &payload);
+    .to_response_item("call-omitted", &payload);
 
-    match response {
-        ResponseInputItem::FunctionCallOutput { call_id, output } => {
-            assert_eq!(call_id, "call-medium");
-            let text = output
-                .body
-                .to_text()
-                .expect("exec output should serialize as text");
-            assert!(text.contains("OutputReferenceV1:"));
-            assert!(text.contains("policy: summarized_medium_output"));
-            assert!(text.contains("artifact_ref: output-ref://sha256/test-medium"));
-            assert!(text.contains("medium-head"));
-            assert!(text.contains("medium-tail"));
-            assert!(
-                text.matches("medium-middle-marker").count() < 300,
-                "medium output should not replay its full middle inline"
-            );
-        }
-        other => panic!("expected FunctionCallOutput, got {other:?}"),
-    }
+    let ResponseInputItem::FunctionCallOutput { output, .. } = response else {
+        panic!("expected FunctionCallOutput");
+    };
+    let text = output
+        .body
+        .to_text()
+        .expect("exec output should serialize as text");
+    assert!(text.contains("Original token count: 42000"));
+    assert!(text.contains("Warning: truncated output (original token count: 42000)"));
+    assert_eq!(text.matches(&marker).count(), 1);
 }

@@ -139,12 +139,7 @@ impl TaskSpaceExecCatalog {
                         }
                     }
                 }
-                ToolSpec::LocalShell {} => {
-                    return Err(TaskSpaceExecCatalogError::UnsupportedToolSpec {
-                        tool_name: spec.name().to_string(),
-                    });
-                }
-                ToolSpec::WebSearch { .. } | ToolSpec::ImageGeneration { .. } => {
+                ToolSpec::WebSearch { .. } => {
                     unreachable!("hosted ToolSpec handled by shared classifier")
                 }
             }

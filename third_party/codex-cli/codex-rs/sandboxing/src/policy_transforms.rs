@@ -1,6 +1,7 @@
 use codex_protocol::models::AdditionalPermissionProfile;
 use codex_protocol::models::FileSystemPermissions;
 use codex_protocol::models::NetworkPermissions;
+use codex_protocol::models::PermissionProfile;
 use codex_protocol::permissions::FileSystemAccessMode;
 use codex_protocol::permissions::FileSystemPath;
 use codex_protocol::permissions::FileSystemSandboxEntry;
@@ -9,36 +10,11 @@ use codex_protocol::permissions::FileSystemSandboxPolicy;
 use codex_protocol::permissions::FileSystemSpecialPath;
 use codex_protocol::permissions::NetworkSandboxPolicy;
 use codex_protocol::permissions::ReadDenyMatcher;
-use codex_protocol::protocol::NetworkAccess;
-use codex_protocol::protocol::SandboxPolicy;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_absolute_path::canonicalize_preserving_symlinks;
-use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::path::Path;
 use std::path::PathBuf;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EffectiveSandboxPermissions {
-    pub sandbox_policy: SandboxPolicy,
-}
-
-impl EffectiveSandboxPermissions {
-    pub fn new(
-        sandbox_policy: &SandboxPolicy,
-        additional_permissions: Option<&AdditionalPermissionProfile>,
-    ) -> Self {
-        let Some(additional_permissions) = additional_permissions else {
-            return Self {
-                sandbox_policy: sandbox_policy.clone(),
-            };
-        };
-
-        Self {
-            sandbox_policy: effective_sandbox_policy(sandbox_policy, Some(additional_permissions)),
-        }
-    }
-}
 
 pub fn normalize_additional_permissions(
     additional_permissions: AdditionalPermissionProfile,
@@ -52,7 +28,7 @@ pub fn normalize_additional_permissions(
             let glob_scan_max_depth = file_system.glob_scan_max_depth;
             for entry in file_system.entries {
                 if matches!(&entry.path, FileSystemPath::GlobPattern { .. })
-                    && entry.access != FileSystemAccessMode::None
+                    && entry.access != FileSystemAccessMode::Deny
                 {
                     return Err(
                         "glob file system permissions only support deny-read entries".to_string(),
@@ -60,9 +36,12 @@ pub fn normalize_additional_permissions(
                 }
                 let path = match entry.path {
                     FileSystemPath::Path { path } => FileSystemPath::Path {
-                        path: canonicalize_preserving_symlinks(path.as_path())
+                        path: path
+                            .to_abs_path()
                             .ok()
+                            .and_then(|path| canonicalize_preserving_symlinks(path.as_path()).ok())
                             .and_then(|path| AbsolutePathBuf::from_absolute_path(path).ok())
+                            .map(Into::into)
                             .unwrap_or(path),
                     },
                     FileSystemPath::GlobPattern { pattern } => {
@@ -73,6 +52,7 @@ pub fn normalize_additional_permissions(
                 let normalized_entry = FileSystemSandboxEntry {
                     path,
                     access: entry.access,
+                    missing_path_behavior: entry.missing_path_behavior,
                 };
                 if !entries.contains(&normalized_entry) {
                     entries.push(normalized_entry);
@@ -90,6 +70,21 @@ pub fn normalize_additional_permissions(
         network,
         file_system,
     })
+}
+
+/// Resolves cwd-dependent permission entries without filtering their authority.
+///
+/// Unlike intersection, this preserves narrower grants beneath denied paths.
+pub fn materialize_additional_permissions(
+    mut additional_permissions: AdditionalPermissionProfile,
+    cwd: &Path,
+) -> Result<AdditionalPermissionProfile, String> {
+    if let Some(file_system) = additional_permissions.file_system.as_mut() {
+        for entry in &mut file_system.entries {
+            *entry = materialize_cwd_dependent_entry(entry, cwd);
+        }
+    }
+    normalize_additional_permissions(additional_permissions)
 }
 
 pub fn merge_permission_profiles(
@@ -245,7 +240,7 @@ fn effective_glob_scan_depth(
     entries
         .iter()
         .any(|entry| {
-            entry.access == FileSystemAccessMode::None
+            entry.access == FileSystemAccessMode::Deny
                 && matches!(&entry.path, FileSystemPath::GlobPattern { .. })
         })
         .then_some(match depth {
@@ -267,7 +262,14 @@ fn granted_file_system_entry_within_request(
     granted_entry: &FileSystemSandboxEntry,
     cwd: &Path,
 ) -> bool {
-    if !granted_entry.access.can_read() {
+    if !granted_entry.access.can_read()
+        || matches!(
+            &granted_entry.path,
+            FileSystemPath::Special {
+                value: FileSystemSpecialPath::SlashTmp,
+            } if !cfg!(unix)
+        )
+    {
         return false;
     }
 
@@ -297,7 +299,7 @@ fn retain_constraining_deny_entries(
     let mut retained_entries = Vec::new();
     for entry in source_entries
         .iter()
-        .filter(|entry| entry.access == FileSystemAccessMode::None)
+        .filter(|entry| entry.access == FileSystemAccessMode::Deny)
     {
         if !deny_entry_constrains_accepted_grant(entry, accepted_entries, cwd) {
             continue;
@@ -364,7 +366,7 @@ fn access_covers(requested: FileSystemAccessMode, granted: FileSystemAccessMode)
     match granted {
         FileSystemAccessMode::Read => requested.can_read(),
         FileSystemAccessMode::Write => requested.can_write(),
-        FileSystemAccessMode::None => false,
+        FileSystemAccessMode::Deny => false,
     }
 }
 
@@ -374,13 +376,12 @@ fn materialize_cwd_dependent_entry(
 ) -> FileSystemSandboxEntry {
     match &entry.path {
         FileSystemPath::Special {
-            value:
-                FileSystemSpecialPath::CurrentWorkingDirectory
-                | FileSystemSpecialPath::ProjectRoots { .. },
+            value: FileSystemSpecialPath::ProjectRoots { .. },
         } => resolve_permission_path(&entry.path, cwd)
             .map(|path| FileSystemSandboxEntry {
-                path: FileSystemPath::Path { path },
+                path: path.into(),
                 access: entry.access,
+                missing_path_behavior: entry.missing_path_behavior,
             })
             .unwrap_or_else(|| entry.clone()),
         FileSystemPath::GlobPattern { pattern } => FileSystemSandboxEntry {
@@ -390,6 +391,7 @@ fn materialize_cwd_dependent_entry(
                     .into_owned(),
             },
             access: entry.access,
+            missing_path_behavior: entry.missing_path_behavior,
         },
         FileSystemPath::Path { .. } | FileSystemPath::Special { .. } => entry.clone(),
     }
@@ -397,15 +399,12 @@ fn materialize_cwd_dependent_entry(
 
 fn resolve_permission_path(path: &FileSystemPath, cwd: &Path) -> Option<AbsolutePathBuf> {
     match path {
-        FileSystemPath::Path { path } => Some(path.clone()),
+        FileSystemPath::Path { path } => path.to_abs_path().ok(),
         FileSystemPath::GlobPattern { .. } => None,
         FileSystemPath::Special { value } => match value {
             FileSystemSpecialPath::Root => {
                 let root = cwd.ancestors().last()?;
                 AbsolutePathBuf::from_absolute_path(root).ok()
-            }
-            FileSystemSpecialPath::CurrentWorkingDirectory => {
-                AbsolutePathBuf::from_absolute_path(cwd).ok()
             }
             FileSystemSpecialPath::ProjectRoots { subpath } => {
                 let cwd = AbsolutePathBuf::from_absolute_path(cwd).ok()?;
@@ -424,10 +423,14 @@ fn resolve_permission_path(path: &FileSystemPath, cwd: &Path) -> Option<Absolute
                     AbsolutePathBuf::from_absolute_path(PathBuf::from(tmpdir)).ok()
                 }
             }
-            FileSystemSpecialPath::SlashTmp => AbsolutePathBuf::from_absolute_path("/tmp")
-                .ok()
-                .filter(|path| path.as_path().is_dir()),
-            FileSystemSpecialPath::Minimal | FileSystemSpecialPath::Unknown { .. } => None,
+            FileSystemSpecialPath::SlashTmp if cfg!(unix) => {
+                AbsolutePathBuf::from_absolute_path("/tmp")
+                    .ok()
+                    .filter(|path| path.as_path().is_dir())
+            }
+            FileSystemSpecialPath::SlashTmp
+            | FileSystemSpecialPath::Minimal
+            | FileSystemSpecialPath::Unknown { .. } => None,
         },
     }
 }
@@ -443,48 +446,6 @@ fn merge_permission_entries(
         }
     }
     merged
-}
-
-fn dedup_absolute_paths(paths: Vec<AbsolutePathBuf>) -> Vec<AbsolutePathBuf> {
-    let mut out = Vec::with_capacity(paths.len());
-    let mut seen = HashSet::new();
-    for path in paths {
-        if seen.insert(path.to_path_buf()) {
-            out.push(path);
-        }
-    }
-    out
-}
-
-fn additional_permission_roots(
-    additional_permissions: &AdditionalPermissionProfile,
-) -> (Vec<AbsolutePathBuf>, Vec<AbsolutePathBuf>) {
-    (
-        dedup_absolute_paths(
-            additional_permissions
-                .file_system
-                .as_ref()
-                .map(|file_system| {
-                    file_system
-                        .explicit_path_entries()
-                        .filter_map(|(path, access)| access.can_read().then_some(path.clone()))
-                        .collect()
-                })
-                .unwrap_or_default(),
-        ),
-        dedup_absolute_paths(
-            additional_permissions
-                .file_system
-                .as_ref()
-                .map(|file_system| {
-                    file_system
-                        .explicit_path_entries()
-                        .filter_map(|(path, access)| access.can_write().then_some(path.clone()))
-                        .collect()
-                })
-                .unwrap_or_default(),
-        ),
-    )
 }
 
 fn merge_file_system_policy_with_additional_permissions(
@@ -561,70 +522,19 @@ pub fn effective_network_sandbox_policy(
     }
 }
 
-fn sandbox_policy_with_additional_permissions(
-    sandbox_policy: &SandboxPolicy,
-    additional_permissions: &AdditionalPermissionProfile,
-) -> SandboxPolicy {
-    if additional_permissions.is_empty() {
-        return sandbox_policy.clone();
-    }
-
-    let (_extra_reads, extra_writes) = additional_permission_roots(additional_permissions);
-
-    match sandbox_policy {
-        SandboxPolicy::DangerFullAccess => SandboxPolicy::DangerFullAccess,
-        SandboxPolicy::ExternalSandbox { network_access } => SandboxPolicy::ExternalSandbox {
-            network_access: if merge_network_access(
-                network_access.is_enabled(),
-                additional_permissions,
-            ) {
-                NetworkAccess::Enabled
-            } else {
-                NetworkAccess::Restricted
-            },
-        },
-        SandboxPolicy::WorkspaceWrite {
-            writable_roots,
-            network_access,
-            exclude_tmpdir_env_var,
-            exclude_slash_tmp,
-        } => {
-            let mut merged_writes = writable_roots.clone();
-            merged_writes.extend(extra_writes);
-            SandboxPolicy::WorkspaceWrite {
-                writable_roots: dedup_absolute_paths(merged_writes),
-                network_access: merge_network_access(*network_access, additional_permissions),
-                exclude_tmpdir_env_var: *exclude_tmpdir_env_var,
-                exclude_slash_tmp: *exclude_slash_tmp,
-            }
-        }
-        SandboxPolicy::ReadOnly { network_access } => {
-            if extra_writes.is_empty() {
-                SandboxPolicy::ReadOnly {
-                    network_access: merge_network_access(*network_access, additional_permissions),
-                }
-            } else {
-                // todo(dylan) - for now, this grants more access than the request. We should restrict this,
-                // but we should add a new SandboxPolicy variant to handle this. While the feature is still
-                // UnderDevelopment, it's a useful approximation of the desired behavior.
-                SandboxPolicy::WorkspaceWrite {
-                    writable_roots: dedup_absolute_paths(extra_writes),
-                    network_access: merge_network_access(*network_access, additional_permissions),
-                    exclude_tmpdir_env_var: false,
-                    exclude_slash_tmp: false,
-                }
-            }
-        }
-    }
-}
-
-fn effective_sandbox_policy(
-    sandbox_policy: &SandboxPolicy,
+pub fn effective_permission_profile(
+    permission_profile: &PermissionProfile,
     additional_permissions: Option<&AdditionalPermissionProfile>,
-) -> SandboxPolicy {
-    additional_permissions.map_or_else(
-        || sandbox_policy.clone(),
-        |permissions| sandbox_policy_with_additional_permissions(sandbox_policy, permissions),
+) -> PermissionProfile {
+    let (file_system_policy, network_policy) = permission_profile.to_runtime_permissions();
+    let effective_file_system_policy =
+        effective_file_system_sandbox_policy(&file_system_policy, additional_permissions);
+    let effective_network_policy =
+        effective_network_sandbox_policy(network_policy, additional_permissions);
+    PermissionProfile::from_runtime_permissions_with_enforcement(
+        permission_profile.enforcement(),
+        &effective_file_system_policy,
+        effective_network_policy,
     )
 }
 

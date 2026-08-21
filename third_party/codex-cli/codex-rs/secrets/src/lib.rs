@@ -17,6 +17,7 @@ mod local;
 mod sanitizer;
 
 pub use local::LocalSecretsBackend;
+pub use local::LocalSecretsNamespace;
 pub use sanitizer::redact_secrets;
 
 const KEYRING_SERVICE: &str = "whale";
@@ -122,6 +123,22 @@ impl SecretsManager {
         Self { backend }
     }
 
+    pub fn new_with_keyring_store_and_namespace(
+        codex_home: PathBuf,
+        backend_kind: SecretsBackendKind,
+        keyring_store: Arc<dyn KeyringStore>,
+        namespace: LocalSecretsNamespace,
+    ) -> Self {
+        let backend: Arc<dyn SecretsBackend> = match backend_kind {
+            SecretsBackendKind::Local => Arc::new(LocalSecretsBackend::new_with_namespace(
+                codex_home,
+                keyring_store,
+                namespace,
+            )),
+        };
+        Self { backend }
+    }
+
     pub fn set(&self, scope: &SecretScope, name: &SecretName, value: &str) -> Result<()> {
         self.backend.set(scope, name, value)
     }
@@ -162,7 +179,8 @@ pub fn environment_id_from_cwd(cwd: &Path) -> String {
     format!("cwd-{short}")
 }
 
-pub(crate) fn compute_keyring_account(codex_home: &Path) -> String {
+/// Computes the OS keyring account name used to store the local secrets passphrase.
+pub fn compute_keyring_account(codex_home: &Path) -> String {
     let canonical = codex_home
         .canonicalize()
         .unwrap_or_else(|_| codex_home.to_path_buf())
@@ -185,6 +203,11 @@ mod tests {
     use super::*;
     use codex_keyring_store::tests::MockKeyringStore;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn keyring_service_is_whale_scoped() {
+        assert_eq!(keyring_service(), "whale");
+    }
 
     #[test]
     fn environment_id_fallback_has_cwd_prefix() {
@@ -226,10 +249,5 @@ mod tests {
         assert!(manager.delete(&scope, &name)?);
         assert_eq!(manager.get(&scope, &name)?, None);
         Ok(())
-    }
-
-    #[test]
-    fn keyring_service_is_whale_scoped() {
-        assert_eq!(keyring_service(), "whale");
     }
 }

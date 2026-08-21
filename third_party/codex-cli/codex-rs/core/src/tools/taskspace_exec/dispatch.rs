@@ -57,14 +57,13 @@ pub(crate) enum TaskSpaceExecDispatchPrepareError {
 }
 
 pub(crate) async fn prepare_client_calls(
-    session: &Session,
+    _session: &Session,
     calls: &[PreparedClientCall],
 ) -> Result<Vec<NativeClientCall>, TaskSpaceExecDispatchPrepareError> {
     let mut prepared = Vec::with_capacity(calls.len());
     for item in calls {
         let response_item = native_response_item(item)?;
-        let call = ToolRouter::build_tool_call(session, response_item)
-            .await
+        let call = ToolRouter::build_tool_call(response_item)
             .map_err(|error| native_call_rejected(item, error))?
             .ok_or_else(|| TaskSpaceExecDispatchPrepareError::NativeCallMissing {
                 identity: item.identity.clone(),
@@ -227,7 +226,9 @@ fn native_response_item(
                 name: tool_name.name.clone(),
                 namespace: tool_name.namespace.clone(),
                 arguments,
+                encrypted_function_args: None,
                 call_id,
+                internal_chat_message_metadata_passthrough: None,
             })
         }
         (TaskSpaceClientTransport::Freeform, ClientCallInput::Freeform(input)) => {
@@ -236,7 +237,9 @@ fn native_response_item(
                 status: None,
                 call_id,
                 name: tool_name.name.clone(),
+                namespace: tool_name.namespace.clone(),
                 input: input.clone(),
+                internal_chat_message_metadata_passthrough: None,
             })
         }
         (TaskSpaceClientTransport::ToolSearch, ClientCallInput::Function(arguments)) => {
@@ -246,6 +249,7 @@ fn native_response_item(
                 status: None,
                 execution: "client".to_string(),
                 arguments: arguments.clone(),
+                internal_chat_message_metadata_passthrough: None,
             })
         }
         _ => Err(TaskSpaceExecDispatchPrepareError::InvalidArguments {

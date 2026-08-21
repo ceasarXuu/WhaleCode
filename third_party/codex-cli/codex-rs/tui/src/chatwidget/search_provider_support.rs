@@ -10,7 +10,6 @@ use toml_edit::value;
 pub(super) fn segments(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_string()).collect()
 }
-
 pub(super) fn on_off(enabled: bool) -> &'static str {
     if enabled { "on" } else { "off" }
 }

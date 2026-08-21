@@ -1,5 +1,4 @@
 use super::*;
-use clap::CommandFactory;
 use pretty_assertions::assert_eq;
 
 #[test]
@@ -37,7 +36,7 @@ fn resume_parses_prompt_after_global_flags() {
 }
 
 #[test]
-fn resume_accepts_output_last_message_flag_after_subcommand() {
+fn resume_accepts_output_flags_after_subcommand() {
     const PROMPT: &str = "echo resume-with-output-file";
     let cli = Cli::parse_from([
         "codex-exec",
@@ -45,6 +44,8 @@ fn resume_accepts_output_last_message_flag_after_subcommand() {
         "session-123",
         "-o",
         "/tmp/resume-output.md",
+        "--output-schema",
+        "/tmp/schema.json",
         PROMPT,
     ]);
 
@@ -52,10 +53,35 @@ fn resume_accepts_output_last_message_flag_after_subcommand() {
         cli.last_message_file,
         Some(PathBuf::from("/tmp/resume-output.md"))
     );
+    assert_eq!(cli.output_schema, Some(PathBuf::from("/tmp/schema.json")));
     let Some(Command::Resume(args)) = cli.command else {
         panic!("expected resume command");
     };
     assert_eq!(args.session_id.as_deref(), Some("session-123"));
+    assert_eq!(args.prompt.as_deref(), Some(PROMPT));
+}
+
+#[test]
+fn fork_parses_prompt_after_global_flags() {
+    const PROMPT: &str = "continue on the fork";
+    let cli = Cli::parse_from([
+        "codex-exec",
+        "fork",
+        "session-123",
+        "--json",
+        "--model",
+        "gpt-5.2-codex",
+        "--skip-git-repo-check",
+        "--ephemeral",
+        PROMPT,
+    ]);
+
+    assert!(cli.json);
+    assert!(cli.ephemeral);
+    let Some(Command::Fork(args)) = cli.command else {
+        panic!("expected fork command");
+    };
+    assert_eq!(args.session_id, "session-123");
     assert_eq!(args.prompt.as_deref(), Some(PROMPT));
 }
 
@@ -73,7 +99,7 @@ fn parses_config_isolation_flags() {
 }
 
 #[test]
-fn parses_taskspace_exec_flags() {
+fn parses_taskspace_exec_flag() {
     let cli = Cli::parse_from(["codex-exec", "--taskspace", "summarize"]);
 
     assert!(cli.taskspace);
@@ -81,17 +107,25 @@ fn parses_taskspace_exec_flags() {
 }
 
 #[test]
-fn retired_map_lifecycle_flags_are_rejected() {
-    let help = Cli::command().render_long_help().to_string();
+fn approve_for_me_flag_applies_to_resume_when_passed_at_exec_root() {
+    for flag in ["--approve-for-me", "--not-so-yolo"] {
+        let cli = Cli::parse_from(["codex-exec", flag, "resume", "--last"]);
 
-    assert!(help.contains("--taskspace"));
-    assert!(!help.contains("--task-reborn"));
-    assert!(!help.contains("--map-mode"));
-    assert!(!help.contains("--map-restart"));
-    for flag in ["--task-reborn", "--map-mode", "--map-restart"] {
-        assert!(
-            Cli::try_parse_from(["codex-exec", flag, "summarize"]).is_err(),
-            "{flag} must not remain as a hidden compatibility path"
-        );
+        assert!(cli.auto_review);
+    }
+}
+
+#[test]
+fn approve_for_me_flag_conflicts_with_other_sandbox_modes() {
+    for conflicting_args in [
+        vec!["--sandbox", "read-only"],
+        vec!["--dangerously-bypass-approvals-and-sandbox"],
+    ] {
+        let mut args = vec!["codex-exec", "--approve-for-me"];
+        args.extend(conflicting_args);
+        args.push("summarize");
+
+        let error = Cli::try_parse_from(args).expect_err("flags should conflict");
+        assert_eq!(error.kind(), clap::error::ErrorKind::ArgumentConflict);
     }
 }

@@ -3,8 +3,8 @@ use crate::StateDbHandle;
 use crate::action_map::ActionMapRuntimeState;
 use crate::action_map::ActionMapStoreHandle;
 use crate::action_map::SetTaskSpaceModeOutcome;
+use codex_history::InitialHistory;
 use codex_protocol::ThreadId;
-use codex_protocol::protocol::InitialHistory;
 use codex_protocol::protocol::MapRuntimeEvent;
 use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::MapRuntimeStoreCommittedEvent;
@@ -210,14 +210,14 @@ impl Session {
             let mut state = self.state.lock().await;
             return Ok(state
                 .action_map_runtime
-                .set_mode_for_session(mode, self.conversation_id));
+                .set_mode_for_session(mode, self.thread_id));
         }
 
         let (candidate, outcome, mut events) = {
             let state = self.state.lock().await;
             let mut candidate = state.action_map_runtime.clone();
             let (outcome, events) =
-                candidate.set_mode_for_session(MapRuntimeMode::Experiment, self.conversation_id);
+                candidate.set_mode_for_session(MapRuntimeMode::Experiment, self.thread_id);
             (candidate, outcome, events)
         };
         let map_id = outcome.active_map_id.clone().ok_or_else(|| {
@@ -227,7 +227,7 @@ impl Session {
         let (record, installed_runtime) = match state_db
             .create_taskspace_map(CreateTaskSpaceMapRequest {
                 map_id: map_id.clone(),
-                owner_thread_id: self.conversation_id,
+                owner_thread_id: self.thread_id,
                 canonical_map: canonical_map_for_store(&candidate),
                 commit_id: Uuid::new_v4().to_string(),
                 operation: "activate_taskspace".to_string(),
@@ -255,7 +255,7 @@ impl Session {
                 store_revision: record.store_revision,
                 map_revision: record_map_revision(&record),
                 operation: "activate_taskspace".to_string(),
-                actor_thread_id: self.conversation_id,
+                actor_thread_id: self.thread_id,
                 canonical_sha256: record.canonical_sha256.clone(),
             },
         ));
@@ -263,7 +263,7 @@ impl Session {
             target: "codex_core::taskspace",
             event_name = "taskspace.map_store_created",
             map_id = record.map_id,
-            actor_thread_id = %self.conversation_id,
+            actor_thread_id = %self.thread_id,
             owner_thread_id = %record.owner_thread_id,
             store_revision = record.store_revision,
             map_revision = record_map_revision(&record),
@@ -318,7 +318,7 @@ impl Session {
                             .to_string());
                     }
                 }
-                return Ok(mutate(&mut state.action_map_runtime, self.conversation_id));
+                return Ok(mutate(&mut state.action_map_runtime, self.thread_id));
             }
         }
 
@@ -356,7 +356,7 @@ impl Session {
                 canonical_map: after_canonical_map,
                 commit_id: commit_id.clone(),
                 operation: operation.to_string(),
-                actor_thread_id: self.conversation_id,
+                actor_thread_id: self.thread_id,
                 binding,
             })
             .await;
@@ -376,7 +376,7 @@ impl Session {
                     target: "codex_core::taskspace",
                     event_name = "taskspace.map_store_conflict",
                     map_id = handle.map_id,
-                    actor_thread_id = %self.conversation_id,
+                    actor_thread_id = %self.thread_id,
                     owner_thread_id = %handle.owner_thread_id,
                     expected_store_revision = handle.store_revision,
                     current_store_revision = current_revision,
@@ -396,7 +396,7 @@ impl Session {
                     target: "codex_core::taskspace",
                     event_name = "taskspace.map_store_integrity_failed",
                     map_id = handle.map_id,
-                    actor_thread_id = %self.conversation_id,
+                    actor_thread_id = %self.thread_id,
                     owner_thread_id = %handle.owner_thread_id,
                     expected_store_revision = handle.store_revision,
                     operation,
@@ -416,7 +416,7 @@ impl Session {
                 store_revision: record.store_revision,
                 map_revision: record_map_revision(&record),
                 operation: operation.to_string(),
-                actor_thread_id: self.conversation_id,
+                actor_thread_id: self.thread_id,
                 canonical_sha256: record.canonical_sha256.clone(),
             },
         ));
@@ -424,7 +424,7 @@ impl Session {
             target: "codex_core::taskspace",
             event_name = "taskspace.map_store_committed",
             map_id = record.map_id,
-            actor_thread_id = %self.conversation_id,
+            actor_thread_id = %self.thread_id,
             owner_thread_id = %record.owner_thread_id,
             store_revision = record.store_revision,
             map_revision = record_map_revision(&record),

@@ -30,8 +30,8 @@ pub(crate) struct ProjectionCursor {
 }
 
 impl ProjectionCursor {
-    pub(crate) fn from_items(items: &[ResponseItem]) -> Self {
-        let last_emitted = items.iter().rev().find_map(|item| {
+    pub(crate) fn from_items<'a>(items: impl DoubleEndedIterator<Item = &'a ResponseItem>) -> Self {
+        let last_emitted = items.rev().find_map(|item| {
             let ResponseItem::Message { role, content, .. } = item else {
                 return None;
             };
@@ -42,7 +42,7 @@ impl ProjectionCursor {
                 ContentItem::InputText { text } | ContentItem::OutputText { text } => {
                     projection_identity_from_context(text)
                 }
-                ContentItem::InputImage { .. } => None,
+                ContentItem::InputImage { .. } | ContentItem::InputAudio { .. } => None,
             })
         });
         Self { last_emitted }
@@ -293,11 +293,11 @@ mod tests {
                     "{TASKSPACE_MAP_PROJECTION_MARKER}\n- projection_kind: request_snapshot\n- map_id: map-1\n- revision: 4\n- canonical_sha256: canonical-4\n{TASKSPACE_MAP_PROJECTION_END}\n"
                 ),
             }],
-            end_turn: None,
             phase: None,
+            internal_chat_message_metadata_passthrough: None,
         };
 
-        let cursor = ProjectionCursor::from_items(&[item]);
+        let cursor = ProjectionCursor::from_items([item].iter());
         let identity = cursor.last_emitted.expect("projection identity");
         assert_eq!(identity.map_id.as_deref(), Some("map-1"));
         assert_eq!(identity.revision, Some(4));

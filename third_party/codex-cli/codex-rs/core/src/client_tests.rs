@@ -1,199 +1,258 @@
 use super::AuthRequestTelemetryContext;
+use super::CompactConversationRequestSettings;
 use super::ModelClient;
 use super::PendingUnauthorizedRetry;
 use super::Prompt;
-use super::ProviderProjectionIdentityExpectation;
-use super::ProviderRequestAttribution;
-use super::ProviderRequestBudgetContext;
-use super::ProviderRequestBudgetLimits;
-use super::ProviderRequestHardLimit;
 use super::UnauthorizedRecoveryExecution;
 use super::X_CODEX_INSTALLATION_ID_HEADER;
 use super::X_CODEX_PARENT_THREAD_ID_HEADER;
 use super::X_CODEX_TURN_METADATA_HEADER;
 use super::X_CODEX_WINDOW_ID_HEADER;
 use super::X_OPENAI_SUBAGENT_HEADER;
-use super::apply_api_provider_request_hard_limit_retry_policy;
-use super::apply_projection_identity_expectation;
-use super::apply_provider_request_hard_limit_retry_policy;
-use super::ensure_realtime_session_is_metered;
-use super::provider_payload_digest;
-use codex_api::RealtimeEventParser;
-use codex_api::RealtimeSessionMode;
-use codex_api::ToolChoice;
-use codex_app_server_protocol::AuthMode;
+use crate::AttestationContext;
+use crate::AttestationProvider;
+use crate::GenerateAttestationFuture;
+use crate::responses_metadata::CodexResponsesMetadata;
+use crate::test_support::TestCodexResponsesRequestKind;
+use crate::test_support::responses_metadata as test_responses_metadata;
+use codex_api::AgentIdentityTelemetry;
+use codex_api::ApiError;
+use codex_api::ResponseEvent;
+use codex_api::TransportError;
+use codex_http_client::HttpClientFactory;
+use codex_http_client::OutboundProxyPolicy;
+use codex_login::AuthCredentialsStoreMode;
+use codex_login::AuthKeyringBackendKind;
+use codex_login::AuthManager;
+use codex_login::CodexAuth;
+use codex_login::auth::AgentIdentityAuthPolicy;
 use codex_model_provider::BearerAuthProvider;
+use codex_model_provider::ModelProvider;
+use codex_model_provider::ModelProviderFuture;
+use codex_model_provider::ProviderAccountResult;
+use codex_model_provider::ProviderUnauthorizedRecovery;
+use codex_model_provider::SharedModelProvider;
+use codex_model_provider::create_model_provider;
+use codex_model_provider_info::CHATGPT_CODEX_BASE_URL;
+use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::WireApi;
 use codex_model_provider_info::create_oss_provider_with_base_url;
+use codex_models_manager::manager::SharedModelsManager;
 use codex_otel::SessionTelemetry;
 use codex_protocol::ThreadId;
-use codex_protocol::config_types::ReasoningSummary;
+use codex_protocol::auth::AuthMode;
+use codex_protocol::error::CodexErr;
+use codex_protocol::error::CodexErrorDetails;
+use codex_protocol::models::BaseInstructions;
+use codex_protocol::models::ContentItem;
+use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::ModelInfo;
+use codex_protocol::openai_models::ModelsResponse;
 use codex_protocol::openai_models::ReasoningEffort;
+use codex_protocol::protocol::InternalSessionSource;
 use codex_protocol::protocol::SessionSource;
 use codex_protocol::protocol::SubAgentSource;
-use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_protocol::protocol::TokenUsage;
+use codex_rollout_trace::CompactionTraceContext;
+use codex_rollout_trace::ExecutionStatus;
+use codex_rollout_trace::InferenceTraceAttempt;
+use codex_rollout_trace::InferenceTraceContext;
+use codex_rollout_trace::RawTraceEventPayload;
+use codex_rollout_trace::RolloutTrace;
+use codex_rollout_trace::TraceWriter;
+use codex_rollout_trace::replay_bundle;
+use futures::StreamExt;
 use pretty_assertions::assert_eq;
 use serde_json::json;
+use std::collections::BTreeMap;
+use std::collections::VecDeque;
+use std::path::PathBuf;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
+use std::task::Context;
+use std::task::Poll;
+use std::time::Duration;
+use tempfile::TempDir;
+use tokio::sync::Notify;
+use tracing::Event;
+use tracing::Subscriber;
+use tracing::field::Visit;
+use tracing_subscriber::Layer;
+use tracing_subscriber::layer::Context as LayerContext;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::registry::LookupSpan;
+use tracing_subscriber::util::SubscriberInitExt;
+use wiremock::Mock;
+use wiremock::MockServer;
+use wiremock::ResponseTemplate;
+use wiremock::matchers::method;
+use wiremock::matchers::path;
+
+const TEST_CHATGPT_ID_TOKEN: &str = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJlbWFpbCI6InVzZXJAZXhhbXBsZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjp7ImNoYXRncHRfdXNlcl9pZCI6InVzZXItMTIzNDUiLCJ1c2VyX2lkIjoidXNlci0xMjM0NSIsImNoYXRncHRfcGxhbl90eXBlIjoicHJvIiwiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjb3VudC0xMjMifX0.c2ln";
+const TEST_INSTALLATION_ID: &str = "11111111-1111-4111-8111-111111111111";
 
 fn test_model_client(session_source: SessionSource) -> ModelClient {
+    test_model_client_with_thread_id(ThreadId::new(), session_source)
+}
+
+fn test_model_client_with_thread_id(
+    thread_id: ThreadId,
+    session_source: SessionSource,
+) -> ModelClient {
     let provider = create_oss_provider_with_base_url("https://example.com/v1", WireApi::Responses);
     ModelClient::new(
         /*auth_manager*/ None,
-        ThreadId::new(),
-        /*installation_id*/ "11111111-1111-4111-8111-111111111111".to_string(),
+        AgentIdentityAuthPolicy::JwtOnly,
+        thread_id,
         provider,
         session_source,
+        "test_originator".to_string(),
         /*model_verbosity*/ None,
         /*enable_request_compression*/ false,
         /*include_timing_metrics*/ false,
         /*beta_features_header*/ None,
+        /*concurrent_reasoning_summaries_enabled*/ false,
+        /*attestation_provider*/ None,
+        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
     )
 }
 
-#[test]
-fn provider_request_hard_limit_rejects_before_the_excess_dispatch() {
-    let limit = ProviderRequestHardLimit::with_limit(2);
-    assert!(limit.claim("/responses").is_ok());
-    assert!(limit.claim("/responses").is_ok());
-    let error = limit
-        .claim("/responses")
-        .expect_err("third dispatch must be rejected");
-    assert_eq!(
-        error.to_string(),
-        "Fatal error: provider request hard limit reached (max 2)"
-    );
-    assert_eq!(limit.count.load(std::sync::atomic::Ordering::SeqCst), 2);
-}
+#[tokio::test]
+async fn compact_uses_bearer_after_agent_identity_session_fallback() -> anyhow::Result<()> {
+    let server = MockServer::start().await;
+    let registration_count = Arc::new(AtomicUsize::new(0));
+    let response_count = Arc::clone(&registration_count);
+    Mock::given(method("POST"))
+        .and(path("/v1/agent/register"))
+        .respond_with(move |_request: &wiremock::Request| {
+            response_count.fetch_add(1, Ordering::SeqCst);
+            ResponseTemplate::new(/*status*/ 503)
+        })
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/responses/compact"))
+        .respond_with(ResponseTemplate::new(/*status*/ 200).set_body_json(json!({
+            "output": []
+        })))
+        .expect(/*requests*/ 1)
+        .mount(&server)
+        .await;
 
-#[test]
-fn invalid_provider_request_hard_limit_fails_closed() {
-    let limit = ProviderRequestHardLimit {
-        limit: None,
-        count: std::sync::atomic::AtomicUsize::new(0),
-        state_path: None,
-        configuration_error: Some(
-            "WHALE_PROVIDER_REQUEST_HARD_LIMIT must be a positive integer".to_string(),
-        ),
+    let codex_home = TempDir::new()?;
+    let auth_manager = chatgpt_auth_manager(&codex_home, server.uri()).await;
+    let mut provider = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+    provider.base_url = Some(format!("{}/v1", server.uri()));
+    provider.supports_websockets = false;
+    let thread_id = ThreadId::new();
+    let client = ModelClient::new(
+        Some(auth_manager),
+        AgentIdentityAuthPolicy::ChatGptAuth,
+        thread_id,
+        provider,
+        SessionSource::Cli,
+        "test_originator".to_string(),
+        /*model_verbosity*/ None,
+        /*enable_request_compression*/ false,
+        /*include_timing_metrics*/ false,
+        /*beta_features_header*/ None,
+        /*concurrent_reasoning_summaries_enabled*/ false,
+        /*attestation_provider*/ None,
+        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+    );
+    let prompt = Prompt {
+        input: vec![ResponseItem::Message {
+            id: None,
+            role: "user".to_string(),
+            content: vec![ContentItem::InputText {
+                text: "please compact".to_string(),
+            }],
+            phase: None,
+            internal_chat_message_metadata_passthrough: None,
+        }],
+        base_instructions: BaseInstructions {
+            text: "base instructions".to_string(),
+            provenance: None,
+        },
+        ..Default::default()
     };
+    let responses_metadata = test_responses_metadata_for_client(
+        &client,
+        /*turn_id*/ None,
+        format!("{}:0", client.state.thread_id),
+        /*parent_thread_id*/ None,
+        TestCodexResponsesRequestKind::Turn,
+    );
+
+    let output = client
+        .compact_conversation_history(
+            &prompt,
+            &test_model_info(),
+            /*turn_state*/ None,
+            CompactConversationRequestSettings {
+                effort: None,
+                summary: codex_protocol::config_types::ReasoningSummary::None,
+                service_tier: None,
+            },
+            &test_session_telemetry(),
+            &CompactionTraceContext::disabled(),
+            &responses_metadata,
+        )
+        .await?;
+
+    assert!(output.is_empty());
+    assert_eq!(registration_count.load(Ordering::SeqCst), 3);
+    let requests = server
+        .received_requests()
+        .await
+        .expect("server should record requests");
+    let compact_request = requests
+        .iter()
+        .find(|request| request.url.path() == "/v1/responses/compact")
+        .expect("compact request should be captured");
     assert_eq!(
-        limit
-            .claim("/responses")
-            .expect_err("invalid limit must reject")
-            .to_string(),
-        "Fatal error: WHALE_PROVIDER_REQUEST_HARD_LIMIT must be a positive integer"
+        compact_request
+            .headers
+            .get(http::header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("Bearer test-access-token")
     );
+    assert_eq!(
+        compact_request
+            .headers
+            .get("ChatGPT-Account-ID")
+            .and_then(|value| value.to_str().ok()),
+        Some("account-123")
+    );
+
+    Ok(())
 }
 
-#[test]
-fn model_clients_share_one_process_provider_request_hard_limit() {
-    let first = test_model_client(SessionSource::Cli);
-    let second = test_model_client(SessionSource::Cli);
-    assert!(std::sync::Arc::ptr_eq(
-        &first.state.provider_request_hard_limit,
-        &second.state.provider_request_hard_limit,
-    ));
+fn test_model_provider() -> SharedModelProvider {
+    test_model_client(SessionSource::Cli).state.provider.clone()
 }
 
-#[test]
-fn enabled_provider_request_hard_limit_disables_hidden_transport_retries() {
-    let limit = ProviderRequestHardLimit::with_limit(2);
-    let mut provider =
-        create_oss_provider_with_base_url("https://example.com/v1", WireApi::Responses);
-    provider.request_max_retries = Some(9);
-    provider.stream_max_retries = Some(7);
-    apply_provider_request_hard_limit_retry_policy(&mut provider, &limit);
-    assert_eq!(provider.request_max_retries, Some(0));
-    assert_eq!(provider.stream_max_retries, Some(0));
-
-    let mut api_provider = provider
-        .to_api_provider(/*auth_mode*/ None)
-        .expect("create realtime API provider");
-    apply_api_provider_request_hard_limit_retry_policy(&mut api_provider, &limit);
-    assert_eq!(api_provider.retry.max_attempts, 0);
-}
-
-#[test]
-fn provider_request_hard_limit_rejects_unmetered_realtime_generation() {
-    let enabled = ProviderRequestHardLimit::with_limit(2);
-    let disabled = ProviderRequestHardLimit::disabled();
-    assert!(
-        ensure_realtime_session_is_metered(
-            &enabled,
-            RealtimeEventParser::RealtimeV2,
-            RealtimeSessionMode::Conversational
-        )
-        .is_err()
-    );
-    assert!(
-        ensure_realtime_session_is_metered(
-            &enabled,
-            RealtimeEventParser::RealtimeV2,
-            RealtimeSessionMode::Transcription
-        )
-        .is_err()
-    );
-    assert!(
-        ensure_realtime_session_is_metered(
-            &disabled,
-            RealtimeEventParser::V1,
-            RealtimeSessionMode::Conversational
-        )
-        .is_ok()
-    );
-}
-
-#[test]
-fn provider_request_hard_limit_uses_normalized_realtime_mode() {
-    let enabled = ProviderRequestHardLimit::with_limit(2);
-    assert!(
-        ensure_realtime_session_is_metered(
-            &enabled,
-            RealtimeEventParser::V1,
-            RealtimeSessionMode::Transcription
-        )
-        .is_err()
-    );
-}
-
-#[test]
-fn invalid_provider_request_hard_limit_rejects_realtime_before_connect() {
-    let invalid = ProviderRequestHardLimit {
-        limit: None,
-        count: std::sync::atomic::AtomicUsize::new(0),
-        state_path: None,
-        configuration_error: Some("invalid hard limit".to_string()),
-    };
-    let error = ensure_realtime_session_is_metered(
-        &invalid,
-        RealtimeEventParser::RealtimeV2,
-        RealtimeSessionMode::Transcription,
+fn test_responses_metadata_for_client(
+    client: &ModelClient,
+    turn_id: Option<&str>,
+    window_id: String,
+    parent_thread_id: Option<ThreadId>,
+    request_kind: TestCodexResponsesRequestKind,
+) -> CodexResponsesMetadata {
+    let thread_id = client.state.thread_id.to_string();
+    test_responses_metadata(
+        TEST_INSTALLATION_ID,
+        &thread_id,
+        &thread_id,
+        turn_id,
+        window_id,
+        &client.state.session_source,
+        parent_thread_id,
+        request_kind,
     )
-    .expect_err("invalid hard limit must reject every Realtime session");
-    assert_eq!(error.to_string(), "Fatal error: invalid hard limit");
-}
-
-#[cfg(unix)]
-#[test]
-fn provider_request_hard_limit_is_shared_across_process_state_instances() {
-    let directory = tempfile::tempdir().expect("temporary hard-limit state");
-    let state_path = directory.path().join("request-count");
-    let first = ProviderRequestHardLimit {
-        limit: Some(2),
-        count: std::sync::atomic::AtomicUsize::new(0),
-        state_path: Some(state_path.clone()),
-        configuration_error: None,
-    };
-    let second = ProviderRequestHardLimit {
-        limit: Some(2),
-        count: std::sync::atomic::AtomicUsize::new(0),
-        state_path: Some(state_path),
-        configuration_error: None,
-    };
-    assert!(first.claim("/responses").is_ok());
-    assert!(second.claim("/responses").is_ok());
-    assert!(first.claim("/responses").is_err());
 }
 
 fn test_model_info() -> ModelInfo {
@@ -210,14 +269,11 @@ fn test_model_info() -> ModelInfo {
         "supported_in_api": true,
         "priority": 1,
         "upgrade": null,
-        "base_instructions": "base instructions",
         "model_messages": null,
-        "supports_reasoning_summaries": false,
         "support_verbosity": false,
         "default_verbosity": null,
         "apply_patch_tool_type": null,
         "truncation_policy": {"mode": "bytes", "limit": 10000},
-        "supports_parallel_tool_calls": false,
         "supports_image_detail_original": false,
         "context_window": 272000,
         "auto_compact_token_limit": null,
@@ -242,734 +298,250 @@ fn test_session_telemetry() -> SessionTelemetry {
 }
 
 #[test]
-fn named_tool_choice_preserves_requested_chat_reasoning() {
-    let provider_info =
-        create_oss_provider_with_base_url("https://example.com/v1", WireApi::ChatCompletions);
-    let api_provider = provider_info
-        .to_api_provider(/*auth_mode*/ None)
-        .expect("create chat completions provider");
-    let client = ModelClient::new(
-        /*auth_manager*/ None,
-        ThreadId::new(),
-        /*installation_id*/ "11111111-1111-4111-8111-111111111111".to_string(),
-        provider_info,
-        SessionSource::Cli,
-        /*model_verbosity*/ None,
-        /*enable_request_compression*/ false,
-        /*include_timing_metrics*/ false,
-        /*beta_features_header*/ None,
+fn ultra_reasoning_uses_max_for_requests() {
+    assert_eq!(
+        (
+            super::reasoning_effort_for_request(ReasoningEffort::Ultra),
+            super::reasoning_effort_for_request(ReasoningEffort::High),
+        ),
+        (ReasoningEffort::Max, ReasoningEffort::High,)
     );
-    let session = client.new_session();
-    let prompt = Prompt {
-        tool_choice: ToolChoice::function("exec_command"),
-        ..Prompt::default()
+}
+
+#[test]
+fn provider_request_hard_limit_is_transport_exact() {
+    let limit = super::ProviderRequestHardLimit::with_limit(2);
+    limit.claim("/responses").expect("first request");
+    limit.claim("/responses").expect("second request");
+    let error = limit.claim("/responses").expect_err("third request");
+    assert!(error.to_string().contains("hard limit reached (max 2)"));
+}
+
+#[test]
+fn provider_request_hard_limit_fails_closed_on_invalid_configuration() {
+    let limit = super::ProviderRequestHardLimit {
+        limit: None,
+        count: AtomicUsize::new(0),
+        state_path: None,
+        configuration_error: Some(
+            "WHALE_PROVIDER_REQUEST_HARD_LIMIT must be a positive integer".to_string(),
+        ),
+    };
+    let error = limit.claim("/responses").expect_err("invalid limit");
+    assert!(error.to_string().contains("must be a positive integer"));
+}
+
+#[test]
+fn provider_request_hard_limit_disables_hidden_retries() {
+    let mut provider =
+        create_oss_provider_with_base_url("https://example.com/v1", WireApi::Responses);
+    provider.request_max_retries = Some(4);
+    provider.stream_max_retries = Some(3);
+
+    super::apply_provider_request_hard_limit_retry_policy(
+        &mut provider,
+        &super::ProviderRequestHardLimit::with_limit(1),
+    );
+
+    assert_eq!(provider.request_max_retries, Some(0));
+    assert_eq!(provider.stream_max_retries, Some(0));
+}
+
+#[test]
+fn provider_request_hard_limit_rejects_unmetered_realtime() {
+    let error =
+        super::ensure_realtime_session_is_metered(&super::ProviderRequestHardLimit::with_limit(1))
+            .expect_err("realtime inference cannot be counted before dispatch");
+    assert!(error.to_string().contains("rejects Realtime sessions"));
+
+    super::ensure_realtime_session_is_metered(&super::ProviderRequestHardLimit::disabled())
+        .expect("ordinary realtime sessions remain unchanged");
+}
+
+#[cfg(unix)]
+#[test]
+fn provider_request_hard_limit_shares_state_between_clients() -> anyhow::Result<()> {
+    let temp = TempDir::new()?;
+    let state_path = temp.path().join("provider-count");
+    let first = super::ProviderRequestHardLimit {
+        limit: Some(1),
+        count: AtomicUsize::new(0),
+        state_path: Some(state_path.clone()),
+        configuration_error: None,
+    };
+    let second = super::ProviderRequestHardLimit {
+        limit: Some(1),
+        count: AtomicUsize::new(0),
+        state_path: Some(state_path),
+        configuration_error: None,
     };
 
-    let request = session
-        .build_responses_request(
-            &api_provider,
-            &prompt,
-            &test_model_info(),
-            Some(ReasoningEffort::Max),
-            ReasoningSummary::None,
-            /*service_tier*/ None,
-        )
-        .expect("build named-tool request");
-    let mut taskspace_prompt = prompt.clone();
-    taskspace_prompt.taskspace_capability_identity = Some(std::sync::Arc::from(
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    ));
-    let taskspace_request = session
-        .build_responses_request(
-            &api_provider,
-            &taskspace_prompt,
-            &test_model_info(),
-            Some(ReasoningEffort::Max),
-            ReasoningSummary::None,
-            /*service_tier*/ None,
-        )
-        .expect("build request with Runtime-only TaskSpace identity");
-    assert_eq!(request, taskspace_request);
-
-    assert_eq!(
-        request.reasoning.and_then(|reasoning| reasoning.effort),
-        Some(ReasoningEffort::Max)
-    );
-    assert_eq!(request.tool_choice, ToolChoice::function("exec_command"));
+    first.claim("/responses")?;
+    let error = second.claim("/responses").expect_err("shared cap");
+    assert!(error.to_string().contains("hard limit reached (max 1)"));
+    Ok(())
 }
 
-#[test]
-fn provider_request_budget_observes_profile_hint_overrun_before_dispatch() {
-    let budget = ProviderRequestBudgetContext::enabled(1, 1);
-
-    let dispatch = budget
-        .before_dispatch("responses_http")
-        .expect("profile hint overrun should not block dispatch");
-
-    assert_eq!(dispatch.request_count_before, 1);
-    assert_eq!(dispatch.request_count_after, 2);
-    assert_eq!(dispatch.budget_state_before, "over_profile_hint");
-    assert_eq!(dispatch.budget_state_after, "over_profile_hint");
-
-    let events = budget.drain_events();
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0].status, "started");
-    assert_eq!(events[0].request_count_before, 1);
-    assert_eq!(events[0].request_count_after, 2);
-    assert_eq!(events[0].max_requests, 1);
-    assert_eq!(events[0].budget_state_before, "over_profile_hint");
-    assert_eq!(events[0].budget_state_after, "over_profile_hint");
+fn write_chatgpt_auth_json(codex_home: &std::path::Path) {
+    let auth_json = json!({
+        "tokens": {
+            "id_token": TEST_CHATGPT_ID_TOKEN,
+            "access_token": "test-access-token",
+            "refresh_token": "test-refresh-token",
+            "account_id": "account-123"
+        },
+        "last_refresh": "2099-01-01T00:00:00Z"
+    });
+    std::fs::write(
+        codex_home.join("auth.json"),
+        serde_json::to_string_pretty(&auth_json).expect("serialize auth.json"),
+    )
+    .expect("write auth.json");
 }
 
-#[test]
-fn provider_request_budget_compact_checkpoint_remains_advisory() {
-    let budget = ProviderRequestBudgetContext::enabled(1, 2);
-
-    let _dispatch = budget
-        .before_dispatch("responses_http")
-        .expect("compact checkpoint profile hint should not block dispatch");
-
-    let events = budget.drain_events();
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0].status, "started");
-    assert_eq!(events[0].request_count_before, 1);
-    assert_eq!(events[0].request_count_after, 2);
-    assert_eq!(events[0].max_requests, 2);
-    assert_eq!(events[0].budget_state_before, "compact_checkpoint_required");
-    assert_eq!(events[0].budget_state_after, "over_profile_hint");
-    assert_eq!(
-        events[0].budget_transition_reason,
-        "provider_request_profile_hint_exceeded"
-    );
-    assert_eq!(events[0].request_phase.as_deref(), None);
-
-    budget.record_response_completed(None);
-    let _ = budget.drain_events();
-    let dispatch = budget
-        .before_dispatch("responses_http")
-        .expect("profile hint overrun should continue after terminal event");
-    assert_eq!(dispatch.request_count_before, 2);
-    assert_eq!(dispatch.request_count_after, 3);
+async fn chatgpt_auth_manager(
+    codex_home: &TempDir,
+    agent_identity_authapi_base_url: String,
+) -> Arc<AuthManager> {
+    write_chatgpt_auth_json(codex_home.path());
+    let auth_manager = AuthManager::shared(
+        codex_home.path().to_path_buf(),
+        /*enable_codex_api_key_env*/ false,
+        AuthCredentialsStoreMode::File,
+        /*forced_chatgpt_workspace_id*/ None,
+        /*chatgpt_base_url*/ None,
+        AuthKeyringBackendKind::default(),
+        codex_login::test_support::transport_default_auth_route_config(),
+    )
+    .await;
+    let auth = auth_manager.auth().await.expect("auth should load");
+    AuthManager::from_auth_for_testing_with_agent_identity_authapi_base_url(
+        auth,
+        agent_identity_authapi_base_url,
+    )
 }
 
-#[test]
-fn provider_request_budget_preserves_final_synthesis_phase_at_profile_hint() {
-    let budget = ProviderRequestBudgetContext::enabled_with_attribution(
-        ProviderRequestBudgetLimits {
-            request_count: 1,
-            max_requests: 2,
-            node_request_count: 0,
-            max_model_requests_per_node: usize::MAX,
-            budget_state: "compact_checkpoint_required".to_string(),
-        },
-        ProviderRequestAttribution {
-            request_phase: Some("final_synthesis".to_string()),
-            ..ProviderRequestAttribution::default()
-        },
-        None,
-    );
-
-    let _dispatch = budget
-        .before_dispatch("responses_http")
-        .expect("final synthesis should be allowed at compact checkpoint");
-
-    budget.record_response_completed(None);
-    let events = budget.drain_events();
-    assert_eq!(events[0].status, "started");
-    assert_eq!(events[0].request_count_before, 1);
-    assert_eq!(events[0].request_count_after, 2);
-    assert_eq!(events[0].budget_state_before, "compact_checkpoint_required");
-    assert_eq!(events[0].budget_state_after, "over_profile_hint");
-    assert_eq!(events[0].request_phase.as_deref(), Some("final_synthesis"));
-    assert_eq!(
-        events.last().expect("terminal event").status,
-        "response_completed"
-    );
-    assert_eq!(
-        events
-            .last()
-            .expect("terminal event")
-            .request_phase
-            .as_deref(),
-        Some("final_synthesis")
-    );
+#[derive(Default)]
+struct TagCollectorVisitor {
+    tags: BTreeMap<String, String>,
 }
 
-#[test]
-fn provider_request_budget_node_profile_hint_does_not_force_recovery_phase() {
-    let budget = ProviderRequestBudgetContext::enabled_with_attribution(
-        ProviderRequestBudgetLimits {
-            request_count: 1,
-            max_requests: 10,
-            node_request_count: 1,
-            max_model_requests_per_node: 1,
-            budget_state: "normal".to_string(),
-        },
-        ProviderRequestAttribution {
-            node_id: Some("node-1".to_string()),
-            request_phase: Some("model_sampling".to_string()),
-            ..ProviderRequestAttribution::default()
-        },
-        None,
-    );
+impl Visit for TagCollectorVisitor {
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        self.tags
+            .insert(field.name().to_string(), value.to_string());
+    }
 
-    let _dispatch = budget
-        .before_dispatch("responses_http")
-        .expect("node profile hint should not force recovery dispatch");
-
-    let events = budget.drain_events();
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0].status, "started");
-    assert_eq!(events[0].request_phase.as_deref(), Some("model_sampling"));
-    assert_eq!(events[0].request_count_before, 1);
-    assert_eq!(events[0].request_count_after, 2);
-    assert_eq!(events[0].node_id.as_deref(), Some("node-1"));
-
-    budget.record_response_completed(None);
-    let _ = budget.drain_events();
-    let dispatch = budget
-        .before_dispatch("responses_http")
-        .expect("node profile hint should stay advisory after repeated use");
-    assert_eq!(dispatch.request_phase.as_deref(), Some("model_sampling"));
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        self.tags
+            .insert(field.name().to_string(), format!("{value:?}"));
+    }
 }
 
-#[test]
-fn provider_request_budget_explicit_budget_recovery_phase_remains_advisory() {
-    let budget = ProviderRequestBudgetContext::enabled_with_attribution(
-        ProviderRequestBudgetLimits {
-            request_count: 1,
-            max_requests: 10,
-            node_request_count: 1,
-            max_model_requests_per_node: 1,
-            budget_state: "normal".to_string(),
-        },
-        ProviderRequestAttribution {
-            node_id: Some("node-1".to_string()),
-            request_phase: Some("budget_recovery".to_string()),
-            ..ProviderRequestAttribution::default()
-        },
-        None,
-    );
-
-    let _dispatch = budget
-        .before_dispatch("responses_http")
-        .expect("budget_recovery phase should remain advisory");
-
-    let events = budget.drain_events();
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0].status, "started");
-    assert_eq!(events[0].request_phase.as_deref(), Some("budget_recovery"));
-    assert_eq!(events[0].request_count_before, 1);
-    assert_eq!(events[0].request_count_after, 2);
-
-    budget.record_response_completed(None);
-    let _ = budget.drain_events();
-    let dispatch = budget
-        .before_dispatch("responses_http")
-        .expect("budget_recovery phase should not be single-use");
-    assert_eq!(dispatch.request_phase.as_deref(), Some("budget_recovery"));
+#[derive(Clone)]
+struct TagCollectorLayer {
+    tags: Arc<Mutex<BTreeMap<String, String>>>,
 }
 
-#[test]
-fn provider_request_budget_allows_rebuilt_context_after_recovery_grace_spent() {
-    let budget = ProviderRequestBudgetContext::enabled_with_attribution(
-        ProviderRequestBudgetLimits {
-            request_count: 2,
-            max_requests: 10,
-            node_request_count: 2,
-            max_model_requests_per_node: 2,
-            budget_state: "normal".to_string(),
-        },
-        ProviderRequestAttribution {
-            node_id: Some("node-1".to_string()),
-            request_phase: Some("budget_recovery".to_string()),
-            ..ProviderRequestAttribution::default()
-        },
-        None,
-    );
-
-    let dispatch = budget
-        .before_dispatch("responses_http")
-        .expect("rebuilt budget context should not hard-stop after recovery grace");
-    assert_eq!(dispatch.request_phase.as_deref(), Some("budget_recovery"));
+impl<S> Layer<S> for TagCollectorLayer
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    fn on_event(&self, event: &Event<'_>, _ctx: LayerContext<'_, S>) {
+        if event.metadata().target() != "feedback_tags" {
+            return;
+        }
+        let mut visitor = TagCollectorVisitor::default();
+        event.record(&mut visitor);
+        self.tags.lock().unwrap().extend(visitor.tags);
+    }
 }
 
-#[test]
-fn provider_request_budget_records_started_and_terminal_status() {
-    let budget = ProviderRequestBudgetContext::enabled(0, 2);
+fn started_inference_attempt(temp: &TempDir) -> anyhow::Result<InferenceTraceAttempt> {
+    let writer = Arc::new(TraceWriter::create(
+        temp.path(),
+        "trace-1".to_string(),
+        "rollout-1".to_string(),
+        "thread-root".to_string(),
+    )?);
+    writer.append(RawTraceEventPayload::ThreadStarted {
+        thread_id: "thread-root".to_string(),
+        agent_path: "/root".to_string(),
+        metadata_payload: None,
+    })?;
+    writer.append(RawTraceEventPayload::CodexTurnStarted {
+        codex_turn_id: "turn-1".to_string(),
+        thread_id: "thread-root".to_string(),
+    })?;
 
-    let dispatch = budget
-        .before_dispatch("responses_websocket")
-        .expect("first request should be within budget");
-    let payload = provider_payload_digest(&json!({
-        "input": "TaskSpaceMapProjectionR8V1:\n- schema_version: taskspace-map-projection-r8-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR8V1 end.",
-        "tools": [{
-            "type": "function",
-            "function": { "name": "exec_command" }
-        }]
-    }))
-    .expect("payload digest");
-    let payload_sha256 = payload.sha256.clone();
-    let payload_bytes = payload.bytes;
-    dispatch.record_provider_payload(payload);
-    dispatch.record_status("stream_opened");
-
-    let events = budget.drain_events();
-    assert_eq!(events.len(), 3);
-    assert_eq!(events[0].status, "started");
-    assert_eq!(events[1].status, "payload_captured");
-    assert_eq!(events[2].status, "stream_opened");
-    assert_eq!(events[0].request_id, events[1].request_id);
-    assert_eq!(events[0].request_id, events[2].request_id);
-    assert_eq!(events[0].logical_request_id, events[1].logical_request_id);
-    assert_eq!(events[0].logical_request_id, events[2].logical_request_id);
-    assert_eq!(events[0].attempt_seq, 1);
-    assert_eq!(events[0].parent_request_id, None);
-    assert!(
-        events[0]
-            .request_id
-            .starts_with("provider-request:scope-unknown:logical-1:attempt-1")
+    let inference_trace = InferenceTraceContext::enabled(
+        writer,
+        "thread-root".to_string(),
+        "turn-1".to_string(),
+        "gpt-test".to_string(),
+        "test-provider".to_string(),
     );
-    assert_eq!(events[0].request_count_after, 1);
-    assert_eq!(events[2].request_count_after, 1);
-    assert_eq!(events[0].budget_state_before, "normal");
-    assert_eq!(events[0].budget_state_after, "compact_checkpoint_required");
-    assert_eq!(
-        events[0].budget_transition_reason,
-        "provider_request_compact_checkpoint_required"
-    );
-    assert_eq!(events[2].budget_state_after, "compact_checkpoint_required");
-    assert_eq!(
-        events[1].provider_payload_sha256.as_deref(),
-        Some(payload_sha256.as_str())
-    );
-    assert_eq!(events[1].provider_payload_bytes, Some(payload_bytes));
-    assert_eq!(events[1].exact_payload_scan_passed, Some(true));
-    assert_eq!(events[1].active_projection_present, Some(true));
-    assert_eq!(events[1].replacement_confirmed, Some(true));
-    let exact_scan = events[1]
-        .exact_payload_scan
-        .as_ref()
-        .expect("payload_captured exact scan");
-    assert_eq!(exact_scan.request_id, events[1].request_id);
-    assert_eq!(exact_scan.provider_payload_sha256, payload_sha256);
-    assert_eq!(
-        exact_scan.scan_event_id,
-        format!("scan:{}:{}", events[1].request_id, payload_sha256)
-    );
-    assert!(exact_scan.passed);
-    assert_eq!(
-        events[2].provider_payload_sha256.as_deref(),
-        Some(payload_sha256.as_str())
-    );
-    assert_eq!(events[2].provider_payload_bytes, Some(payload_bytes));
-
-    budget.record_response_completed(Some(&TokenUsage {
-        input_tokens: 100,
-        cached_input_tokens: 25,
-        output_tokens: 40,
-        reasoning_output_tokens: 7,
-        total_tokens: 140,
+    let attempt = inference_trace.start_attempt();
+    attempt.record_started(&json!({
+        "model": "gpt-test",
+        "input": [{
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": "hello"}]
+        }],
     }));
-    let terminal_events = budget.drain_events();
-    assert_eq!(terminal_events.len(), 1);
-    assert_eq!(terminal_events[0].status, "response_completed");
-    assert_eq!(terminal_events[0].request_id, events[0].request_id);
-    assert_eq!(terminal_events[0].input_tokens, Some(100));
-    assert_eq!(terminal_events[0].cached_input_tokens, Some(25));
-    assert_eq!(terminal_events[0].output_tokens, Some(40));
-    assert_eq!(terminal_events[0].reasoning_output_tokens, Some(7));
-    assert_eq!(terminal_events[0].total_tokens, Some(140));
-    assert_eq!(
-        terminal_events[0].provider_payload_sha256.as_deref(),
-        Some(payload_sha256.as_str())
-    );
-    assert_eq!(
-        terminal_events[0].provider_payload_bytes,
-        Some(payload_bytes)
-    );
-    assert_eq!(terminal_events[0].exact_payload_scan_passed, Some(true));
-    assert_eq!(terminal_events[0].replacement_confirmed, Some(true));
-    assert_eq!(
-        terminal_events[0]
-            .exact_payload_scan
-            .as_ref()
-            .map(|scan| scan.scan_event_id.as_str()),
-        Some(exact_scan.scan_event_id.as_str())
-    );
-    assert!(terminal_events[0].completed_at_ms.is_some());
-    assert!(terminal_events[0].latency_ms.is_some());
+    Ok(attempt)
 }
 
-#[test]
-fn provider_request_budget_confirms_projection_identity_on_final_payload() {
-    let projection = "TaskSpaceMapProjectionR8V1:\n- schema_version: taskspace-map-projection-r8-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR8V1 end.";
-    let expectation = ProviderProjectionIdentityExpectation::from_projection_context(
-        TaskSpaceProjectionPolicy::MapAlways,
-        projection,
-    )
-    .expect("bootstrap projection identity");
-    let budget = ProviderRequestBudgetContext::enabled_with_attribution(
-        ProviderRequestBudgetLimits {
-            request_count: 0,
-            max_requests: 2,
-            node_request_count: 0,
-            max_model_requests_per_node: usize::MAX,
-            budget_state: "normal".to_string(),
-        },
-        ProviderRequestAttribution::default(),
-        Some(expectation),
-    );
-    let dispatch = budget
-        .before_dispatch("responses_http")
-        .expect("request dispatch");
-    let payload = provider_payload_digest(&json!({
-        "input": projection,
-        "tools": [{
-            "type": "function",
-            "function": { "name": "exec_command" }
-        }]
-    }))
-    .expect("payload digest");
-    dispatch.record_provider_payload(payload);
-
-    let event = budget
-        .drain_events()
-        .into_iter()
-        .find(|event| event.status == "payload_captured")
-        .expect("payload captured event");
-    let scan = event.exact_payload_scan.expect("exact payload scan");
-    assert_eq!(scan.projection_identity_confirmed, Some(true));
-    assert_eq!(scan.projection_kind.as_deref(), Some("bootstrap_required"));
-    assert_eq!(scan.projection_policy.as_deref(), Some("map-always"));
-    assert_eq!(
-        scan.projection_sha256.as_deref(),
-        scan.expected_projection_sha256.as_deref()
-    );
-    assert!(scan.passed);
-    assert!(scan.replacement_confirmed);
+fn output_message(id: &str, text: &str) -> ResponseItem {
+    ResponseItem::Message {
+        id: Some(codex_protocol::ResponseItemId::with_suffix("msg", id)),
+        role: "assistant".to_string(),
+        content: vec![ContentItem::OutputText {
+            text: text.to_string(),
+        }],
+        phase: None,
+        internal_chat_message_metadata_passthrough: None,
+    }
 }
 
-#[test]
-fn provider_request_budget_accepts_map_request_without_automatic_projection() {
-    let payload = provider_payload_digest(&json!({
-        "input": "TaskSpaceMapHandleR8V1:\n- taskspace_active: true\nTaskSpaceMapHandleR8V1 end.",
-        "tools": [{
-            "type": "function",
-            "function": { "name": "exec_command" }
-        }]
-    }))
-    .expect("map-request payload digest");
-    let mut scan = payload.scan;
-    let expectation = ProviderProjectionIdentityExpectation::without_automatic_projection(
-        TaskSpaceProjectionPolicy::MapRequest,
-    );
-    apply_projection_identity_expectation(&mut scan, Some(&expectation));
-
-    assert!(!scan.projection_required);
-    assert_eq!(scan.active_projection_count, 0);
-    assert_eq!(scan.projection_policy.as_deref(), Some("map-request"));
-    assert_eq!(scan.projection_identity_confirmed, Some(true));
-    assert!(scan.passed, "{:?}", scan.failure_reasons);
-    assert!(scan.replacement_confirmed);
+async fn replay_until_cancelled(temp: &TempDir) -> anyhow::Result<RolloutTrace> {
+    let mut rollout = replay_bundle(temp.path())?;
+    for _ in 0..50 {
+        let inference = rollout
+            .inference_calls
+            .values()
+            .next()
+            .expect("inference should be reduced");
+        if inference.execution.status == ExecutionStatus::Cancelled {
+            return Ok(rollout);
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        rollout = replay_bundle(temp.path())?;
+    }
+    Ok(rollout)
 }
 
-#[test]
-fn provider_payload_scan_validates_canonical_projection_shape() {
-    let standard = provider_payload_digest(&json!({
-        "input": "standard request",
-        "tools": [{
-            "type": "function",
-            "function": { "name": "shell_command" }
-        }]
-    }))
-    .expect("standard payload digest");
-    assert!(!standard.scan.projection_required);
-    assert!(standard.scan.passed);
+struct NotifyAfterEventStream {
+    events: VecDeque<ResponseEvent>,
+    yielded: usize,
+    notify_after: usize,
+    notify: Arc<Notify>,
+}
 
-    let blank_bootstrap = provider_payload_digest(&json!({
-        "input": "TaskSpaceMapProjectionR8V1:\n- schema_version: taskspace-map-projection-r8-v1\n- projection_kind: bootstrap_required\n- map: none\n- bootstrap_required: true\nTaskSpaceMapProjectionR8V1 end.",
-        "tools": [{
-            "type": "function",
-            "function": { "name": "exec_command" }
-        }]
-    }))
-    .expect("blank bootstrap payload digest");
-    assert!(blank_bootstrap.scan.projection_required);
-    assert_eq!(blank_bootstrap.scan.active_projection_count, 1);
-    assert!(blank_bootstrap.scan.passed);
-    assert!(blank_bootstrap.scan.replacement_confirmed);
+impl futures::Stream for NotifyAfterEventStream {
+    type Item = std::result::Result<ResponseEvent, ApiError>;
 
-    let payload_without_projection = provider_payload_digest(&json!({
-        "input": "ordinary history",
-        "tools": [
-            { "type": "function", "function": { "name": "exec_command" } },
-            { "type": "function", "function": { "name": "shell_command" } }
-        ]
-    }))
-    .expect("ordinary payload digest");
-    assert!(!payload_without_projection.scan.projection_required);
-    assert_eq!(payload_without_projection.scan.active_projection_count, 0);
-    assert!(payload_without_projection.scan.passed);
-    assert!(payload_without_projection.scan.replacement_confirmed);
-
-    let active_projection = concat!(
-        "TaskSpaceMapProjectionR8V1:\n",
-        "- schema_version: taskspace-map-projection-r8-v1\n",
-        "- projection_kind: current_projection\n",
-        "- map_id: map-1\n",
-        "- revision: 2\n",
-        "- canonical_sha256: canonical-map-2\n",
-        "- map:\n",
-        "  {\"root_node_id\":\"root\",\"finish_node_id\":\"finish\",\"complete\":false,\"nodes\":[]}\n",
-        "TaskSpaceMapProjectionR8V1 end.\n",
-    );
-    let active_tools = json!([
-        { "type": "function", "function": { "name": "exec_command" } },
-        { "type": "function", "function": { "name": "shell_command" } }
-    ]);
-    let active = provider_payload_digest(&json!({
-        "input": active_projection,
-        "tools": active_tools
-    }))
-    .expect("active payload digest");
-    assert!(
-        active.scan.passed,
-        "scan failure reasons: {:?}",
-        active.scan.failure_reasons
-    );
-    assert!(active.scan.projection_required);
-    assert_eq!(active.scan.active_projection_count, 1);
-    assert!(active.scan.replacement_confirmed);
-
-    let matching_expectation = ProviderProjectionIdentityExpectation::from_projection_context(
-        TaskSpaceProjectionPolicy::MapAlways,
-        active_projection,
-    )
-    .expect("matching projection identity");
-    let mut matching_scan = active.scan.clone();
-    apply_projection_identity_expectation(&mut matching_scan, Some(&matching_expectation));
-    assert_eq!(matching_scan.projection_identity_confirmed, Some(true));
-    assert!(matching_scan.passed);
-    assert!(matching_scan.replacement_confirmed);
-
-    let request_snapshot = |revision: u64| {
-        active_projection
-            .replace(
-                "- projection_kind: current_projection",
-                "- projection_kind: request_snapshot",
-            )
-            .replace("- revision: 2", &format!("- revision: {revision}"))
-            .replace(
-                "- canonical_sha256: canonical-map-2",
-                &format!("- canonical_sha256: canonical-map-{revision}"),
-            )
-    };
-    let append_revision_2 = request_snapshot(2);
-    let append_revision_3 = request_snapshot(3);
-    let append_payload = provider_payload_digest(&json!({
-        "input": format!("{append_revision_2}\n{append_revision_3}"),
-        "tools": active_tools
-    }))
-    .expect("append payload digest");
-    let append_expectation = ProviderProjectionIdentityExpectation::from_projection_context(
-        TaskSpaceProjectionPolicy::MapAppend,
-        &append_revision_3,
-    )
-    .expect("latest append projection identity");
-    let mut append_scan = append_payload.scan;
-    apply_projection_identity_expectation(&mut append_scan, Some(&append_expectation));
-    assert_eq!(append_scan.active_projection_count, 2);
-    assert_eq!(
-        append_scan.projection_kind.as_deref(),
-        Some("request_snapshot")
-    );
-    assert_eq!(append_scan.projection_revision, Some(3));
-    assert_eq!(append_scan.projection_identity_confirmed, Some(true));
-    assert!(append_scan.passed, "{:?}", append_scan.failure_reasons);
-    assert!(append_scan.replacement_confirmed);
-
-    let duplicate_append = provider_payload_digest(&json!({
-        "input": format!("{append_revision_2}\n{append_revision_2}"),
-        "tools": active_tools
-    }))
-    .expect("duplicate append payload digest");
-    let mut duplicate_append_scan = duplicate_append.scan;
-    apply_projection_identity_expectation(
-        &mut duplicate_append_scan,
-        Some(
-            &ProviderProjectionIdentityExpectation::from_projection_context(
-                TaskSpaceProjectionPolicy::MapAppend,
-                &append_revision_2,
-            )
-            .expect("duplicate expectation"),
-        ),
-    );
-    assert!(
-        duplicate_append_scan.passed,
-        "same revision is valid when the map did not change between requests: {:?}",
-        duplicate_append_scan.failure_reasons
-    );
-
-    let revision_3_projection = active_projection.replace("- revision: 2", "- revision: 3");
-    let revision_3_expectation = ProviderProjectionIdentityExpectation::from_projection_context(
-        TaskSpaceProjectionPolicy::MapAlways,
-        &revision_3_projection,
-    )
-    .expect("revision 3 projection identity");
-    let mut stale_scan = active.scan;
-    apply_projection_identity_expectation(&mut stale_scan, Some(&revision_3_expectation));
-    assert_eq!(stale_scan.projection_identity_confirmed, Some(false));
-    assert!(!stale_scan.passed);
-    assert!(!stale_scan.replacement_confirmed);
-    assert!(
-        stale_scan
-            .failure_reasons
-            .contains(&"projection_identity_mismatch".to_string())
-    );
-
-    let tool_output_marker = provider_payload_digest(&json!({
-        "messages": [
-            { "role": "tool", "content": active_projection },
-            { "role": "developer", "content": active_projection }
-        ],
-        "tools": active_tools
-    }))
-    .expect("tool output marker payload digest");
-    assert_eq!(tool_output_marker.scan.active_projection_count, 1);
-    assert!(tool_output_marker.scan.passed);
-
-    let projection_not_at_tail = provider_payload_digest(&json!({
-        "messages": [
-            { "role": "user", "content": append_revision_2 },
-            { "role": "assistant", "content": "later history" }
-        ],
-        "tools": active_tools
-    }))
-    .expect("non-tail projection payload digest");
-    assert!(!projection_not_at_tail.scan.passed);
-    assert!(
-        projection_not_at_tail
-            .scan
-            .failure_reasons
-            .contains(&"current_projection_not_message_tail".to_string())
-    );
-
-    let duplicate_active = provider_payload_digest(&json!({
-        "input": format!("{active_projection}\n{active_projection}"),
-        "tools": active_tools
-    }))
-    .expect("duplicate active payload digest");
-    assert_eq!(duplicate_active.scan.active_projection_count, 2);
-    assert!(!duplicate_active.scan.passed);
-    assert!(!duplicate_active.scan.replacement_confirmed);
-    assert!(
-        duplicate_active
-            .scan
-            .failure_reasons
-            .contains(&"current_projection_not_unique".to_string())
-    );
-
-    let active_with_transition_notice = provider_payload_digest(&json!({
-        "input": format!(
-            "TaskSpace mode is now active.\n\
-             hard_state: current node binding is required.\n\
-             execution_contract: runtime executes Agent-declared provider calls in order.\n\
-             strategy_owner: Agent.\n\
-             {active_projection}"
-        ),
-        "tools": active_tools
-    }))
-    .expect("active payload with transition notice");
-    assert!(active_with_transition_notice.scan.passed);
-
-    let bundled_active_with_forbidden_strategy = provider_payload_digest(&json!({
-        "input": format!("{active_projection}\nTaskSpaceAgentContextBundleV1\nnext_valid_actions"),
-        "tools": active_tools
-    }))
-    .expect("bundled active payload digest");
-    assert!(!bundled_active_with_forbidden_strategy.scan.passed);
-    assert!(
-        bundled_active_with_forbidden_strategy
-            .scan
-            .protected_items_present
-    );
-    assert_eq!(
-        bundled_active_with_forbidden_strategy
-            .scan
-            .runtime_boundary_forbidden_markers,
-        vec![
-            "TaskSpaceAgentContextBundleV1".to_string(),
-            "next_valid_actions".to_string(),
-        ]
-    );
-    assert!(
-        bundled_active_with_forbidden_strategy
-            .scan
-            .failure_reasons
-            .contains(&"runtime_boundary_forbidden_marker_present".to_string())
-    );
-
-    let missing_protected = provider_payload_digest(&json!({
-        "input": "TaskSpaceMapProjectionR8V1:\n- map_id: map-1\n- summary: incomplete\nTaskSpaceMapProjectionR8V1 end.",
-        "tools": active_tools
-    }))
-    .expect("missing protected payload digest");
-    assert!(missing_protected.scan.active_projection_present);
-    assert!(!missing_protected.scan.protected_items_present);
-    assert!(!missing_protected.scan.passed);
-    assert_eq!(
-        missing_protected.scan.failure_reasons,
-        vec!["current_projection_required_sections_missing".to_string()]
-    );
-
-    let large_instruction_text = "x".repeat(60 * 1024);
-    let large_active_instructions = provider_payload_digest(&json!({
-        "input": format!("{large_instruction_text}\n{active_projection}"),
-        "tools": active_tools
-    }))
-    .expect("large active instruction payload digest");
-    assert_eq!(large_active_instructions.scan.large_raw_output_tokens, 0);
-    assert!(large_active_instructions.scan.passed);
-
-    let raw_output = "x".repeat(60 * 1024);
-    let large_raw = provider_payload_digest(&json!({
-        "input": [
-            {
-                "type": "function_call_output",
-                "call_id": "call-1",
-                "output": raw_output
-            },
-            {
-                "type": "message",
-                "role": "developer",
-                "content": active_projection
-            }
-        ],
-        "tools": active_tools
-    }))
-    .expect("large raw payload digest");
-    assert!(large_raw.scan.large_raw_output_tokens > 0);
-    assert!(!large_raw.scan.passed);
-
-    let output_ref = provider_payload_digest(&json!({
-        "input": [
-            {
-                "type": "function_call_output",
-                "call_id": "call-1",
-                "output": format!("OutputReferenceV1:\nraw_output_elided: true\n{raw_output}")
-            },
-            {
-                "type": "message",
-                "role": "developer",
-                "content": active_projection
-            }
-        ],
-        "tools": active_tools
-    }))
-    .expect("output ref payload digest");
-    assert_eq!(output_ref.scan.large_raw_output_tokens, 0);
-    assert!(output_ref.scan.passed);
+    fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let Some(event) = self.events.pop_front() else {
+            return Poll::Pending;
+        };
+        self.yielded += 1;
+        if self.yielded == self.notify_after {
+            self.notify.notify_one();
+        }
+        Poll::Ready(Some(Ok(event)))
+    }
 }
 
 #[test]
@@ -985,6 +557,22 @@ fn build_subagent_headers_sets_other_subagent_label() {
 }
 
 #[test]
+fn build_subagent_headers_sets_internal_memory_consolidation_label() {
+    let client = test_model_client(SessionSource::Internal(
+        InternalSessionSource::MemoryConsolidation,
+    ));
+    let headers = client.build_subagent_headers();
+    let value = headers
+        .get(X_OPENAI_SUBAGENT_HEADER)
+        .and_then(|value| value.to_str().ok());
+    assert_eq!(value, Some("memory_consolidation"));
+    assert_eq!(
+        headers.get("originator"),
+        Some(&http::HeaderValue::from_static("test_originator"))
+    );
+}
+
+#[test]
 fn build_ws_client_metadata_includes_window_lineage_and_turn_metadata() {
     let parent_thread_id = ThreadId::new();
     let client = test_model_client(SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
@@ -995,34 +583,55 @@ fn build_ws_client_metadata_includes_window_lineage_and_turn_metadata() {
         agent_role: None,
     }));
 
-    client.advance_window_generation();
-
-    let client_metadata = client.build_ws_client_metadata(Some(r#"{"turn_id":"turn-123"}"#));
-    let conversation_id = client.state.conversation_id;
+    let thread_id = client.state.thread_id.to_string();
+    let expected_window_id = format!("{thread_id}:1");
+    let responses_metadata = test_responses_metadata_for_client(
+        &client,
+        Some("turn-123"),
+        expected_window_id.clone(),
+        Some(parent_thread_id),
+        TestCodexResponsesRequestKind::Turn,
+    );
+    let client_metadata =
+        client.build_ws_client_metadata(&responses_metadata, /*use_responses_lite*/ false);
+    let parent_thread_id = parent_thread_id.to_string();
+    let turn_metadata: serde_json::Value = serde_json::from_str(
+        client_metadata
+            .get(X_CODEX_TURN_METADATA_HEADER)
+            .expect("turn metadata"),
+    )
+    .expect("valid turn metadata");
+    for (client_key, metadata_key, expected) in [
+        (
+            X_CODEX_INSTALLATION_ID_HEADER,
+            "installation_id",
+            "11111111-1111-4111-8111-111111111111",
+        ),
+        ("session_id", "session_id", thread_id.as_str()),
+        ("thread_id", "thread_id", thread_id.as_str()),
+        ("turn_id", "turn_id", "turn-123"),
+        (
+            X_CODEX_WINDOW_ID_HEADER,
+            "window_id",
+            expected_window_id.as_str(),
+        ),
+        (
+            X_CODEX_PARENT_THREAD_ID_HEADER,
+            "parent_thread_id",
+            parent_thread_id.as_str(),
+        ),
+    ] {
+        assert_eq!(
+            client_metadata.get(client_key).map(String::as_str),
+            Some(expected)
+        );
+        assert_eq!(turn_metadata[metadata_key].as_str(), Some(expected));
+    }
     assert_eq!(
-        client_metadata,
-        std::collections::HashMap::from([
-            (
-                X_CODEX_INSTALLATION_ID_HEADER.to_string(),
-                "11111111-1111-4111-8111-111111111111".to_string(),
-            ),
-            (
-                X_CODEX_WINDOW_ID_HEADER.to_string(),
-                format!("{conversation_id}:1"),
-            ),
-            (
-                X_OPENAI_SUBAGENT_HEADER.to_string(),
-                "collab_spawn".to_string(),
-            ),
-            (
-                X_CODEX_PARENT_THREAD_ID_HEADER.to_string(),
-                parent_thread_id.to_string(),
-            ),
-            (
-                X_CODEX_TURN_METADATA_HEADER.to_string(),
-                r#"{"turn_id":"turn-123"}"#.to_string(),
-            ),
-        ])
+        client_metadata
+            .get(X_OPENAI_SUBAGENT_HEADER)
+            .map(String::as_str),
+        Some("collab_spawn")
     );
 }
 
@@ -1044,11 +653,338 @@ async fn summarize_memories_returns_empty_for_empty_input() {
     assert_eq!(output.len(), 0);
 }
 
+#[tokio::test]
+async fn dropped_response_stream_traces_cancelled_partial_output() -> anyhow::Result<()> {
+    let temp = TempDir::new()?;
+    let attempt = started_inference_attempt(&temp)?;
+
+    // The provider has produced one complete output item, but no terminal
+    // response.completed event. The harness has enough information to keep this
+    // item in history, so the trace should preserve it when the stream is
+    // abandoned.
+    let item = output_message("1", "partial answer");
+    let api_stream = futures::stream::iter([Ok(ResponseEvent::OutputItemDone(item))])
+        .chain(futures::stream::pending());
+    let (mut stream, _) = super::map_response_events(
+        /*upstream_request_id*/ None,
+        api_stream,
+        test_session_telemetry(),
+        attempt,
+        test_model_provider(),
+    );
+
+    let observed = stream
+        .next()
+        .await
+        .expect("mapped stream should yield output item")?;
+    assert!(matches!(observed, ResponseEvent::OutputItemDone(_)));
+
+    // Dropping the consumer is how turn interruption/preemption stops polling
+    // the provider stream. The mapper task observes that drop asynchronously
+    // and records cancellation using the output items it has already seen.
+    drop(stream);
+
+    // Cancellation is recorded by the mapper task after Drop wakes it, so the
+    // replay may need a short wait before the terminal event appears on disk.
+    let rollout = replay_until_cancelled(&temp).await?;
+    let inference = rollout
+        .inference_calls
+        .values()
+        .next()
+        .expect("inference should be reduced");
+
+    assert_eq!(inference.execution.status, ExecutionStatus::Cancelled);
+    assert_eq!(inference.response_item_ids.len(), 1);
+    assert_eq!(rollout.raw_payloads.len(), 2);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn response_stream_records_last_model_feedback_ids() {
+    let tags = Arc::new(Mutex::new(BTreeMap::new()));
+    let _guard = tracing_subscriber::registry()
+        .with(TagCollectorLayer { tags: tags.clone() })
+        .set_default();
+
+    let api_stream = futures::stream::iter([
+        Ok(ResponseEvent::Created),
+        Ok(ResponseEvent::Completed {
+            response_id: "resp-123".to_string(),
+            token_usage: None,
+            end_turn: Some(true),
+        }),
+    ]);
+    let (mut stream, _) = super::map_response_events(
+        Some("req-123".to_string()),
+        api_stream,
+        test_session_telemetry(),
+        InferenceTraceAttempt::disabled(),
+        test_model_provider(),
+    );
+
+    while stream.next().await.is_some() {}
+
+    let tags = tags.lock().unwrap().clone();
+    assert_eq!(
+        tags.get("last_model_request_id").map(String::as_str),
+        Some("\"req-123\"")
+    );
+    assert_eq!(
+        tags.get("last_model_response_id").map(String::as_str),
+        Some("\"resp-123\"")
+    );
+}
+
+#[tokio::test]
+async fn response_stream_reconciles_provider_usage_at_completion() -> anyhow::Result<()> {
+    let temp = TempDir::new()?;
+    let attempt = started_inference_attempt(&temp)?;
+    let usage = TokenUsage {
+        input_tokens: 100,
+        cached_input_tokens: 80,
+        cache_write_input_tokens: 5,
+        output_tokens: 20,
+        reasoning_output_tokens: 7,
+        total_tokens: 120,
+        codex_rollout_budget_units: None,
+    };
+    let api_stream = futures::stream::iter([Ok(ResponseEvent::Completed {
+        response_id: "resp-usage".to_string(),
+        token_usage: Some(usage.clone()),
+        end_turn: Some(true),
+    })]);
+    let (mut stream, _) = super::map_response_events(
+        Some("req-usage".to_string()),
+        api_stream,
+        test_session_telemetry(),
+        attempt,
+        test_model_provider(),
+    );
+
+    let completed = stream.next().await.expect("completed event")?;
+    assert_matches::assert_matches!(
+        completed,
+        ResponseEvent::Completed {
+            response_id,
+            token_usage: Some(observed),
+            end_turn: Some(true),
+        } if response_id == "resp-usage" && observed == usage
+    );
+
+    let rollout = replay_bundle(temp.path())?;
+    let inference = rollout
+        .inference_calls
+        .values()
+        .next()
+        .expect("inference should be reduced");
+    let reconciled = inference.usage.as_ref().expect("usage should be recorded");
+    assert_eq!(reconciled.input_tokens, 100);
+    assert_eq!(reconciled.cached_input_tokens, 80);
+    assert_eq!(reconciled.cache_write_input_tokens, 5);
+    assert_eq!(reconciled.output_tokens, 20);
+    assert_eq!(reconciled.reasoning_output_tokens, 7);
+    Ok(())
+}
+
+#[tokio::test]
+async fn bedrock_unauthorized_error_uses_provider_mapping() {
+    let provider = create_model_provider(
+        ModelProviderInfo::create_amazon_bedrock_provider(/*aws*/ None),
+        /*auth_manager*/ None,
+    );
+    let mut auth_recovery = None;
+    let mut provider_auth_recovery_attempted = false;
+    let url = "https://bedrock-mantle.us-east-2.api.aws/openai/v1/responses";
+    let error = super::handle_unauthorized(
+        TransportError::Http {
+            status: http::StatusCode::UNAUTHORIZED,
+            url: Some(url.to_string()),
+            headers: None,
+            body: Some(
+                "Signature expired: 20260609T133205Z is now earlier than 20260614T062525Z"
+                    .to_string(),
+            ),
+        },
+        &mut auth_recovery,
+        &mut provider_auth_recovery_attempted,
+        &test_session_telemetry(),
+        &provider,
+    )
+    .await
+    .expect_err("expired Bedrock signature should fail");
+
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "Amazon Bedrock rejected the request because its AWS signature has expired. Refresh your AWS credentials and retry. If `AWS_BEARER_TOKEN_BEDROCK` is set, update or unset it, then restart Codex, url: {url}"
+        )
+    );
+}
+
+#[derive(Debug)]
+struct TestRecoveryProvider {
+    inner: SharedModelProvider,
+    should_fail: bool,
+    attempts: Arc<AtomicUsize>,
+}
+
+impl ModelProvider for TestRecoveryProvider {
+    fn info(&self) -> &ModelProviderInfo {
+        self.inner.info()
+    }
+
+    fn auth_manager(&self) -> Option<Arc<AuthManager>> {
+        None
+    }
+
+    fn auth(&self) -> ModelProviderFuture<'_, Option<CodexAuth>> {
+        self.inner.auth()
+    }
+
+    fn account_state(&self) -> ProviderAccountResult {
+        self.inner.account_state()
+    }
+
+    fn recover_from_unauthorized(
+        &self,
+    ) -> ModelProviderFuture<'_, codex_protocol::error::Result<ProviderUnauthorizedRecovery>> {
+        self.attempts.fetch_add(1, Ordering::Relaxed);
+        Box::pin(async move {
+            if self.should_fail {
+                Err(CodexErr::Io(std::io::Error::other(
+                    "provider recovery failed",
+                )))
+            } else {
+                Ok(ProviderUnauthorizedRecovery::Recovered)
+            }
+        })
+    }
+
+    fn models_manager(
+        &self,
+        codex_home: PathBuf,
+        config_model_catalog: Option<ModelsResponse>,
+    ) -> SharedModelsManager {
+        self.inner.models_manager(codex_home, config_model_catalog)
+    }
+}
+
+#[tokio::test]
+async fn provider_owned_auth_recovery_is_bounded_and_preserves_unauthorized_failures() {
+    for should_fail in [false, true] {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let provider: SharedModelProvider = Arc::new(TestRecoveryProvider {
+            inner: test_model_provider(),
+            should_fail,
+            attempts: Arc::clone(&attempts),
+        });
+        assert!(provider.auth_manager().is_none());
+
+        let unauthorized = || TransportError::Http {
+            status: http::StatusCode::UNAUTHORIZED,
+            url: Some("https://example.com/v1/responses".to_string()),
+            headers: None,
+            body: Some("unauthorized".to_string()),
+        };
+        let mut auth_recovery = None;
+        let mut provider_auth_recovery_attempted = false;
+        let telemetry = test_session_telemetry();
+        let result = super::handle_unauthorized(
+            unauthorized(),
+            &mut auth_recovery,
+            &mut provider_auth_recovery_attempted,
+            &telemetry,
+            &provider,
+        )
+        .await;
+
+        let error = if should_fail {
+            result.expect_err("failed provider recovery should return the original error")
+        } else {
+            let recovered = result.expect("provider recovery should succeed without AuthManager");
+            assert_eq!(
+                (recovered.mode, recovered.phase),
+                ("provider", "provider_refresh")
+            );
+            super::handle_unauthorized(
+                unauthorized(),
+                &mut auth_recovery,
+                &mut provider_auth_recovery_attempted,
+                &telemetry,
+                &provider,
+            )
+            .await
+            .expect_err("provider recovery should not run more than once")
+        };
+
+        match error.details() {
+            CodexErrorDetails::UnexpectedStatus(response) => {
+                assert_eq!(response.status, http::StatusCode::UNAUTHORIZED);
+                assert_eq!(response.body, "unauthorized");
+            }
+            other => panic!("unexpected error after provider recovery: {other}"),
+        }
+        assert_eq!(attempts.load(Ordering::Relaxed), 1);
+    }
+}
+
+#[tokio::test]
+async fn dropped_backpressured_response_stream_traces_cancelled_partial_output()
+-> anyhow::Result<()> {
+    let temp = TempDir::new()?;
+    let attempt = started_inference_attempt(&temp)?;
+    let backpressured_item_yielded = Arc::new(Notify::new());
+    let mut events = VecDeque::new();
+    for _ in 0..super::RESPONSE_STREAM_CHANNEL_CAPACITY {
+        events.push_back(ResponseEvent::Created);
+    }
+    events.push_back(ResponseEvent::OutputItemDone(output_message(
+        "1",
+        "partial answer",
+    )));
+    let api_stream = NotifyAfterEventStream {
+        events,
+        yielded: 0,
+        notify_after: super::RESPONSE_STREAM_CHANNEL_CAPACITY + 1,
+        notify: Arc::clone(&backpressured_item_yielded),
+    };
+
+    let (stream, _) = super::map_response_events(
+        /*upstream_request_id*/ None,
+        api_stream,
+        test_session_telemetry(),
+        attempt,
+        test_model_provider(),
+    );
+
+    // Fill the mapper channel with non-terminal events, then yield one output
+    // item. The mapper has observed that item and is blocked trying to send it
+    // downstream, so dropping the consumer covers the send-failure path rather
+    // than the `consumer_dropped` select branch.
+    backpressured_item_yielded.notified().await;
+    drop(stream);
+
+    let rollout = replay_until_cancelled(&temp).await?;
+    let inference = rollout
+        .inference_calls
+        .values()
+        .next()
+        .expect("inference should be reduced");
+
+    assert_eq!(inference.execution.status, ExecutionStatus::Cancelled);
+    assert_eq!(inference.response_item_ids.len(), 1);
+    assert_eq!(rollout.raw_payloads.len(), 2);
+
+    Ok(())
+}
+
 #[test]
 fn auth_request_telemetry_context_tracks_attached_auth_and_retry_phase() {
     let auth_context = AuthRequestTelemetryContext::new(
         Some(AuthMode::Chatgpt),
         &BearerAuthProvider::for_test(Some("access-token"), Some("workspace-123")),
+        /*agent_identity_telemetry*/ None,
         PendingUnauthorizedRetry::from_recovery(UnauthorizedRecoveryExecution {
             mode: "managed",
             phase: "refresh_token",
@@ -1061,4 +997,138 @@ fn auth_request_telemetry_context_tracks_attached_auth_and_retry_phase() {
     assert!(auth_context.retry_after_unauthorized);
     assert_eq!(auth_context.recovery_mode, Some("managed"));
     assert_eq!(auth_context.recovery_phase, Some("refresh_token"));
+}
+
+#[test]
+fn auth_request_telemetry_context_tracks_agent_identity_ids() {
+    let auth_context = AuthRequestTelemetryContext::new(
+        Some(AuthMode::Chatgpt),
+        &BearerAuthProvider::for_test(/*token*/ None, /*account_id*/ None),
+        Some(AgentIdentityTelemetry {
+            agent_id: "agent-runtime-context".to_string(),
+            task_id: "task-run-context".to_string(),
+        }),
+        PendingUnauthorizedRetry::default(),
+    );
+
+    assert_eq!(
+        auth_context.agent_identity_telemetry(),
+        Some(&AgentIdentityTelemetry {
+            agent_id: "agent-runtime-context".to_string(),
+            task_id: "task-run-context".to_string(),
+        })
+    );
+}
+
+fn model_client_with_counting_attestation(
+    include_attestation: bool,
+) -> (ModelClient, Arc<AtomicUsize>) {
+    #[derive(Debug)]
+    struct CountingAttestationProvider {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl AttestationProvider for CountingAttestationProvider {
+        fn header_for_request(
+            &self,
+            _context: AttestationContext,
+        ) -> GenerateAttestationFuture<'_> {
+            let calls = self.calls.clone();
+            Box::pin(async move {
+                let call = calls.fetch_add(1, Ordering::Relaxed) + 1;
+                Some(http::HeaderValue::from_bytes(format!("v1.header-{call}").as_bytes()).unwrap())
+            })
+        }
+    }
+
+    let attestation_calls = Arc::new(AtomicUsize::new(0));
+    let (auth_manager, provider) = if include_attestation {
+        (
+            Some(AuthManager::from_auth_for_testing(
+                CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+            )),
+            ModelProviderInfo::create_openai_provider(Some(CHATGPT_CODEX_BASE_URL.to_string())),
+        )
+    } else {
+        (
+            None,
+            create_oss_provider_with_base_url("https://example.com/v1", WireApi::Responses),
+        )
+    };
+    let model_client = ModelClient::new(
+        auth_manager,
+        AgentIdentityAuthPolicy::JwtOnly,
+        ThreadId::new(),
+        provider,
+        SessionSource::Exec,
+        "test_originator".to_string(),
+        /*model_verbosity*/ None,
+        /*enable_request_compression*/ false,
+        /*include_timing_metrics*/ false,
+        /*beta_features_header*/ None,
+        /*concurrent_reasoning_summaries_enabled*/ false,
+        Some(Arc::new(CountingAttestationProvider {
+            calls: attestation_calls.clone(),
+        })),
+        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+    );
+    (model_client, attestation_calls)
+}
+
+#[tokio::test]
+async fn websocket_handshake_includes_attestation_for_chatgpt_codex_responses() {
+    let (model_client, attestation_calls) =
+        model_client_with_counting_attestation(/*include_attestation*/ true);
+    let responses_metadata = test_responses_metadata_for_client(
+        &model_client,
+        /*turn_id*/ None,
+        format!("{}:0", model_client.state.thread_id),
+        /*parent_thread_id*/ None,
+        TestCodexResponsesRequestKind::WebsocketConnection,
+    );
+
+    let headers = model_client
+        .build_websocket_headers(&responses_metadata)
+        .await;
+
+    assert_eq!(
+        headers
+            .get(crate::attestation::X_OAI_ATTESTATION_HEADER)
+            .and_then(|value| value.to_str().ok()),
+        Some("v1.header-1"),
+    );
+    assert_eq!(attestation_calls.load(Ordering::Relaxed), 1);
+}
+
+#[tokio::test]
+async fn non_chatgpt_codex_endpoints_omit_attestation_generation() {
+    let (model_client, attestation_calls) =
+        model_client_with_counting_attestation(/*include_attestation*/ false);
+    let mut response_headers = http::HeaderMap::new();
+
+    if let Some(header_value) = model_client.generate_attestation_header_for().await {
+        response_headers.insert(crate::attestation::X_OAI_ATTESTATION_HEADER, header_value);
+    }
+    let mut compaction_headers = http::HeaderMap::new();
+    if let Some(header_value) = model_client.generate_attestation_header_for().await {
+        compaction_headers.insert(crate::attestation::X_OAI_ATTESTATION_HEADER, header_value);
+    }
+    let mut realtime_headers = http::HeaderMap::new();
+    if let Some(header_value) = model_client.generate_attestation_header_for().await {
+        realtime_headers.insert(crate::attestation::X_OAI_ATTESTATION_HEADER, header_value);
+    }
+
+    assert_eq!(
+        response_headers.get(crate::attestation::X_OAI_ATTESTATION_HEADER),
+        None,
+    );
+    assert_eq!(
+        compaction_headers.get(crate::attestation::X_OAI_ATTESTATION_HEADER),
+        None,
+    );
+    assert_eq!(
+        realtime_headers.get(crate::attestation::X_OAI_ATTESTATION_HEADER),
+        None,
+    );
+    assert_eq!(attestation_calls.load(Ordering::Relaxed), 0);
 }

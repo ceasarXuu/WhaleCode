@@ -23,7 +23,6 @@ pub(super) fn spawn_search_provider_health_check(
         tx.send(AppEvent::InsertHistoryCell(Box::new(cell)));
     });
 }
-
 async fn search_provider_health_check(
     provider: WebSearchProvider,
     secret: &str,

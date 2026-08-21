@@ -16,8 +16,8 @@ const CONFIG_KEY_ALIASES: &[ConfigKeyAlias] = &[
     },
     ConfigKeyAlias {
         table_path: &["agents"],
-        legacy_key: "max_concurrent_threads_per_session",
-        canonical_key: "max_threads",
+        legacy_key: "max_threads",
+        canonical_key: "max_concurrent_threads_per_session",
     },
 ];
 

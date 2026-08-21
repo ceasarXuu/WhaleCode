@@ -11,6 +11,7 @@ use codex_protocol::taskspace::TaskSpaceCanonicalMap;
 use codex_protocol::taskspace::TaskSpaceMapNode;
 use codex_protocol::taskspace::TaskSpaceNodeAction;
 use codex_protocol::taskspace::TaskSpaceNodeState;
+use codex_utils_absolute_path::test_support::PathExt;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -60,9 +61,12 @@ fn temp_home() -> std::path::PathBuf {
 
 async fn runtime() -> (std::path::PathBuf, Arc<StateRuntime>) {
     let home = temp_home();
-    let runtime = StateRuntime::init(home.clone(), "test-provider".to_string())
-        .await
-        .expect("initialize state runtime");
+    let runtime = StateRuntime::init(
+        crate::SqliteConfig::new_for_testing(home.as_path().abs()),
+        "test-provider".to_string(),
+    )
+    .await
+    .expect("initialize state runtime");
     (home, runtime)
 }
 
@@ -413,9 +417,12 @@ async fn taskspace_map_survives_state_runtime_restart() {
         .expect("create map");
     drop(runtime);
 
-    let reopened = StateRuntime::init(home.clone(), "test-provider".to_string())
-        .await
-        .expect("reopen state runtime");
+    let reopened = StateRuntime::init(
+        crate::SqliteConfig::new_for_testing(home.as_path().abs()),
+        "test-provider".to_string(),
+    )
+    .await
+    .expect("reopen state runtime");
     let record = reopened
         .load_taskspace_map(&map_id)
         .await

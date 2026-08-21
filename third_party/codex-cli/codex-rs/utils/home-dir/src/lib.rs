@@ -145,7 +145,7 @@ mod tests {
             .to_str()
             .expect("temp whale home path should be valid utf-8");
 
-        let resolved = find_codex_home_from_env(Some(temp_str)).expect("valid WHALE_HOME");
+        let resolved = find_codex_home_from_env(Some(temp_str)).expect("valid CODEX_HOME");
         let expected = temp_home
             .path()
             .canonicalize()

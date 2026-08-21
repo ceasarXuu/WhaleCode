@@ -1,0 +1,120 @@
+{
+  "entries": [
+    {
+      "inferred_upstream_commit": "18cefba922ab17fda8783ac7c61c9b96798439cc",
+      "local_commit": "2bd32209ee97e3f43478a427c453a0f1b830e674",
+      "scope": "codex-api compact timeout and core client",
+      "status": "inferred_not_verified"
+    },
+    {
+      "inferred_upstream_commit": "a27d3847b5c36d7953b41064bc138cad26756272",
+      "local_commit": "20ebce2075ec42bd303d64474de2c0ebca7b709b",
+      "scope": "configuration read-only fallback rejection",
+      "status": "inferred_not_verified"
+    },
+    {
+      "inferred_upstream_commit": "0edcc4b94e63b208fbc18d4fabf3b5a7ca8b3e12",
+      "local_commit": "a2b451975c56a314326abd3940f1d49c7d1abfc6",
+      "scope": "cloud requirements deny-read globs",
+      "status": "inferred_not_verified"
+    },
+    {
+      "inferred_upstream_commit": null,
+      "local_commit": "a9efb13a97e585f9ffc2f2ba276ce891c569c395",
+      "scope": "TUI replay MCP plugin metadata composite adaptation",
+      "status": "source_unproven"
+    },
+    {
+      "inferred_upstream_commit": "46f30d02828bd4c52827e5f0482a6f2a982cce5b",
+      "local_commit": "3ad4fd5159e8748e69995743ea75c483361d06ae",
+      "scope": "plumb Windows deny-read overrides",
+      "status": "inferred_split_from_upstream"
+    },
+    {
+      "inferred_upstream_commit": "46f30d02828bd4c52827e5f0482a6f2a982cce5b",
+      "local_commit": "3da61bb49bae39a1a4ccf9cb96532019136b5ee7",
+      "scope": "resolve Windows deny-read overrides",
+      "status": "inferred_split_from_upstream"
+    },
+    {
+      "inferred_upstream_commit": "46f30d02828bd4c52827e5f0482a6f2a982cce5b",
+      "local_commit": "57f2981308161c9e627750337333cd58db5ad447",
+      "scope": "Windows deny-read ACL primitives",
+      "status": "inferred_split_from_upstream"
+    },
+    {
+      "inferred_upstream_commit": "46f30d02828bd4c52827e5f0482a6f2a982cce5b",
+      "local_commit": "960c19591cc4fe6b7a16670a6eb341f3709e5fe7",
+      "scope": "Windows deny-read resolver",
+      "status": "inferred_split_from_upstream"
+    },
+    {
+      "inferred_upstream_commit": "8ae0c837f0fbc090bef94c6323d0fa3803e55258",
+      "local_commit": "644807c9da59d66dbdd6b98f8a3a72bd18b67a26",
+      "scope": "avoid PowerShell profiles",
+      "status": "inferred_not_verified"
+    },
+    {
+      "inferred_upstream_commit": "123e78b97b74d7288be553973361c34dac6830a6",
+      "local_commit": "1b9b78c351d78d2632263d636e3c973a42dbf438",
+      "scope": "worktree root for safe.directory",
+      "status": "inferred_not_verified"
+    },
+    {
+      "inferred_upstream_commit": "6941f5c2c5a17a6f61bfbc9f4c96cb0c81401623",
+      "local_commit": "6db1e13dc56a6b5d8d418e2f002ca62b626a32af",
+      "scope": "preserve MCP result metadata",
+      "status": "inferred_not_verified"
+    },
+    {
+      "inferred_upstream_commit": "a66e0e9c4b2978121ed1cd4242f7f62dd027423f",
+      "local_commit": "4eb38a9b069d996d7f8c05e680e9f695a6ba0c6e",
+      "scope": "plugin id in MCP metadata",
+      "status": "inferred_not_verified"
+    },
+    {
+      "inferred_upstream_commit": "0a4179bb19637d09724f61982cfaf7e50bb3a4a9",
+      "local_commit": "4622b0281b21d7942f96dd3e6b220578e37d9415",
+      "scope": "plugin id in MCP items schema and SDK",
+      "status": "inferred_not_verified"
+    },
+    {
+      "inferred_upstream_commit": "e43a2e297fe72285890e0f04f9f1aece843c2338",
+      "local_commit": "31344275ac12ca39e786379c119e8fa6255bba4c",
+      "scope": "stale unified exec polls",
+      "status": "inferred_not_verified"
+    },
+    {
+      "inferred_upstream_commit": "deb159d9ffb848b60a9c63ab9d2ce014d7093b0f",
+      "local_commit": "4a79e82af72fa780f96272b16d581fae3571bc8a",
+      "scope": "TUI stream cleanup after turn errors",
+      "status": "inferred_not_verified"
+    },
+    {
+      "inferred_upstream_commit": null,
+      "local_commit": "79ccf04e0092d87e7ee878e3d7653d637f8081b3",
+      "scope": "MCP startup status restore",
+      "status": "source_unproven"
+    },
+    {
+      "inferred_upstream_commit": "394242e95bff8392e77792cc92114acc590b2c66",
+      "local_commit": "d8dd7df32d6bb1832a8ab88adc87887448de20c7",
+      "scope": "fork last working directory",
+      "status": "inferred_not_verified"
+    },
+    {
+      "inferred_upstream_commit": "4dbca61e200d0e1f048e875e87dd3f12a69f95c3",
+      "local_commit": "c35f24660eeb2f715d70dba1f611daeb6c6470ef",
+      "scope": "empty tool schemas",
+      "status": "inferred_not_verified"
+    },
+    {
+      "inferred_upstream_commit": "9dda71dbae98976bc6d0c1c769810bcf24bb6092",
+      "local_commit": "2e3d8a8cba0599b086553f0753872721b2ea4000",
+      "scope": "invalid UTF-8 AGENTS warning",
+      "status": "inferred_not_verified"
+    }
+  ],
+  "reason": "Local upstream-labelled commits lack Upstream-Commit trailers, patch digests, dated sync logs, or preserved verification evidence.",
+  "schema_version": 1
+}

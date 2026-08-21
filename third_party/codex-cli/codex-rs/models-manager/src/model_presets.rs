@@ -1,7 +1,7 @@
 use codex_protocol::openai_models::ModelPreset;
 
+pub const WHALE_DEFAULT_MODEL: &str = "deepseek-v4-flash";
 const WHALE_MODEL_PREFIX: &str = "deepseek-";
-const DEEPSEEK_PRO_MODEL: &str = "deepseek-v4-pro";
 
 /// Legacy notice keys kept for config compatibility with older migration prompts.
 ///
@@ -10,18 +10,17 @@ pub const HIDE_GPT5_1_MIGRATION_PROMPT_CONFIG: &str = "hide_gpt5_1_migration_pro
 pub const HIDE_GPT_5_1_CODEX_MAX_MIGRATION_PROMPT_CONFIG: &str =
     "hide_gpt-5.1-codex-max_migration_prompt";
 
-/// Keep Whale's public model listing focused on DeepSeek-backed choices.
 pub(crate) fn retain_whale_models_for_listing(presets: &mut Vec<ModelPreset>) {
-    presets.retain(|preset| is_whale_model(&preset.model));
-    for preset in presets {
-        if preset.model == DEEPSEEK_PRO_MODEL {
-            preset.show_in_picker = false;
-            preset.supported_in_api = false;
-            preset.is_default = false;
-        }
-    }
+    presets.retain(|preset| preset.model.starts_with(WHALE_MODEL_PREFIX));
 }
 
-pub(crate) fn is_whale_model(model: &str) -> bool {
-    model.starts_with(WHALE_MODEL_PREFIX)
+pub(crate) fn mark_whale_default_model(presets: &mut [ModelPreset]) {
+    if let Some(default_index) = presets
+        .iter()
+        .position(|preset| preset.model == WHALE_DEFAULT_MODEL && preset.show_in_picker)
+    {
+        for (index, preset) in presets.iter_mut().enumerate() {
+            preset.is_default = index == default_index;
+        }
+    }
 }

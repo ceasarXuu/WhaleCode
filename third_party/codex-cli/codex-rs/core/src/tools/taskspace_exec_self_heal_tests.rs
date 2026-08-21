@@ -9,6 +9,7 @@ fn catalog() -> TaskSpaceExecCatalog {
     TaskSpaceExecCatalog::build(&[ToolSpec::Freeform(FreeformTool {
         name: "apply_patch".into(),
         description: "Apply one patch.".into(),
+        defer_loading: None,
         format: FreeformToolFormat {
             r#type: "grammar".into(),
             syntax: "lark".into(),
@@ -24,7 +25,9 @@ fn call(arguments: &str) -> ResponseItem {
         name: TASKSPACE_EXEC_TOOL_NAME.into(),
         namespace: None,
         arguments: arguments.into(),
+        encrypted_function_args: None,
         call_id: "observed-wrapper".into(),
+        internal_chat_message_metadata_passthrough: None,
     }
 }
 

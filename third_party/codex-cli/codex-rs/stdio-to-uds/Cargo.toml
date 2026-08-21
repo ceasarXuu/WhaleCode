@@ -5,12 +5,14 @@ edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "whale-stdio-to-uds"
+name = "codex-stdio-to-uds"
 path = "src/main.rs"
 
 [lib]
 name = "codex_stdio_to_uds"
 path = "src/lib.rs"
+test = false
+doctest = false
 
 [lints]
 workspace = true

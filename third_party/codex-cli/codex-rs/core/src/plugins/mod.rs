@@ -1,47 +1,45 @@
-use codex_config::types::McpServerConfig;
-
 mod discoverable;
 mod injection;
-mod manager;
 mod mentions;
+pub(crate) mod metrics;
 mod render;
-mod startup_sync;
+#[cfg(test)]
+#[path = "skill_snapshot_tests.rs"]
+mod skill_snapshot_tests;
 #[cfg(test)]
 pub(crate) mod test_support;
 
-pub use codex_core_plugins::marketplace_upgrade::ConfiguredMarketplaceUpgradeError as PluginMarketplaceUpgradeError;
-pub use codex_core_plugins::marketplace_upgrade::ConfiguredMarketplaceUpgradeOutcome as PluginMarketplaceUpgradeOutcome;
-pub use codex_plugin::AppConnectorId;
-pub use codex_plugin::EffectiveSkillRoots;
-pub use codex_plugin::PluginCapabilitySummary;
-pub use codex_plugin::PluginId;
-pub use codex_plugin::PluginIdError;
-pub use codex_plugin::PluginTelemetryMetadata;
-pub use codex_plugin::validate_plugin_segment;
+use crate::config::Config;
+use codex_core_plugins::PluginsManager;
+use codex_login::AuthManager;
+use codex_skills_extension::HostSkillsService;
+use std::sync::Arc;
 
-pub type LoadedPlugin = codex_plugin::LoadedPlugin<McpServerConfig>;
-pub type PluginLoadOutcome = codex_plugin::PluginLoadOutcome<McpServerConfig>;
+pub(crate) use codex_plugin::PluginCapabilitySummary;
 
 pub(crate) use discoverable::list_tool_suggest_discoverable_plugins;
 pub(crate) use injection::build_plugin_injections;
-pub use manager::ConfiguredMarketplace;
-pub use manager::ConfiguredMarketplaceListOutcome;
-pub use manager::ConfiguredMarketplacePlugin;
-pub use manager::PluginDetail;
-pub use manager::PluginDetailsUnavailableReason;
-pub use manager::PluginInstallError;
-pub use manager::PluginInstallOutcome;
-pub use manager::PluginInstallRequest;
-pub use manager::PluginReadOutcome;
-pub use manager::PluginReadRequest;
-pub use manager::PluginRemoteSyncError;
-pub use manager::PluginUninstallError;
-pub use manager::PluginsManager;
-pub use manager::RemotePluginSyncResult;
 pub(crate) use render::render_explicit_plugin_instructions;
 
 pub(crate) use mentions::build_connector_slug_counts;
-pub(crate) use mentions::build_skill_name_counts;
 pub(crate) use mentions::collect_explicit_app_ids;
 pub(crate) use mentions::collect_explicit_plugin_mentions;
 pub(crate) use mentions::collect_tool_mentions_from_messages;
+
+/// Constructs a standalone plugin manager with extension-owned plugin skill loading.
+///
+/// Callers that already own a host skills service should inject that existing service instead.
+pub fn plugins_manager_for_config(
+    config: &Config,
+    auth_manager: Arc<AuthManager>,
+) -> PluginsManager {
+    let skill_root_loader = Arc::new(HostSkillsService::new(
+        config.codex_home.clone(),
+        /*bundled_skills_enabled*/ false,
+    ));
+    PluginsManager::new(
+        config.codex_home.to_path_buf(),
+        auth_manager,
+        skill_root_loader,
+    )
+}

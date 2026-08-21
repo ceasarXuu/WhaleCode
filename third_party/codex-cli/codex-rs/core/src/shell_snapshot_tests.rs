@@ -5,8 +5,6 @@ use pretty_assertions::assert_eq;
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
-#[cfg(unix)]
-use std::process::Command;
 #[cfg(target_os = "linux")]
 use std::process::Command as StdCommand;
 
@@ -124,90 +122,25 @@ fn snapshot_file_name_parser_supports_legacy_and_suffixed_names() {
 }
 
 #[cfg(unix)]
-#[test]
-fn bash_snapshot_filters_invalid_exports() -> Result<()> {
-    let output = Command::new("/bin/bash")
-        .arg("-c")
-        .arg(bash_snapshot_script())
-        .env("BASH_ENV", "/dev/null")
-        .env("VALID_NAME", "ok")
-        .env("PWD", "/tmp/stale")
-        .env("NEXTEST_BIN_EXE_codex-write-config-schema", "/path/to/bin")
-        .env("BAD-NAME", "broken")
-        .output()?;
-
-    assert!(output.status.success());
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("VALID_NAME"));
-    assert!(!stdout.contains("PWD=/tmp/stale"));
-    assert!(!stdout.contains("NEXTEST_BIN_EXE_codex-write-config-schema"));
-    assert!(!stdout.contains("BAD-NAME"));
-
-    Ok(())
-}
-
-#[cfg(unix)]
-#[test]
-fn bash_snapshot_preserves_multiline_exports() -> Result<()> {
-    let multiline_cert = "-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----";
-    let output = Command::new("/bin/bash")
-        .arg("-c")
-        .arg(bash_snapshot_script())
-        .env("BASH_ENV", "/dev/null")
-        .env("MULTILINE_CERT", multiline_cert)
-        .output()?;
-
-    assert!(output.status.success());
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("MULTILINE_CERT=") || stdout.contains("MULTILINE_CERT"),
-        "snapshot should include the multiline export name"
-    );
-
-    let dir = tempdir()?;
-    let snapshot_path = dir.path().join("snapshot.sh");
-    std::fs::write(&snapshot_path, stdout.as_bytes())?;
-
-    let validate = Command::new("/bin/bash")
-        .arg("-c")
-        .arg("set -e; . \"$1\"")
-        .arg("bash")
-        .arg(&snapshot_path)
-        .env("BASH_ENV", "/dev/null")
-        .output()?;
-
-    assert!(
-        validate.status.success(),
-        "snapshot validation failed: {}",
-        String::from_utf8_lossy(&validate.stderr)
-    );
-
-    Ok(())
-}
-
-#[cfg(unix)]
 #[tokio::test]
-async fn try_new_creates_and_deletes_snapshot_file() -> Result<()> {
+async fn try_create_creates_and_deletes_snapshot_file() -> Result<()> {
     let dir = tempdir()?;
     let shell = Shell {
         shell_type: ShellType::Bash,
         shell_path: PathBuf::from("/bin/bash"),
-        shell_snapshot: crate::shell::empty_shell_snapshot_receiver(),
     };
 
-    let snapshot = ShellSnapshot::try_new(
+    let snapshot = ShellSnapshot::try_create(
         &dir.path().abs(),
         ThreadId::new(),
         &dir.path().abs(),
         &shell,
+        /*state_db*/ None,
     )
     .await
     .expect("snapshot should be created");
     let path = snapshot.path.clone();
     assert!(path.exists());
-    assert_eq!(snapshot.cwd, dir.path().abs());
 
     drop(snapshot);
 
@@ -218,26 +151,34 @@ async fn try_new_creates_and_deletes_snapshot_file() -> Result<()> {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn try_new_uses_distinct_generation_paths() -> Result<()> {
+async fn try_create_uses_distinct_generation_paths() -> Result<()> {
     let dir = tempdir()?;
     let session_id = ThreadId::new();
     let shell = Shell {
         shell_type: ShellType::Bash,
         shell_path: PathBuf::from("/bin/bash"),
-        shell_snapshot: crate::shell::empty_shell_snapshot_receiver(),
     };
 
-    let initial_snapshot =
-        ShellSnapshot::try_new(&dir.path().abs(), session_id, &dir.path().abs(), &shell)
-            .await
-            .expect("initial snapshot should be created");
-    let refreshed_snapshot =
-        ShellSnapshot::try_new(&dir.path().abs(), session_id, &dir.path().abs(), &shell)
-            .await
-            .expect("refreshed snapshot should be created");
+    let initial_snapshot = ShellSnapshot::try_create(
+        &dir.path().abs(),
+        session_id,
+        &dir.path().abs(),
+        &shell,
+        /*state_db*/ None,
+    )
+    .await
+    .expect("initial snapshot should be created");
+    let refreshed_snapshot = ShellSnapshot::try_create(
+        &dir.path().abs(),
+        session_id,
+        &dir.path().abs(),
+        &shell,
+        /*state_db*/ None,
+    )
+    .await
+    .expect("refreshed snapshot should be created");
     let initial_path = initial_snapshot.path.clone();
     let refreshed_path = refreshed_snapshot.path.clone();
-
     assert_ne!(initial_path, refreshed_path);
     assert_eq!(initial_path.exists(), true);
     assert_eq!(refreshed_path.exists(), true);
@@ -271,13 +212,12 @@ async fn snapshot_shell_does_not_inherit_stdin() -> Result<()> {
     let shell = Shell {
         shell_type: ShellType::Bash,
         shell_path: PathBuf::from("/bin/bash"),
-        shell_snapshot: crate::shell::empty_shell_snapshot_receiver(),
     };
 
     let home_display = home.display();
     let script = format!(
         "HOME=\"{home_display}\"; export HOME; {}",
-        bash_snapshot_script()
+        snapshot_script(ShellType::Bash).expect("bash supports snapshots")
     );
     let output = run_script_with_timeout(
         &shell,
@@ -320,7 +260,6 @@ async fn timed_out_snapshot_shell_is_terminated() -> Result<()> {
     let shell = Shell {
         shell_type: ShellType::Sh,
         shell_path: PathBuf::from("/bin/sh"),
-        shell_snapshot: crate::shell::empty_shell_snapshot_receiver(),
     };
 
     let err = run_script_with_timeout(
@@ -428,7 +367,7 @@ async fn cleanup_stale_snapshots_removes_orphans_and_keeps_live() -> Result<()> 
     fs::write(&orphan_snapshot, "orphan").await?;
     fs::write(&invalid_snapshot, "invalid").await?;
 
-    cleanup_stale_snapshots(&codex_home, ThreadId::new()).await?;
+    cleanup_stale_snapshots(&codex_home, ThreadId::new(), /*state_db*/ None).await?;
 
     assert_eq!(live_snapshot.exists(), true);
     assert_eq!(orphan_snapshot.exists(), false);
@@ -451,7 +390,7 @@ async fn cleanup_stale_snapshots_removes_stale_rollouts() -> Result<()> {
 
     set_file_mtime(&rollout_path, SNAPSHOT_RETENTION + Duration::from_secs(60))?;
 
-    cleanup_stale_snapshots(&codex_home, ThreadId::new()).await?;
+    cleanup_stale_snapshots(&codex_home, ThreadId::new(), /*state_db*/ None).await?;
 
     assert_eq!(stale_snapshot.exists(), false);
     Ok(())
@@ -472,7 +411,7 @@ async fn cleanup_stale_snapshots_skips_active_session() -> Result<()> {
 
     set_file_mtime(&rollout_path, SNAPSHOT_RETENTION + Duration::from_secs(60))?;
 
-    cleanup_stale_snapshots(&codex_home, active_session).await?;
+    cleanup_stale_snapshots(&codex_home, active_session, /*state_db*/ None).await?;
 
     assert_eq!(active_snapshot.exists(), true);
     Ok(())

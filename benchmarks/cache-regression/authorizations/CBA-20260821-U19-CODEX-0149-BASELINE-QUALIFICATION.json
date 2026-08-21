@@ -1,0 +1,39 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v2",
+  "status": "granted",
+  "approved_by": "user",
+  "authorization_id": "CBA-20260821-U19-CODEX-0149-BASELINE-QUALIFICATION",
+  "approval_reference": "用户于 2026-08-21 明确批准整个 rebase 与 Codex 合入工作 3.00 CNY 总包预算，并允许在预算内按需执行。本授权仅覆盖 Codex 0.149 基线资格验证：deepseek-v4-flash、single-file-fast-fix 的 standard 与 map-request 各 1 次，零重试，本提案费用硬上限 0.40 CNY；计入此前已结算运行后，本次运行前总包保守剩余 2.52744168 CNY。",
+  "approved_at": "2026-08-21T08:08:00+08:00",
+  "proposal_id": "CBP-E2D6FC35A7D4BEEB",
+  "proposal_sha256": "b0b9f389bb57d18b2710627a8045ae0b2f7ee16d7cfe0f947ec1e5c409f3a8e0",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "standard",
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "Codex 0.149 Standard client metadata final-wire baseline qualification; TaskSpace wire is unchanged. One Standard and one map-request run, zero retry; total package conservative remaining budget is 2.52744168 CNY before this proposal."
+  },
+  "approved_maximums": {
+    "provider_requests": 36,
+    "input_tokens": 360000,
+    "output_tokens": 20000,
+    "elapsed_seconds": 1440,
+    "estimated_cost": 0.4,
+    "currency": "CNY"
+  }
+}

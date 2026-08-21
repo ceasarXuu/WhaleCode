@@ -3,6 +3,7 @@ use serde::Serialize;
 
 use crate::payload::RawPayloadId;
 
+use super::AgentPath;
 use super::AgentThreadId;
 use super::CodeCellId;
 use super::CodexTurnId;
@@ -32,11 +33,23 @@ pub struct ConversationItem {
     /// Codex channel for assistant/tool content, when the item is channel-specific.
     pub channel: Option<ConversationChannel>,
     pub kind: ConversationItemKind,
+    /// Routing metadata carried by a Responses `agent_message` item.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_message: Option<AgentMessageMetadata>,
     pub body: ConversationBody,
     /// Protocol/model `call_id` for function/custom tool call and output items.
     pub call_id: Option<ModelVisibleCallId>,
     /// Runtime or control-plane objects that caused this conversation item to exist.
     pub produced_by: Vec<ProducerRef>,
+}
+
+/// Sender and destination identities attached to a model-visible agent message.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentMessageMetadata {
+    /// Agent path that authored the message.
+    pub author: AgentPath,
+    /// Agent path that received the message.
+    pub recipient: AgentPath,
 }
 
 /// Model-visible role assigned to a conversation item.
@@ -152,7 +165,9 @@ pub struct InferenceCall {
     pub execution: ExecutionWindow,
     pub model: String,
     pub provider_name: String,
-    /// Upstream request ID returned by HTTP/proxy/engine infrastructure.
+    /// Responses API response id, used by follow-up `previous_response_id` requests.
+    pub response_id: Option<String>,
+    /// Request id returned by HTTP/proxy/engine infrastructure.
     pub upstream_request_id: Option<String>,
     /// Complete ordered input snapshot sent with this request.
     pub request_item_ids: Vec<ConversationItemId>,
@@ -171,6 +186,8 @@ pub struct InferenceCall {
 pub struct TokenUsage {
     pub input_tokens: u64,
     pub cached_input_tokens: u64,
+    #[serde(default)]
+    pub cache_write_input_tokens: u64,
     pub output_tokens: u64,
     pub reasoning_output_tokens: u64,
 }

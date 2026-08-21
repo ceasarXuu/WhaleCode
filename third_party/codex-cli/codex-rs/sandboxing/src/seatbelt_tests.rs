@@ -1,19 +1,24 @@
 use super::CreateSeatbeltCommandArgsParams;
+use super::GlobMatch;
 use super::MACOS_PATH_TO_SEATBELT_EXECUTABLE;
 use super::MACOS_SEATBELT_BASE_POLICY;
+use super::MacosSeatbeltProfile;
 use super::ProxyPolicyInputs;
 use super::UnixDomainSocketPolicy;
 use super::build_seatbelt_unreadable_glob_policy;
 use super::create_seatbelt_command_args;
 use super::create_seatbelt_command_args_for_legacy_policy;
+use super::create_seatbelt_command_args_with_profile;
 use super::dynamic_network_policy;
-use super::macos_dir_params;
 use super::normalize_path_for_sandbox;
+use super::seatbelt_regex_for_glob;
 use super::seatbelt_regex_for_unreadable_glob;
 use super::unix_socket_dir_params;
 use super::unix_socket_policy;
 use codex_network_proxy::ConfigReloader;
+use codex_network_proxy::ConfigReloaderFuture;
 use codex_network_proxy::ConfigState;
+use codex_network_proxy::ManagedNetworkSandboxContext;
 use codex_network_proxy::NetworkMode;
 use codex_network_proxy::NetworkProxy;
 use codex_network_proxy::NetworkProxyConfig;
@@ -26,6 +31,7 @@ use codex_protocol::permissions::FileSystemSandboxEntry;
 use codex_protocol::permissions::FileSystemSandboxPolicy;
 use codex_protocol::permissions::FileSystemSpecialPath;
 use codex_protocol::permissions::NetworkSandboxPolicy;
+use codex_protocol::permissions::PROTECTED_METADATA_PATH_NAMES;
 use codex_protocol::protocol::SandboxPolicy;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use pretty_assertions::assert_eq;
@@ -59,20 +65,58 @@ fn seatbelt_policy_arg(args: &[String]) -> &str {
         .expect("seatbelt args should include policy text")
 }
 
+#[cfg(target_os = "macos")]
+fn restricted_write_policy(paths: &[&Path]) -> FileSystemSandboxPolicy {
+    let mut entries = vec![FileSystemSandboxEntry::new(
+        FileSystemPath::Special {
+            value: FileSystemSpecialPath::Root,
+        },
+        FileSystemAccessMode::Read,
+    )];
+    entries.extend(paths.iter().map(|path| {
+        FileSystemSandboxEntry::new(
+            AbsolutePathBuf::from_absolute_path(path)
+                .expect("absolute writable path")
+                .into(),
+            FileSystemAccessMode::Write,
+        )
+    }));
+    FileSystemSandboxPolicy::restricted(entries)
+}
+
+fn seatbelt_protected_metadata_name_requirements(root: &Path) -> String {
+    let mut root = root.to_string_lossy().to_string();
+    while root.len() > 1 && root.ends_with('/') {
+        root.pop();
+    }
+    let root = regex_lite::escape(&root);
+    PROTECTED_METADATA_PATH_NAMES
+        .iter()
+        .map(|name| {
+            let name = regex_lite::escape(name);
+            if root == "/" {
+                format!(r#"(require-not (regex #"^/{name}(/.*)?$"))"#)
+            } else {
+                format!(r#"(require-not (regex #"^{root}/{name}(/.*)?$"))"#)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 struct TestConfigReloader;
 
-#[async_trait::async_trait]
 impl ConfigReloader for TestConfigReloader {
     fn source_label(&self) -> String {
         "seatbelt test config".to_string()
     }
 
-    async fn maybe_reload(&self) -> anyhow::Result<Option<ConfigState>> {
-        Ok(None)
+    fn maybe_reload(&self) -> ConfigReloaderFuture<'_, Option<ConfigState>> {
+        Box::pin(async { Ok(None) })
     }
 
-    async fn reload_now(&self) -> anyhow::Result<ConfigState> {
-        Err(anyhow::anyhow!("seatbelt test config cannot reload"))
+    fn reload_now(&self) -> ConfigReloaderFuture<'_, ConfigState> {
+        Box::pin(async { Err(anyhow::anyhow!("seatbelt test config cannot reload")) })
     }
 }
 
@@ -98,6 +142,80 @@ fn base_policy_allows_kmp_registration_shm_read_create_and_unlink() {
     assert!(
         MACOS_SEATBELT_BASE_POLICY.contains(expected),
         "base policy must allow only KMP registration shm read/create/unlink:\n{MACOS_SEATBELT_BASE_POLICY}"
+    );
+}
+
+#[test]
+fn filesystem_helper_platform_defaults_do_not_grant_applications_directory() {
+    let workspace = TempDir::new().expect("temp workspace");
+    let workspace_root = AbsolutePathBuf::from_absolute_path(workspace.path())
+        .expect("workspace path should be absolute");
+    let file_system_policy = FileSystemSandboxPolicy::restricted(vec![
+        FileSystemSandboxEntry::new(
+            FileSystemPath::Path {
+                path: workspace_root.into(),
+            },
+            FileSystemAccessMode::Read,
+        ),
+        FileSystemSandboxEntry::new(
+            FileSystemPath::Special {
+                value: FileSystemSpecialPath::Minimal,
+            },
+            FileSystemAccessMode::Read,
+        ),
+    ]);
+
+    let list_directory = |path: &Path, profile: MacosSeatbeltProfile| {
+        let args = create_seatbelt_command_args_with_profile(
+            CreateSeatbeltCommandArgsParams {
+                command: vec!["/bin/ls".to_string(), path.display().to_string()],
+                file_system_sandbox_policy: &file_system_policy,
+                network_sandbox_policy: NetworkSandboxPolicy::Restricted,
+                sandbox_policy_cwd: workspace.path(),
+                enforce_managed_network: false,
+                managed_network: None,
+                environment_id: None,
+                network: None,
+                extra_allow_unix_sockets: &[],
+            },
+            profile,
+        )
+        .expect("build restricted seatbelt command");
+
+        Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
+            .args(args)
+            .current_dir(workspace.path())
+            .output()
+            .expect("run restricted seatbelt command")
+    };
+
+    let allowed = list_directory(workspace.path(), MacosSeatbeltProfile::FileSystemHelper);
+    let allowed_stderr = String::from_utf8_lossy(&allowed.stderr);
+    if !allowed.status.success()
+        && allowed_stderr.contains("sandbox-exec: sandbox_apply: Operation not permitted")
+    {
+        return;
+    }
+    assert!(
+        allowed.status.success(),
+        "the explicitly allowed workspace should remain readable: {allowed_stderr}"
+    );
+
+    let process_allowed = list_directory(Path::new("/Applications"), MacosSeatbeltProfile::Process);
+    let process_allowed_stderr = String::from_utf8_lossy(&process_allowed.stderr);
+    assert!(
+        process_allowed.status.success(),
+        "normal process sandboxes should preserve /Applications access: {process_allowed_stderr}"
+    );
+
+    let denied = list_directory(
+        Path::new("/Applications"),
+        MacosSeatbeltProfile::FileSystemHelper,
+    );
+    let denied_stderr = String::from_utf8_lossy(&denied.stderr);
+    assert!(
+        !denied.status.success() && denied_stderr.contains("Operation not permitted"),
+        "filesystem helper platform defaults should not grant /Applications: {denied_stderr}"
     );
 }
 
@@ -141,6 +259,29 @@ fn create_seatbelt_args_routes_network_through_proxy_ports() {
 }
 
 #[test]
+fn dynamic_network_policy_allows_tls_without_darwin_user_cache_write() {
+    let policy = dynamic_network_policy(
+        &SandboxPolicy::WorkspaceWrite {
+            writable_roots: vec![],
+            network_access: true,
+            exclude_tmpdir_env_var: true,
+            exclude_slash_tmp: true,
+        },
+        /*enforce_managed_network*/ false,
+        &ProxyPolicyInputs::default(),
+    );
+
+    assert!(
+        policy.contains("(global-name \"com.apple.trustd.agent\")"),
+        "policy should keep trustd agent access for TLS certificate verification:\n{policy}"
+    );
+    assert!(
+        !policy.contains("DARWIN_USER_CACHE_DIR"),
+        "network policy should not grant broad user cache writes:\n{policy}"
+    );
+}
+
+#[test]
 fn explicit_unreadable_paths_are_excluded_from_full_disk_read_and_write_access() {
     let unreadable = absolute_path("/tmp/codex-unreadable");
     let file_system_policy = FileSystemSandboxPolicy::restricted(vec![
@@ -149,10 +290,12 @@ fn explicit_unreadable_paths_are_excluded_from_full_disk_read_and_write_access()
                 value: FileSystemSpecialPath::Root,
             },
             access: FileSystemAccessMode::Write,
+            missing_path_behavior: None,
         },
         FileSystemSandboxEntry {
-            path: FileSystemPath::Path { path: unreadable },
-            access: FileSystemAccessMode::None,
+            path: unreadable.into(),
+            access: FileSystemAccessMode::Deny,
+            missing_path_behavior: None,
         },
     ]);
 
@@ -162,9 +305,12 @@ fn explicit_unreadable_paths_are_excluded_from_full_disk_read_and_write_access()
         network_sandbox_policy: NetworkSandboxPolicy::Restricted,
         sandbox_policy_cwd: Path::new("/"),
         enforce_managed_network: false,
+        managed_network: None,
+        environment_id: None,
         network: None,
         extra_allow_unix_sockets: &[],
-    });
+    })
+    .unwrap();
 
     let policy = seatbelt_policy_arg(&args);
     let unreadable_roots = file_system_policy.get_unreadable_roots_with_cwd(Path::new("/"));
@@ -184,6 +330,12 @@ fn explicit_unreadable_paths_are_excluded_from_full_disk_read_and_write_access()
     assert!(
         policy.contains("(require-not (subpath (param \"WRITABLE_ROOT_0_EXCLUDED_0\")))"),
         "expected write carveout in policy:\n{policy}"
+    );
+    assert!(
+        policy.contains(&seatbelt_protected_metadata_name_requirements(Path::new(
+            "/"
+        ))),
+        "expected metadata protection regex deny requirements in policy:\n{policy}"
     );
     assert!(
         args.iter().any(
@@ -208,17 +360,251 @@ fn explicit_unreadable_paths_are_excluded_from_full_disk_read_and_write_access()
 }
 
 #[test]
+fn nested_protected_paths_cannot_be_bypassed_by_renaming_ancestors() {
+    #[derive(Clone, Copy, Debug)]
+    enum Protection {
+        Deny,
+        Read,
+        DenyGlob(&'static str),
+        DenyGlobAboveRoot,
+    }
+
+    for protection in [
+        Protection::DenyGlobAboveRoot,
+        Protection::DenyGlob(".githu?"),
+        Protection::DenyGlob("{.github,.gitlab}"),
+        Protection::DenyGlob(r".githu\b"),
+        Protection::DenyGlob("*"),
+        Protection::Deny,
+        Protection::Read,
+    ] {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let workspace = temp_dir.path().join("workspace");
+        let github = workspace.join(".github");
+        let workflows = github.join("workflows");
+        let protected_file = workflows.join("release.yml");
+        fs::create_dir_all(&workflows).expect("create workflows directory");
+        fs::write(&protected_file, "original workflow").expect("write protected workflow");
+        let workspace = workspace.canonicalize().expect("canonicalize workspace");
+        let destination = workspace.with_file_name("destination");
+        fs::create_dir(&destination).expect("create destination");
+        let github = github
+            .canonicalize()
+            .expect("canonicalize github directory");
+        let workflows = workflows
+            .canonicalize()
+            .expect("canonicalize workflows directory");
+        let protected_file = protected_file
+            .canonicalize()
+            .expect("canonicalize protected workflow");
+        let workspace_root =
+            AbsolutePathBuf::from_absolute_path(&workspace).expect("absolute workspace");
+        let protected_path =
+            AbsolutePathBuf::from_absolute_path(&protected_file).expect("absolute protected path");
+        let (protected_path, protected_access) = match protection {
+            Protection::Deny => (
+                FileSystemPath::Path {
+                    path: protected_path.into(),
+                },
+                FileSystemAccessMode::Deny,
+            ),
+            Protection::Read => (
+                FileSystemPath::Path {
+                    path: protected_path.into(),
+                },
+                FileSystemAccessMode::Read,
+            ),
+            Protection::DenyGlob(component) => (
+                FileSystemPath::GlobPattern {
+                    pattern: format!("{}/{component}/workflows/*.yml", workspace.display()),
+                },
+                FileSystemAccessMode::Deny,
+            ),
+            Protection::DenyGlobAboveRoot => (
+                FileSystemPath::GlobPattern {
+                    pattern: format!(
+                        "{}/*/.github/workflows/*.yml",
+                        workspace.parent().expect("workspace parent").display()
+                    ),
+                },
+                FileSystemAccessMode::Deny,
+            ),
+        };
+        let glob_pattern = match &protected_path {
+            FileSystemPath::GlobPattern { pattern } => Some(pattern.clone()),
+            _ => None,
+        };
+        let mut file_system_policy = FileSystemSandboxPolicy::read_only();
+        for root in [&workspace, &destination] {
+            file_system_policy.entries.push(FileSystemSandboxEntry::new(
+                AbsolutePathBuf::from_absolute_path(root)
+                    .expect("absolute writable root")
+                    .into(),
+                FileSystemAccessMode::Write,
+            ));
+        }
+        file_system_policy
+            .entries
+            .extend(PROTECTED_METADATA_PATH_NAMES.iter().map(|name| {
+                FileSystemSandboxEntry::new(
+                    workspace_root.join(*name).into(),
+                    FileSystemAccessMode::Write,
+                )
+            }));
+        let unprotected_policy = file_system_policy.clone();
+        file_system_policy.entries.push(FileSystemSandboxEntry::new(
+            protected_path,
+            protected_access,
+        ));
+
+        for protected_ancestor in [&workspace, &github, &workflows] {
+            let renamed_ancestor = if protected_ancestor == &workspace {
+                destination.join("moved")
+            } else {
+                protected_ancestor.with_extension("renamed")
+            };
+            let seatbelt_args = |policy| {
+                create_seatbelt_command_args(CreateSeatbeltCommandArgsParams {
+                    command: vec![
+                        "/bin/mv".to_string(),
+                        protected_ancestor.display().to_string(),
+                        renamed_ancestor.display().to_string(),
+                    ],
+                    file_system_sandbox_policy: policy,
+                    network_sandbox_policy: NetworkSandboxPolicy::Restricted,
+                    sandbox_policy_cwd: &workspace,
+                    enforce_managed_network: false,
+                    managed_network: None,
+                    environment_id: None,
+                    network: None,
+                    extra_allow_unix_sockets: &[],
+                })
+                .expect("create seatbelt policy")
+            };
+            let args = seatbelt_args(&file_system_policy);
+            let policy = seatbelt_policy_arg(&args);
+            let ancestor_deny = match protection {
+                Protection::Deny | Protection::Read => {
+                    let parameter = args
+                        .iter()
+                        .find_map(|arg| {
+                            let (name, path) = arg.strip_prefix("-D")?.split_once('=')?;
+                            (name.starts_with("PROTECTED_ANCESTOR_")
+                                && Path::new(path) == protected_ancestor)
+                                .then_some(name)
+                        })
+                        .expect("protected ancestor should have a policy parameter");
+                    format!(
+                        "(deny file-write-unlink (require-all (vnode-type DIRECTORY) (literal (param \"{parameter}\"))))"
+                    )
+                }
+                Protection::DenyGlob(_) | Protection::DenyGlobAboveRoot => {
+                    let pattern = Path::new(glob_pattern.as_deref().expect("deny glob pattern"))
+                        .ancestors()
+                        .find(|path| {
+                            path.components().count() == protected_ancestor.components().count()
+                        })
+                        .and_then(Path::to_str)
+                        .expect("ancestor glob pattern");
+                    let regex = seatbelt_regex_for_glob(pattern, GlobMatch::Exact)
+                        .expect("ancestor glob should produce a regex");
+                    format!(
+                        r#"(deny file-write-unlink (require-all (vnode-type DIRECTORY) (regex #"{regex}")))"#
+                    )
+                }
+            };
+            assert!(
+                policy
+                    .find(&ancestor_deny)
+                    .expect("protected ancestor deny should be present")
+                    > policy
+                        .rfind("(allow file-write*")
+                        .expect("writable root allowance should be present"),
+                "protected ancestor denies must follow broader allowances: {policy}"
+            );
+
+            let output = Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
+                .args(args)
+                .current_dir(temp_dir.path())
+                .output()
+                .expect("execute seatbelt command");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !output.status.success()
+                && stderr.contains("sandbox-exec: sandbox_apply: Operation not permitted")
+            {
+                return;
+            }
+            assert!(
+                !output.status.success(),
+                "{protection:?} path must not become accessible by renaming {}",
+                protected_ancestor.display()
+            );
+            assert_eq!(
+                fs::read_to_string(&protected_file).expect("read protected workflow"),
+                "original workflow"
+            );
+
+            if matches!(
+                protection,
+                Protection::DenyGlob(_) | Protection::DenyGlobAboveRoot
+            ) && protected_ancestor == &workflows
+            {
+                let output = Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
+                    .args(seatbelt_args(&unprotected_policy))
+                    .current_dir(temp_dir.path())
+                    .output()
+                    .expect("execute control seatbelt command");
+                assert!(output.status.success(), "unprotected ancestor: {output:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn prepared_managed_network_context_allows_only_its_proxy_ports() {
+    let file_system_policy = FileSystemSandboxPolicy::from_legacy_sandbox_policy_for_cwd(
+        &SandboxPolicy::new_read_only_policy(),
+        Path::new("/"),
+    );
+    let managed_network = ManagedNetworkSandboxContext {
+        loopback_ports: vec![43123, 48081],
+        allow_local_binding: false,
+    };
+    let args = create_seatbelt_command_args(CreateSeatbeltCommandArgsParams {
+        command: vec!["/bin/true".to_string()],
+        file_system_sandbox_policy: &file_system_policy,
+        network_sandbox_policy: NetworkSandboxPolicy::Restricted,
+        sandbox_policy_cwd: Path::new("/"),
+        enforce_managed_network: true,
+        managed_network: Some(&managed_network),
+        environment_id: None,
+        network: None,
+        extra_allow_unix_sockets: &[],
+    })
+    .unwrap();
+
+    let policy = seatbelt_policy_arg(&args);
+    assert!(policy.contains("(allow network-outbound (remote ip \"localhost:43123\"))"));
+    assert!(policy.contains("(allow network-outbound (remote ip \"localhost:48081\"))"));
+    assert!(!policy.contains("(allow network-outbound (remote ip \"localhost:9999\"))"));
+    assert!(!policy.contains("(allow network-bind (local ip \"*:*\"))"));
+    assert!(!policy.contains("(allow network-outbound)\n"));
+}
+
+#[test]
 fn explicit_unreadable_paths_are_excluded_from_readable_roots() {
     let root = absolute_path("/tmp/codex-readable");
     let unreadable = absolute_path("/tmp/codex-readable/private");
     let file_system_policy = FileSystemSandboxPolicy::restricted(vec![
         FileSystemSandboxEntry {
-            path: FileSystemPath::Path { path: root },
+            path: root.into(),
             access: FileSystemAccessMode::Read,
+            missing_path_behavior: None,
         },
         FileSystemSandboxEntry {
-            path: FileSystemPath::Path { path: unreadable },
-            access: FileSystemAccessMode::None,
+            path: unreadable.into(),
+            access: FileSystemAccessMode::Deny,
+            missing_path_behavior: None,
         },
     ]);
 
@@ -228,9 +614,12 @@ fn explicit_unreadable_paths_are_excluded_from_readable_roots() {
         network_sandbox_policy: NetworkSandboxPolicy::Restricted,
         sandbox_policy_cwd: Path::new("/"),
         enforce_managed_network: false,
+        managed_network: None,
+        environment_id: None,
         network: None,
         extra_allow_unix_sockets: &[],
-    });
+    })
+    .unwrap();
 
     let policy = seatbelt_policy_arg(&args);
     let readable_roots = file_system_policy.get_readable_roots_with_cwd(Path::new("/"));
@@ -288,6 +677,40 @@ fn unreadable_globs_use_git_style_component_matching() {
 }
 
 #[test]
+fn unreadable_globs_support_brace_alternation() {
+    let regex = seatbelt_regex_for_unreadable_glob("/tmp/repo/{.env,secrets.yml}");
+    assert_eq!(regex.as_deref(), Some(r"^/tmp/repo/(\.env|secrets\.yml)$"));
+    let regex = regex_lite::Regex::new(regex.as_deref().expect("glob should compile"))
+        .expect("regex should compile");
+
+    assert!(regex.is_match("/tmp/repo/.env"));
+    assert!(regex.is_match("/tmp/repo/secrets.yml"));
+    assert!(!regex.is_match("/tmp/repo/notes.txt"));
+}
+
+#[test]
+fn glob_ancestors_close_brace_alternatives_split_by_path_separators() {
+    let regex = seatbelt_regex_for_glob("/tmp/repo/{private", GlobMatch::Exact);
+    assert_eq!(regex.as_deref(), Some(r"^/tmp/repo/(private)$"));
+    let regex = regex_lite::Regex::new(regex.as_deref().expect("ancestor glob should compile"))
+        .expect("ancestor regex should compile");
+
+    assert!(regex.is_match("/tmp/repo/private"));
+    assert!(!regex.is_match("/tmp/repo/other"));
+}
+
+#[test]
+fn unreadable_globs_support_backslash_escapes() {
+    let regex = seatbelt_regex_for_unreadable_glob(r"/tmp/repo/config\?.env");
+    assert_eq!(regex.as_deref(), Some(r"^/tmp/repo/config\?\.env(/.*)?$"));
+    let regex = regex_lite::Regex::new(regex.as_deref().expect("glob should compile"))
+        .expect("regex should compile");
+
+    assert!(regex.is_match("/tmp/repo/config?.env"));
+    assert!(!regex.is_match("/tmp/repo/config1.env"));
+}
+
+#[test]
 fn unreadable_globs_treat_unclosed_character_classes_as_literals() {
     let regex = seatbelt_regex_for_unreadable_glob("/tmp/repo/[*.env");
     assert_eq!(regex.as_deref(), Some(r"^/tmp/repo/\[[^/]*\.env$"));
@@ -310,28 +733,32 @@ fn unreadable_glob_policy_includes_canonicalized_static_prefix() {
     fs::create_dir(&real_root).expect("create real root");
     symlink(&real_root, &link_root).expect("create symlinked root");
 
-    let pattern = format!("{}/**/*.env", link_root.display());
-    let canonical_pattern = format!(
-        "{}/**/*.env",
-        real_root
-            .canonicalize()
-            .expect("canonicalize real root")
-            .display()
-    );
-    let expected_regex = seatbelt_regex_for_unreadable_glob(&canonical_pattern)
-        .expect("canonical glob should compile");
-    let mut policy = FileSystemSandboxPolicy::default();
-    policy.entries.push(FileSystemSandboxEntry {
-        path: FileSystemPath::GlobPattern { pattern },
-        access: FileSystemAccessMode::None,
-    });
+    let canonical_root = real_root.canonicalize().expect("canonicalize real root");
+    for suffix in ["**/*.env", "{app,service}/*.env", r"secret\?.env"] {
+        let pattern = format!("{}/{suffix}", link_root.display());
+        let canonical_pattern = format!("{}/{suffix}", canonical_root.display());
+        let expected_regex = seatbelt_regex_for_unreadable_glob(&canonical_pattern)
+            .expect("canonical glob should compile");
+        let mut policy = FileSystemSandboxPolicy::default();
+        policy.entries.push(FileSystemSandboxEntry {
+            path: FileSystemPath::GlobPattern { pattern },
+            access: FileSystemAccessMode::Deny,
+            missing_path_behavior: None,
+        });
 
-    let seatbelt_policy = build_seatbelt_unreadable_glob_policy(&policy, temp_dir.path());
+        let seatbelt_policy = build_seatbelt_unreadable_glob_policy(&policy, temp_dir.path());
 
-    assert!(
-        seatbelt_policy.contains(&format!(r#"(deny file-read* (regex #"{expected_regex}"))"#)),
-        "expected canonicalized glob regex in policy:\n{seatbelt_policy}"
-    );
+        assert!(
+            seatbelt_policy.contains(&format!(r#"(deny file-read* (regex #"{expected_regex}"))"#)),
+            "expected canonicalized glob regex in policy:\n{seatbelt_policy}"
+        );
+        assert!(
+            seatbelt_policy.contains(&format!(
+                r#"(deny file-write* (regex #"{expected_regex}"))"#
+            )),
+            "expected canonicalized glob write deny in policy:\n{seatbelt_policy}"
+        );
+    }
 }
 
 #[test]
@@ -343,7 +770,8 @@ fn seatbelt_args_without_extension_profile_keep_legacy_preferences_read_access()
         cwd.as_path(),
         /*enforce_managed_network*/ false,
         /*network*/ None,
-    );
+    )
+    .unwrap();
     let policy = &args[1];
     assert!(policy.contains("(allow user-preference-read)"));
     assert!(!policy.contains("(allow user-preference-write)"));
@@ -390,8 +818,8 @@ fn dynamic_network_policy_preserves_restricted_policy_when_proxy_config_without_
         &SandboxPolicy::WorkspaceWrite {
             writable_roots: vec![],
             network_access: true,
-            exclude_tmpdir_env_var: false,
-            exclude_slash_tmp: false,
+            exclude_tmpdir_env_var: true,
+            exclude_slash_tmp: true,
         },
         /*enforce_managed_network*/ false,
         &ProxyPolicyInputs {
@@ -426,8 +854,8 @@ fn dynamic_network_policy_blocks_dns_when_local_binding_has_no_proxy_ports() {
         &SandboxPolicy::WorkspaceWrite {
             writable_roots: vec![],
             network_access: true,
-            exclude_tmpdir_env_var: false,
-            exclude_slash_tmp: false,
+            exclude_tmpdir_env_var: true,
+            exclude_slash_tmp: true,
         },
         /*enforce_managed_network*/ false,
         &ProxyPolicyInputs {
@@ -454,8 +882,8 @@ fn dynamic_network_policy_preserves_restricted_policy_for_managed_network_withou
         &SandboxPolicy::WorkspaceWrite {
             writable_roots: vec![],
             network_access: true,
-            exclude_tmpdir_env_var: false,
-            exclude_slash_tmp: false,
+            exclude_tmpdir_env_var: true,
+            exclude_slash_tmp: true,
         },
         /*enforce_managed_network*/ true,
         &ProxyPolicyInputs {
@@ -531,9 +959,12 @@ fn create_seatbelt_args_allowlists_explicit_unix_socket_paths_without_proxy() {
         network_sandbox_policy: NetworkSandboxPolicy::Restricted,
         sandbox_policy_cwd: cwd.path(),
         enforce_managed_network: false,
+        managed_network: None,
+        environment_id: None,
         network: None,
         extra_allow_unix_sockets: &extra_allow_unix_sockets,
-    });
+    })
+    .unwrap();
     let policy = seatbelt_policy_arg(&args);
 
     assert!(
@@ -566,12 +997,12 @@ async fn create_seatbelt_args_merges_proxy_and_explicit_unix_socket_paths() -> a
     );
     let network_socket = "/tmp/codex-proxy-use";
     let explicit_socket = "/tmp/codex-browser-use";
-    let mut network_config = NetworkProxyConfig::default();
-    network_config.network.enabled = true;
-    network_config.network.mode = NetworkMode::Full;
-    network_config
-        .network
-        .set_allow_unix_sockets(vec![network_socket.to_string()]);
+    let mut network_config = NetworkProxyConfig {
+        enabled: true,
+        mode: NetworkMode::Full,
+        ..Default::default()
+    };
+    network_config.set_allow_unix_sockets(vec![network_socket.to_string()]);
     let state = build_config_state(network_config, NetworkProxyConstraints::default())?;
     let network_proxy = NetworkProxy::builder()
         .state(Arc::new(NetworkProxyState::with_reloader(
@@ -589,9 +1020,12 @@ async fn create_seatbelt_args_merges_proxy_and_explicit_unix_socket_paths() -> a
         network_sandbox_policy: NetworkSandboxPolicy::Restricted,
         sandbox_policy_cwd: cwd.path(),
         enforce_managed_network: false,
+        managed_network: None,
+        environment_id: None,
         network: Some(&network_proxy),
         extra_allow_unix_sockets: &extra_allow_unix_sockets,
-    });
+    })
+    .unwrap();
 
     let expected_explicit_socket = normalize_path_for_sandbox(Path::new(explicit_socket))
         .expect("explicit socket root should normalize");
@@ -630,9 +1064,12 @@ fn create_seatbelt_args_preserves_full_network_with_explicit_unix_socket_paths()
         network_sandbox_policy: NetworkSandboxPolicy::Enabled,
         sandbox_policy_cwd: cwd.path(),
         enforce_managed_network: false,
+        managed_network: None,
+        environment_id: None,
         network: None,
         extra_allow_unix_sockets: &extra_allow_unix_sockets,
-    });
+    })
+    .unwrap();
     let policy = seatbelt_policy_arg(&args);
 
     assert!(
@@ -744,8 +1181,8 @@ fn create_seatbelt_args_full_network_with_proxy_is_still_proxy_only() {
         &SandboxPolicy::WorkspaceWrite {
             writable_roots: vec![],
             network_access: true,
-            exclude_tmpdir_env_var: false,
-            exclude_slash_tmp: false,
+            exclude_tmpdir_env_var: true,
+            exclude_slash_tmp: true,
         },
         /*enforce_managed_network*/ false,
         &ProxyPolicyInputs {
@@ -773,12 +1210,13 @@ fn create_seatbelt_args_full_network_with_proxy_is_still_proxy_only() {
 #[test]
 fn create_seatbelt_args_with_read_only_git_and_codex_subpaths() {
     // Create a temporary workspace with two writable roots: one containing
-    // top-level .git and .codex directories and one without them.
+    // top-level workspace metadata paths and one without them.
     let tmp = TempDir::new().expect("tempdir");
     let PopulatedTmp {
         vulnerable_root,
         vulnerable_root_canonical,
         dot_git_canonical,
+        dot_agents_canonical: _,
         dot_codex_canonical,
         empty_root,
         empty_root_canonical,
@@ -819,7 +1257,8 @@ fn create_seatbelt_args_with_read_only_git_and_codex_subpaths() {
         &cwd,
         /*enforce_managed_network*/ false,
         /*network*/ None,
-    );
+    )
+    .unwrap();
 
     let policy_text = seatbelt_policy_arg(&args);
     assert!(
@@ -828,7 +1267,12 @@ fn create_seatbelt_args_with_read_only_git_and_codex_subpaths() {
     );
     assert!(
         policy_text.contains("WRITABLE_ROOT_0_EXCLUDED_0"),
-        "expected cwd .codex carveout in policy:\n{policy_text}",
+        "expected cwd metadata carveouts in policy:\n{policy_text}",
+    );
+    assert!(
+        policy_text.contains("WRITABLE_ROOT_0_EXCLUDED_1")
+            && policy_text.contains("WRITABLE_ROOT_0_EXCLUDED_2"),
+        "expected symbolic cwd .git/.agents carveouts in policy:\n{policy_text}",
     );
     assert!(
         policy_text.contains("WRITABLE_ROOT_1_EXCLUDED_0")
@@ -836,8 +1280,22 @@ fn create_seatbelt_args_with_read_only_git_and_codex_subpaths() {
         "expected explicit writable root .git/.codex carveouts in policy:\n{policy_text}",
     );
     assert!(
-        policy_text.contains("(subpath (param \"WRITABLE_ROOT_2\"))"),
-        "expected second explicit writable root grant in policy:\n{policy_text}",
+        policy_text.contains(&seatbelt_protected_metadata_name_requirements(
+            &cwd.canonicalize().expect("canonicalize cwd")
+        )),
+        "expected cwd metadata protection regex requirements in policy:\n{policy_text}",
+    );
+    assert!(
+        policy_text.contains(&seatbelt_protected_metadata_name_requirements(
+            &vulnerable_root_canonical
+        )),
+        "expected populated root metadata protection regex requirements in policy:\n{policy_text}",
+    );
+    assert!(
+        policy_text.contains(&seatbelt_protected_metadata_name_requirements(
+            &empty_root_canonical
+        )),
+        "expected empty root metadata protection regex requirements in policy:\n{policy_text}",
     );
 
     let expected_definitions = [
@@ -852,6 +1310,20 @@ fn create_seatbelt_args_with_read_only_git_and_codex_subpaths() {
             cwd.canonicalize()
                 .expect("canonicalize cwd")
                 .join(".codex")
+                .display()
+        ),
+        format!(
+            "-DWRITABLE_ROOT_0_EXCLUDED_1={}",
+            cwd.canonicalize()
+                .expect("canonicalize cwd")
+                .join(".git")
+                .display()
+        ),
+        format!(
+            "-DWRITABLE_ROOT_0_EXCLUDED_2={}",
+            cwd.canonicalize()
+                .expect("canonicalize cwd")
+                .join(".agents")
                 .display()
         ),
         format!(
@@ -880,14 +1352,6 @@ fn create_seatbelt_args_with_read_only_git_and_codex_subpaths() {
         writable_definitions, expected_definitions,
         "unexpected writable-root parameter definitions in {args:#?}"
     );
-    for (key, value) in macos_dir_params() {
-        let expected_definition = format!("-D{key}={}", value.to_string_lossy());
-        assert!(
-            args.contains(&expected_definition),
-            "expected definition arg `{expected_definition}` in {args:#?}"
-        );
-    }
-
     let command_index = args
         .iter()
         .position(|arg| arg == "--")
@@ -933,7 +1397,8 @@ fn create_seatbelt_args_with_read_only_git_and_codex_subpaths() {
         &cwd,
         /*enforce_managed_network*/ false,
         /*network*/ None,
-    );
+    )
+    .unwrap();
     let output = Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
         .args(&write_hooks_file_args)
         .current_dir(&cwd)
@@ -969,7 +1434,8 @@ fn create_seatbelt_args_with_read_only_git_and_codex_subpaths() {
         &cwd,
         /*enforce_managed_network*/ false,
         /*network*/ None,
-    );
+    )
+    .unwrap();
     let output = Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
         .args(&write_allowed_file_args)
         .current_dir(&cwd)
@@ -994,8 +1460,228 @@ fn create_seatbelt_args_with_read_only_git_and_codex_subpaths() {
     );
 }
 
+#[cfg(unix)]
 #[test]
-fn create_seatbelt_args_block_first_time_dot_codex_creation_with_exact_and_descendant_carveouts() {
+fn create_seatbelt_args_rejects_symlinked_writable_root() {
+    use std::os::unix::fs::symlink;
+
+    let tmp = TempDir::new().expect("tempdir");
+    let target = tmp.path().join("target");
+    let workspace = tmp.path().join("workspace");
+    fs::create_dir(&target).expect("create target");
+    symlink(&target, &workspace).expect("create symlinked workspace");
+    let policy = SandboxPolicy::WorkspaceWrite {
+        writable_roots: Vec::new(),
+        network_access: false,
+        exclude_tmpdir_env_var: true,
+        exclude_slash_tmp: true,
+    };
+
+    let error = create_seatbelt_command_args_for_legacy_policy(
+        vec!["/usr/bin/true".to_string()],
+        &policy,
+        &workspace,
+        /*enforce_managed_network*/ false,
+        /*network*/ None,
+    )
+    .expect_err("symlinked workspace should be rejected");
+
+    assert!(
+        error.contains("symlinked writable roots are not supported"),
+        "unexpected error: {error}"
+    );
+    assert!(
+        error.contains(&workspace.display().to_string()),
+        "error should identify the rejected workspace: {error}"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn seatbelt_prevents_writable_root_replacement() {
+    let tmp = TempDir::new().expect("tempdir");
+    let workspace = tmp.path().join("workspace");
+    let target = tmp.path().join("target");
+    fs::create_dir(&workspace).expect("create workspace");
+    fs::create_dir(&target).expect("create target");
+    let policy = SandboxPolicy::WorkspaceWrite {
+        writable_roots: Vec::new(),
+        network_access: false,
+        exclude_tmpdir_env_var: true,
+        exclude_slash_tmp: true,
+    };
+    let shell_command = vec![
+        "/bin/sh".to_string(),
+        "-c".to_string(),
+        "rm -rf \"$PWD\" && ln -s \"$1\" \"$PWD\"".to_string(),
+        "sh".to_string(),
+        target.display().to_string(),
+    ];
+    let args = create_seatbelt_command_args_for_legacy_policy(
+        shell_command,
+        &policy,
+        &workspace,
+        /*enforce_managed_network*/ false,
+        /*network*/ None,
+    )
+    .expect("build seatbelt command");
+
+    let policy_text = seatbelt_policy_arg(&args);
+    assert!(
+        policy_text.contains(
+            "(deny file-write-unlink (require-all (literal (param \"WRITABLE_ROOT_0\")) (vnode-type DIRECTORY)))"
+        ),
+        "expected writable-root anchor protection in policy:\n{policy_text}"
+    );
+
+    let output = Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
+        .args(&args)
+        .current_dir(&workspace)
+        .output()
+        .expect("execute seatbelt command");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    let workspace_metadata = fs::symlink_metadata(&workspace).expect("workspace should remain");
+    assert!(
+        workspace_metadata.is_dir() && !workspace_metadata.file_type().is_symlink(),
+        "sandboxed command replaced {}: {stderr}",
+        workspace.display()
+    );
+    assert!(
+        !output.status.success(),
+        "workspace replacement should fail under Seatbelt"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn seatbelt_allows_file_root_replacement_and_deletion() {
+    let tmp = TempDir::new().expect("tempdir");
+    let target = tmp.path().join("target.txt");
+    let replacement = tmp.path().join("replacement.txt");
+    fs::write(&target, "before").expect("write target");
+    fs::write(&replacement, "after").expect("write replacement");
+    let policy = restricted_write_policy(&[target.as_path(), replacement.as_path()]);
+    let args = create_seatbelt_command_args(CreateSeatbeltCommandArgsParams {
+        command: vec![
+            "/bin/sh".to_string(),
+            "-c".to_string(),
+            "mv \"$1\" \"$2\" && test \"$(cat \"$2\")\" = after && rm \"$2\"".to_string(),
+            "sh".to_string(),
+            replacement.display().to_string(),
+            target.display().to_string(),
+        ],
+        file_system_sandbox_policy: &policy,
+        network_sandbox_policy: NetworkSandboxPolicy::Restricted,
+        sandbox_policy_cwd: tmp.path(),
+        enforce_managed_network: false,
+        managed_network: None,
+        environment_id: None,
+        network: None,
+        extra_allow_unix_sockets: &[],
+    })
+    .expect("build seatbelt command");
+
+    let output = Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
+        .args(&args)
+        .current_dir(tmp.path())
+        .output()
+        .expect("execute seatbelt command");
+
+    assert!(
+        output.status.success(),
+        "file replacement and deletion should succeed under Seatbelt: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!target.exists(), "target should have been deleted");
+    assert!(!replacement.exists(), "replacement should have been moved");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn seatbelt_prevents_writable_directory_root_rename() {
+    let tmp = TempDir::new().expect("tempdir");
+    let source = tmp.path().join("source");
+    let destination = tmp.path().join("destination");
+    fs::create_dir(&source).expect("create source");
+    let policy = restricted_write_policy(&[source.as_path(), destination.as_path()]);
+    let args = create_seatbelt_command_args(CreateSeatbeltCommandArgsParams {
+        command: vec![
+            "/bin/mv".to_string(),
+            source.display().to_string(),
+            destination.display().to_string(),
+        ],
+        file_system_sandbox_policy: &policy,
+        network_sandbox_policy: NetworkSandboxPolicy::Restricted,
+        sandbox_policy_cwd: tmp.path(),
+        enforce_managed_network: false,
+        managed_network: None,
+        environment_id: None,
+        network: None,
+        extra_allow_unix_sockets: &[],
+    })
+    .expect("build seatbelt command");
+
+    let output = Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
+        .args(&args)
+        .current_dir(tmp.path())
+        .output()
+        .expect("execute seatbelt command");
+
+    assert!(
+        !output.status.success(),
+        "directory-root rename should fail under Seatbelt"
+    );
+    assert!(source.is_dir(), "source directory should remain in place");
+    assert!(
+        !destination.exists(),
+        "destination should not have been created"
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn seatbelt_protects_writable_root_created_as_directory() {
+    let tmp = TempDir::new().expect("tempdir");
+    let writable_root = tmp.path().join("writable-root");
+    let policy = restricted_write_policy(&[writable_root.as_path()]);
+    let args = create_seatbelt_command_args(CreateSeatbeltCommandArgsParams {
+        command: vec![
+            "/bin/sh".to_string(),
+            "-c".to_string(),
+            "mkdir \"$1\" && rmdir \"$1\"".to_string(),
+            "sh".to_string(),
+            writable_root.display().to_string(),
+        ],
+        file_system_sandbox_policy: &policy,
+        network_sandbox_policy: NetworkSandboxPolicy::Restricted,
+        sandbox_policy_cwd: tmp.path(),
+        enforce_managed_network: false,
+        managed_network: None,
+        environment_id: None,
+        network: None,
+        extra_allow_unix_sockets: &[],
+    })
+    .expect("build seatbelt command");
+
+    let output = Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
+        .args(&args)
+        .current_dir(tmp.path())
+        .output()
+        .expect("execute seatbelt command");
+
+    assert!(
+        !output.status.success(),
+        "removing a newly created directory root should fail under Seatbelt"
+    );
+    assert!(
+        writable_root.is_dir(),
+        "newly created directory root should remain protected"
+    );
+}
+
+#[test]
+fn create_seatbelt_args_block_first_time_dot_codex_creation_with_metadata_name_regex() {
     let tmp = TempDir::new().expect("tempdir");
     let repo_root = tmp.path().join("repo");
     fs::create_dir_all(&repo_root).expect("create repo root");
@@ -1033,16 +1719,15 @@ fn create_seatbelt_args_block_first_time_dot_codex_creation_with_exact_and_desce
         repo_root.as_path(),
         /*enforce_managed_network*/ false,
         /*network*/ None,
-    );
+    )
+    .unwrap();
 
     let policy_text = seatbelt_policy_arg(&args);
     assert!(
-        policy_text.contains("(require-not (literal (param \"WRITABLE_ROOT_0_EXCLUDED_1\")))"),
-        "expected exact .codex carveout in policy:\n{policy_text}"
-    );
-    assert!(
-        policy_text.contains("(require-not (subpath (param \"WRITABLE_ROOT_0_EXCLUDED_1\")))"),
-        "expected descendant .codex carveout in policy:\n{policy_text}"
+        policy_text.contains(&seatbelt_protected_metadata_name_requirements(
+            &repo_root.canonicalize().expect("canonicalize repo root")
+        )),
+        "expected metadata protection regex requirements in policy:\n{policy_text}"
     );
 }
 
@@ -1087,7 +1772,8 @@ fn create_seatbelt_args_with_read_only_git_pointer_file() {
         &cwd,
         /*enforce_managed_network*/ false,
         /*network*/ None,
-    );
+    )
+    .unwrap();
 
     let output = Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
         .args(&args)
@@ -1123,7 +1809,8 @@ fn create_seatbelt_args_with_read_only_git_pointer_file() {
         &cwd,
         /*enforce_managed_network*/ false,
         /*network*/ None,
-    );
+    )
+    .unwrap();
     let output = Command::new(MACOS_PATH_TO_SEATBELT_EXECUTABLE)
         .args(&gitdir_args)
         .current_dir(&cwd)
@@ -1146,19 +1833,20 @@ fn create_seatbelt_args_with_read_only_git_pointer_file() {
 #[test]
 fn create_seatbelt_args_for_cwd_as_git_repo() {
     // Create a temporary workspace with two writable roots: one containing
-    // top-level .git and .codex directories and one without them.
+    // top-level workspace metadata paths and one without them.
     let tmp = TempDir::new().expect("tempdir");
     let PopulatedTmp {
         vulnerable_root,
         vulnerable_root_canonical,
         dot_git_canonical,
+        dot_agents_canonical,
         dot_codex_canonical,
         ..
     } = populate_tmpdir(tmp.path());
 
     // Build a policy that does not specify any writable_roots, but does
-    // use the default ones (cwd and TMPDIR) and verifies the `.git` and
-    // `.codex` checks are done properly for cwd.
+    // use the default ones (cwd and TMPDIR) and verifies the protected
+    // metadata checks are done properly for cwd.
     let policy = SandboxPolicy::WorkspaceWrite {
         writable_roots: vec![],
         network_access: false,
@@ -1185,86 +1873,82 @@ fn create_seatbelt_args_for_cwd_as_git_repo() {
         vulnerable_root.as_path(),
         /*enforce_managed_network*/ false,
         /*network*/ None,
-    );
+    )
+    .unwrap();
 
-    let tmpdir_env_var = std::env::var("TMPDIR")
+    let slash_tmp = PathBuf::from("/tmp")
+        .canonicalize()
+        .expect("canonicalize /tmp");
+    let policy_text = seatbelt_policy_arg(&args);
+    assert!(
+        policy_text.contains(&seatbelt_protected_metadata_name_requirements(
+            &vulnerable_root_canonical
+        )),
+        "expected cwd metadata protection regex requirements in policy:\n{policy_text}",
+    );
+    assert!(
+        policy_text.contains(&seatbelt_protected_metadata_name_requirements(&slash_tmp)),
+        "expected /tmp metadata protection regex requirements in policy:\n{policy_text}",
+    );
+    if let Some(tmpdir_env_var) = std::env::var("TMPDIR")
         .ok()
         .map(PathBuf::from)
         .and_then(|p| p.canonicalize().ok())
-        .map(|p| p.to_string_lossy().to_string());
-
-    let tempdir_policy_entry = if tmpdir_env_var.is_some() {
-        r#" (require-all (subpath (param "WRITABLE_ROOT_2")) (require-not (literal (param "WRITABLE_ROOT_2_EXCLUDED_0"))) (require-not (subpath (param "WRITABLE_ROOT_2_EXCLUDED_0"))) (require-not (literal (param "WRITABLE_ROOT_2_EXCLUDED_1"))) (require-not (subpath (param "WRITABLE_ROOT_2_EXCLUDED_1"))) )"#
-    } else {
-        ""
-    };
-
-    // Build the expected policy text using a raw string for readability.
-    // Note that the policy includes:
-    // - the base policy,
-    // - read-only access to the filesystem,
-    // - write access to WRITABLE_ROOT_0 (but not its .git or .codex), WRITABLE_ROOT_1, and cwd as WRITABLE_ROOT_2.
-    let expected_policy = format!(
-        r#"{MACOS_SEATBELT_BASE_POLICY}
-; allow read-only file operations
-(allow file-read*)
-(allow file-write*
-(require-all (subpath (param "WRITABLE_ROOT_0")) (require-not (literal (param "WRITABLE_ROOT_0_EXCLUDED_0"))) (require-not (subpath (param "WRITABLE_ROOT_0_EXCLUDED_0"))) (require-not (literal (param "WRITABLE_ROOT_0_EXCLUDED_1"))) (require-not (subpath (param "WRITABLE_ROOT_0_EXCLUDED_1"))) ) (subpath (param "WRITABLE_ROOT_1")){tempdir_policy_entry}
-)
-
-"#,
-    );
-
-    let mut expected_args = vec![
-        "-p".to_string(),
-        expected_policy,
-        format!(
-            "-DWRITABLE_ROOT_0={}",
-            vulnerable_root_canonical.to_string_lossy()
-        ),
-        format!(
-            "-DWRITABLE_ROOT_0_EXCLUDED_0={}",
-            dot_git_canonical.to_string_lossy()
-        ),
-        format!(
-            "-DWRITABLE_ROOT_0_EXCLUDED_1={}",
-            dot_codex_canonical.to_string_lossy()
-        ),
-        format!(
-            "-DWRITABLE_ROOT_1={}",
-            PathBuf::from("/tmp")
-                .canonicalize()
-                .expect("canonicalize /tmp")
-                .to_string_lossy()
-        ),
-    ];
-
-    if let Some(p) = tmpdir_env_var {
-        expected_args.push(format!("-DWRITABLE_ROOT_2={p}"));
-        expected_args.push(format!(
-            "-DWRITABLE_ROOT_2_EXCLUDED_0={}",
-            dot_git_canonical.to_string_lossy()
-        ));
-        expected_args.push(format!(
-            "-DWRITABLE_ROOT_2_EXCLUDED_1={}",
-            dot_codex_canonical.to_string_lossy()
-        ));
+    {
+        assert!(
+            policy_text.contains(&seatbelt_protected_metadata_name_requirements(
+                &tmpdir_env_var
+            )),
+            "expected TMPDIR metadata protection regex requirements in policy:\n{policy_text}",
+        );
     }
 
-    expected_args.extend(
-        macos_dir_params()
-            .into_iter()
-            .map(|(key, value)| format!("-D{key}={value}", value = value.to_string_lossy())),
+    let expected_root = format!(
+        "-DWRITABLE_ROOT_0={}",
+        vulnerable_root_canonical.to_string_lossy()
     );
-
-    expected_args.push("--".to_string());
-    expected_args.extend(shell_command);
-
-    assert_eq!(expected_args, args);
+    assert!(
+        args.contains(&expected_root),
+        "missing {expected_root}: {args:#?}"
+    );
+    let expected_dot_git = format!(
+        "-DWRITABLE_ROOT_0_EXCLUDED_0={}",
+        dot_git_canonical.to_string_lossy()
+    );
+    assert!(
+        args.contains(&expected_dot_git),
+        "missing {expected_dot_git}: {args:#?}"
+    );
+    let expected_dot_codex = format!(
+        "-DWRITABLE_ROOT_0_EXCLUDED_1={}",
+        dot_codex_canonical.to_string_lossy()
+    );
+    assert!(
+        args.contains(&expected_dot_codex),
+        "missing {expected_dot_codex}: {args:#?}"
+    );
+    let unexpected_dot_agents = format!(
+        "-DWRITABLE_ROOT_0_EXCLUDED_1={}",
+        dot_agents_canonical.to_string_lossy()
+    );
+    assert!(
+        !args.contains(&unexpected_dot_agents),
+        "missing .agents should be handled by regex rather than materialized as a path param: {args:#?}"
+    );
+    let expected_slash_tmp = format!("-DWRITABLE_ROOT_1={}", slash_tmp.to_string_lossy());
+    assert!(
+        args.contains(&expected_slash_tmp),
+        "missing {expected_slash_tmp}: {args:#?}"
+    );
+    let command_index = args
+        .iter()
+        .position(|arg| arg == "--")
+        .expect("seatbelt args should include command separator");
+    assert_eq!(args[command_index + 1..], shell_command);
 }
 
 struct PopulatedTmp {
-    /// Path containing a .git and .codex subfolder.
+    /// Path containing protected metadata subfolders.
     /// For the purposes of this test, we consider this a "vulnerable" root
     /// because a bad actor could write to .git/hooks/pre-commit so an
     /// unsuspecting user would run code as privileged the next time they
@@ -1274,9 +1958,10 @@ struct PopulatedTmp {
     vulnerable_root: PathBuf,
     vulnerable_root_canonical: PathBuf,
     dot_git_canonical: PathBuf,
+    dot_agents_canonical: PathBuf,
     dot_codex_canonical: PathBuf,
 
-    /// Path without .git or .codex subfolders.
+    /// Path without protected metadata subfolders.
     empty_root: PathBuf,
     /// Canonicalized version of `empty_root`.
     empty_root_canonical: PathBuf,
@@ -1310,12 +1995,14 @@ fn populate_tmpdir(tmp: &Path) -> PopulatedTmp {
         .canonicalize()
         .expect("canonicalize vulnerable_root");
     let dot_git_canonical = vulnerable_root_canonical.join(".git");
+    let dot_agents_canonical = vulnerable_root_canonical.join(".agents");
     let dot_codex_canonical = vulnerable_root_canonical.join(".codex");
     let empty_root_canonical = empty_root.canonicalize().expect("canonicalize empty_root");
     PopulatedTmp {
         vulnerable_root,
         vulnerable_root_canonical,
         dot_git_canonical,
+        dot_agents_canonical,
         dot_codex_canonical,
         empty_root,
         empty_root_canonical,

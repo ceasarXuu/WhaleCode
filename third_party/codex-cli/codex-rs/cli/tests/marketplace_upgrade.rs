@@ -1,11 +1,13 @@
 use anyhow::Result;
 use predicates::str::contains;
+use pretty_assertions::assert_eq;
+use serde_json::json;
 use std::path::Path;
 use tempfile::TempDir;
 
 fn codex_command(codex_home: &Path) -> Result<assert_cmd::Command> {
-    let mut cmd = assert_cmd::Command::new(codex_utils_cargo_bin::cargo_bin("codex")?);
-    cmd.env("CODEX_HOME", codex_home);
+    let mut cmd = assert_cmd::Command::new(codex_utils_cargo_bin::cargo_bin("whale")?);
+    cmd.env("WHALE_HOME", codex_home);
     Ok(cmd)
 }
 
@@ -23,6 +25,29 @@ async fn marketplace_upgrade_runs_under_plugin() -> Result<()> {
 }
 
 #[tokio::test]
+async fn marketplace_upgrade_json_prints_upgrade_outcome() -> Result<()> {
+    let codex_home = TempDir::new()?;
+
+    let assert = codex_command(codex_home.path())?
+        .args(["plugin", "marketplace", "upgrade", "--json"])
+        .assert()
+        .success();
+    let stdout = assert.get_output().stdout.as_slice();
+    let actual: serde_json::Value = serde_json::from_slice(stdout)?;
+
+    assert_eq!(
+        actual,
+        json!({
+            "selectedMarketplaces": [],
+            "upgradedRoots": [],
+            "errors": [],
+        })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn marketplace_upgrade_no_longer_runs_at_top_level() -> Result<()> {
     let codex_home = TempDir::new()?;
 
@@ -30,7 +55,7 @@ async fn marketplace_upgrade_no_longer_runs_at_top_level() -> Result<()> {
         .args(["marketplace", "upgrade"])
         .assert()
         .failure()
-        .stderr(contains("unexpected argument 'upgrade' found"));
+        .stderr(contains("unrecognized subcommand 'upgrade'"));
 
     Ok(())
 }

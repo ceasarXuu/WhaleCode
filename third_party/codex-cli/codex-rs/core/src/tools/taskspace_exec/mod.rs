@@ -73,17 +73,5 @@ mod envelope_tests;
 mod preflight_tests;
 
 #[cfg(test)]
-#[path = "../taskspace_exec_dispatch_tests.rs"]
-mod dispatch_tests;
-
-#[cfg(test)]
-#[path = "../taskspace_exec_handler_tests.rs"]
-mod handler_tests;
-
-#[cfg(test)]
-#[path = "../taskspace_exec_persisted_lifecycle_tests.rs"]
-mod persisted_lifecycle_tests;
-
-#[cfg(test)]
 #[path = "../taskspace_exec_self_heal_tests.rs"]
 mod self_heal_tests;

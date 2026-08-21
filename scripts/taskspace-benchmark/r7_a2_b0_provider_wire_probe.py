@@ -477,22 +477,9 @@ def run_probe(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default="deepseek-v4-flash")
-    parser.add_argument(
-        "--endpoint", default="https://api.deepseek.com/chat/completions"
-    )
-    parser.add_argument("--repeat", type=int, default=3)
-    parser.add_argument("--output", required=True)
-    parser.add_argument("--raw-dir", required=True)
-    parser.add_argument("--repo-commit", default="")
-    args = parser.parse_args()
-    if args.repeat < 1:
-        parser.error("--repeat must be >= 1")
-    result = run_probe(args)
-    print(f"A2B0Result: {args.output}")
-    print(f"A2B0Decision: {result['decision']['overall']}")
-    return 0 if result["decision"]["b1_allowed"] else 2
+    from r7_a2_b0_provider_wire_cli import main as cli_main
+
+    return cli_main()
 
 
 if __name__ == "__main__":

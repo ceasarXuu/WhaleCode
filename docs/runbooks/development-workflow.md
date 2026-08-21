@@ -16,6 +16,14 @@ Set-Location D:\WhaleCode\third_party\codex-cli\codex-rs
 The repository root is not an active Cargo workspace. Run Rust build, test, and
 install commands from `third_party/codex-cli/codex-rs`.
 
+### Linux workspace开工前置
+
+Linux上的每个clone/worktree必须先绑定独立的runtime home、SQLite、sessions、logs和binary slot。首次使用、切换branch或`require-ready`失败时，按项目根目录
+[`runbooks/local-workspace-safety.md`](../../runbooks/local-workspace-safety.md)
+执行plan/apply/installer/doctor闭环。不得把旧的`~/.whale`复制进workspace资源，也不得用PATH上的全局`whale`绕过门禁。
+
+VS Code提供`Workspace: Bootstrap Plan`、`Workspace: Bootstrap Apply`、`Workspace: Doctor`和`Rust: Check codex-cli`任务；CLI仍是权威接口。真实模型运行的账本和预算批准属于开发流程治理，不是Whale产品运行时授权逻辑。
+
 ## Version And Build Number
 
 Whale reuses the Codex CLI release-version flow instead of adding a parallel

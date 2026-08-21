@@ -145,6 +145,14 @@ class CacheRunExecutionTest(CacheRunExecutionFixture):
             exit_code = main()
 
         self.assertEqual(exit_code, 0)
+        self.binary_health_mock.assert_called_once()
+        self.assertEqual(
+            self.binary_health_mock.call_args.args[1], self.workspace_binary
+        )
+        self.route_preflight_mock.assert_called_once()
+        self.assertEqual(
+            self.route_preflight_mock.call_args.args[1], self.workspace_binary
+        )
         self.assertEqual(len(calls), 2)
         self.assertTrue(all(call[call.index("-Repeats") + 1] == "1" for call in calls))
         run_ids = [call[call.index("-RunId") + 1] for call in calls]

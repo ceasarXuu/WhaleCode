@@ -1,0 +1,64 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Workspace: Bootstrap Plan",
+      "type": "process",
+      "command": "python3",
+      "args": [
+        "${workspaceFolder}/scripts/workspace-safety/workspace_context.py",
+        "bootstrap",
+        "plan",
+        "--repo-root",
+        "${workspaceFolder}",
+        "--json"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Workspace: Bootstrap Apply",
+      "type": "process",
+      "command": "python3",
+      "args": [
+        "${workspaceFolder}/scripts/workspace-safety/workspace_context.py",
+        "bootstrap",
+        "apply",
+        "--repo-root",
+        "${workspaceFolder}",
+        "--expect",
+        "${input:workspacePlanFingerprint}"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Workspace: Doctor",
+      "type": "process",
+      "command": "python3",
+      "args": [
+        "${workspaceFolder}/scripts/workspace-safety/workspace_context.py",
+        "doctor",
+        "--repo-root",
+        "${workspaceFolder}",
+        "--require-binary"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Rust: Check codex-cli",
+      "type": "process",
+      "command": "cargo",
+      "args": ["check", "-p", "codex-cli", "--locked"],
+      "options": {
+        "cwd": "${workspaceFolder}/third_party/codex-cli/codex-rs"
+      },
+      "problemMatcher": ["$rustc"]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "workspacePlanFingerprint",
+      "type": "promptString",
+      "description": "Paste the fingerprint from Workspace: Bootstrap Plan"
+    }
+  ]
+}

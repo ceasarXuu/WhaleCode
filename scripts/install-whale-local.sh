@@ -2,7 +2,9 @@
 set -euo pipefail
 
 binary_path=""
-install_dir="${WHALE_INSTALL_DIR:-$HOME/.whale/bin}"
+install_dir=""
+install_dir_explicit=0
+scope=""
 persist_user_path=0
 backup_legacy_copies=0
 
@@ -13,8 +15,9 @@ Usage: scripts/install-whale-local.sh [OPTIONS]
 Install a locally built Whale binary into an isolated user directory.
 
 Options:
+  --scope SCOPE            Required: workspace or user
   --binary-path PATH        Use this whale binary instead of auto-detecting one
-  --install-dir DIR         Install directory (default: $WHALE_INSTALL_DIR or ~/.whale/bin)
+  --install-dir DIR         User-scope directory (default: $WHALE_INSTALL_DIR or ~/.whale/bin)
   --persist-user-path       Add the install directory to ~/.profile if missing
   --backup-legacy-copies    Move old shared-path whale binaries into ~/.whale/backups
   -h, --help                Show this help
@@ -23,12 +26,17 @@ USAGE
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --scope)
+      scope="${2:?--scope requires workspace or user}"
+      shift 2
+      ;;
     --binary-path)
       binary_path="${2:?--binary-path requires a path}"
       shift 2
       ;;
     --install-dir)
       install_dir="${2:?--install-dir requires a directory}"
+      install_dir_explicit=1
       shift 2
       ;;
     --persist-user-path)
@@ -53,6 +61,24 @@ done
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/.." && pwd)"
+workspace_cli="$repo_root/scripts/workspace-safety/workspace_context.py"
+
+if [ "$scope" != "workspace" ] && [ "$scope" != "user" ]; then
+  echo "--scope must be workspace or user" >&2
+  exit 2
+fi
+
+python3 "$workspace_cli" require-ready --repo-root "$repo_root" >/dev/null
+if [ "$scope" = "workspace" ]; then
+  if [ "$install_dir_explicit" -eq 1 ] || [ "$persist_user_path" -eq 1 ] || [ "$backup_legacy_copies" -eq 1 ]; then
+    echo "workspace scope does not allow --install-dir, --persist-user-path, or --backup-legacy-copies" >&2
+    exit 2
+  fi
+  plan_json="$(python3 "$workspace_cli" bootstrap plan --repo-root "$repo_root" --json)"
+  install_dir="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["resources"]["binary_dir"])' <<<"$plan_json")"
+else
+  install_dir="${install_dir:-${WHALE_INSTALL_DIR:-$HOME/.whale/bin}}"
+fi
 
 realpath_existing() {
   if command -v realpath >/dev/null 2>&1; then
@@ -202,10 +228,12 @@ echo "Source: $source_path"
 echo "Hash:"
 sha256sum "$destination"
 
-attestation_script="$repo_root/scripts/taskspace-benchmark/write-whale-binary-attestation.ps1"
-if command -v pwsh >/dev/null 2>&1 && [ -f "$attestation_script" ]; then
-  install_provenance="cp '$source_path' '$destination' via scripts/install-whale-local.sh"
-  pwsh -NoLogo -NoProfile -File "$attestation_script" \
-    -WhaleBin "$destination" \
-    -BuildCommand "$install_provenance"
+install_provenance="cp source binary into $scope scope via scripts/install-whale-local.sh"
+python3 "$repo_root/scripts/workspace-safety/write_binary_attestation.py" \
+  --binary "$destination" \
+  --repo-root "$repo_root" \
+  --build-command "$install_provenance" >/dev/null
+
+if [ "$scope" = "workspace" ]; then
+  python3 "$workspace_cli" doctor --repo-root "$repo_root" --require-binary >/dev/null
 fi

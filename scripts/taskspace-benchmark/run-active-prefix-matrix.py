@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -18,6 +19,11 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT / "scripts/workspace-safety"))
+
+from workspace_entrypoint import WorkspacePreflightError, require_ready
+
+
 SAMPLE_DIR = (
     REPO_ROOT
     / "benchmarks/taskspace/map-compression/samples/subscription-billing-active-prefix"
@@ -298,6 +304,10 @@ def main() -> int:
     args = parse_args()
     if args.repeats < 1 or args.max_parallel < 1:
         raise SystemExit("repeats and max-parallel must be positive")
+    try:
+        require_ready(REPO_ROOT)
+    except WorkspacePreflightError as exc:
+        raise SystemExit(str(exc)) from exc
     contract = read_json(SAMPLE_DIR / "sample.json")
     assert_sample_contract(contract)
     candidate = REPO_ROOT / args.candidate_app_server

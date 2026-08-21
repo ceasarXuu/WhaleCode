@@ -71,7 +71,6 @@ mod tests {
     use crate::common::RawMemory;
     use crate::common::RawMemoryMetadata;
     use crate::provider::RetryConfig;
-    use async_trait::async_trait;
     use codex_client::Request;
     use codex_client::RequestBody;
     use codex_client::Response;
@@ -89,7 +88,6 @@ mod tests {
     #[derive(Clone, Default)]
     struct DummyTransport;
 
-    #[async_trait]
     impl HttpTransport for DummyTransport {
         async fn execute(&self, _req: Request) -> Result<Response, TransportError> {
             Err(TransportError::Build("execute should not run".to_string()))
@@ -122,7 +120,6 @@ mod tests {
         }
     }
 
-    #[async_trait]
     impl HttpTransport for CapturingTransport {
         async fn execute(&self, req: Request) -> Result<Response, TransportError> {
             *self.last_request.lock().expect("lock request store") = Some(req);
@@ -142,7 +139,6 @@ mod tests {
         Provider {
             name: "test".to_string(),
             base_url: base_url.to_string(),
-            wire_api: crate::provider::WireApi::Responses,
             query_params: None,
             headers: HeaderMap::new(),
             retry: RetryConfig {

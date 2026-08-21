@@ -141,6 +141,10 @@ class CacheRunLedgerTest(unittest.TestCase):
                 encoding="utf-8"
             )
         )
+        # This test owns only one synthetic mutation. Repository history can
+        # contain unrelated planned or partially settled runs, so do not make
+        # their validity a precondition for this focused contract assertion.
+        ledger["entries"] = [ledger["entries"][0]]
         execution = ledger["entries"][0]["execution"]
         execution["api_requests"] = None
         execution["api_requests_minimum"] = 2

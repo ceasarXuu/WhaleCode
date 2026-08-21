@@ -1,0 +1,101 @@
+{
+  "schema_version": "whalecode-cache-hit-regression-v6",
+  "record_id": "WAR-20260821-044944-CACHE-REGRESSION-ED00A4E2",
+  "status": "partial",
+  "started_at": "2026-08-21T04:49:52+08:00",
+  "subject_commit": "1b0ac0e88c03ea3ccdbc8d6107d7dc9997b207e4",
+  "surface_sha256": "39d7143df2e98ce7b716b9dc8db322e79bab76be6c6e45d4016a90e7a8f7a0c0",
+  "proposal_id": "CBP-BFE0582D269AE59B",
+  "proposal_sha256": "ad8b95ce75b49c5e6fdff3157830bfb830968519ccaacb9d060f9c353a1fb45d",
+  "authorization_reference": "用户于 2026-08-21 在收到 Codex 0.147 rebase 专项缓存回归预算后明确回复‘批准’；仅覆盖 deepseek-v4-flash、single-file-fast-fix 的 standard 与 map-request 各 1 次，零重试，总费用硬上限 0.40 CNY。此前 Provider 前的 runner、attestation 与 provider debug 预检失败均未生成账本、未调用 API，不计入真实样本或重试；此前 2 CNY 授权不复用。",
+  "authorization_sha256": "005c8232638a66cde09b0a8b8c12caa1dfc2ceff708c63e89108db634e32e7de",
+  "observed_scope": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "standard",
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "Codex 0.147 rebase changes both Standard instructions and TaskSpace production tool wire; compare the minimum Standard and map-request arms once each."
+  },
+  "unverified_scope": [
+    {
+      "sample": "single-file-fast-fix",
+      "arm": "map-request",
+      "repeat": 1
+    }
+  ],
+  "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+  "actual_sample_runs": 1,
+  "credential_source": ".env.local",
+  "provider_route_attestation": {
+    "schema_version": "whalecode-provider-route-preflight-v1",
+    "status": "passed",
+    "model": "deepseek-v4-flash",
+    "provider_routing": {
+      "route_kind": "custom_provider_transport_alias",
+      "logical_provider_id": "deepseek",
+      "transport_provider_id": "deepseek-boundary",
+      "provider_name": "DeepSeek",
+      "base_url": "http://provider-proxy:8080",
+      "env_key": "DEEPSEEK_API_KEY",
+      "wire_api": "responses",
+      "intentional_differences": [
+        "provider_id",
+        "base_url"
+      ]
+    },
+    "provider_descriptor_sha256": "bf593a3cb3ca88548beb6cbfeb453be78f19efbd8f5400762cd7391fa87acbad",
+    "whale_binary_sha256": "810f83efa747f062cb1eb498c031078a9f8dd5c16859f912230b2818894e3395",
+    "preflight_started_at": "2026-08-20T20:49:45.8741290Z",
+    "preflight_completed_at": "2026-08-20T20:49:48.5627116Z",
+    "artifact_path": "benchmarks/cache-regression/evidence/WAR-20260821-044944-CACHE-REGRESSION-ED00A4E2/provider-route-preflight/provider-route-preflight.json",
+    "artifact_sha256": "0aa13a18cba2ab3dc6926a545db3743bb7d0f0c08d94435469a3729280b9172b"
+  },
+  "run_root": "target/cache-hit-regression/WAR-20260821-044944-CACHE-REGRESSION-ED00A4E2",
+  "result_path": "benchmarks/cache-regression/results/WAR-20260821-044944-CACHE-REGRESSION-ED00A4E2.json",
+  "attempts": [
+    {
+      "sample": "single-file-fast-fix",
+      "arm": "standard",
+      "repeat": 1,
+      "run_id": "WAR-20260821-044944-CACHE-REGRESSION-ED00A4E2-CACHE-001",
+      "status": "failed",
+      "exit_code": 1,
+      "timed_out": false,
+      "elapsed_seconds": 1.817,
+      "post_run_cleanup": {
+        "status": "verified_absent",
+        "container_ids": [],
+        "stable_empty_polls": 3,
+        "network_cleanup_status": "verified_absent",
+        "network_ids": [],
+        "secret_cleanup_status": "verified_absent",
+        "secret_paths": [],
+        "error": ""
+      },
+      "evidence_error": "FileNotFoundError: provider boundary accounting evidence is missing",
+      "stop_reason": "run_failure"
+    }
+  ],
+  "observations": [],
+  "stop_reason": "run_failure",
+  "provider_boundary_requests_minimum": 0,
+  "provider_boundary_accounting_status": "unavailable",
+  "evidence_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "runner_exit_code": 3,
+  "ended_at": "2026-08-21T04:49:58+08:00",
+  "elapsed_seconds": 6.025
+}

@@ -1,0 +1,457 @@
+# Codex CLI 上游追赶差异分析与合并策略
+
+> 计划治理说明（2026-08-10）：本专题只保留一份工程计划：[plan.md](plan.md)。已完成工作统一记录在该计划的状态表中，详细证据由 execution report 和 ledger 承载；不存在并行或嵌套的历史计划。唯一产品决策权威源为 [decisions.md](decisions.md)。
+
+> 进度口径：安全 backport 6/6、基线与门禁 12/15（3 deferred）、0.146 历史资格与差异证据均已完成；0.147 Phase A–E 与最新 `main` rebase follow-up（U18）已完成，平台/产品延期项保持独立登记。
+
+- 文档状态：第一批已合入；第二批已按 12 verified / 3 deferred 收口；第三批已完成；Phase A–E 与 U18 verified
+- 分析日期：2026-08-01
+- 适用版本：WhaleCode v0.0.5
+- Checkpoint B 起始提交：`5331173f158fe6352ba69d78bcaf5038971fc7f1`
+- 初始 Codex vendor 导入基线：`fed0a8f4faa58db3138488cca77628c1d54a2cd8`
+- 当前 Codex vendor substrate：`rust-v0.149.0` / `758ef40f50c1a458425c7cfbf1eb12cbc07af0b0`
+- 当前正式验证目标：Codex CLI `rust-v0.149.0` / `758ef40f50c1a458425c7cfbf1eb12cbc07af0b0`（U19 verified）
+- 范围：差异审计、合并风险分类、追赶顺序和已完成切换证据
+
+## 专题文档
+
+- [当前唯一有效执行计划](plan.md)
+- [受保护的产品决策基线](decisions.md)
+- [安全 backport 执行报告](../../migration/codex-sync/2026-08-01-conflict-free-fast-backports.md)
+- [基线与门禁最终实施报告](../../migration/codex-sync/2026-08-02-upstream-baseline-and-test-gates-closeout.md)
+- [0.146 candidate qualification no-go 执行报告](../../migration/codex-sync/2026-08-02-rust-0.146-candidate-qualification.md)
+- [0.147 vendor substrate 切换报告](../../migration/codex-sync/2026-08-13-u4-vendor-substrate-cutover.md)
+- [U5 DeepSeek provider 恢复报告](../../migration/codex-sync/2026-08-14-u5-deepseek-provider.md)
+- [U7 DeepSeek 原生 Responses 验证报告](../../migration/codex-sync/2026-08-14-u7-deepseek-native-responses.md)
+- [U8 provider accounting 与请求硬门禁报告](../../migration/codex-sync/2026-08-14-u8-provider-accounting-guard.md)
+- [U9 DeepSeek 长上下文压缩报告](../../migration/codex-sync/2026-08-14-u9-deepseek-compaction.md)
+- [U10 DeepSeek Standard final-wire 与免费缓存合同报告](../../migration/codex-sync/2026-08-14-u10-deepseek-final-wire-cache.md)
+- [U6 DeepSeek 模型目录与可见性报告](../../migration/codex-sync/2026-08-14-u6-deepseek-model-catalog.md)
+- [U11 旧 Whale TaskSpace migration bridge 报告](../../migration/codex-sync/2026-08-14-u11-legacy-taskspace-migration-bridge.md)
+- [U12 canonical kernel 移植清单与代码预算](../../migration/codex-sync/2026-08-14-u12-canonical-kernel-budget.md)
+- [U13 TaskSpace 唯一 state store、CAS 与 replay](../../migration/codex-sync/2026-08-14-u13-taskspace-state-store.md)
+- [U14 extension runtime 第一原子段与 seam spike](../../migration/codex-sync/2026-08-14-u14-extension-runtime-stage1.md)
+- [U14 response tool-batch preflight](../../migration/codex-sync/2026-08-14-u14-response-tool-batch-preflight.md)
+- [U14 active Map execute 写循环](../../migration/codex-sync/2026-08-14-u14-taskspace-execute-manifest.md)
+- [U14 显式启用与初始化](../../migration/codex-sync/2026-08-14-u14-taskspace-initialize-enable.md)
+- [U14 terminal 与 reopen](../../migration/codex-sync/2026-08-14-u14-taskspace-terminal-reopen.md)
+- [U15 service read seam](../../migration/codex-sync/2026-08-14-u15-taskspace-service-read.md)
+- [U15 read/mode RPC 与 schema](../../migration/codex-sync/2026-08-14-u15-taskspace-rpc-schema.md)
+- [U15 canonical update event 与 notification](../../migration/codex-sync/2026-08-14-u15-taskspace-events.md)
+- [U16 TUI slash 与 typed RPC 路由](../../migration/codex-sync/2026-08-14-u16-taskspace-tui-routing.md)
+- [U16 localhost browser viewer](../../migration/codex-sync/2026-08-14-u16-taskspace-viewer.md)
+- [U16 TaskSpace final-wire 与免费缓存合同](../../migration/codex-sync/2026-08-14-u16-taskspace-final-wire-cache.md)
+- [U17 0.147 发布收口报告](../../migration/codex-sync/2026-08-14-u17-release-closeout.md)
+
+## 当前批次状态
+
+- 第一批六个无文本冲突 backport 已独立提交并推送；
+- 基线、inventory、测试门禁、DeepSeek Responses 和模型可见性工作已验证；
+- TaskSpace TUI 已知夹具问题已定位并延期；
+- Windows 自动与实机验证按用户决策延期；
+- 第二批以 12/15 verified、3/15 deferred 收口，不把延期项表述为通过。
+- 0.146 资格与差异证据已完成：候选身份、4,355 条无 rename 推断的 upstream delta、730 路径 replay ledger 和五批 DAG 已落地；纯上游资格矩阵为 1 passed / 4 failed，因此 0.146 当前 no-go，未替换当前 vendor。
+- 0.147 U2 首轮 no-go 已撤回并完成重验：官方 sandbox V8、CLI、code-mode-host、app-server 均通过；core 剩余 5 个 `/tmp` 路径用例和 1 个 MCP 时序超时，TUI 剩余 33 个 release snapshot，结论为 `direction-supported-with-known-test-risks`。Checkpoint B 已把 delta/replay 查询工件刷新到 0.147；U3 已证明 6 个生产文件的最小 identity/home/auth/default overlay 可构建，且无需 DeepSeek/TaskSpace stub。
+- U4 已把 vendor 切换到 0.147，只重放 U3 的 8 个修改路径，其中 3 个删除来自官方 Git archive 的 `export-ignore`。U4a 已独立迁移免费缓存合同，U4 cache index gate 通过；accepted live baseline 未晋升。
+- U5 已恢复 DeepSeek provider、环境鉴权与 Flash 默认；U7 已通过无网络 fixture 验证 Pro 原生 `/responses` 请求和 reasoning/text/function-call SSE，未增加生产适配层。
+- U8 已恢复默认关闭、仅供获批开发回归启用的 transport-exact 请求硬门禁，并验证 provider usage 可在 completed terminal 时进入 rollout。U9 已恢复 DeepSeek Flash/Pro 运行时元数据、1M/755K 合同及 Flash→Pro compaction 请求。U10 已锁定 `standard` final-wire 并通过五组免费缓存合同；U6 已恢复 Flash/Pro 可见性、DeepSeek-only 公共列表和 Flash 默认。Phase C 已完成，TaskSpace 随后由 Phase D 收口。
+- U11 已在 state 初始化入口增加精确 checksum 保护的迁移桥：已知旧 Whale `0030/0031` 可保留 TaskSpace 数据并升级到 0.147 migration history；fresh/current 数据库 no-op，未知或部分历史继续由 SQLx fail-closed。没有读取或改写真实用户数据库。
+- U12 已完成：独立 `ext/taskspace` 恢复 canonical model、DAG invariants、transitions、events/replay 与 transactions；34 条测试和 Clippy `-D warnings` 通过，生产代码 1,691 行，低于获批硬上限且无 host/store/protocol 依赖。下一步是 U13 的唯一 state store/CAS/replay adapter。
+- U13 已完成：在现有 `StateRuntime` state DB 上恢复唯一 canonical store、thread binding、commit-id replay 与并发 CAS；fresh/current 使用新 `0047` migration，经 U11 修复的旧表原地复用。生产代码 424 行，`codex-state` 176 条测试和 Clippy 通过。
+- U14 第三原子段已完成：active Map 的 `execute` 会在 preflight 中校验 sibling manifest 并通过现有 state CAS 原子提交 mutation/reservation；control 返回提交 receipt，tool lifecycle 在 sibling 结束后释放 reservation 并写 result ref。错误 manifest 零提交且继续保持零 dispatch；未绑定 Standard 线程仍保持放行。初始化、finish/reopen、RPC/TUI 不在本段。
+- U14 第四原子段已完成：新增 extension-owned `TaskSpaceService` 作为显式 mode seam；Standard 默认仍不暴露工具或 WorldState，启用后 `initialize_and_execute` 通过同一 state CAS 原子创建 canonical Map、owner binding 与首批 reservation。关闭不会被 turn refresh 反转；app-server 将在 U15 持有该 service。
+- U14 第五原子段已完成：`finish_map` 要求 control 独占响应，在 preflight 中以 exact summary 和最终 work completion 原子终结 Map；`reopen_map` 复用 ordered sibling manifest 和同一 CAS store，原子恢复 terminal history、追加 work/edges 并 reservation，随后由 tool lifecycle release。非法 sibling/manifest 均零提交；仅 extension event emission 尚待收口。
+- U14 已收口。0.147 extension sink 只能发送已有 protocol `EventMsg`，因此 TaskSpace event emission 与 U15 的版本化事件类型/schema 同单元恢复，避免在 runtime 阶段制造不可消费的半套 wire。U15 第一段已增加宿主可注入的同一 `TaskSpaceService` 及 canonical refresh/read seam。
+- U15 已收口：`thread/mapRuntimeMode/set` 与 `thread/taskspace/read` 继续只面向已加载线程并要求 experimental API opt-in；`thread/taskspace/updated` 仅在更高 canonical revision 成功落库后发射轻量失效通知，并经 listener FIFO 保持与 turn/resume 通知的顺序。JSON/TS 及 stable/experimental precomputed exports 已重生成；下一步进入 U16。
+- U16 第一段已恢复 `/taskspace` 与 `/task-show` 的 TUI typed RPC 路由：前者按顺序显式启用再读取，后者只读；该原子段以 canonical Map 文本摘要验证了完整路由。
+- U16 已收口：第二段恢复只绑定 loopback 随机端口的 canonical browser viewer；第三段在同一 mock 线程锁定 Standard→TaskSpace 最终 Responses body、公共工具稳定性、conversation prefix、`instructions` 与 `prompt_cache_key`，并把两组 DeepSeek final-wire 纳入完整免费缓存矩阵。Phase D 的 U11–U16 全部 verified，0 真实请求。
+- U17 已收口并完成对抗性修复：U17 时点 overlay/replay 相对 0.147 为 185 条路径；旧版空 TaskSpace map 可迁移并原地激活，普通 `thread/fork` 会持久化 `Fork` lineage。process-level 回归在同一真实 app-server/SQLite 链中覆盖 Standard 请求、typed mode/read RPC、fork、shutdown/restart/resume 与 TaskSpace Responses final-wire。原始 94 项失败见[逐项清单](evidence/u17-closure-4f4f5d4c5/failure-manifest.md)；后续已修复 16 项 GPT 子 Agent 夹具并增加[当前 vendor 宿主隔离入口](evidence/u17-closure-4f4f5d4c5/host-isolated-core-tests.md)，原环境噪声定向 6/6 通过。剩余 21 个 core lib 与 23 个 core integration 失败均为既有延期边界。TUI/Windows 未声明通过，0 真实请求，live baseline 未晋升。
+- U18 已完成：119 个本地提交已重放到 `main@df5da4d3944448a9ae877d601f8c8045c415d983`；R8 relational store、旧 v2 archive、生产 app-server fork/restart/final-wire 链与 0.147 schema 兼容均已验证。当前 overlay/replay 相对 0.147 刷新为 290 条路径并通过 metadata validator。专用真实缓存资格运行 `WAR-20260821-060352-CACHE-REGRESSION-2C622B25` 的 Standard 与 map-request 双臂均成功，用量证据完整，实际费用 `0.01973628 CNY`；两个稳定 final-wire 场景已晋升，index gate、232 个缓存测试及两条 Rust final-wire 测试均通过。既有 hosted/provider/platform 延期项不因本轮收口而改判。
+- replay ledger 和五批 DAG 已降级为非权威证据；后续不得直接按自动 disposition 或路径桶实施，应按 `plan.md` 的 U1–U17 语义闭环推进。
+
+## 历史分析快照（2026-08-01）
+
+以下第 1–12 节保留专题启动时的差异分析和路线依据；其中“当前 HEAD”“当前 overlay”等措辞只描述当时快照，不是 U17 收口后的当前状态。当前状态以本文顶部、`plan.md`、生成 inventory 和 U17 报告为准。
+
+## 1. 执行摘要
+
+当前不适合把官方 Codex `main` 直接合入 WhaleCode，也不适合继续长期只做零散 backport。
+
+建议采用两段式路线：
+
+1. 在现有基线上优先回移少量已经验证可干净应用的安全和通用修复；
+2. 先按 0.147 官方 Cargo release 构建合同完成候选资格，再决定是否建立 vendor 候选快照并分组重放品牌、DeepSeek、缓存和 TaskSpace 改造。
+
+主要依据：
+
+- 当前 vendor 基线到 0.147 候选相差 3,133 个提交、4,511 个 Git diff 文件；
+- 切换前 Whale 相对初始基线修改了 730 个路径，官方和 Whale 同时修改 505 个路径，其中 504 个最终内容仍然不同；该历史分析阶段的一次临时候选 overlay 曾收敛到 11 个路径；
+- Codex 是通过 codeload tarball 导入子目录，仓库根历史与官方 Git 历史没有 merge-base，普通 merge/cherry-pick 不是可靠同步机制；
+- DeepSeek 官方 Codex 接入当前要求 Responses API；Whale 当前向用户展示 `deepseek-v4-flash` 与 `deepseek-v4-pro`，并保持 Flash 默认；provider、catalog 与 0.147 substrate 已对齐；
+- TaskSpace 目前不是薄插件，而是贯穿协议、状态、session、provider payload、tool sequence、app-server 和 TUI 的纵向改造，必须进行语义级重放。
+
+## 2. 审计范围与方法
+
+### 2.1 对比边界
+
+| 边界 | 提交或版本 | 用途 |
+| --- | --- | --- |
+| Whale 历史分析 HEAD | `c539cbe18030727ae9c48e27246c0439ad246390` | 2026-08-01 分析快照边界，非当前 HEAD |
+| Whale vendor 固定基线 | `fed0a8f4faa58db3138488cca77628c1d54a2cd8` | 识别 Whale 自有修改 |
+| U2 历史候选 | `rust-v0.147.0` / `be6e8eac029b183056b7e4402879f15d2c85f61b` | 当时为 direction-supported；现已由 U19 的 0.149 取代 |
+| 官方 main | `ee0247f95a6fe2b094ba2253d82cae2a2b4c2dff` | 观察稳定版之后的演进，不作为本轮目标 |
+
+### 2.2 使用的方法
+
+- 比较 vendor 基线、Whale 当前 vendor 和官方源码三棵文件树；
+- 统计提交、文件和行级变化；
+- 检查 Whale 从 vendor import 之后的提交与同步记录；
+- 对候选上游提交执行只读 `git apply --check --directory=third_party/codex-cli`；
+- 检查 DeepSeek provider、model catalog、streaming、compaction 和缓存合同；
+- 检查 TaskSpace canonical map、event store、tool sequence、session replay、state store、app-server 和 TUI 边界；
+- 未执行真实 Whale Agent run，未产生模型费用。
+
+## 3. 差异规模
+
+### 3.1 官方稳定版差距
+
+`fed0a8f4..be6e8eac`：
+
+| 指标 | 结果 |
+| --- | ---: |
+| 官方提交数 | 3,133 |
+| Git diff 变化文件数 | 4,511 |
+| inventory 路径数 | 4,666 |
+| 新增行 | 887,642 |
+| 删除行 | 252,681 |
+
+### 3.2 官方 main 差距
+
+`fed0a8f4..ee0247f9`：
+
+| 指标 | 结果 |
+| --- | ---: |
+| 官方提交数 | 2,982 |
+| 变化文件数 | 4,380 |
+| 新增行 | 824,134 |
+| 删除行 | 247,364 |
+
+三方内容路径比较：
+
+| 路径集合 | 数量 | 含义 |
+| --- | ---: | --- |
+| Whale 相对初始基线变化（切换前） | 730 | 历史 replay 输入 |
+| Whale 相对 0.147 变化（切换后） | 11 | 当前 vendor overlay；8 个 U3 修改 + 3 个 archive 排除删除 |
+| 官方相对基线变化 | 4,666 | 含新增、修改和删除路径 |
+| 双方同时修改 | 505 | 潜在合并热点 |
+| 双方最终内容相同 | 1 | 已自然收敛 |
+| 双方最终内容不同 | 504 | 需要冲突判断或语义迁移 |
+| 仅官方变化 | 4,161 | 仍需检查依赖，不能自动等同于可直接合并 |
+| 仅 Whale 变化 | 225 | 主要是 TaskSpace、DeepSeek 和 Whale 产品层 |
+
+路径不重叠只说明没有文本级重叠，不能证明提交可独立编译。若提交依赖此前的 crate 拆分、类型变化或 permission profile 迁移，仍然需要整批迁移。
+
+## 4. 已经完成的选择性 backport
+
+2026-05-01 已经从上游选择性吸收：
+
+- stateful streaming `apply_patch` parser；
+- Windows sandbox、process 和环境变量修复；
+- MCP tool output 持久化前截断；
+- MCP client shutdown/drain。
+
+这些变更不应在新批次中重复回移。详细记录见[选择性上游回移记录](../../migration/codex-sync/2026-05-01-selective-upstream-backports.md)。
+
+## 5. 可以快速回移的提交
+
+下列提交已通过只读 patch apply 检查；实际实施时仍需每个主题单独提交，并运行对应 crate 测试。
+
+| 优先级 | 官方提交 | 内容 | 主要验证 |
+| --- | --- | --- | --- |
+| P0 | [`2e598df6`](https://github.com/openai/codex/commit/2e598df6fcd30717cfdcd2a898746a84d365ca23) | 禁止错误自动批准 `git -C ...` | `codex-shell-command` 定向测试与审批回归 |
+| P0 | [`9deb4f9c8`](https://github.com/openai/codex/commit/9deb4f9c86426c40ba1e189831d7bc3634dd7b94) | Windows 命令安全识别混合大小写 URL | `codex-shell-command` Windows safety 测试 |
+| P1 | [`6ec8c4a6`](https://github.com/openai/codex/commit/6ec8c4a6ecb17bc3ab10d0c5edf75494b50cab7e) | Git 元数据读取忽略 repository fsmonitor 配置 | `git-utils` 测试 |
+| P1 | [`36912ce3`](https://github.com/openai/codex/commit/36912ce3de1c039f7faaddd509d0465ff644e6c1) | 修复 Windows paste burst interval | TUI 定向测试与 Windows smoke |
+| P1 | [`5d7e6a25`](https://github.com/openai/codex/commit/5d7e6a2503fc71f09cea71bfca9e193e0c3fd215) | 修复 TUI borrowed slice wrapping | TUI wrapping 测试 |
+| P1 | [`c86b1be3`](https://github.com/openai/codex/commit/c86b1be3cdbe12307843bcc9e7a44c1904ddcdf1) | 减少 TUI diff render clone | TUI diff render 测试 |
+| P1，可选 | [`3afb185a`](https://github.com/openai/codex/commit/3afb185a4f02dab00927ad597996f3e5528cea45) | 收紧 managed network proxy bypass 默认值 | 先确认 Whale 是否启用该 runtime 路径 |
+| P1，可选 | [`2dbde94a`](https://github.com/openai/codex/commit/2dbde94aa9e645715d14fff0d8d00143e236019b) | 规范化 network proxy host matching | network proxy 测试 |
+
+不应把 `git apply --check` 通过解释为已经完成兼容性验证。它只证明补丁能应用，不证明编译、行为和安全合同成立。
+
+## 6. 需要分批迁移的上游架构
+
+| 上游架构变化 | 预期收益 | Whale 当前冲突 | 处理方式 |
+| --- | --- | --- | --- |
+| `message-history` 独立 crate | 从 core 移出 history 责任 | TaskSpace projection、replay 和 context 仍依赖 core history | 采用上游结构，增加 TaskSpace adapter |
+| `prompts`、`context-fragments` | 收敛 prompt 和 context 拼装 | Whale 双 base instructions、TaskSpace manifest、cache prefix | 先冻结输出合同，再迁移内容来源 |
+| shared `http-client` | 统一代理、TLS、重试和连接池 | DeepSeek、MCP、auth、provider trace 各有接入点 | 迁移 transport，保留 provider-specific policy |
+| `app-server-transport` | 降低 app-server 主模块耦合 | Whale 增加 TaskSpace RPC 与 TUI adapter | 先迁 transport，再重放 RPC |
+| permission profiles | 新版权限与 sandbox 统一模型 | Whale 仍保留旧 `SandboxPolicy` 接口；2026-05-01 已明确延期 | 独立迁移，不混入小型 bug backport |
+| SQLite/thread-store/分页 history | 提升 resume、fork、search 和持久化性能 | TaskSpace canonical store、migration、rollout replay | 统一 transaction 和 ownership 边界后迁移 |
+| MultiAgent V2 / AgentGraphStore / WorldState | 更成熟的 agent 生命周期和上下文模型 | 可能和 TaskSpace Event Store 形成双权威状态 | 先做权威状态 ADR，再接入 adapter |
+| MCP 2026、Skills、Plugins、Code Mode | 能力、性能和安全提升 | tool registry 和 provider-visible tool 集合影响缓存前缀 | 按能力分批，逐批冻结 final wire |
+
+值得作为架构迁移起点的上游提交包括：
+
+- `2004173c`：从 core 提取 message history；
+- `ba2b67f9`：集中 prompts；
+- `ac67905f`：提取 context fragments；
+- `9acfe896`：共享 HTTP transport；
+- `41e171fc`：提取 app-server transport。
+
+这些提交描述目标架构，不适合作为五个孤立补丁直接应用到旧基线。
+
+## 7. DeepSeek 适配边界
+
+### 7.1 当前已经对齐的方向
+
+Whale 当前内置 DeepSeek provider 已经：
+
+- 使用 `https://api.deepseek.com`；
+- 使用 Responses API；
+- 默认选择 `deepseek-v4-flash`；
+- 展示已正式发布并支持 Responses API 的 `deepseek-v4-pro`；
+- 禁用 Responses WebSocket；
+- 保留 1M context、755K auto compact、parallel tool calls 和 reasoning 能力。
+
+这是当前阶段的显式产品合同：Codex 使用 DeepSeek 原生 Responses API，公共列表只展示 DeepSeek 系列，Flash 为默认模型；Pro 已满足正式发布、Responses 支持及 Whale provider/final-wire/TUI 回归条件，因此恢复可见。
+
+### 7.2 必须保留的 Whale 产品合同
+
+| 合同 | 当前位置 | 同步要求 |
+| --- | --- | --- |
+| provider identity/auth | `model-provider-info/src/lib.rs` | 保留 `deepseek`、`DEEPSEEK_API_KEY`、非 OpenAI auth |
+| Whale home 隔离 | `utils/home-dir/src/lib.rs` | 保留 `WHALE_HOME`、`~/.whale`，禁止与 `.codex` 共址 |
+| model catalog | `models-manager/models.json`、`models-manager/src` | 保留 DeepSeek-only 公共列表、Flash 默认、Flash/Pro 可见和 Whale 能力值 |
+| Chat Completions 兼容层 | `codex-api/src/endpoint/chat_completions.rs`、`sse/chat_completions.rs` | 内置 DeepSeek 不再依赖，但自定义 Chat provider 仍可能需要 |
+| reasoning/tool-call stream | `codex-api` | 不得丢失 `reasoning_content` 和 streamed tool call 组装 |
+| compaction | `core/src/compact*.rs` | 保留 Flash compact 与 Whale 状态保留合同 |
+| final wire/cache trace | `core/src/provider_wire_*` | 适配上游 request type，不能删除证据链 |
+| request budget/usage | `core/src/client.rs` | 保留 hard limit、provider usage 和 terminal 对账 |
+
+### 7.3 最高冲突文件
+
+- `core/src/client.rs`；
+- `core/src/session/mod.rs`；
+- `core/src/session/turn.rs`；
+- `core/src/session/rollout_reconstruction.rs`；
+- `core/src/compact*.rs`；
+- `codex-api/src/endpoint/**`；
+- `codex-api/src/sse/**`；
+- `model-provider-info/src/**`；
+- `models-manager/**`；
+- `core/src/config/**`；
+- `protocol/src/**`。
+
+这些路径同时承载 DeepSeek、TaskSpace 和缓存语义，禁止整文件选择 upstream 或 Whale 一侧。
+
+## 8. TaskSpace 边界
+
+### 8.1 当前实现规模
+
+TaskSpace 当前约有 145 个 Rust/SQL 生产文件直接引用 TaskSpace/ActionMap，专属代码约 15,446 行，其中 `core/src/action_map/` 约 8,478 行。
+
+它已经覆盖：
+
+- canonical map schema；
+- rooted DAG runtime 和 invariant；
+- event store 与 replay；
+- SQLite CAS store；
+- TaskSpace tool schema 和 handler；
+- response-level tool sequence preflight；
+- session/turn terminal carrier；
+- provider-visible projection；
+- app-server RPC；
+- TUI Action Map viewer。
+
+因此 TaskSpace 目前不是可单独摘挂的 `PrimitiveModule`。
+
+### 8.2 可整体保留、只适配接口的模块
+
+- `core/src/action_map/**`；
+- `core/src/tools/handlers/taskspace_control*.rs`；
+- `core/src/session/taskspace_*.rs`；
+- `protocol/src/taskspace.rs`；
+- `tools/src/taskspace_tool*.rs`；
+- `state/src/model/taskspace_map.rs`；
+- `state/src/runtime/taskspace_map*.rs`；
+- `tui/src/app/action_map_viewer.rs`；
+- TaskSpace prompt、manifest 和 skill assets。
+
+### 8.3 必须语义重放的宿主挂点
+
+- `core/src/client.rs`；
+- `core/src/session/turn.rs`；
+- `core/src/tools/sequence*.rs`；
+- tool registry/context；
+- rollout reconstruction；
+- protocol/app-server schema；
+- state migration registry/runtime；
+- TUI routing 与 app-server adapter；
+- base instructions 和 compaction。
+
+### 8.4 Multi-Agent 权威状态决策
+
+TaskSpace 已经移除旧的 multi-agent lease/node 直绑链，当前通过通用 tool call identity 消费 `spawn_agent`、`wait` 等能力。因此可以继续吸收上游 MultiAgent V2，但必须保持：
+
+- 稳定的 `call_id`、tool name 和 response call index；
+- `AgentPath` 和 parent/child identity；
+- spawn、wait、completion 事件；
+- fork history 语义；
+- tool output 成功、失败和 terminal carrier 扩展点。
+
+建议的唯一权威关系：
+
+```text
+TaskSpace Event Store（任务状态唯一权威）
+    -> projection / adapter
+Upstream AgentGraphStore + WorldState + ThreadManager
+```
+
+不得让 TaskSpace Event Store 和 upstream AgentGraphStore 并列持久化两套“真实任务状态”。如果未来决定由 AgentGraphStore 取代部分 TaskSpace，必须先定义迁移、回放和回滚合同。
+
+## 9. Create / Debug Primitive 状态
+
+当前代码中未发现完整实现的：
+
+- `PrimitiveModule` / `PrimitiveRegistry`；
+- `ScaffoldArtifact` / `ScaffoldVerification`；
+- `DebugCase` / `Hypothesis` / `EvidenceRecord`；
+- `RootCauseDecision`；
+- `EvidenceRace` / `PatchLeague`；
+- Create/Debug phase machine。
+
+这些能力目前主要存在于架构设计文档中，Rust 侧只有少量 compaction retention 文案。因此：
+
+- 当前没有需要阻止上游同步的 Create/Debug 生产代码；
+- 后续实现不应复制 TaskSpace 对 session、tool runtime 和 store 的纵向侵入；
+- 在继续开发 Create/Debug 前，应先建立真正的 PrimitiveModule host seam。
+
+## 10. 缓存回归门禁
+
+当前缓存敏感面基线状态为 `live_regression_failed`，见[缓存敏感面合同](../../../benchmarks/cache-regression/cache-surface-contract.json)。
+
+凡是触及以下任一范围，都不能以“编译通过”作为合并完成标准：
+
+- base instructions/context construction；
+- TaskSpace projection/control feedback；
+- provider payload/protocol；
+- tool declarations；
+- MCP、Apps、Plugins、Skills；
+- model/provider routing；
+- compaction。
+
+最低验证顺序：
+
+1. 对应 crate 的 unit/integration tests；
+2. free final-wire 和 cache payload contracts；
+3. `python3 scripts/cache-regression/check_cache_regression_gate.py --source index`；
+4. 若门禁要求真实回归，按全局 Whale Agent run ledger 和专项预算流程申请授权；
+5. 不得使用 `--no-verify` 绕过。
+
+## 11. 推荐实施波次
+
+### Wave 0：建立可追溯基线
+
+- 修正 `UPSTREAM.md` 中失真的 local patch count；
+- 生成机器可读 Whale overlay inventory；
+- 按 brand/home、provider/model、wire/SSE、cache observability、TaskSpace domain、TaskSpace host hooks 分组；
+- 记录候选稳定版的 commit、release date 和 license；0.147 记录已完成。
+
+### Wave 1：快速安全回移
+
+- 每个 P0/P1 小主题独立提交；
+- 运行对应 crate 测试、smoke 和平台专项验证；
+- 不触及 DeepSeek/provider payload/TaskSpace/cache 敏感面。
+
+### Wave 2：准备合格稳定版 substrate
+
+- 建立干净的官方稳定版候选快照；
+- 采用 upstream 的 message history、prompts、context fragments、HTTP transport、permission profiles 和 thread store；
+- 先保证纯 upstream substrate 自身测试通过；
+- 不在此阶段混入 Whale 业务语义。
+
+### Wave 3：重放 Whale 基础 overlay
+
+- Whale brand 和二进制命名；
+- `WHALE_HOME`、secret/keyring 和安装隔离；
+- DeepSeek Responses provider、Flash model catalog、reasoning 和 usage；
+- provider wire trace、request budget 和 cache contracts；
+- 逐组运行缓存门禁。
+
+### Wave 4：TaskSpace 与 Multi-Agent 收敛
+
+- 先形成 AgentGraphStore/WorldState/TaskSpace 权威状态 ADR；
+- 保留 TaskSpace domain/runtime/store 独立模块；
+- 将宿主侵入重写为 adapter、hook 或 extension point；
+- 接入上游 MultiAgent V2 生命周期、分页 history、fork 和错误传播；
+- 验证 TaskSpace replay、resume、fork、terminal 和 TUI viewer。
+
+### Wave 5：生成物与发布闭环
+
+- 统一生成 app-server JSON/TypeScript schema；
+- 执行 workspace build、Rust 回归、CLI smoke、TaskSpace contracts、缓存 gate；
+- 更新 `UPSTREAM.md` 和 codex-sync log；
+- 明确 adopted、adapted、disabled 和 deferred 上游能力。
+
+## 12. 暂缓或拒绝直接吸收的能力
+
+以下内容即使文本上无冲突，也不属于当前优先追赶收益：
+
+- OpenAI 专属 login、ChatGPT plan、rate limit 和 account UI；
+- Codex desktop app 自更新和远程控制产品面；
+- OpenAI hosted Apps、remote plugin service 的专属路由；
+- audio/image/realtime 等 DeepSeek 当前未声明兼容的能力；
+- Bedrock 专属模型和 marketplace 产品逻辑；
+- 0.147 之后尚未进入稳定版的实验接口。
+
+处理原则是保留 upstream 内部接口兼容性，但通过 Whale feature/product policy 禁用或延后，不在同步时删除其底层通用能力。
+
+## 13. 实施验收标准
+
+完成一次稳定版上游追赶至少需要满足：
+
+- vendor 来源、commit、时间和 license 可追溯；
+- Whale overlay inventory 与实际 diff 一致；
+- 不存在未经记录的 vendor 直改；
+- DeepSeek Flash 是默认且可见模型，Pro 的可见性符合当时官方能力；
+- `WHALE_HOME`、auth 和 keyring 不与 Codex 混用；
+- Standard 与 TaskSpace 的 final wire 合同均通过；
+- TaskSpace canonical map、CAS store、resume/fork/replay/terminal tests 通过；
+- Multi-Agent 与 TaskSpace 只有一套任务状态权威；
+- app-server schema 由生成流程刷新，不保留手工漂移；
+- cache regression gate 通过，或按规则记录明确 blocker；
+- 没有未提交改动，所有主题按最小提交原则推送。
+
+## 14. 外部资料
+
+1. [OpenAI Codex 官方仓库](https://github.com/openai/codex)
+2. [Codex CLI 0.147.0 Release](https://github.com/openai/codex/releases/tag/rust-v0.147.0)
+3. [Codex App Server v2 文档](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md)
+4. [Codex 配置 schema](https://github.com/openai/codex/blob/main/codex-rs/core/config.schema.json)
+5. [DeepSeek Codex 接入文档](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/)
+6. [DeepSeek Responses API 指南](https://api-docs.deepseek.com/guides/responses_api/)
+7. [DeepSeek Context Caching](https://api-docs.deepseek.com/guides/kv_cache)
+
+## 15. 本地证据索引
+
+- [Codex vendor 固定基线](../../../third_party/codex-cli/UPSTREAM.md)
+- [Codex upstream substrate ADR](../../adr/2026-04-27-codex-cli-upstream-substrate.md)
+- [初始导入记录](../../migration/codex-sync/2026-04-27-initial-import.md)
+- [Whale 品牌与 DeepSeek overlay](../../migration/codex-sync/2026-04-27-whale-brand-deepseek.md)
+- [选择性上游回移记录](../../migration/codex-sync/2026-05-01-selective-upstream-backports.md)
+- [DeepSeek Responses 迁移决策](../build-R8/cache-regression/11-deepseek-responses-migration.md)
+- [缓存敏感面合同](../../../benchmarks/cache-regression/cache-surface-contract.json)
+- [TaskSpace Map Store 运行手册](../../runbooks/r7-taskspace-map-store.md)
+
+## 16. 已知未决策项
+
+| 决策 | 当前建议 | 决策时点 |
+| --- | --- | --- |
+| 是否先落快速 backport | 是，先落 P0 和低风险 P1 | 开始实施前 |
+| 是否以 0.147.0 替换 vendor | 是；U4 已验证并完成 Phase B | 已执行 |
+| 是否启用 upstream network proxy | 先核实现有 runtime 使用情况 | network proxy backport 前 |
+| AgentGraphStore 与 TaskSpace 的权威关系 | TaskSpace 为任务状态权威，上游 graph 作为 projection/adapter | Wave 4 ADR |
+| 是否继续保留通用 Chat Completions provider | 保留，但不作为内置 DeepSeek 主路径 | DeepSeek overlay 重放时 |
+| Pro 何时重新开放 | 已满足官方正式发布、Responses 支持与本地 provider/final-wire/TUI 验证条件，U6 已恢复 | 已执行 |

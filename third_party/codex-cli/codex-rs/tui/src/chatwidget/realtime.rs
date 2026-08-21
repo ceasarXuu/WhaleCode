@@ -24,7 +24,6 @@ pub(super) enum RealtimeConversationPhase {
     Active,
     Stopping,
 }
-
 #[derive(Default)]
 pub(super) struct RealtimeConversationUiState {
     pub(super) phase: RealtimeConversationPhase,

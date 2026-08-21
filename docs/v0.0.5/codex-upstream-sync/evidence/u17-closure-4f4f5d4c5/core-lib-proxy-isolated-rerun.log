@@ -1,0 +1,8 @@
+RUST_MIN_STACK=8388608 NEXTEST_PROFILE=local cargo nextest run --no-fail-fast "$@"
+    Updating crates.io index
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.41s
+────────────
+ Nextest run ID ca6faaeb-5509-43d8-95d4-b495c68f5205 with nextest profile: local
+    Starting 1 test across 1 binary (2177 tests skipped)
+────────────
+     Summary [   0.120s] 1 test run: 1 passed, 2177 skipped

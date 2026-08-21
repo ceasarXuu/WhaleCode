@@ -10,47 +10,7 @@ use chardetng::EncodingDetector;
 use encoding_rs::Encoding;
 use encoding_rs::IBM866;
 use encoding_rs::WINDOWS_1252;
-use schemars::JsonSchema;
-use serde::Deserialize;
-use serde::Serialize;
 use std::time::Duration;
-use ts_rs::TS;
-
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, JsonSchema, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename_all = "snake_case")]
-pub enum ExecOutcome {
-    Exited,
-    TimedOut,
-    Cancelled,
-    Signaled,
-    SpawnFailed,
-    Rejected,
-    ExecutionError,
-}
-
-impl ExecOutcome {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Exited => "exited",
-            Self::TimedOut => "timed_out",
-            Self::Cancelled => "cancelled",
-            Self::Signaled => "signaled",
-            Self::SpawnFailed => "spawn_failed",
-            Self::Rejected => "rejected",
-            Self::ExecutionError => "execution_error",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, JsonSchema, TS)]
-pub struct ExecOutputMetadata {
-    pub execution_outcome: ExecOutcome,
-    pub shell_exit_code: Option<i32>,
-    pub termination_signal: Option<i32>,
-    pub pipeline_stage_exit_codes: Option<Vec<i32>>,
-    pub duration_seconds: f32,
-}
 
 #[derive(Debug, Clone)]
 pub struct StreamOutput<T: Clone> {
@@ -79,41 +39,23 @@ impl StreamOutput<Vec<u8>> {
 #[derive(Clone, Debug)]
 pub struct ExecToolCallOutput {
     pub exit_code: i32,
-    pub outcome: ExecOutcome,
-    pub termination_signal: Option<i32>,
-    pub pipeline_stage_exit_codes: Option<Vec<i32>>,
     pub stdout: StreamOutput<String>,
     pub stderr: StreamOutput<String>,
     pub aggregated_output: StreamOutput<String>,
     pub duration: Duration,
+    pub timed_out: bool,
 }
 
 impl Default for ExecToolCallOutput {
     fn default() -> Self {
         Self {
             exit_code: 0,
-            outcome: ExecOutcome::Exited,
-            termination_signal: None,
-            pipeline_stage_exit_codes: None,
             stdout: StreamOutput::new(String::new()),
             stderr: StreamOutput::new(String::new()),
             aggregated_output: StreamOutput::new(String::new()),
             duration: Duration::ZERO,
+            timed_out: false,
         }
-    }
-}
-
-impl ExecToolCallOutput {
-    pub fn shell_exit_code(&self) -> Option<i32> {
-        matches!(self.outcome, ExecOutcome::Exited).then_some(self.exit_code)
-    }
-
-    pub fn is_success(&self) -> bool {
-        self.shell_exit_code() == Some(0)
-    }
-
-    pub fn has_consistent_termination_facts(&self) -> bool {
-        matches!(self.outcome, ExecOutcome::Signaled) == self.termination_signal.is_some()
     }
 }
 

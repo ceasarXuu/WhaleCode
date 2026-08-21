@@ -13,6 +13,7 @@ use super::CompactionId;
 use super::CompactionRequestId;
 use super::ConversationItemId;
 use super::EdgeId;
+use super::McpCallId;
 use super::ModelVisibleCallId;
 use super::TerminalId;
 use super::TerminalOperationId;
@@ -113,6 +114,8 @@ pub struct CompactionRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolCall {
     pub tool_call_id: ToolCallId,
+    /// Globally unique MCP execution ID, when this tool reached an MCP backend.
+    pub mcp_call_id: Option<McpCallId>,
     /// Model-visible protocol call ID, if the model directly requested this tool.
     pub model_visible_call_id: Option<ModelVisibleCallId>,
     /// Code-mode runtime's internal tool invocation ID, if this call came from JS.
@@ -137,9 +140,8 @@ pub struct ToolCall {
     pub raw_invocation_payload_id: Option<RawPayloadId>,
     /// Result returned to the immediate requester.
     ///
-    /// For direct tools this is the output item returned to the model; for
-    /// TaskSpace and code-mode nested tools this is the value returned to their
-    /// immediate Runtime caller.
+    /// For direct tools this is the tool output item returned to the model; for
+    /// code-mode nested tools this is the value returned to JavaScript.
     pub raw_result_payload_id: Option<RawPayloadId>,
     /// Runtime/protocol payloads observed while executing the tool.
     ///
@@ -154,7 +156,7 @@ pub struct ToolCall {
 #[serde(rename_all = "snake_case", tag = "type")]
 pub enum ToolCallRequester {
     Model,
-    /// A model-authored TaskSpace Exec batch requested this nested Tool.
+    /// A model-authored TaskSpace Exec batch requested this nested tool.
     TaskSpaceExec {
         outer_call_id: ModelVisibleCallId,
         call_index: usize,

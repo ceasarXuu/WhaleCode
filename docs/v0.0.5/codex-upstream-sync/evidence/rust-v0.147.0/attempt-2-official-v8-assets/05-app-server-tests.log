@@ -1,0 +1,1403 @@
+command: cargo nextest run --no-fail-fast -p codex-app-server
+cwd: codex-rs
+environment: {"INSTA_UPDATE": "no", "NEXTEST_PROFILE": "local", "RUST_MIN_STACK": "8388608"}
+proxy_environment: scrubbed
+exit_code: 100
+
+   Compiling rustix v1.1.4
+   Compiling tracing-serde v0.2.0
+   Compiling quickcheck v1.1.0
+   Compiling similar v2.7.0
+   Compiling rmcp v3.0.0
+   Compiling codex-backend-openapi-models v0.147.0 (<candidate>/codex-rs/codex-backend-openapi-models)
+   Compiling is_ci v1.2.0
+   Compiling is-terminal v0.4.17
+   Compiling codex-uds v0.147.0 (<candidate>/codex-rs/uds)
+   Compiling tracing-subscriber v0.3.22
+   Compiling codex-utils-json-to-toml v0.147.0 (<candidate>/codex-rs/utils/json-to-toml)
+   Compiling supports-color v3.0.2
+   Compiling predicates v3.1.3
+   Compiling supports-color v2.1.0
+   Compiling codex-file-watcher v0.147.0 (<candidate>/codex-rs/file-watcher)
+   Compiling owo-colors v4.3.0
+   Compiling assert_cmd v2.1.2
+   Compiling sorted_vector_map v0.2.1
+   Compiling codex-utils-cargo-bin v0.147.0 (<candidate>/codex-rs/utils/cargo-bin)
+   Compiling pagable v0.4.1
+   Compiling tracing-opentelemetry v0.32.1
+   Compiling opentelemetry-appender-tracing v0.31.1
+   Compiling tracing-appender v0.2.4
+   Compiling starlark_map v0.14.2
+   Compiling codex-http-client v0.147.0 (<candidate>/codex-rs/http-client)
+   Compiling starlark_syntax v0.14.2
+   Compiling codex-websocket-client v0.147.0 (<candidate>/codex-rs/websocket-client)
+   Compiling codex-client v0.147.0 (<candidate>/codex-rs/codex-client)
+   Compiling tempfile v3.27.0
+   Compiling terminal_size v0.4.3
+   Compiling fd-lock v4.0.4
+   Compiling gethostname v1.1.0
+   Compiling which v8.0.0
+   Compiling polling v3.11.0
+   Compiling clap_builder v4.5.58
+   Compiling rustyline v14.0.0
+   Compiling async-io v2.6.0
+   Compiling gix-tempfile v21.0.2
+   Compiling gix-odb v0.78.0
+   Compiling codex-utils-path v0.147.0 (<candidate>/codex-rs/utils/path-utils)
+   Compiling gix-lock v21.0.2
+   Compiling zbus v4.4.0
+   Compiling gix-ref v0.61.0
+   Compiling gix-shallow v0.10.0
+   Compiling gix-protocol v0.59.0
+   Compiling gix-config v0.54.0
+   Compiling gix-discover v0.49.0
+   Compiling starlark v0.14.2
+   Compiling clap v4.5.58
+   Compiling codex-network-proxy v0.147.0 (<candidate>/codex-rs/network-proxy)
+   Compiling codex-file-search v0.147.0 (<candidate>/codex-rs/file-search)
+   Compiling gix v0.81.0
+   Compiling secret-service v4.0.0
+   Compiling keyring v3.6.3
+   Compiling codex-keyring-store v0.147.0 (<candidate>/codex-rs/keyring-store)
+   Compiling codex-execpolicy v0.147.0 (<candidate>/codex-rs/execpolicy)
+   Compiling codex-protocol v0.147.0 (<candidate>/codex-rs/protocol)
+   Compiling codex-api v0.147.0 (<candidate>/codex-rs/codex-api)
+   Compiling codex-file-system v0.147.0 (<candidate>/codex-rs/file-system)
+   Compiling codex-shell-command v0.147.0 (<candidate>/codex-rs/shell-command)
+   Compiling codex-agent-identity v0.147.0 (<candidate>/codex-rs/agent-identity)
+   Compiling codex-utils-output-truncation v0.147.0 (<candidate>/codex-rs/utils/output-truncation)
+   Compiling codex-code-mode-protocol v0.147.0 (<candidate>/codex-rs/code-mode-protocol)
+   Compiling codex-state v0.147.0 (<candidate>/codex-rs/state)
+   Compiling codex-context-fragments v0.147.0 (<candidate>/codex-rs/context-fragments)
+   Compiling codex-shell-escalation v0.147.0 (<candidate>/codex-rs/shell-escalation)
+   Compiling codex-utils-audio v0.147.0 (<candidate>/codex-rs/utils/audio)
+   Compiling codex-git-utils v0.147.0 (<candidate>/codex-rs/git-utils)
+   Compiling codex-exec-server-protocol v0.147.0 (<candidate>/codex-rs/exec-server-protocol)
+   Compiling codex-skills v0.147.0 (<candidate>/codex-rs/skills)
+   Compiling codex-memories-read v0.147.0 (<candidate>/codex-rs/memories/read)
+   Compiling codex-utils-cli v0.147.0 (<candidate>/codex-rs/utils/cli)
+   Compiling codex-code-mode v0.147.0 (<candidate>/codex-rs/code-mode)
+   Compiling codex-secrets v0.147.0 (<candidate>/codex-rs/secrets)
+   Compiling codex-prompts v0.147.0 (<candidate>/codex-rs/prompts)
+   Compiling codex-app-server-protocol v0.147.0 (<candidate>/codex-rs/app-server-protocol)
+   Compiling codex-agent-graph-store v0.147.0 (<candidate>/codex-rs/agent-graph-store)
+   Compiling codex-rollout-trace v0.147.0 (<candidate>/codex-rs/rollout-trace)
+   Compiling codex-otel v0.147.0 (<candidate>/codex-rs/otel)
+   Compiling codex-model-provider-info v0.147.0 (<candidate>/codex-rs/model-provider-info)
+   Compiling codex-response-debug-context v0.147.0 (<candidate>/codex-rs/response-debug-context)
+   Compiling codex-features v0.147.0 (<candidate>/codex-rs/features)
+   Compiling codex-windows-sandbox v0.147.0 (<candidate>/codex-rs/windows-sandbox-rs)
+   Compiling codex-rollout v0.147.0 (<candidate>/codex-rs/rollout)
+   Compiling codex-sandboxing v0.147.0 (<candidate>/codex-rs/sandboxing)
+   Compiling codex-exec-server v0.147.0 (<candidate>/codex-rs/exec-server)
+   Compiling codex-linux-sandbox v0.147.0 (<candidate>/codex-rs/linux-sandbox)
+   Compiling codex-config v0.147.0 (<candidate>/codex-rs/config)
+   Compiling codex-utils-plugins v0.147.0 (<candidate>/codex-rs/utils/plugins)
+   Compiling codex-apply-patch v0.147.0 (<candidate>/codex-rs/apply-patch)
+   Compiling codex-login v0.147.0 (<candidate>/codex-rs/login)
+   Compiling codex-rmcp-client v0.147.0 (<candidate>/codex-rs/rmcp-client)
+   Compiling codex-plugin v0.147.0 (<candidate>/codex-rs/plugin)
+   Compiling codex-arg0 v0.147.0 (<candidate>/codex-rs/arg0)
+   Compiling codex-hooks v0.147.0 (<candidate>/codex-rs/hooks)
+   Compiling codex-models-manager v0.147.0 (<candidate>/codex-rs/models-manager)
+   Compiling codex-feedback v0.147.0 (<candidate>/codex-rs/feedback)
+   Compiling codex-connectors v0.147.0 (<candidate>/codex-rs/connectors)
+   Compiling codex-tools v0.147.0 (<candidate>/codex-rs/tools)
+   Compiling codex-model-provider v0.147.0 (<candidate>/codex-rs/model-provider)
+   Compiling codex-mcp v0.147.0 (<candidate>/codex-rs/codex-mcp)
+   Compiling codex-backend-client v0.147.0 (<candidate>/codex-rs/backend-client)
+   Compiling codex-analytics v0.147.0 (<candidate>/codex-rs/analytics)
+   Compiling codex-thread-store v0.147.0 (<candidate>/codex-rs/thread-store)
+   Compiling codex-extension-api v0.147.0 (<candidate>/codex-rs/ext/extension-api)
+   Compiling codex-home v0.147.0 (<candidate>/codex-rs/codex-home)
+   Compiling codex-git-attribution v0.147.0 (<candidate>/codex-rs/ext/git-attribution)
+   Compiling codex-core-skills v0.147.0 (<candidate>/codex-rs/core-skills)
+   Compiling codex-core-plugins v0.147.0 (<candidate>/codex-rs/core-plugins)
+   Compiling codex-skills-extension v0.147.0 (<candidate>/codex-rs/ext/skills)
+   Compiling codex-core v0.147.0 (<candidate>/codex-rs/core)
+   Compiling codex-connectors-extension v0.147.0 (<candidate>/codex-rs/ext/connectors)
+   Compiling codex-memories-write v0.147.0 (<candidate>/codex-rs/memories/write)
+   Compiling codex-image-generation-extension v0.147.0 (<candidate>/codex-rs/ext/image-generation)
+   Compiling codex-cloud-config v0.147.0 (<candidate>/codex-rs/cloud-config)
+   Compiling codex-app-server-transport v0.147.0 (<candidate>/codex-rs/app-server-transport)
+   Compiling codex-memories-extension v0.147.0 (<candidate>/codex-rs/ext/memories)
+   Compiling codex-goal-extension v0.147.0 (<candidate>/codex-rs/ext/goal)
+   Compiling codex-chatgpt v0.147.0 (<candidate>/codex-rs/chatgpt)
+   Compiling codex-web-search-extension v0.147.0 (<candidate>/codex-rs/ext/web-search)
+   Compiling codex-mcp-extension v0.147.0 (<candidate>/codex-rs/ext/mcp)
+   Compiling codex-guardian v0.147.0 (<candidate>/codex-rs/ext/guardian)
+   Compiling codex-agent-extension v0.147.0 (<candidate>/codex-rs/ext/agent)
+   Compiling core_test_support v0.147.0 (<candidate>/codex-rs/core/tests/common)
+   Compiling codex-external-agent-migration v0.147.0 (<candidate>/codex-rs/external-agent-migration)
+   Compiling app_test_support v0.147.0 (<candidate>/codex-rs/app-server/tests/common)
+   Compiling codex-app-server v0.147.0 (<candidate>/codex-rs/app-server)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 49s
+────────────
+ Nextest run ID 4b78b961-1b28-4113-aba4-738be779c8f4 with nextest profile: local
+    Starting 1119 tests across 6 binaries (1 test skipped)
+        PASS [   0.012s] (   1/1119) codex-app-server bespoke_event_handling::tests::command_execution_started_helper_emits_once
+        PASS [   0.012s] (   2/1119) codex-app-server bespoke_event_handling::tests::guardian_assessment_started_uses_event_turn_id_fallback
+        PASS [   0.015s] (   3/1119) codex-app-server attestation::tests::app_server_attestation_header_value_wraps_opaque_client_payloads
+        PASS [   0.015s] (   4/1119) codex-app-server attestation::tests::app_server_attestation_header_value_reports_app_server_failures
+        PASS [   0.015s] (   5/1119) codex-app-server bespoke_event_handling::tests::complete_command_execution_item_emits_declined_once_for_pending_command
+        PASS [   0.017s] (   6/1119) codex-app-server bespoke_event_handling::tests::mcp_server_elicitation_turn_transition_error_maps_to_cancel
+        PASS [   0.017s] (   7/1119) codex-app-server bespoke_event_handling::tests::file_change_accept_for_session_maps_to_approved_for_session
+        PASS [   0.022s] (   8/1119) codex-app-server bespoke_event_handling::tests::request_permissions_response_rejects_child_grant_outside_requested_cwd_scope
+        PASS [   0.015s] (   9/1119) codex-app-server bespoke_event_handling::tests::test_handle_error_records_message
+        PASS [   0.029s] (  10/1119) codex-app-server bespoke_event_handling::tests::request_permissions_response_preserves_session_scope
+        PASS [   0.014s] (  11/1119) codex-app-server bespoke_event_handling::tests::test_handle_token_count_event_without_usage_info
+        PASS [   0.029s] (  12/1119) codex-app-server bespoke_event_handling::tests::request_permissions_response_accepts_explicit_child_grant_for_requested_cwd_scope
+        PASS [   0.018s] (  13/1119) codex-app-server bespoke_event_handling::tests::rollback_response_rebuilds_pathless_thread_from_stored_history
+        PASS [   0.035s] (  14/1119) codex-app-server bespoke_event_handling::tests::request_permissions_response_rejects_session_scoped_strict_auto_review
+        PASS [   0.035s] (  15/1119) codex-app-server bespoke_event_handling::tests::request_permissions_response_ignores_broader_cwd_grant_for_requested_child_path
+        PASS [   0.035s] (  16/1119) codex-app-server bespoke_event_handling::tests::guardian_assessment_completed_emits_review_payload
+        PASS [   0.021s] (  17/1119) codex-app-server bespoke_event_handling::tests::guardian_assessment_aborted_emits_completed_review_payload
+        PASS [   0.021s] (  18/1119) codex-app-server bespoke_event_handling::tests::request_permissions_response_preserves_turn_scoped_strict_auto_review
+        PASS [   0.020s] (  19/1119) codex-app-server bespoke_event_handling::tests::test_handle_turn_complete_emits_completed_without_error
+        PASS [   0.017s] (  20/1119) codex-app-server bespoke_event_handling::tests::test_handle_turn_complete_emits_error_multiple_turns
+        PASS [   0.021s] (  21/1119) codex-app-server bespoke_event_handling::tests::test_handle_token_count_event_emits_usage_and_rate_limits
+        PASS [   0.038s] (  22/1119) codex-app-server bespoke_event_handling::tests::request_permissions_response_accepts_partial_network_and_file_system_grants
+        PASS [   0.025s] (  23/1119) codex-app-server bespoke_event_handling::tests::request_permissions_turn_transition_error_is_ignored
+        PASS [   0.020s] (  24/1119) codex-app-server bespoke_event_handling::tests::test_handle_turn_diff_emits_v2_notification
+        PASS [   0.014s] (  25/1119) codex-app-server bespoke_event_handling::tests::test_handle_turn_plan_update_emits_notification_for_v2
+        PASS [   0.016s] (  26/1119) codex-app-server bespoke_event_handling::tests::test_handle_turn_interrupted_emits_interrupted_without_error
+        PASS [   0.019s] (  27/1119) codex-app-server code_mode_host::tests::explicit_websocket_host_selects_remote_transport
+        PASS [   0.020s] (  28/1119) codex-app-server code_mode_host::tests::omitted_websocket_host_selects_local_transport
+        PASS [   0.014s] (  29/1119) codex-app-server code_mode_host::tests::websocket_host_accepts_local_and_secure_endpoints
+        PASS [   0.014s] (  30/1119) codex-app-server command_exec::tests::windows_sandbox_process_ids_reject_terminate_requests
+        PASS [   0.014s] (  31/1119) codex-app-server command_exec::tests::windows_sandbox_streaming_exec_is_rejected
+        PASS [   0.029s] (  32/1119) codex-app-server bespoke_event_handling::tests::test_handle_turn_complete_emits_failed_with_error
+        PASS [   0.016s] (  33/1119) codex-app-server command_exec::tests::dropped_control_request_is_reported_as_not_running
+        PASS [   0.019s] (  34/1119) codex-app-server command_exec::tests::windows_sandbox_process_ids_reject_write_requests
+        PASS [   0.022s] (  35/1119) codex-app-server command_exec::tests::windows_sandbox_non_streaming_exec_uses_execution_path
+        PASS [   0.022s] (  36/1119) codex-app-server code_mode_host::tests::websocket_host_rejects_invalid_endpoints
+        PASS [   0.026s] (  37/1119) codex-app-server config_manager_service::tests::batch_write_rejects_legacy_profile_selector
+        PASS [   0.022s] (  38/1119) codex-app-server config_manager_service::tests::clear_missing_nested_config_is_noop
+        PASS [   0.031s] (  39/1119) codex-app-server command_exec::tests::timeout_or_cancellation_reports_cancellation_without_timeout_exit_code
+        PASS [   0.019s] (  40/1119) codex-app-server config_manager_service::tests::clear_user_value_if_matches_preserves_non_matching_value
+        PASS [   0.022s] (  41/1119) codex-app-server config_manager_service::tests::clear_user_value_if_matches_clears_matching_value
+        PASS [   0.019s] (  42/1119) codex-app-server config_manager_service::tests::invalid_user_value_rejected_even_if_overridden_by_managed
+        PASS [   0.026s] (  43/1119) codex-app-server config_manager_service::tests::clear_shell_environment_filter_ignores_ascii_case
+        PASS [   0.026s] (  44/1119) codex-app-server config_manager_service::tests::process_routing_does_not_enter_config_layers
+        PASS [   0.029s] (  45/1119) codex-app-server config_manager_service::tests::managed_auth_policy_survives_unusable_requirements_file_changes
+        PASS [   0.030s] (  46/1119) codex-app-server config_manager_service::tests::load_default_config_preserves_managed_requirements_and_selected_user_config_path
+        PASS [   0.019s] (  47/1119) codex-app-server config_manager_service::tests::read_materializes_default_allow_login_shell
+        PASS [   0.021s] (  48/1119) codex-app-server config_manager_service::tests::read_includes_origins_and_layers
+        PASS [   0.016s] (  49/1119) codex-app-server config_manager_service::tests::shell_environment_upsert_rejects_case_variant_filters_in_one_edit
+        PASS [   0.017s] (  50/1119) codex-app-server config_manager_service::tests::read_reports_managed_overrides_user_and_session_flags
+        PASS [   0.017s] (  51/1119) codex-app-server config_manager_service::tests::reserved_builtin_provider_override_rejected
+        PASS [   0.033s] (  52/1119) codex-app-server config_manager_service::tests::multi_agent_v2_boolean_layer_owns_enabled_origin_and_overrides
+        PASS [   0.024s] (  53/1119) codex-app-server config_manager_service::tests::toml_value_to_item_handles_nested_config_tables
+        PASS [   0.026s] (  54/1119) codex-app-server config_manager_service::tests::read_omits_origins_for_exact_managed_values
+        PASS [   0.018s] (  55/1119) codex-app-server config_manager_service::tests::version_conflict_rejected
+        PASS [   0.032s] (  56/1119) codex-app-server config_manager_service::tests::shell_environment_representation_switch_reports_managed_override
+        PASS [   0.017s] (  57/1119) codex-app-server config_manager_service::tests::write_value_defaults_to_selected_user_config_path
+        PASS [   0.017s] (  58/1119) codex-app-server config_manager_service::tests::write_value_rejects_exact_managed_requirement
+        PASS [   0.031s] (  59/1119) codex-app-server config_manager_service::tests::upsert_merges_tables_replace_overwrites
+        PASS [   0.032s] (  60/1119) codex-app-server config_manager_service::tests::upsert_shell_environment_filter_scalar_preserves_formatting_and_version
+        PASS [   0.020s] (  61/1119) codex-app-server config_manager_service::tests::write_value_defaults_to_user_config_path
+        PASS [   0.024s] (  62/1119) codex-app-server config_manager_service::tests::write_value_allows_unmanaged_sibling_of_exact_requirement
+        PASS [   0.023s] (  63/1119) codex-app-server config_manager_service::tests::write_value_rejects_feature_requirement_conflict
+        PASS [   0.024s] (  64/1119) codex-app-server config_manager_service::tests::write_value_preserves_comments_and_order
+        PASS [   0.027s] (  65/1119) codex-app-server config_manager_service::tests::upsert_shell_environment_scalar_preserves_unrelated_formatting
+        PASS [   0.023s] (  66/1119) codex-app-server config_manager_service::tests::write_value_rejects_legacy_profile_selector
+        PASS [   0.016s] (  67/1119) codex-app-server config_manager_service::tests::write_value_rejects_legacy_profile_table
+        PASS [   0.017s] (  68/1119) codex-app-server config_manager_service::tests::write_value_reports_managed_override
+        PASS [   0.013s] (  69/1119) codex-app-server connection_rpc_gate::tests::close_returns_while_started_run_remains_active
+        PASS [   0.017s] (  70/1119) codex-app-server connection_rpc_gate::tests::run_drops_future_without_polling_after_close
+        PASS [   0.019s] (  71/1119) codex-app-server config_manager_service::tests::write_value_reports_override
+        PASS [   0.019s] (  72/1119) codex-app-server connection_rpc_gate::tests::run_executes_while_open
+        PASS [   0.017s] (  73/1119) codex-app-server connection_rpc_gate::tests::run_is_counted_before_handler_body_continues
+        PASS [   0.025s] (  74/1119) codex-app-server config_manager_service::tests::write_value_supports_nested_app_paths
+        PASS [   0.014s] (  75/1119) codex-app-server effective_plugin_change::tests::hook_trusted_hash_edit_targets_only_escaped_leaf
+        PASS [   0.015s] (  76/1119) codex-app-server current_time::tests::current_time_connection_must_be_unambiguous
+        PASS [   0.015s] (  77/1119) codex-app-server extensions::tests::app_server_event_sink_drops_warning_with_invalid_thread_id
+        PASS [   0.027s] (  78/1119) codex-app-server config_manager_service::tests::write_value_supports_custom_mcp_server_default_tool_approval_mode
+        PASS [   0.014s] (  79/1119) codex-app-server extensions::tests::app_server_event_sink_targets_subscriber_without_listener
+        PASS [   0.020s] (  80/1119) codex-app-server effective_plugin_change::tests::only_workspace_listed_materializations_are_eligible
+        PASS [   0.020s] (  81/1119) codex-app-server extensions::tests::app_server_event_sink_targets_subscriber_after_listener_closes
+        PASS [   0.017s] (  82/1119) codex-app-server extensions::tests::app_server_event_sink_truncates_warning_before_listener_enqueue
+        PASS [   0.020s] (  83/1119) codex-app-server extensions::tests::app_server_event_sink_uses_listener_fifo_for_goal_updates_warnings_and_clears
+        PASS [   0.018s] (  84/1119) codex-app-server extensions::tests::app_server_event_sink_waits_for_subscriber_without_listener
+        PASS [   0.014s] (  85/1119) codex-app-server filters::tests::compute_source_filters_defaults_to_interactive_sources
+        PASS [   0.014s] (  86/1119) codex-app-server filters::tests::source_kind_matches_distinguishes_subagent_variants
+        PASS [   0.015s] (  87/1119) codex-app-server filters::tests::compute_source_filters_subagent_variant_requires_post_filtering
+        PASS [   0.015s] (  88/1119) codex-app-server filters::tests::compute_source_filters_interactive_only_skips_post_filtering
+        PASS [   0.017s] (  89/1119) codex-app-server filters::tests::compute_source_filters_empty_means_interactive_sources
+        PASS [   0.017s] (  90/1119) codex-app-server external_agent_migration::processor::tests::migration_items_that_update_runtime_sources_trigger_refresh
+        PASS [   0.016s] (  91/1119) codex-app-server fs_watch::tests::connection_closed_removes_only_that_connections_watches
+        PASS [   0.095s] (  92/1119) codex-app-server config_manager_service::tests::config_writes_apply_path_sensitive_merge_rules
+        PASS [   0.014s] (  93/1119) codex-app-server fs_watch::tests::watch_rejects_duplicate_id_for_the_same_connection
+        PASS [   0.015s] (  94/1119) codex-app-server fs_watch::tests::unwatch_is_scoped_to_the_connection_that_created_the_watch
+        PASS [   0.015s] (  95/1119) codex-app-server fs_watch::tests::watch_uses_client_id_and_tracks_the_owner_scoped_entry
+        PASS [   0.015s] (  96/1119) codex-app-server in_process::tests::guaranteed_delivery_helpers_cover_terminal_server_notifications
+        PASS [   0.015s] (  97/1119) codex-app-server in_process::tests::in_process_outbound_router_shutdown_does_not_wait_for_retained_sender
+        PASS [   0.014s] (  98/1119) codex-app-server in_process::tests::in_process_shutdown_waits_for_analytics_flush_budget
+        PASS [   0.012s] (  99/1119) codex-app-server outgoing_message::tests::cancel_requests_for_thread_cancels_all_thread_requests
+        PASS [   0.066s] ( 100/1119) codex-app-server connection_rpc_gate::tests::shutdown_drops_late_runs_while_waiting_for_inflight_work
+        PASS [   0.067s] ( 101/1119) codex-app-server connection_rpc_gate::tests::shutdown_waits_for_started_run_to_finish
+        PASS [   0.017s] ( 102/1119) codex-app-server outgoing_message::tests::connection_closed_clears_registered_request_contexts
+        PASS [   0.015s] ( 103/1119) codex-app-server outgoing_message::tests::notify_client_error_forwards_error_to_waiter
+        PASS [   0.012s] ( 104/1119) codex-app-server outgoing_message::tests::pending_requests_for_thread_returns_thread_requests_in_request_id_order
+        PASS [   0.010s] ( 105/1119) codex-app-server outgoing_message::tests::send_response_clears_registered_request_context
+        PASS [   0.012s] ( 106/1119) codex-app-server outgoing_message::tests::send_error_routes_to_target_connection
+        PASS [   0.010s] ( 107/1119) codex-app-server outgoing_message::tests::send_response_routes_to_target_connection
+        PASS [   0.010s] ( 108/1119) codex-app-server outgoing_message::tests::send_server_notification_to_connections_reuses_timestamp
+        PASS [   0.010s] ( 109/1119) codex-app-server outgoing_message::tests::send_server_notification_to_connection_and_wait_tracks_write_completion
+        PASS [   0.012s] ( 110/1119) codex-app-server outgoing_message::tests::server_request_response_from_result_decodes_typed_response
+        PASS [   0.057s] ( 111/1119) codex-app-server models_refresh_worker::tests::refreshes_immediately_periodically_and_stops_when_dropped
+        PASS [   0.012s] ( 112/1119) codex-app-server outgoing_message::tests::verify_account_login_completed_notification_serialization
+        PASS [   0.012s] ( 113/1119) codex-app-server outgoing_message::tests::verify_account_updated_notification_serialization
+        PASS [   0.014s] ( 114/1119) codex-app-server outgoing_message::tests::verify_account_rate_limits_notification_serialization
+        PASS [   0.012s] ( 115/1119) codex-app-server outgoing_message::tests::verify_config_warning_notification_serialization
+        PASS [   0.012s] ( 116/1119) codex-app-server outgoing_message::tests::verify_guardian_warning_notification_serialization
+        PASS [   0.013s] ( 117/1119) codex-app-server outgoing_message::tests::verify_model_verification_notification_serialization
+        PASS [   0.014s] ( 118/1119) codex-app-server outgoing_message::tests::verify_model_rerouted_notification_serialization
+        PASS [   0.012s] ( 119/1119) codex-app-server outgoing_message::tests::verify_server_notification_serialization
+        PASS [   0.011s] ( 120/1119) codex-app-server outgoing_message::tests::verify_turn_moderation_metadata_notification_serialization
+        PASS [   0.010s] ( 121/1119) codex-app-server request_processors::account_processor::tests::account_token_usage_response_maps_profile_stats_and_daily_buckets
+        PASS [   0.010s] ( 122/1119) codex-app-server request_processors::account_processor::tests::workspace_messages_response_maps_backend_messages
+        PASS [   0.014s] ( 123/1119) codex-app-server request_processors::account_processor::tests::workspace_messages_feature_disabled_only_for_not_found
+        PASS [   0.015s] ( 124/1119) codex-app-server request_processors::apps_processor::installed::tests::installed_duration_does_not_record_failed_requests
+        PASS [   0.011s] ( 125/1119) codex-app-server request_processors::config_processor::tests::requirements_api_includes_allow_appshots
+        PASS [   0.015s] ( 126/1119) codex-app-server request_processors::apps_processor::installed::tests::installed_duration_records_one_sample_per_success_with_legacy_comparison_dimensions
+        PASS [   0.012s] ( 127/1119) codex-app-server request_processors::config_processor::tests::requirements_api_includes_allow_managed_hooks_only
+        PASS [   0.010s] ( 128/1119) codex-app-server request_processors::config_processor::tests::requirements_api_includes_allowed_windows_sandbox_implementations
+        PASS [   0.010s] ( 129/1119) codex-app-server request_processors::config_processor::tests::requirements_api_includes_computer_use_requirements
+        PASS [   0.013s] ( 130/1119) codex-app-server request_processors::config_processor::tests::requirements_api_includes_allow_remote_control
+        PASS [   0.010s] ( 131/1119) codex-app-server request_processors::config_processor::tests::requirements_api_includes_exact_managed_values
+        PASS [   0.010s] ( 132/1119) codex-app-server request_processors::config_processor::tests::requirements_api_includes_new_thread_model_defaults
+        PASS [   0.011s] ( 133/1119) codex-app-server request_processors::config_processor::tests::requirements_api_includes_permission_default_and_allowlist
+        PASS [   0.011s] ( 134/1119) codex-app-server request_processors::feedback_doctor_report::tests::doctor_report_tags_summarize_status_counts
+        PASS [   0.018s] ( 135/1119) codex-app-server request_processors::feedback_processor::tests::feedback_hashes_the_actual_developer_prompt_from_session_metadata
+        PASS [   0.011s] ( 136/1119) codex-app-server request_processors::feedback_processor::tests::feedback_metadata_preserves_unspecified_effort_and_prompt_hash
+        PASS [   0.015s] ( 137/1119) codex-app-server request_processors::feedback_processor::tests::feedback_metadata_does_not_substitute_a_different_turn
+        PASS [   0.012s] ( 138/1119) codex-app-server request_processors::feedback_processor::tests::feedback_metadata_uses_the_latest_turn_when_no_turn_is_reported
+        PASS [   0.011s] ( 139/1119) codex-app-server request_processors::feedback_processor::tests::feedback_tags_drop_client_prompt_hash_when_rollout_has_no_hash
+        PASS [   0.012s] ( 140/1119) codex-app-server request_processors::feedback_processor::tests::feedback_metadata_uses_the_reported_turn
+        PASS [   0.012s] ( 141/1119) codex-app-server request_processors::feedback_processor::tests::feedback_tags_do_not_trust_the_prompt_version_from_the_reported_rollout
+        PASS [   0.011s] ( 142/1119) codex-app-server request_processors::feedback_processor::tests::feedback_tags_drop_unverified_client_prompt_tags
+        PASS [   0.010s] ( 143/1119) codex-app-server request_processors::feedback_processor::tests::feedback_tags_replace_client_prompt_hash_with_rollout_hash
+        PASS [   0.011s] ( 144/1119) codex-app-server request_processors::feedback_processor::tests::prompt_hash_normalizes_whitespace
+        PASS [   0.012s] ( 145/1119) codex-app-server request_processors::feedback_processor::tests::tool_cache_feedback_attachments_include_directory_cache_without_account_id
+        PASS [   0.280s] ( 146/1119) codex-app-server command_exec::tests::cancellation_expiration_keeps_process_alive_until_terminated
+        PASS [   0.171s] ( 147/1119) codex-app-server message_processor::message_processor_tracing_tests::thread_start_jsonrpc_span_exports_server_span_and_parents_children
+        PASS [   0.011s] ( 148/1119) codex-app-server request_processors::remote_control_processor::remote_control_processor_tests::client_management_maps_backend_failures_to_internal_error
+        PASS [   0.009s] ( 149/1119) codex-app-server request_processors::remote_control_processor::remote_control_processor_tests::pairing_start_maps_backend_failures_to_internal_error
+        PASS [   0.012s] ( 150/1119) codex-app-server request_processors::remote_control_processor::remote_control_processor_tests::client_management_maps_user_actionable_errors_to_invalid_request
+        PASS [   0.011s] ( 151/1119) codex-app-server request_processors::remote_control_processor::remote_control_processor_tests::pairing_start_maps_invalid_input_to_invalid_request
+        PASS [   0.011s] ( 152/1119) codex-app-server request_processors::remote_control_processor::remote_control_processor_tests::pairing_start_returns_internal_error_when_remote_control_is_unavailable
+        PASS [   0.010s] ( 153/1119) codex-app-server request_processors::remote_control_processor::remote_control_processor_tests::pairing_status_rejects_conflicting_pairing_codes
+        PASS [   0.012s] ( 154/1119) codex-app-server request_processors::remote_control_processor::remote_control_processor_tests::pairing_status_rejects_missing_pairing_codes
+        PASS [   0.009s] ( 155/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::background_terminal_pagination_tests::paginates_with_process_id_cursor
+        PASS [   0.011s] ( 156/1119) codex-app-server request_processors::remote_control_processor::remote_control_processor_tests::pairing_status_returns_internal_error_when_remote_control_is_unavailable
+        PASS [   0.011s] ( 157/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_list_cwd_filter_tests::normalize_thread_list_cwd_filter_preserves_absolute_paths
+        PASS [   0.010s] ( 158/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::adding_connection_to_thread_updates_has_connections_watcher
+        PASS [   0.014s] ( 159/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_list_cwd_filter_tests::normalize_thread_list_cwd_filter_resolves_relative_paths_against_server_cwd
+        PASS [   0.012s] ( 160/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::aborting_pending_request_clears_pending_state
+        PASS [   0.047s] ( 161/1119) codex-app-server request_processors::feedback_processor::tests::tool_cache_feedback_attachments_include_existing_active_cache_files
+        PASS [   0.016s] ( 162/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::closed_connection_cannot_be_reintroduced_by_auto_subscribe
+        PASS [   0.011s] ( 163/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::collect_resume_override_mismatches_includes_service_tier
+        PASS [   0.011s] ( 164/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::config_load_error_leaves_non_cloud_config_bundle_failures_unmarked
+        PASS [   0.009s] ( 165/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::config_load_error_marks_invalid_cloud_config_bundle_failures_without_relogin
+        PASS [   0.011s] ( 166/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::config_load_error_marks_non_auth_cloud_config_bundle_failures_without_relogin
+        PASS [   0.016s] ( 167/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::config_load_error_marks_cloud_config_bundle_failures_for_relogin
+        PASS [   0.012s] ( 168/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::first_attestation_capable_connection_for_thread_only_uses_thread_subscribers
+        PASS [   0.015s] ( 169/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::derive_config_from_params_uses_session_thread_config_model_provider
+        PASS [   0.011s] ( 170/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::merge_persisted_resume_metadata_preserves_explicit_overrides
+        PASS [   0.011s] ( 171/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::merge_persisted_resume_metadata_prefers_persisted_model_and_reasoning_effort
+        PASS [   0.011s] ( 172/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::merge_persisted_resume_metadata_skips_missing_values
+        PASS [   0.011s] ( 173/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::merge_persisted_resume_metadata_skips_persisted_values_when_model_overridden
+        PASS [   0.012s] ( 174/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::merge_persisted_resume_metadata_skips_persisted_values_when_provider_overridden
+        PASS [   0.010s] ( 175/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::merge_persisted_resume_metadata_skips_persisted_values_when_reasoning_effort_overridden
+        PASS [   0.010s] ( 176/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::read_summary_from_rollout_preserves_forked_from_id
+        PASS [   0.011s] ( 177/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::read_summary_from_rollout_preserves_agent_nickname
+        PASS [   0.012s] ( 178/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::read_summary_from_rollout_returns_empty_preview_when_no_user_message
+        PASS [   0.010s] ( 179/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::requested_permissions_trust_project_uses_permission_profile_intent
+        PASS [   0.010s] ( 180/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::summary_from_state_db_metadata_preserves_agent_nickname
+        PASS [   0.011s] ( 181/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::summary_from_stored_thread_preserves_millisecond_precision
+        PASS [   0.013s] ( 182/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::removing_thread_state_clears_listener_and_active_turn_history
+        PASS [   0.013s] ( 183/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::summary_from_thread_metadata_formats_protocol_timestamps_as_seconds
+        PASS [   0.010s] ( 184/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::validate_dynamic_tools_accepts_nullable_field_schema
+        PASS [   0.011s] ( 185/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::thread_turns_list_merges_in_progress_active_turn_before_agent_status_running
+        PASS [   0.011s] ( 186/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::validate_dynamic_tools_accepts_responses_compatible_identifiers
+        PASS [   0.012s] ( 187/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::validate_dynamic_tools_accepts_same_name_in_different_namespaces
+        PASS [   0.033s] ( 188/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::removing_auto_attached_connection_preserves_listener_for_other_connections
+        PASS [   0.010s] ( 189/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::validate_dynamic_tools_accepts_sanitizable_input_schema
+        PASS [   0.012s] ( 190/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::validate_dynamic_tools_rejects_duplicate_name_in_same_namespace
+        PASS [   0.011s] ( 191/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::validate_dynamic_tools_rejects_name_longer_than_responses_limit
+        PASS [   0.014s] ( 192/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::validate_dynamic_tools_rejects_empty_namespace
+        PASS [   0.011s] ( 193/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::validate_dynamic_tools_rejects_name_not_supported_by_responses
+        PASS [   0.010s] ( 194/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::validate_dynamic_tools_rejects_namespace_not_supported_by_responses
+        PASS [   0.011s] ( 195/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::validate_dynamic_tools_rejects_namespace_fields_over_limits
+        PASS [   0.011s] ( 196/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::validate_dynamic_tools_rejects_reserved_namespace
+        PASS [   0.011s] ( 197/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::validate_dynamic_tools_rejects_reserved_responses_namespace
+        PASS [   0.013s] ( 198/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::wait_for_thread_subscriber_unblocks_after_connection_attaches
+        PASS [   0.016s] ( 199/1119) codex-app-server request_processors::thread_processor::thread_processor_tests::thread_processor_behavior_tests::validate_dynamic_tools_rejects_unsupported_input_schema
+        PASS [   0.012s] ( 200/1119) codex-app-server request_processors::thread_resume_redaction::tests::redacts_mcp_error_message
+        PASS [   0.018s] ( 201/1119) codex-app-server request_processors::thread_resume_redaction::tests::redacts_mcp_success_result_and_removes_image_generation
+        PASS [   0.015s] ( 202/1119) codex-app-server request_processors::thread_summary::thread_summary_tests::extract_conversation_summary_prefers_plain_user_messages
+        PASS [   0.014s] ( 203/1119) codex-app-server request_processors::token_usage_replay::tests::replay_attribution_falls_back_to_rebuilt_turn_position
+        PASS [   0.013s] ( 204/1119) codex-app-server request_processors::token_usage_replay::tests::replay_attribution_uses_already_loaded_history
+        PASS [   0.016s] ( 205/1119) codex-app-server request_processors::token_usage_replay::tests::replay_attribution_rejects_suffix_generated_turn_ids
+        PASS [   0.012s] ( 206/1119) codex-app-server request_processors::token_usage_replay::tests::replay_attribution_uses_latest_token_count_and_ignores_tail_turn
+        PASS [   0.012s] ( 207/1119) codex-app-server request_processors::windows_sandbox_processor::tests::determine_windows_sandbox_readiness_reports_ready_for_unelevated_mode
+        PASS [   0.013s] ( 208/1119) codex-app-server request_processors::windows_sandbox_processor::tests::determine_windows_sandbox_readiness_reports_not_configured_when_disabled
+        PASS [   0.019s] ( 209/1119) codex-app-server request_processors::windows_sandbox_processor::tests::determine_windows_sandbox_readiness_reports_ready_for_complete_elevated_mode
+        PASS [   0.014s] ( 210/1119) codex-app-server request_serialization::tests::closed_gate_request_is_skipped_and_following_requests_continue
+        PASS [   0.018s] ( 211/1119) codex-app-server request_processors::windows_sandbox_processor::tests::resolve_allowed_windows_sandbox_setup_mode_rejects_disallowed_mode
+        PASS [   0.019s] ( 212/1119) codex-app-server request_processors::windows_sandbox_processor::tests::determine_windows_sandbox_readiness_reports_update_required_when_elevated_setup_is_stale
+        PASS [   0.020s] ( 213/1119) codex-app-server request_serialization::tests::different_keys_run_concurrently
+        PASS [   0.014s] ( 214/1119) codex-app-server request_serialization::tests::same_key_shared_reads_run_concurrently
+        PASS [   0.019s] ( 215/1119) codex-app-server request_serialization::tests::same_key_requests_run_fifo
+        PASS [   0.012s] ( 216/1119) codex-app-server server_request_error::tests::turn_transition_error_is_detected
+        PASS [   0.015s] ( 217/1119) codex-app-server server_request_error::tests::unrelated_error_is_not_detected
+        PASS [   0.344s] ( 218/1119) codex-app-server message_processor::message_processor_tracing_tests::turn_start_jsonrpc_span_parents_core_turn_spans
+        PASS [   0.018s] ( 219/1119) codex-app-server tests::debug_test_user_config_file_overrides_loader_path
+        PASS [   0.016s] ( 220/1119) codex-app-server tests::log_format_from_env_value_defaults_for_non_json_values
+        PASS [   0.369s] ( 221/1119) codex-app-server in_process::tests::in_process_start_clamps_zero_channel_capacity
+        PASS [   0.370s] ( 222/1119) codex-app-server in_process::tests::in_process_start_initializes_and_handles_typed_v2_request
+        PASS [   0.014s] ( 223/1119) codex-app-server thread_status::tests::has_running_turns_tracks_runtime_running_flag_only
+        PASS [   0.020s] ( 224/1119) codex-app-server tests::log_format_from_env_value_matches_json_values_case_insensitively
+        PASS [   0.015s] ( 225/1119) codex-app-server thread_state::tests::note_thread_settings_reports_only_effective_changes
+        PASS [   0.066s] ( 226/1119) codex-app-server request_serialization::tests::exclusive_write_waits_for_running_shared_reads
+        PASS [   0.017s] ( 227/1119) codex-app-server thread_status::tests::keeps_status_when_no_in_progress_turn
+        PASS [   0.015s] ( 228/1119) codex-app-server thread_status::tests::loaded_status_defaults_to_not_loaded_for_untracked_threads
+        PASS [   0.014s] ( 229/1119) codex-app-server thread_status::tests::resolves_in_progress_turn_to_active_status
+        PASS [   0.018s] ( 230/1119) codex-app-server thread_status::tests::shutdown_marks_thread_not_loaded
+        PASS [   0.018s] ( 231/1119) codex-app-server thread_status::tests::loaded_statuses_distinguish_shutdown_from_untracked_threads
+        PASS [   0.015s] ( 232/1119) codex-app-server thread_status::tests::status_change_emits_notification
+        PASS [   0.014s] ( 233/1119) codex-app-server thread_status::tests::status_updates_track_single_thread
+        PASS [   0.075s] ( 234/1119) codex-app-server request_serialization::tests::shutdown_of_live_gate_skips_already_queued_requests
+        PASS [   0.018s] ( 235/1119) codex-app-server thread_status::tests::system_error_sets_idle_flag_until_next_turn
+        PASS [   0.017s] ( 236/1119) codex-app-server thread_status::tests::tracks_non_interactive_thread_status
+        PASS [   0.017s] ( 237/1119) codex-app-server transport::tests::broadcast_does_not_block_on_slow_connection
+        PASS [   0.020s] ( 238/1119) codex-app-server transport::tests::experimental_notifications_are_dropped_without_capability
+        PASS [   0.026s] ( 239/1119) codex-app-server transport::tests::command_execution_request_approval_keeps_additional_permissions_with_capability
+        PASS [   0.021s] ( 240/1119) codex-app-server transport::tests::command_execution_request_approval_strips_additional_permissions_without_capability
+        PASS [   0.414s] ( 241/1119) codex-app-server mcp_refresh::tests::invalidation_does_not_reload_thread_config
+        PASS [   0.018s] ( 242/1119) codex-app-server transport::tests::experimental_notifications_are_preserved_with_capability
+        PASS [   0.021s] ( 243/1119) codex-app-server transport::tests::to_connection_notifications_are_dropped_for_opted_out_clients
+        PASS [   0.023s] ( 244/1119) codex-app-server transport::tests::to_connection_notification_respects_opt_out_filters
+        PASS [   0.005s] ( 245/1119) codex-app-server::bin/codex-app-server tests::app_server_accepts_cli_config_overrides
+        PASS [   0.021s] ( 246/1119) codex-app-server transport::tests::to_connection_notifications_are_preserved_for_non_opted_out_clients
+        PASS [   0.022s] ( 247/1119) codex-app-server transport::tests::to_connection_stdio_waits_instead_of_disconnecting_when_writer_queue_is_full
+        PASS [   0.005s] ( 248/1119) codex-app-server::bin/codex-app-server tests::app_server_accepts_process_scoped_code_mode_host
+        PASS [   0.006s] ( 249/1119) codex-app-server::bin/codex-app-server tests::app_server_rejects_invalid_code_mode_host
+        PASS [   0.460s] ( 250/1119) codex-app-server mcp_refresh::tests::mcp_config_reload_only_applies_mcp_inputs
+        PASS [   0.471s] ( 251/1119) codex-app-server mcp_refresh::tests::strict_refresh_installs_refreshed_thread_mcp_config
+        PASS [   0.473s] ( 252/1119) codex-app-server mcp_refresh::tests::best_effort_refresh_updates_healthy_threads
+        PASS [   0.477s] ( 253/1119) codex-app-server mcp_refresh::tests::strict_refresh_reports_thread_planning_failures
+        PASS [   0.168s] ( 254/1119) codex-app-server request_serialization::tests::later_shared_reads_do_not_jump_ahead_of_queued_write
+        PASS [   0.115s] ( 255/1119) codex-app-server thread_status::tests::silent_upsert_skips_initial_notification
+        PASS [   0.114s] ( 256/1119) codex-app-server thread_status::tests::status_watchers_receive_only_their_thread_updates
+        PASS [   0.521s] ( 257/1119) codex-app-server mcp_refresh::tests::refresh_config_preserves_thread_mcp_overrides
+        PASS [   0.283s] ( 258/1119) codex-app-server::all suite::auth::get_auth_status_no_auth
+        PASS [   0.798s] ( 259/1119) codex-app-server in_process::tests::in_process_start_uses_requested_session_source_for_thread_start
+        PASS [   0.437s] ( 260/1119) codex-app-server::all suite::auth::get_auth_status_omits_token_after_permanent_refresh_failure
+        PASS [   0.206s] ( 261/1119) codex-app-server::all suite::auth::get_auth_status_with_api_key
+        PASS [   0.552s] ( 262/1119) codex-app-server::all suite::auth::get_auth_status_omits_token_after_proactive_refresh_failure
+        PASS [   0.605s] ( 263/1119) codex-app-server::all suite::auth::get_auth_status_returns_token_after_proactive_refresh_recovery
+        PASS [   0.223s] ( 264/1119) codex-app-server::all suite::auth::get_auth_status_with_api_key_no_include_token
+        PASS [   0.248s] ( 265/1119) codex-app-server::all suite::auth::get_auth_status_with_api_key_refresh_requested
+        PASS [   0.245s] ( 266/1119) codex-app-server::all suite::auth::get_auth_status_with_api_key_when_auth_not_required
+        PASS [   0.235s] ( 267/1119) codex-app-server::all suite::auth::login_api_key_rejected_when_forced_chatgpt
+        PASS [   0.087s] ( 268/1119) codex-app-server::all suite::conversation_summary::get_conversation_summary_by_thread_id_reads_pathless_store_thread
+        PASS [   0.272s] ( 269/1119) codex-app-server::all suite::conversation_summary::get_conversation_summary_by_relative_rollout_path_resolves_from_codex_home
+        PASS [   0.295s] ( 270/1119) codex-app-server::all suite::conversation_summary::get_conversation_summary_by_thread_id_reads_rollout
+        PASS [   0.273s] ( 271/1119) codex-app-server::all suite::fuzzy_file_search::test_fuzzy_file_search_accepts_cancellation_token
+        PASS [   0.234s] ( 272/1119) codex-app-server::all suite::fuzzy_file_search::test_fuzzy_file_search_query_cleared_sends_blank_snapshot
+        PASS [   0.271s] ( 273/1119) codex-app-server::all suite::fuzzy_file_search::test_fuzzy_file_search_session_multiple_query_updates_work
+        PASS [   0.204s] ( 274/1119) codex-app-server::all suite::fuzzy_file_search::test_fuzzy_file_search_session_streams_updates
+        PASS [   0.179s] ( 275/1119) codex-app-server::all suite::fuzzy_file_search::test_fuzzy_file_search_session_update_after_stop_fails
+        PASS [   0.176s] ( 276/1119) codex-app-server::all suite::fuzzy_file_search::test_fuzzy_file_search_session_update_before_start_errors
+        PASS [   1.013s] ( 277/1119) codex-app-server::all suite::fuzzy_file_search::test_fuzzy_file_search_session_no_updates_after_complete_until_query_edited
+        PASS [   0.211s] ( 278/1119) codex-app-server::all suite::fuzzy_file_search::test_fuzzy_file_search_session_update_is_case_insensitive
+        PASS [   0.984s] ( 279/1119) codex-app-server::all suite::fuzzy_file_search::test_fuzzy_file_search_session_stops_sending_updates_after_stop
+        PASS [   0.271s] ( 280/1119) codex-app-server::all suite::fuzzy_file_search::test_fuzzy_file_search_session_update_works_without_waiting_for_start_response
+        PASS [   0.014s] ( 281/1119) codex-app-server::all suite::logging::app_server_emits_structured_tool_call_timing_event
+        PASS [   0.288s] ( 282/1119) codex-app-server::all suite::fuzzy_file_search::test_fuzzy_file_search_sorts_and_includes_indices
+        PASS [   0.258s] ( 283/1119) codex-app-server::all suite::fuzzy_file_search::test_fuzzy_file_search_two_sessions_are_independent
+        PASS [   0.028s] ( 284/1119) codex-app-server::all suite::strict_config::strict_config_rejects_unknown_config_fields_for_standalone_app_server
+        PASS [   0.054s] ( 285/1119) codex-app-server::all suite::strict_config::managed_auth_requirements_fail_closed_for_standalone_app_server
+        PASS [   0.293s] ( 286/1119) codex-app-server::all suite::logging::standalone_app_server_emits_json_info_events
+        PASS [   0.263s] ( 287/1119) codex-app-server::all suite::v2::account::account_reads_use_startup_config_when_config_reload_fails
+        PASS [   0.560s] ( 288/1119) codex-app-server::all suite::v2::account::account_read_refresh_token_is_noop_in_external_mode
+        PASS [   0.688s] ( 289/1119) codex-app-server::all suite::v2::account::external_auth_refresh_error_fails_turn
+        PASS [   0.683s] ( 290/1119) codex-app-server::all suite::v2::account::external_auth_refresh_invalid_access_token_fails_turn
+        PASS [   0.581s] ( 291/1119) codex-app-server::all suite::v2::account::external_auth_refresh_mismatched_workspace_fails_turn
+        PASS [   0.235s] ( 292/1119) codex-app-server::all suite::v2::account::get_account_no_auth
+        PASS [   0.243s] ( 293/1119) codex-app-server::all suite::v2::account::get_account_when_auth_not_required
+        PASS [   0.664s] ( 294/1119) codex-app-server::all suite::v2::account::external_auth_refreshes_on_unauthorized
+        PASS [   0.459s] ( 295/1119) codex-app-server::all suite::v2::account::get_account_omits_chatgpt_after_permanent_refresh_failure
+        PASS [   0.194s] ( 296/1119) codex-app-server::all suite::v2::account::get_account_with_api_key
+        PASS [   0.382s] ( 297/1119) codex-app-server::all suite::v2::account::get_account_with_aws_provider
+        PASS [   0.492s] ( 298/1119) codex-app-server::all suite::v2::account::get_account_with_business_prolite_returns_plan_type
+        PASS [   0.463s] ( 299/1119) codex-app-server::all suite::v2::account::get_account_with_chatgpt
+        PASS [   0.319s] ( 300/1119) codex-app-server::all suite::v2::account::get_account_with_chatgpt_missing_plan_claim_returns_unknown
+        PASS [   0.254s] ( 301/1119) codex-app-server::all suite::v2::account::get_account_with_managed_bedrock_provider
+        PASS [   0.373s] ( 302/1119) codex-app-server::all suite::v2::account::get_account_with_chatgpt_without_email
+        PASS [   0.252s] ( 303/1119) codex-app-server::all suite::v2::account::get_account_with_user_managed_bedrock_provider
+        PASS [   0.235s] ( 304/1119) codex-app-server::all suite::v2::account::login_account_amazon_bedrock_rejected_when_forced_chatgpt
+        PASS [   0.240s] ( 305/1119) codex-app-server::all suite::v2::account::login_account_amazon_bedrock_rejects_invalid_credentials_without_changes
+        PASS [   0.340s] ( 306/1119) codex-app-server::all suite::v2::account::login_account_amazon_bedrock_rejected_with_external_chatgpt_auth
+        PASS [   0.233s] ( 307/1119) codex-app-server::all suite::v2::account::login_account_api_key_rejected_when_forced_chatgpt
+        PASS [   0.253s] ( 308/1119) codex-app-server::all suite::v2::account::login_account_api_key_succeeds_and_notifies
+        PASS [   0.831s] ( 309/1119) codex-app-server::all suite::v2::account::login_account_chatgpt_device_code_failure_notifies_without_account_update
+        PASS [   0.853s] ( 310/1119) codex-app-server::all suite::v2::account::login_account_chatgpt_device_code_can_be_cancelled
+        PASS [   0.720s] ( 311/1119) codex-app-server::all suite::v2::account::login_account_chatgpt_device_code_returns_error_when_disabled
+        PASS [   0.254s] ( 312/1119) codex-app-server::all suite::v2::account::login_account_chatgpt_includes_forced_workspace_allowlist_query_param
+        PASS [   0.219s] ( 313/1119) codex-app-server::all suite::v2::account::login_account_chatgpt_includes_forced_workspace_query_param
+        PASS [   0.440s] ( 314/1119) codex-app-server::all suite::v2::account::login_account_chatgpt_device_code_succeeds_and_notifies
+        PASS [   0.220s] ( 315/1119) codex-app-server::all suite::v2::account::login_account_chatgpt_rejected_when_forced_api
+        PASS [   0.340s] ( 316/1119) codex-app-server::all suite::v2::account::login_account_chatgpt_redirects_to_hosted_success_page
+        PASS [   0.263s] ( 317/1119) codex-app-server::all suite::v2::account::login_account_chatgpt_uses_debug_oauth_overrides
+        PASS [   0.253s] ( 318/1119) codex-app-server::all suite::v2::account::login_amazon_bedrock_allows_bedrock_provider_override
+        PASS [   0.232s] ( 319/1119) codex-app-server::all suite::v2::account::login_amazon_bedrock_replaces_primary_auth_and_persists_provider
+        PASS [   0.714s] ( 320/1119) codex-app-server::all suite::v2::account::login_account_chatgpt_start_can_be_cancelled
+        PASS [   0.235s] ( 321/1119) codex-app-server::all suite::v2::account::login_managed_bedrock_updates_active_bedrock_account
+        PASS [   0.229s] ( 322/1119) codex-app-server::all suite::v2::account::logout_account_removes_auth_and_notifies
+        PASS [   0.221s] ( 323/1119) codex-app-server::all suite::v2::account::logout_account_succeeds_when_config_reload_fails
+        PASS [   0.226s] ( 324/1119) codex-app-server::all suite::v2::account::logout_aws_managed_bedrock_errors_without_changing_auth_or_config
+        PASS [   0.229s] ( 325/1119) codex-app-server::all suite::v2::account::logout_managed_bedrock_preserves_changed_provider_without_experimental_api
+        PASS [   0.225s] ( 326/1119) codex-app-server::all suite::v2::account::logout_managed_bedrock_restores_default_account
+        PASS [   0.260s] ( 327/1119) codex-app-server::all suite::v2::account::managed_bedrock_login_requires_experimental_api
+        PASS [   1.254s] ( 328/1119) codex-app-server::all suite::v2::account::login_amazon_bedrock_rejects_non_bedrock_provider_override_without_changes
+        PASS [   0.345s] ( 329/1119) codex-app-server::all suite::v2::account::set_auth_token_cancels_active_chatgpt_login
+        PASS [   0.014s] ( 330/1119) codex-app-server::all suite::v2::analytics::app_server_default_analytics_disabled_without_flag
+        PASS [   0.052s] ( 331/1119) codex-app-server::all suite::v2::analytics::app_server_default_analytics_enabled_with_flag
+        PASS [   0.258s] ( 332/1119) codex-app-server::all suite::v2::account::startup_enforces_local_auth_requirements_before_cloud_fetch
+        PASS [   0.367s] ( 333/1119) codex-app-server::all suite::v2::account::set_auth_token_updates_account_and_notifies
+        PASS [   0.504s] ( 334/1119) codex-app-server::all suite::v2::app_installed::installed_apps_failed_force_refresh_retains_previous_snapshot
+        PASS [   0.513s] ( 335/1119) codex-app-server::all suite::v2::app_installed::installed_apps_force_refresh_only_refreshes_tools_snapshot
+        PASS [   0.730s] ( 336/1119) codex-app-server::all suite::v2::app_installed::installed_apps_global_disable_retains_tool_derived_identities
+        PASS [   0.474s] ( 337/1119) codex-app-server::all suite::v2::app_installed::installed_apps_workspace_policy_failure_does_not_block_force_refresh
+        PASS [  10.130s] ( 338/1119) codex-app-server bespoke_event_handling::tests::interrupted_subagent_activity_removes_missing_thread_watch
+        PASS [  10.133s] ( 339/1119) codex-app-server bespoke_event_handling::tests::canonical_dynamic_tool_start_emits_item_and_requests_client
+        PASS [  10.125s] ( 340/1119) codex-app-server bespoke_event_handling::tests::turn_started_omits_active_snapshot_items
+        PASS [  10.141s] ( 341/1119) codex-app-server bespoke_event_handling::tests::guardian_command_execution_notifications_wrap_review_lifecycle
+        PASS [   0.741s] ( 342/1119) codex-app-server::all suite::v2::app_installed::installed_apps_workspace_policy_retains_identities_as_disabled
+        PASS [   0.898s] ( 343/1119) codex-app-server::all suite::v2::app_list::list_apps_does_not_emit_empty_interim_updates
+        PASS [   0.930s] ( 344/1119) codex-app-server::all suite::v2::app_list::list_apps_emits_updates_and_returns_after_both_lists_load
+        PASS [   1.055s] ( 345/1119) codex-app-server::all suite::v2::app_list::list_apps_force_refetch_preserves_previous_cache_on_failure
+        PASS [   1.805s] ( 346/1119) codex-app-server::all suite::v2::app_list::list_apps_force_refetch_patches_updates_from_cached_snapshots
+        PASS [   0.591s] ( 347/1119) codex-app-server::all suite::v2::app_list::list_apps_includes_plugin_apps_for_chatgpt_auth
+        PASS [   0.568s] ( 348/1119) codex-app-server::all suite::v2::app_list::list_apps_keeps_apps_with_app_only_tools_accessible
+        PASS [   0.573s] ( 349/1119) codex-app-server::all suite::v2::app_list::list_apps_reports_is_enabled_from_config
+        PASS [   0.227s] ( 350/1119) codex-app-server::all suite::v2::app_list::list_apps_returns_empty_when_connectors_disabled
+        PASS [   1.132s] ( 351/1119) codex-app-server::all suite::v2::app_list::list_apps_paginates_results
+        PASS [   0.377s] ( 352/1119) codex-app-server::all suite::v2::app_list::list_apps_returns_empty_when_workspace_codex_plugins_disabled
+        PASS [   0.229s] ( 353/1119) codex-app-server::all suite::v2::app_list::list_apps_returns_empty_with_api_key_auth
+        PASS [   0.610s] ( 354/1119) codex-app-server::all suite::v2::app_list::list_apps_uses_external_chatgpt_auth
+        PASS [   0.814s] ( 355/1119) codex-app-server::all suite::v2::app_list::list_apps_waits_for_accessible_data_before_emitting_directory_updates
+        PASS [   0.354s] ( 356/1119) codex-app-server::all suite::v2::app_read::app_read_adds_plugin_display_names_without_starting_mcp
+        PASS [  15.398s] ( 357/1119) codex-app-server::all suite::auth::personal_access_token_without_email_supports_auth_status_and_account_read
+        PASS [   0.484s] ( 358/1119) codex-app-server::all suite::v2::app_read::app_read_backend_failure_preserves_fresh_cached_records
+        PASS [   0.015s] ( 359/1119) codex-app-server::all suite::v2::app_read::app_read_deserializes_legacy_tool_summaries
+        PASS [   0.348s] ( 360/1119) codex-app-server::all suite::v2::app_read::app_read_deduplicates_orders_partial_misses_and_reuses_cached_metadata
+        PASS [   0.410s] ( 361/1119) codex-app-server::all suite::v2::app_read::app_read_refetches_metadata_only_cache_entries_when_tools_are_requested
+        PASS [   0.016s] ( 362/1119) codex-app-server::all suite::v2::attestation::attestation_generate_round_trip_adds_header_to_responses_websocket_handshake
+        PASS [   0.222s] ( 363/1119) codex-app-server::all suite::v2::app_read::app_read_rejects_more_than_one_hundred_input_ids
+        PASS [   0.016s] ( 364/1119) codex-app-server::all suite::v2::auto_env::auto_env_rejects_explicit_environment_config
+        PASS [   0.448s] ( 365/1119) codex-app-server::all suite::v2::auto_env::thread_start_with_auto_env_exposes_fixture_cwd_to_model
+        PASS [   0.014s] ( 366/1119) codex-app-server::all suite::v2::client_metadata::review_start_sends_parent_lineage_in_turn_metadata_for_thread_fork_v2
+        PASS [   0.016s] ( 367/1119) codex-app-server::all suite::v2::client_metadata::turn_start_forwards_client_metadata_to_responses_request_v2
+        PASS [   0.016s] ( 368/1119) codex-app-server::all suite::v2::client_metadata::turn_start_forwards_client_metadata_to_responses_websocket_request_body_v2
+        PASS [   0.011s] ( 369/1119) codex-app-server::all suite::v2::client_metadata::turn_start_sends_fork_lineage_in_turn_metadata_for_thread_fork_v2
+        PASS [   0.015s] ( 370/1119) codex-app-server::all suite::v2::client_metadata::turn_start_sends_nested_subagent_lineage_after_cold_thread_resume_v2
+        PASS [   0.012s] ( 371/1119) codex-app-server::all suite::v2::client_metadata::turn_steer_updates_client_metadata_on_follow_up_responses_request_v2
+        PASS [   0.836s] ( 372/1119) codex-app-server::all suite::v2::code_mode_host::app_server_shares_flag_selected_code_mode_host_across_threads
+        PASS [   0.237s] ( 373/1119) codex-app-server::all suite::v2::collaboration_mode_list::list_collaboration_modes_returns_presets
+        PASS [   0.304s] ( 374/1119) codex-app-server::all suite::v2::command_exec::command_exec_accepts_permission_profile
+        PASS [   0.300s] ( 375/1119) codex-app-server::all suite::v2::command_exec::command_exec_env_overrides_merge_with_server_environment_and_support_unset
+        PASS [   0.285s] ( 376/1119) codex-app-server::all suite::v2::command_exec::command_exec_non_streaming_respects_output_cap
+        PASS [   0.307s] ( 377/1119) codex-app-server::all suite::v2::command_exec::command_exec_permission_profile_does_not_reuse_default_network_proxy
+        PASS [  10.600s] ( 378/1119) codex-app-server::all suite::v2::app_installed::installed_apps_thread_id_uses_effective_thread_config
+        PASS [   0.312s] ( 379/1119) codex-app-server::all suite::v2::command_exec::command_exec_permission_profile_project_roots_use_command_cwd
+        PASS [   0.329s] ( 380/1119) codex-app-server::all suite::v2::command_exec::command_exec_permission_profile_starts_selected_network_proxy
+        PASS [   0.303s] ( 381/1119) codex-app-server::all suite::v2::command_exec::command_exec_pipe_streams_output_and_accepts_write
+        PASS [   0.229s] ( 382/1119) codex-app-server::all suite::v2::command_exec::command_exec_rejects_disable_output_cap_with_output_bytes_cap
+        PASS [   0.588s] ( 383/1119) codex-app-server::all suite::v2::command_exec::command_exec_process_ids_are_connection_scoped_and_disconnect_terminates_process
+        PASS [   0.233s] ( 384/1119) codex-app-server::all suite::v2::command_exec::command_exec_rejects_disable_timeout_with_timeout_ms
+        PASS [   0.245s] ( 385/1119) codex-app-server::all suite::v2::command_exec::command_exec_rejects_negative_timeout_ms
+        PASS [   0.244s] ( 386/1119) codex-app-server::all suite::v2::command_exec::command_exec_rejects_sandbox_policy_with_permission_profile
+        PASS [   0.240s] ( 387/1119) codex-app-server::all suite::v2::command_exec::command_exec_returns_error_when_local_environment_is_disabled
+        PASS [   0.316s] ( 388/1119) codex-app-server::all suite::v2::command_exec::command_exec_streaming_does_not_buffer_output
+        PASS [   0.298s] ( 389/1119) codex-app-server::all suite::v2::command_exec::command_exec_tty_implies_streaming_and_reports_pty_output
+        PASS [   0.322s] ( 390/1119) codex-app-server::all suite::v2::command_exec::command_exec_tty_supports_initial_size_and_resize
+        PASS [   0.296s] ( 391/1119) codex-app-server::all suite::v2::command_exec::command_exec_without_process_id_keeps_buffered_compatibility
+        PASS [   0.257s] ( 392/1119) codex-app-server::all suite::v2::command_exec::command_exec_without_process_id_rejects_streaming
+        PASS [   0.013s] ( 393/1119) codex-app-server::all suite::v2::compaction::auto_compaction_local_emits_started_and_completed_items
+        PASS [   0.016s] ( 394/1119) codex-app-server::all suite::v2::compaction::auto_compaction_remote_emits_started_and_completed_items
+        PASS [   0.013s] ( 395/1119) codex-app-server::all suite::v2::compaction::thread_compact_start_rejects_invalid_thread_id
+        PASS [   0.012s] ( 396/1119) codex-app-server::all suite::v2::compaction::thread_compact_start_rejects_unknown_thread_id
+        PASS [   0.014s] ( 397/1119) codex-app-server::all suite::v2::compaction::thread_compact_start_triggers_compaction_and_returns_empty_response
+        PASS [   0.257s] ( 398/1119) codex-app-server::all suite::v2::command_exec::command_exec_without_streams_can_be_terminated
+        PASS [   0.288s] ( 399/1119) codex-app-server::all suite::v2::config_rpc::config_batch_write_applies_multiple_edits
+        PASS [   0.284s] ( 400/1119) codex-app-server::all suite::v2::config_rpc::config_batch_write_rejects_legacy_profile_tables
+        PASS [   0.292s] ( 401/1119) codex-app-server::all suite::v2::config_rpc::config_batch_write_updates_multiple_desktop_settings
+        PASS [   0.274s] ( 402/1119) codex-app-server::all suite::v2::config_rpc::config_read_accepts_forced_chatgpt_workspace_id_list
+        PASS [   0.309s] ( 403/1119) codex-app-server::all suite::v2::config_rpc::config_read_after_pipelined_write_sees_written_value
+        PASS [   0.320s] ( 404/1119) codex-app-server::all suite::v2::config_rpc::config_read_accepts_legacy_forced_chatgpt_workspace_id
+        PASS [   0.306s] ( 405/1119) codex-app-server::all suite::v2::config_rpc::config_read_includes_apps
+        PASS [   0.306s] ( 406/1119) codex-app-server::all suite::v2::config_rpc::config_read_ignores_bool_web_search_tool_config
+        PASS [   0.299s] ( 407/1119) codex-app-server::all suite::v2::config_rpc::config_read_includes_nested_web_search_tool_config
+        PASS [   0.301s] ( 408/1119) codex-app-server::all suite::v2::config_rpc::config_read_includes_desktop_settings
+        PASS [   0.289s] ( 409/1119) codex-app-server::all suite::v2::config_rpc::config_read_includes_system_layer_and_overrides
+        PASS [   0.293s] ( 410/1119) codex-app-server::all suite::v2::config_rpc::config_read_includes_project_layers_for_cwd
+        PASS [   0.280s] ( 411/1119) codex-app-server::all suite::v2::config_rpc::config_read_includes_tools
+        PASS [   0.287s] ( 412/1119) codex-app-server::all suite::v2::config_rpc::config_read_returns_effective_and_layers
+        PASS [   0.298s] ( 413/1119) codex-app-server::all suite::v2::config_rpc::config_requirements_read_includes_browser_use_auto_review_setting
+        PASS [   0.293s] ( 414/1119) codex-app-server::all suite::v2::config_rpc::config_requirements_read_includes_in_app_updates_policy
+        PASS [   0.284s] ( 415/1119) codex-app-server::all suite::v2::config_rpc::config_requirements_read_includes_new_thread_model_defaults
+        PASS [   0.287s] ( 416/1119) codex-app-server::all suite::v2::config_rpc::config_requirements_read_includes_remote_control_and_managed_hooks
+        PASS [   0.280s] ( 417/1119) codex-app-server::all suite::v2::config_rpc::config_value_write_rejects_version_conflict
+        PASS [   0.297s] ( 418/1119) codex-app-server::all suite::v2::config_rpc::config_value_write_replaces_value
+        PASS [  10.736s] ( 419/1119) codex-app-server::all suite::v2::app_list::list_apps_uses_thread_feature_flag_when_thread_id_is_provided
+        PASS [   0.289s] ( 420/1119) codex-app-server::all suite::v2::config_rpc::config_value_write_updates_desktop_settings
+        PASS [   0.402s] ( 421/1119) codex-app-server::all suite::v2::connection_handling_websocket::websocket_disconnect_keeps_last_subscribed_thread_loaded_until_idle_timeout
+        PASS [   0.216s] ( 422/1119) codex-app-server::all suite::v2::connection_handling_websocket::websocket_transport_rejects_browser_origin_without_auth
+        PASS [   0.638s] ( 423/1119) codex-app-server::all suite::v2::connection_handling_websocket::thread_start_routes_project_exec_policy_warning_to_requester
+        PASS [   0.258s] ( 424/1119) codex-app-server::all suite::v2::connection_handling_websocket::websocket_transport_rejects_missing_and_invalid_capability_tokens
+        PASS [   0.234s] ( 425/1119) codex-app-server::all suite::v2::connection_handling_websocket::websocket_transport_rejects_short_signed_bearer_secret_configuration
+        PASS [   0.260s] ( 426/1119) codex-app-server::all suite::v2::connection_handling_websocket::websocket_transport_rejects_unauthenticated_non_loopback_startup
+        PASS [   0.307s] ( 427/1119) codex-app-server::all suite::v2::connection_handling_websocket::websocket_transport_serves_health_endpoints_on_same_listener
+        PASS [   0.238s] ( 428/1119) codex-app-server::all suite::v2::connection_handling_websocket::websocket_transport_verifies_signed_short_lived_bearer_tokens
+        PASS [   0.609s] ( 429/1119) codex-app-server::all suite::v2::connection_handling_websocket::websocket_transport_routes_per_connection_handshake_and_responses
+        PASS [   0.712s] ( 430/1119) codex-app-server::all suite::v2::connection_handling_websocket_unix::websocket_transport_second_ctrl_c_forces_exit_while_turn_running
+        PASS [   0.719s] ( 431/1119) codex-app-server::all suite::v2::connection_handling_websocket_unix::websocket_transport_second_sigterm_forces_exit_while_turn_running
+        PASS [  12.176s] ( 432/1119) codex-app-server::all suite::v2::auto_env::builder_interposes_fixed_delay_for_auto_env
+        PASS [   3.414s] ( 433/1119) codex-app-server::all suite::v2::connection_handling_websocket_unix::websocket_transport_ctrl_c_waits_for_running_turn_before_exit
+        PASS [   0.016s] ( 434/1119) codex-app-server::all suite::v2::current_time::current_time_read_round_trip_adds_reminder_to_model_input
+        PASS [   3.435s] ( 435/1119) codex-app-server::all suite::v2::connection_handling_websocket_unix::websocket_transport_repeated_sighup_keeps_waiting_for_running_turn
+        PASS [   0.482s] ( 436/1119) codex-app-server::all suite::v2::dynamic_tools::dynamic_tool_call_round_trip_sends_text_content_items_to_model
+        PASS [   1.198s] ( 437/1119) codex-app-server::all suite::v2::curated_mcp_sync::existing_thread_loads_api_curated_mcp_after_auth_switch_sync
+        PASS [   1.607s] ( 438/1119) codex-app-server::all suite::v2::dynamic_tools::dynamic_tool_call_round_trip_handles_content_items
+        PASS [   3.418s] ( 439/1119) codex-app-server::all suite::v2::connection_handling_websocket_unix::websocket_transport_sigterm_waits_for_running_turn_before_exit
+        PASS [   0.255s] ( 440/1119) codex-app-server::all suite::v2::dynamic_tools::thread_start_rejects_hidden_dynamic_tools_without_namespace
+        PASS [   0.442s] ( 441/1119) codex-app-server::all suite::v2::dynamic_tools::thread_start_normalizes_legacy_dynamic_tools_into_model_request
+        PASS [   1.576s] ( 442/1119) codex-app-server::all suite::v2::dynamic_tools::dynamic_tool_remote_audio_response_becomes_model_visible_error
+        PASS [   0.256s] ( 443/1119) codex-app-server::all suite::v2::dynamic_tools::thread_start_rejects_invalid_dynamic_tool_inputs
+        PASS [   1.585s] ( 444/1119) codex-app-server::all suite::v2::dynamic_tools::dynamic_tool_remote_image_response_becomes_model_visible_error
+        PASS [   0.342s] ( 445/1119) codex-app-server::all suite::v2::environment_info::environment_info_accepts_missing_cwd
+        PASS [   0.389s] ( 446/1119) codex-app-server::all suite::v2::environment_add::selected_environment_emits_connection_lifecycle_notifications
+        PASS [   0.290s] ( 447/1119) codex-app-server::all suite::v2::environment_info::environment_info_rejects_unknown_environment
+        PASS [   0.345s] ( 448/1119) codex-app-server::all suite::v2::environment_info::environment_info_reports_connection_failure
+        PASS [   0.327s] ( 449/1119) codex-app-server::all suite::v2::environment_info::environment_info_returns_remote_environment_info
+  TRY 1 FAIL [   0.020s] (─────────) codex-app-server::all suite::v2::executor_mcp::selected_executor_plugin_exposes_its_mcps_only_to_that_thread
+  stdout ───
+
+    running 1 test
+    test suite::v2::executor_mcp::selected_executor_plugin_exposes_its_mcps_only_to_that_thread ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::executor_mcp::selected_executor_plugin_exposes_its_mcps_only_to_that_thread
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 857 filtered out; finished in 0.01s
+
+  stderr ───
+    Error: could not locate binary "codex"; tried env vars ["CARGO_BIN_EXE_codex"]; assert_cmd fallback failed: Cause: Cargo command not found: <candidate>/codex-rs/target/debug/codex
+
+
+
+  TRY 2 FAIL [   0.021s] ( 450/1119) codex-app-server::all suite::v2::executor_mcp::selected_executor_plugin_exposes_its_mcps_only_to_that_thread
+  stdout ───
+
+    running 1 test
+    test suite::v2::executor_mcp::selected_executor_plugin_exposes_its_mcps_only_to_that_thread ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::executor_mcp::selected_executor_plugin_exposes_its_mcps_only_to_that_thread
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 857 filtered out; finished in 0.01s
+
+  stderr ───
+    Error: could not locate binary "codex"; tried env vars ["CARGO_BIN_EXE_codex"]; assert_cmd fallback failed: Cause: Cargo command not found: <candidate>/codex-rs/target/debug/codex
+
+
+
+        PASS [   0.284s] ( 451/1119) codex-app-server::all suite::v2::environment_status::environment_status_reports_connection_states_with_auto_env
+        PASS [   1.267s] ( 452/1119) codex-app-server::all suite::v2::environment_add::environment_add_applies_connect_timeout
+        PASS [   0.686s] ( 453/1119) codex-app-server::all suite::v2::executor_skills::explicit_executor_skill_can_read_referenced_file
+        PASS [   1.149s] ( 454/1119) codex-app-server::all suite::v2::executor_skills::restricted_executor_skill_can_read_permitted_reference
+        PASS [   1.151s] ( 455/1119) codex-app-server::all suite::v2::executor_skills::restricted_executor_skill_is_listed_only_when_permitted
+        PASS [   0.259s] ( 456/1119) codex-app-server::all suite::v2::experimental_api::mock_experimental_method_requires_experimental_api_capability
+        PASS [   0.255s] ( 457/1119) codex-app-server::all suite::v2::experimental_api::realtime_conversation_start_requires_experimental_api_capability
+        PASS [   0.898s] ( 458/1119) codex-app-server::all suite::v2::executor_skills::selected_executor_root_exposes_plugin_skill_and_forwards_budget_warning
+        PASS [   1.216s] ( 459/1119) codex-app-server::all suite::v2::executor_skills::restricted_executor_skill_rejects_reference_until_permission_approved
+        PASS [   0.271s] ( 460/1119) codex-app-server::all suite::v2::experimental_api::realtime_webrtc_start_requires_experimental_api_capability
+        PASS [   0.307s] ( 461/1119) codex-app-server::all suite::v2::experimental_api::thread_memory_mode_set_requires_experimental_api_capability
+        PASS [   0.327s] ( 462/1119) codex-app-server::all suite::v2::experimental_api::thread_settings_update_requires_experimental_api_capability
+        PASS [   0.325s] ( 463/1119) codex-app-server::all suite::v2::experimental_api::thread_start_granular_approval_policy_requires_experimental_api_capability
+        PASS [   0.309s] ( 464/1119) codex-app-server::all suite::v2::experimental_api::thread_start_mock_field_requires_experimental_api_capability
+        PASS [   0.369s] ( 465/1119) codex-app-server::all suite::v2::experimental_api::thread_start_without_dynamic_tools_allows_without_experimental_api_capability
+        PASS [   0.325s] ( 466/1119) codex-app-server::all suite::v2::experimental_feature_list::experimental_feature_enablement_set_allows_remote_control
+        PASS [   0.316s] ( 467/1119) codex-app-server::all suite::v2::experimental_feature_list::experimental_feature_enablement_set_applies_to_global_and_thread_config_reads
+        PASS [   0.309s] ( 468/1119) codex-app-server::all suite::v2::experimental_feature_list::experimental_feature_enablement_set_does_not_override_user_config
+        PASS [   0.308s] ( 469/1119) codex-app-server::all suite::v2::experimental_feature_list::experimental_feature_enablement_set_empty_map_is_no_op
+        PASS [   0.316s] ( 470/1119) codex-app-server::all suite::v2::experimental_feature_list::experimental_feature_enablement_set_ignores_invalid_features
+        PASS [   0.324s] ( 471/1119) codex-app-server::all suite::v2::experimental_feature_list::experimental_feature_enablement_set_only_updates_named_features
+        PASS [   0.446s] ( 472/1119) codex-app-server::all suite::v2::experimental_feature_list::experimental_feature_list_marks_apps_and_plugins_disabled_by_workspace_policy
+        PASS [   0.296s] ( 473/1119) codex-app-server::all suite::v2::experimental_feature_list::experimental_feature_list_rejects_unknown_thread_id
+        PASS [   0.310s] ( 474/1119) codex-app-server::all suite::v2::experimental_feature_list::experimental_feature_list_returns_feature_metadata_with_stage
+        PASS [   0.377s] ( 475/1119) codex-app-server::all suite::v2::experimental_feature_list::experimental_feature_list_resolves_thread_project_config
+        PASS [   0.301s] ( 476/1119) codex-app-server::all suite::v2::external_agent_config::external_agent_config_detect_accepts_migration_source_and_defaults_unknown_values
+        PASS [   0.323s] ( 477/1119) codex-app-server::all suite::v2::external_agent_config::external_agent_config_detects_and_imports_project_memory_files
+        PASS [   0.301s] ( 478/1119) codex-app-server::all suite::v2::external_agent_config::external_agent_config_detects_non_memory_items_when_config_reload_fails
+        PASS [   0.329s] ( 479/1119) codex-app-server::all suite::v2::external_agent_config::external_agent_config_import_accepts_detected_session_payload_after_restart
+        PASS [   0.583s] ( 480/1119) codex-app-server::all suite::v2::external_agent_config::external_agent_config_import_compacts_huge_session_before_first_follow_up
+        PASS [   0.555s] ( 481/1119) codex-app-server::all suite::v2::external_agent_config::external_agent_config_import_completed_tracks_analytics_event
+        PASS [   0.736s] ( 482/1119) codex-app-server::all suite::v2::external_agent_config::external_agent_config_import_does_not_initialize_required_mcp
+        PASS [   0.797s] ( 483/1119) codex-app-server::all suite::v2::external_agent_config::external_agent_config_import_creates_session_rollouts
+        PASS [   0.538s] ( 484/1119) codex-app-server::all suite::v2::external_agent_config::external_agent_config_import_reports_failed_sync_import_in_completion
+        PASS [   0.286s] ( 485/1119) codex-app-server::all suite::v2::external_agent_config::external_agent_config_import_sends_completion_notification_after_pending_plugins_finish
+        PASS [   0.837s] ( 486/1119) codex-app-server::all suite::v2::external_agent_config::external_agent_config_import_reinstalls_plugins_from_known_marketplaces
+        PASS [   0.289s] ( 487/1119) codex-app-server::all suite::v2::external_agent_config::external_agent_config_import_sends_completion_notification_for_sync_only_import
+        PASS [   0.532s] ( 488/1119) codex-app-server::all suite::v2::external_agent_config::external_agent_config_import_returns_before_background_session_import_finishes
+        PASS [   0.277s] ( 489/1119) codex-app-server::all suite::v2::external_agent_config::external_agent_config_import_skips_already_imported_session_versions
+        PASS [   0.303s] ( 490/1119) codex-app-server::all suite::v2::external_agent_config::external_agent_config_import_source_remains_attribution_only
+        PASS [   0.322s] ( 491/1119) codex-app-server::all suite::v2::external_agent_config::external_agent_config_migration_source_drives_detect_and_import
+        PASS [   0.315s] ( 492/1119) codex-app-server::all suite::v2::external_agent_config::external_agent_config_records_externally_completed_import_history
+        PASS [   0.347s] ( 493/1119) codex-app-server::all suite::v2::external_agent_config::external_agent_config_secondary_source_imports_session_and_plugin_end_to_end
+        PASS [   0.319s] ( 494/1119) codex-app-server::all suite::v2::external_agent_config::external_agent_memory_import_requires_feature_config
+        PASS [   0.348s] ( 495/1119) codex-app-server::all suite::v2::external_agent_import_sync::ambiguous_legacy_targets_are_deferred_without_checkpoint
+        PASS [   0.401s] ( 496/1119) codex-app-server::all suite::v2::external_agent_import_sync::active_target_is_deferred_without_checkpoint
+        PASS [   0.317s] ( 497/1119) codex-app-server::all suite::v2::external_agent_import_sync::changed_hash_with_equal_transcript_is_deferred_without_checkpoint
+        PASS [   0.341s] ( 498/1119) codex-app-server::all suite::v2::external_agent_import_sync::cold_exact_prefix_appends_suffix_to_same_task_and_checkpoints
+        PASS [   0.308s] ( 499/1119) codex-app-server::all suite::v2::fs::fs_copy_ignores_unknown_special_files_in_recursive_copy
+        PASS [   0.352s] ( 500/1119) codex-app-server::all suite::v2::external_agent_import_sync::concurrent_changed_sessions_checkpoint_without_lost_update
+        PASS [   0.290s] ( 501/1119) codex-app-server::all suite::v2::fs::fs_copy_preserves_symlinks_in_recursive_copy
+        PASS [   0.296s] ( 502/1119) codex-app-server::all suite::v2::fs::fs_copy_rejects_copying_directory_into_descendant
+        PASS [   0.746s] ( 503/1119) codex-app-server::all suite::v2::external_agent_import_sync::cold_diverged_target_is_deferred_without_checkpoint
+        PASS [   0.287s] ( 504/1119) codex-app-server::all suite::v2::fs::fs_copy_rejects_directory_without_recursive
+        PASS [   0.314s] ( 505/1119) codex-app-server::all suite::v2::fs::fs_copy_rejects_standalone_fifo_source
+        PASS [   0.305s] ( 506/1119) codex-app-server::all suite::v2::fs::fs_get_metadata_reports_symlink
+        PASS [   0.320s] ( 507/1119) codex-app-server::all suite::v2::fs::fs_get_metadata_returns_only_used_fields
+        PASS [   0.318s] ( 508/1119) codex-app-server::all suite::v2::fs::fs_methods_cover_current_fs_utils_surface
+        PASS [   0.316s] ( 509/1119) codex-app-server::all suite::v2::fs::fs_methods_reject_relative_paths
+        PASS [   0.310s] ( 510/1119) codex-app-server::all suite::v2::fs::fs_methods_return_error_when_local_environment_is_disabled
+        PASS [   0.506s] ( 511/1119) codex-app-server::all suite::v2::fs::fs_watch_allows_missing_file_targets
+        PASS [   0.288s] ( 512/1119) codex-app-server::all suite::v2::fs::fs_watch_rejects_relative_paths
+        PASS [   0.505s] ( 513/1119) codex-app-server::all suite::v2::fs::fs_watch_file_reports_atomic_replace_events
+        PASS [   0.279s] ( 514/1119) codex-app-server::all suite::v2::fs::fs_write_file_accepts_base64_bytes
+        PASS [   0.011s] ( 515/1119) codex-app-server::all suite::v2::git_attribution::cold_resume_replaces_legacy_attribution_without_duplication::commit_only
+        PASS [   0.012s] ( 516/1119) codex-app-server::all suite::v2::git_attribution::cold_resume_replaces_legacy_attribution_without_duplication::unlinked_pull_request
+        PASS [   0.010s] ( 517/1119) codex-app-server::all suite::v2::git_attribution::git_attribution_follows_authenticated_workspace_policy
+        PASS [   0.263s] ( 518/1119) codex-app-server::all suite::v2::fs::fs_write_file_rejects_invalid_base64
+        PASS [   0.337s] ( 519/1119) codex-app-server::all suite::v2::hooks_list::config_batch_write_toggles_user_hook
+        PASS [   0.241s] ( 520/1119) codex-app-server::all suite::v2::hooks_list::hooks_list_shows_discovered_hook
+        PASS [   0.665s] ( 521/1119) codex-app-server::all suite::v2::hooks_list::config_batch_write_disables_hook_for_loaded_session
+        PASS [   0.762s] ( 522/1119) codex-app-server::all suite::v2::hooks_list::config_batch_write_updates_hook_trust_for_loaded_session
+        PASS [   0.267s] ( 523/1119) codex-app-server::all suite::v2::hooks_list::hooks_list_shows_discovered_plugin_hook
+        PASS [   0.264s] ( 524/1119) codex-app-server::all suite::v2::hooks_list::hooks_list_shows_plugin_hook_load_warnings
+        PASS [   0.306s] ( 525/1119) codex-app-server::all suite::v2::hooks_list::hooks_list_uses_each_cwds_effective_feature_enablement
+        PASS [   0.324s] ( 526/1119) codex-app-server::all suite::v2::hooks_list::hooks_list_uses_root_repo_hooks_for_linked_worktrees
+        PASS [   0.390s] ( 527/1119) codex-app-server::all suite::v2::hooks_list::hooks_list_warms_plugin_capabilities_for_thread_start
+        PASS [   2.204s] ( 528/1119) codex-app-server::all suite::v2::fs::fs_watch_directory_reports_changed_child_paths_and_unwatch_stops_notifications
+        PASS [   0.627s] ( 529/1119) codex-app-server::all suite::v2::host_skills::host_skill_catalog_refreshes_once_when_skills_change
+        PASS [   0.956s] ( 530/1119) codex-app-server::all suite::v2::imagegen_extension::automatic_image_background_preserves_unknown_transparency
+        PASS [   0.996s] ( 531/1119) codex-app-server::all suite::v2::imagegen_extension::standalone_image_edit_uses_attached_model_visible_image
+        PASS [   0.944s] ( 532/1119) codex-app-server::all suite::v2::imagegen_extension::standalone_image_generation_failure_emits_terminal_item
+        PASS [   0.947s] ( 533/1119) codex-app-server::all suite::v2::imagegen_extension::standalone_image_generation_is_callable_from_code_mode_only
+        PASS [   0.797s] ( 534/1119) codex-app-server::all suite::v2::imagegen_extension::standalone_image_generation_is_exposed_in_code_mode_only
+        PASS [   0.234s] ( 535/1119) codex-app-server::all suite::v2::initialize::initialize_codex_backend_does_not_override_originator
+        PASS [   0.943s] ( 536/1119) codex-app-server::all suite::v2::imagegen_extension::standalone_image_generation_returns_saved_path_hint_to_model
+        PASS [   0.929s] ( 537/1119) codex-app-server::all suite::v2::imagegen_extension::transparent_image_edit_preserves_metadata_and_recent_pathless_image
+        PASS [   0.302s] ( 538/1119) codex-app-server::all suite::v2::initialize::initialize_probe_does_not_override_originator
+        PASS [   0.269s] ( 539/1119) codex-app-server::all suite::v2::initialize::initialize_rejects_invalid_client_name
+        PASS [   0.311s] ( 540/1119) codex-app-server::all suite::v2::initialize::initialize_respects_originator_override_env_var
+        PASS [   0.308s] ( 541/1119) codex-app-server::all suite::v2::initialize::initialize_uses_client_info_name_as_originator
+        PASS [   1.243s] ( 542/1119) codex-app-server::all suite::v2::imagegen_extension::transparent_image_preserves_output_metadata_and_persisted_history
+        PASS [   0.828s] ( 543/1119) codex-app-server::all suite::v2::initialize::initialize_opt_out_notification_methods_filters_notifications
+        PASS [   0.324s] ( 544/1119) codex-app-server::all suite::v2::marketplace_add::marketplace_add_local_directory_source
+        PASS [   0.311s] ( 545/1119) codex-app-server::all suite::v2::marketplace_remove::marketplace_remove_deletes_config_and_installed_root
+        PASS [   0.295s] ( 546/1119) codex-app-server::all suite::v2::marketplace_remove::marketplace_remove_rejects_unknown_marketplace
+        PASS [   0.497s] ( 547/1119) codex-app-server::all suite::v2::initialize::turn_start_notify_payload_includes_initialize_client_name
+        PASS [   0.326s] ( 548/1119) codex-app-server::all suite::v2::marketplace_upgrade::marketplace_upgrade_rejects_unknown_or_non_git_marketplace
+        PASS [   0.680s] ( 549/1119) codex-app-server::all suite::v2::marketplace_upgrade::marketplace_upgrade_named_marketplace_only
+        PASS [   0.705s] ( 550/1119) codex-app-server::all suite::v2::marketplace_upgrade::marketplace_upgrade_returns_empty_roots_when_already_up_to_date
+        PASS [   0.968s] ( 551/1119) codex-app-server::all suite::v2::marketplace_upgrade::marketplace_upgrade_all_configured_git_marketplaces
+        PASS [   0.091s] ( 552/1119) codex-app-server::all suite::v2::mcp_resource::mcp_resource_read_returns_error_for_unknown_thread
+        PASS [   0.785s] ( 553/1119) codex-app-server::all suite::v2::mcp_resource::disabled_orchestrator_skills_do_not_expose_skills_namespace
+        PASS [   0.465s] ( 554/1119) codex-app-server::all suite::v2::mcp_resource::mcp_resource_read_returns_contents_and_declines_elicitation_without_thread
+        PASS [   0.850s] ( 555/1119) codex-app-server::all suite::v2::mcp_resource::local_executor_does_not_expose_orchestrator_skills
+        PASS [   0.525s] ( 556/1119) codex-app-server::all suite::v2::mcp_resource::mcp_resource_read_returns_resource_contents
+        PASS [   1.557s] ( 557/1119) codex-app-server::all suite::v2::mcp_resource::orchestrator_skill_can_read_referenced_resource_without_an_executor
+        PASS [   4.469s] ( 558/1119) codex-app-server::all suite::v2::mcp_server_elicitation::mcp_server_form_elicitation_round_trip
+        PASS [   4.524s] ( 559/1119) codex-app-server::all suite::v2::mcp_server_elicitation::mcp_server_legacy_sep1034_elicitation_defaults_round_trip
+        PASS [   4.537s] ( 560/1119) codex-app-server::all suite::v2::mcp_server_elicitation::mcp_server_openai_form_elicitation_round_trip
+        PASS [   4.498s] ( 561/1119) codex-app-server::all suite::v2::mcp_server_elicitation::mcp_server_strict_auto_review::app_default_reviewer_user
+        PASS [   4.492s] ( 562/1119) codex-app-server::all suite::v2::mcp_server_elicitation::mcp_server_strict_auto_review::app_reviewer_missing_call_id
+        PASS [   4.508s] ( 563/1119) codex-app-server::all suite::v2::mcp_server_elicitation::mcp_server_strict_auto_review::app_reviewer_noncanonical_id
+        PASS [   4.517s] ( 564/1119) codex-app-server::all suite::v2::mcp_server_elicitation::mcp_server_strict_auto_review::app_reviewer_spoofed_action
+        PASS [   4.435s] ( 565/1119) codex-app-server::all suite::v2::mcp_server_elicitation::mcp_server_strict_auto_review::app_reviewer_spoofed_id
+        PASS [   4.409s] ( 566/1119) codex-app-server::all suite::v2::mcp_server_elicitation::mcp_server_strict_auto_review::app_reviewer_user
+        PASS [   4.317s] ( 567/1119) codex-app-server::all suite::v2::mcp_server_elicitation::mcp_server_strict_auto_review::approved
+        PASS [   4.693s] ( 568/1119) codex-app-server::all suite::v2::mcp_server_elicitation::mcp_server_strict_auto_review::approve_for_me
+        PASS [   4.657s] ( 569/1119) codex-app-server::all suite::v2::mcp_server_elicitation::mcp_server_strict_auto_review::full_access
+        PASS [   4.386s] ( 570/1119) codex-app-server::all suite::v2::mcp_server_elicitation::mcp_server_strict_auto_review::guardian_disabled
+        PASS [   4.397s] ( 571/1119) codex-app-server::all suite::v2::mcp_server_elicitation::mcp_server_strict_auto_review::managed_guardian_disabled
+        PASS [   4.414s] ( 572/1119) codex-app-server::all suite::v2::mcp_server_elicitation::mcp_server_strict_auto_review::managed_reviewer_forbidden
+        PASS [   4.117s] ( 573/1119) codex-app-server::all suite::v2::mcp_server_elicitation::mcp_server_strict_auto_review::never
+        PASS [   1.027s] ( 574/1119) codex-app-server::all suite::v2::mcp_server_elicitation::openai_form_capability_follows_the_turn_starting_connection
+        PASS [   0.498s] ( 575/1119) codex-app-server::all suite::v2::mcp_server_status::mcp_server_status_list_keeps_tools_for_sanitized_name_collisions
+        PASS [   0.417s] ( 576/1119) codex-app-server::all suite::v2::mcp_server_status::mcp_server_status_list_returns_raw_server_and_tool_names
+        PASS [   0.394s] ( 577/1119) codex-app-server::all suite::v2::mcp_server_status::mcp_server_status_list_tools_and_auth_only_skips_slow_inventory_calls
+  TRY 1 FAIL [   0.021s] (─────────) codex-app-server::all suite::v2::mcp_server_status::mcp_server_status_list_waits_for_live_stdio_metadata_before_using_cached_tools
+  stdout ───
+
+    running 1 test
+    test suite::v2::mcp_server_status::mcp_server_status_list_waits_for_live_stdio_metadata_before_using_cached_tools ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::mcp_server_status::mcp_server_status_list_waits_for_live_stdio_metadata_before_using_cached_tools
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 857 filtered out; finished in 0.01s
+
+  stderr ───
+    Error: could not locate binary "test_stdio_server"; tried env vars ["CARGO_BIN_EXE_test_stdio_server"]; assert_cmd fallback failed: Cause: Cargo command not found: <candidate>/codex-rs/target/debug/test_stdio_server
+
+
+
+  TRY 2 FAIL [   0.025s] ( 578/1119) codex-app-server::all suite::v2::mcp_server_status::mcp_server_status_list_waits_for_live_stdio_metadata_before_using_cached_tools
+  stdout ───
+
+    running 1 test
+    test suite::v2::mcp_server_status::mcp_server_status_list_waits_for_live_stdio_metadata_before_using_cached_tools ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::mcp_server_status::mcp_server_status_list_waits_for_live_stdio_metadata_before_using_cached_tools
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 857 filtered out; finished in 0.01s
+
+  stderr ───
+    Error: could not locate binary "test_stdio_server"; tried env vars ["CARGO_BIN_EXE_test_stdio_server"]; assert_cmd fallback failed: Cause: Cargo command not found: <candidate>/codex-rs/target/debug/test_stdio_server
+
+
+
+        PASS [   0.455s] ( 579/1119) codex-app-server::all suite::v2::mcp_server_status::mcp_server_status_list_uses_thread_project_local_config
+        PASS [   0.432s] ( 580/1119) codex-app-server::all suite::v2::mcp_tool::mcp_server_tool_call_forwards_url_elicitation
+        PASS [   0.739s] ( 581/1119) codex-app-server::all suite::v2::mcp_tool::mcp_server_elicitation_survives_environment_runtime_refresh
+        PASS [   0.270s] ( 582/1119) codex-app-server::all suite::v2::mcp_tool::mcp_server_tool_call_returns_error_for_unknown_thread
+        PASS [   0.442s] ( 583/1119) codex-app-server::all suite::v2::mcp_tool::mcp_server_tool_call_returns_tool_result
+        PASS [   0.412s] ( 584/1119) codex-app-server::all suite::v2::mcp_tool::mcp_server_tool_call_round_trips_elicitation
+        PASS [   0.405s] ( 585/1119) codex-app-server::all suite::v2::mcp_tool::mcp_server_tool_call_uses_session_client_extensions
+        PASS [   3.977s] ( 586/1119) codex-app-server::all suite::v2::mcp_server_elicitation::mcp_server_strict_auto_review::three_denials_interrupt
+        PASS [   0.535s] ( 587/1119) codex-app-server::all suite::v2::mcp_tool::mcp_tool_call_hint_survives_mid_call_thread_read_and_resume
+        PASS [   4.493s] ( 588/1119) codex-app-server::all suite::v2::mcp_server_elicitation::mcp_server_strict_auto_review::persistent
+        PASS [   0.911s] ( 589/1119) codex-app-server::all suite::v2::mcp_tool::mcp_tool_call_completion_notification_contains_truncated_large_result
+        PASS [   0.335s] ( 590/1119) codex-app-server::all suite::v2::memory_reset::memory_reset_clears_memory_files_and_rows_preserves_threads
+        PASS [   0.531s] ( 591/1119) codex-app-server::all suite::v2::mcp_tool::model_mcp_tool_call_uses_session_client_extensions
+        PASS [   0.293s] ( 592/1119) codex-app-server::all suite::v2::model_list::list_models_includes_hidden_models
+        PASS [   0.292s] ( 593/1119) codex-app-server::all suite::v2::model_list::list_models_pagination_works
+        PASS [   0.339s] ( 594/1119) codex-app-server::all suite::v2::model_list::list_models_returns_all_models_with_large_limit
+        PASS [   0.351s] ( 595/1119) codex-app-server::all suite::v2::model_list::list_models_rejects_invalid_cursor
+        PASS [   0.338s] ( 596/1119) codex-app-server::all suite::v2::model_provider_capabilities_read::read_amazon_bedrock_provider_capabilities
+        PASS [   0.485s] ( 597/1119) codex-app-server::all suite::v2::model_list::list_models_uses_chatgpt_remote_catalog_as_source_of_truth
+        PASS [   0.291s] ( 598/1119) codex-app-server::all suite::v2::model_provider_capabilities_read::read_default_provider_capabilities
+        PASS [   0.564s] ( 599/1119) codex-app-server::all suite::v2::multi_agent_v2_developer_instructions::spawned_subagents_apply_configured_developer_instruction_precedence::blank_override
+        PASS [   0.883s] ( 600/1119) codex-app-server::all suite::v2::multi_agent_v2_developer_instructions::compacted_full_history_fork_replaces_parent_developer_instructions
+        PASS [   1.101s] ( 601/1119) codex-app-server::all suite::v2::multi_agent_v2_developer_instructions::cold_resume_preserves_effective_developer_instructions_for_roleless_worker::inherits_parent_developer_instructions_without_an_override
+        PASS [   1.125s] ( 602/1119) codex-app-server::all suite::v2::multi_agent_v2_developer_instructions::cold_resume_preserves_effective_developer_instructions_for_roleless_worker::reapplies_configured_subagent_developer_instructions
+        PASS [   0.595s] ( 603/1119) codex-app-server::all suite::v2::multi_agent_v2_developer_instructions::spawned_subagents_apply_configured_developer_instruction_precedence::bounded_history
+        PASS [   0.623s] ( 604/1119) codex-app-server::all suite::v2::multi_agent_v2_developer_instructions::spawned_subagents_apply_configured_developer_instruction_precedence::configured_role_without_instructions
+        PASS [   0.596s] ( 605/1119) codex-app-server::all suite::v2::multi_agent_v2_developer_instructions::spawned_subagents_apply_configured_developer_instruction_precedence::explicit_configured_role
+        PASS [   0.590s] ( 606/1119) codex-app-server::all suite::v2::multi_agent_v2_developer_instructions::spawned_subagents_apply_configured_developer_instruction_precedence::full_fork_skips_default_role
+        PASS [   0.566s] ( 607/1119) codex-app-server::all suite::v2::multi_agent_v2_developer_instructions::spawned_subagents_apply_configured_developer_instruction_precedence::full_history
+        PASS [   0.600s] ( 608/1119) codex-app-server::all suite::v2::multi_agent_v2_developer_instructions::spawned_subagents_apply_configured_developer_instruction_precedence::implicit_configured_default
+        PASS [   0.012s] ( 609/1119) codex-app-server::all suite::v2::output_schema::turn_start_accepts_output_schema_v2
+        PASS [   0.012s] ( 610/1119) codex-app-server::all suite::v2::output_schema::turn_start_output_schema_is_per_turn_v2
+        PASS [   0.643s] ( 611/1119) codex-app-server::all suite::v2::multi_agent_v2_developer_instructions::spawned_subagents_apply_configured_developer_instruction_precedence::no_history
+        PASS [   0.636s] ( 612/1119) codex-app-server::all suite::v2::multi_agent_v2_developer_instructions::spawned_subagents_apply_configured_developer_instruction_precedence::parent_has_no_instructions
+        PASS [   0.537s] ( 613/1119) codex-app-server::all suite::v2::multi_agent_v2_developer_instructions::spawned_subagents_apply_configured_developer_instruction_precedence::unset_override
+        PASS [   0.009s] ( 614/1119) codex-app-server::all suite::v2::plan_item::plan_mode_uses_proposed_plan_block_for_plan_item
+        PASS [   0.011s] ( 615/1119) codex-app-server::all suite::v2::plan_item::plan_mode_without_proposed_plan_does_not_emit_plan_item
+        PASS [   0.293s] ( 616/1119) codex-app-server::all suite::v2::permission_profile_list::permission_profile_list_discovers_project_profiles_without_default_selection
+        PASS [   0.299s] ( 617/1119) codex-app-server::all suite::v2::permission_profile_list::permission_profile_list_resolves_project_profiles_and_paginates
+        PASS [   0.287s] ( 618/1119) codex-app-server::all suite::v2::permission_profile_list::permission_profile_list_returns_builtin_and_configured_profiles
+        PASS [   0.327s] ( 619/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_makes_bundled_mcp_servers_available_to_followup_requests
+        PASS [   0.430s] ( 620/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_failure_tracks_analytics_event
+        PASS [   0.453s] ( 621/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_preserves_status_when_remote_bundle_error_body_is_too_large
+        PASS [   0.284s] ( 622/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_rejects_invalid_remote_plugin_name
+        PASS [   0.247s] ( 623/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_rejects_missing_install_source
+        PASS [   0.808s] ( 624/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_includes_formerly_disallowed_apps_needing_auth
+        PASS [   0.434s] ( 625/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_rejects_invalid_remote_release_version
+        PASS [   0.431s] ( 626/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_rejects_missing_remote_bundle_url
+        PASS [   0.300s] ( 627/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_rejects_multiple_install_sources
+        PASS [   0.301s] ( 628/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_rejects_relative_marketplace_paths
+        PASS [   0.475s] ( 629/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_rejects_plain_http_remote_bundle_url
+        PASS [   0.317s] ( 630/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_rejects_remote_marketplace_when_plugins_are_disabled
+        PASS [   0.477s] ( 631/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_rejects_remote_plugin_disabled_by_admin_before_download
+        PASS [   0.456s] ( 632/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_rejects_remote_plugin_not_available
+        PASS [   0.447s] ( 633/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_rejects_when_workspace_codex_plugins_disabled
+        PASS [   0.308s] ( 634/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_returns_invalid_request_for_disallowed_product_plugin
+        PASS [   0.302s] ( 635/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_returns_invalid_request_for_missing_marketplace_file
+        PASS [   0.553s] ( 636/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_returns_apps_needing_auth
+        PASS [   0.264s] ( 637/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_returns_invalid_request_for_not_available_plugin
+        PASS [   0.321s] ( 638/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_skips_mcp_oauth_disabled_by_plugin_config
+        PASS [   0.317s] ( 639/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_skips_mcp_oauth_disabled_by_plugin_requirements
+        PASS [   0.310s] ( 640/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_skips_mcp_oauth_for_unowned_environment
+        PASS [   0.553s] ( 641/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_skips_mcp_oauth_for_chatgpt_dual_surface_plugin
+        PASS [   0.523s] ( 642/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_skips_remote_mcp_oauth_disabled_by_plugin_config
+        PASS [   0.542s] ( 643/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_skips_remote_mcp_oauth_disabled_by_requirements
+        PASS [   0.518s] ( 644/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_skips_remote_mcp_oauth_for_bundled_same_name_app
+        PASS [   0.306s] ( 645/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_starts_mcp_oauth_for_api_key_dual_surface_plugin
+        PASS [   0.389s] ( 646/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_starts_mcp_oauth_through_configured_http_proxy
+        PASS [   0.451s] ( 647/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_tracks_analytics_event
+        PASS [   0.599s] ( 648/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_starts_mcp_oauth_with_formerly_disallowed_plugin_app
+        PASS [   0.580s] ( 649/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_starts_remote_mcp_oauth_for_install_response_only_app
+        PASS [   0.433s] ( 650/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_tracks_analytics_when_remote_detail_fetch_fails
+        PASS [   0.540s] ( 651/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_tracks_remote_plugin_analytics_event
+        PASS [   0.539s] ( 652/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_uses_remote_apps_needing_auth_response
+        PASS [   0.717s] ( 653/1119) codex-app-server::all suite::v2::plugin_install::plugin_install_writes_remote_plugin_to_cloud_and_cache
+        PASS [   0.500s] ( 654/1119) codex-app-server::all suite::v2::plugin_list::app_server_startup_sync_downloads_remote_installed_plugin_bundles
+        PASS [   0.265s] ( 655/1119) codex-app-server::all suite::v2::plugin_list::plugin_installed_ignores_local_cache_without_catalog
+        PASS [   0.959s] ( 656/1119) codex-app-server::all suite::v2::plugin_list::app_server_startup_skips_disabled_remote_plugin_catalog_scopes
+        PASS [   0.690s] ( 657/1119) codex-app-server::all suite::v2::plugin_list::plugin_installed_hook_trust_write_failure_stays_untrusted
+        PASS [   0.308s] ( 658/1119) codex-app-server::all suite::v2::plugin_list::plugin_installed_includes_installed_plugins_and_explicit_install_suggestions
+        PASS [   0.495s] ( 659/1119) codex-app-server::all suite::v2::plugin_list::plugin_installed_includes_created_by_me_when_remote_plugins_enabled
+        PASS [   0.401s] ( 660/1119) codex-app-server::all suite::v2::plugin_list::plugin_installed_includes_remote_shared_with_me_plugins_when_remote_plugin_disabled
+        PASS [   0.448s] ( 661/1119) codex-app-server::all suite::v2::plugin_list::plugin_installed_includes_workspace_directory_without_plugin_sharing_when_remote_plugin_disabled
+        PASS [   0.444s] ( 662/1119) codex-app-server::all suite::v2::plugin_list::plugin_installed_prefers_api_curated_conflicts_after_switching_to_api_auth
+        PASS [   0.405s] ( 663/1119) codex-app-server::all suite::v2::plugin_list::plugin_installed_prefers_remote_curated_conflicts_when_remote_plugin_enabled
+        PASS [   0.292s] ( 664/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_accepts_legacy_string_default_prompt
+        PASS [   0.288s] ( 665/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_accepts_omitted_cwds
+        PASS [   0.526s] ( 666/1119) codex-app-server::all suite::v2::plugin_list::plugin_installed_trusts_new_workspace_listed_plugin_hooks
+        PASS [   0.365s] ( 667/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_does_not_fetch_remote_marketplaces_when_plugins_disabled
+        PASS [   0.463s] ( 668/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_does_not_append_global_remote_when_marketplace_kinds_are_explicit
+        PASS [   0.469s] ( 669/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_does_not_query_openai_curated_remote_collection_by_default
+        PASS [   2.995s] ( 670/1119) codex-app-server::all suite::v2::plugin_list::app_server_startup_refreshes_cached_remote_catalog_without_blocking_plugin_list
+        PASS [   0.292s] ( 671/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_fetches_featured_plugin_ids_without_chatgpt_auth
+        PASS [   0.424s] ( 672/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_fetches_shared_with_me_kind
+        PASS [   0.246s] ( 673/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_force_refetch_waits_for_same_path_local_plugin_upgrade
+        PASS [   0.594s] ( 674/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_fetches_user_plugins_in_created_by_me_remote_marketplace
+        PASS [   0.249s] ( 675/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_includes_api_curated_marketplace_for_api_auth_when_remote_plugin_enabled
+        PASS [   0.941s] ( 676/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_force_refetch_bypasses_fresh_global_remote_catalog_cache
+        PASS [   1.037s] ( 677/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_fetches_workspace_directory_kind_when_remote_plugin_disabled
+        PASS [   0.241s] ( 678/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_includes_api_curated_marketplace_for_bedrock_without_codex_auth
+        PASS [   0.299s] ( 679/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_includes_install_and_enabled_state_from_config
+        PASS [   0.476s] ( 680/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_includes_chatgpt_curated_marketplace_for_bedrock_with_chatgpt_auth
+        PASS [   0.440s] ( 681/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_includes_openai_curated_remote_collection_when_remote_plugin_disabled_and_requested
+        PASS [   1.096s] ( 682/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_honors_global_remote_catalog_cache_ttl
+        PASS [   0.310s] ( 683/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_keeps_valid_marketplaces_when_another_marketplace_fails_to_load
+        PASS [   0.534s] ( 684/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_includes_remote_marketplaces_when_remote_plugin_enabled
+        PASS [   0.358s] ( 685/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_omits_created_by_me_when_remote_plugins_disabled
+        PASS [   0.515s] ( 686/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_marks_remote_plugin_disabled_by_admin
+        PASS [   0.428s] ( 687/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_omits_shared_with_me_kind_when_plugin_sharing_disabled
+        PASS [   0.291s] ( 688/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_rejects_relative_cwds
+        PASS [   0.422s] ( 689/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_propagates_openai_curated_remote_collection_errors_when_remote_plugin_disabled
+        PASS [   0.508s] ( 690/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_preserves_plan_ineligible_remote_plugin_metadata
+        PASS [   0.445s] ( 691/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_returns_empty_when_workspace_codex_plugins_disabled
+        PASS [   0.329s] ( 692/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_returns_installed_git_source_interface_from_cache
+        PASS [   0.317s] ( 693/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_returns_plugin_interface_with_absolute_asset_paths
+        PASS [   0.295s] ( 694/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_returns_share_context_for_shared_local_plugin
+        PASS [   0.312s] ( 695/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_skips_invalid_marketplace_file_and_reports_error
+        PASS [   0.321s] ( 696/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_skips_openai_curated_remote_collection_for_api_auth_when_remote_plugin_disabled
+        PASS [   0.297s] ( 697/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_uses_alternate_discoverable_manifest_and_keeps_undiscoverable_plugins
+        PASS [   0.605s] ( 698/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_sync_upgrades_and_removes_remote_installed_plugin_bundles
+        PASS [   0.290s] ( 699/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_uses_home_config_for_enabled_state
+        PASS [   0.676s] ( 700/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_reuses_cached_workspace_codex_plugins_setting
+        PASS [   0.316s] ( 701/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_uses_warmed_featured_plugin_ids_cache_on_first_request
+        PASS [   0.315s] ( 702/1119) codex-app-server::all suite::v2::plugin_read::plugin_read_accepts_legacy_string_default_prompt
+        PASS [   0.379s] ( 703/1119) codex-app-server::all suite::v2::plugin_list::plugin_list_vertical_kind_noops_when_remote_plugin_enabled
+        PASS [   0.477s] ( 704/1119) codex-app-server::all suite::v2::plugin_read::plugin_read_batches_large_app_metadata_requests
+        PASS [   0.304s] ( 705/1119) codex-app-server::all suite::v2::plugin_read::plugin_read_describes_uninstalled_git_source_without_cloning
+        PASS [   0.293s] ( 706/1119) codex-app-server::all suite::v2::plugin_read::plugin_read_fails_on_malformed_share_mapping
+        PASS [   0.301s] ( 707/1119) codex-app-server::all suite::v2::plugin_read::plugin_read_falls_back_to_local_share_context_without_remote_auth
+        PASS [   0.264s] ( 708/1119) codex-app-server::all suite::v2::plugin_read::plugin_read_hides_apps_for_api_key_auth
+        PASS [   0.402s] ( 709/1119) codex-app-server::all suite::v2::plugin_read::plugin_read_includes_share_url_for_admin_disabled_remote_plugin
+        PASS [   0.394s] ( 710/1119) codex-app-server::all suite::v2::plugin_read::plugin_read_keeps_remote_version_when_share_principals_are_missing
+        PASS [   0.289s] ( 711/1119) codex-app-server::all suite::v2::plugin_read::plugin_read_rejects_invalid_remote_plugin_name
+        PASS [   0.402s] ( 712/1119) codex-app-server::all suite::v2::plugin_read::plugin_read_maps_missing_remote_plugin_to_invalid_request
+        PASS [   0.289s] ( 713/1119) codex-app-server::all suite::v2::plugin_read::plugin_read_rejects_missing_read_source
+        PASS [   0.310s] ( 714/1119) codex-app-server::all suite::v2::plugin_read::plugin_read_rejects_multiple_read_sources
+        PASS [   0.316s] ( 715/1119) codex-app-server::all suite::v2::plugin_read::plugin_read_returns_canonical_openai_curated_marketplace_name
+        PASS [   0.404s] ( 716/1119) codex-app-server::all suite::v2::plugin_read::plugin_read_rejects_remote_marketplace_when_plugins_are_disabled
+        PASS [   0.289s] ( 717/1119) codex-app-server::all suite::v2::plugin_read::plugin_read_returns_invalid_request_when_plugin_is_missing
+        PASS [   0.303s] ( 718/1119) codex-app-server::all suite::v2::plugin_read::plugin_read_returns_invalid_request_when_plugin_manifest_is_missing
+        PASS [   0.308s] ( 719/1119) codex-app-server::all suite::v2::plugin_read::plugin_read_returns_plugin_details_with_bundle_contents
+        PASS [   0.436s] ( 720/1119) codex-app-server::all suite::v2::plugin_read::plugin_read_returns_remote_mcp_servers_when_uninstalled
+        PASS [   0.395s] ( 721/1119) codex-app-server::all suite::v2::plugin_read::plugin_read_returns_share_context_for_shared_local_plugin
+        PASS [   0.476s] ( 722/1119) codex-app-server::all suite::v2::plugin_read::plugin_read_returns_share_context_for_shared_remote_plugin
+        PASS [   0.445s] ( 723/1119) codex-app-server::all suite::v2::plugin_read::plugin_read_stops_batching_after_app_metadata_failure
+        PASS [   0.363s] ( 724/1119) codex-app-server::all suite::v2::plugin_read::plugin_skill_read_reads_remote_skill_contents_when_remote_plugin_enabled
+        PASS [   0.372s] ( 725/1119) codex-app-server::all suite::v2::plugin_search::plugin_search_deduplicates_shared_remote_identities_while_ignoring_local_curated_plugins
+        PASS [   0.373s] ( 726/1119) codex-app-server::all suite::v2::plugin_search::plugin_search_omits_shared_workspace_results_when_plugin_sharing_disabled
+        PASS [   0.461s] ( 727/1119) codex-app-server::all suite::v2::plugin_search::plugin_search_only_searches_workspace_when_remote_plugin_disabled
+        PASS [   0.456s] ( 728/1119) codex-app-server::all suite::v2::plugin_search::plugin_search_stitches_local_results_into_the_first_remote_page
+        PASS [   0.626s] ( 729/1119) codex-app-server::all suite::v2::plugin_search::plugin_search_returns_local_matches_for_api_key_auth
+        PASS [   0.411s] ( 730/1119) codex-app-server::all suite::v2::plugin_share::plugin_share_checkout_cleans_up_path_when_marketplace_update_fails
+        PASS [   0.557s] ( 731/1119) codex-app-server::all suite::v2::plugin_share::plugin_share_checkout_adds_personal_marketplace_entry
+        PASS [   0.401s] ( 732/1119) codex-app-server::all suite::v2::plugin_share::plugin_share_checkout_rejects_non_share_remote_plugin
+        PASS [   0.507s] ( 733/1119) codex-app-server::all suite::v2::plugin_share::plugin_share_delete_removes_created_workspace_plugin
+        PASS [   0.429s] ( 734/1119) codex-app-server::all suite::v2::plugin_share::plugin_share_rejects_workspace_targets_from_client
+        PASS [   0.449s] ( 735/1119) codex-app-server::all suite::v2::plugin_share::plugin_share_list_returns_created_workspace_plugins
+        PASS [   0.399s] ( 736/1119) codex-app-server::all suite::v2::plugin_share::plugin_share_save_forwards_access_policy
+        PASS [   0.372s] ( 737/1119) codex-app-server::all suite::v2::plugin_share::plugin_share_save_rejects_access_policy_for_existing_plugin
+        PASS [   0.385s] ( 738/1119) codex-app-server::all suite::v2::plugin_share::plugin_share_save_rejects_listed_discoverability
+        PASS [   0.370s] ( 739/1119) codex-app-server::all suite::v2::plugin_share::plugin_share_save_rejects_when_plugin_sharing_disabled
+        PASS [   0.437s] ( 740/1119) codex-app-server::all suite::v2::plugin_share::plugin_share_save_uploads_local_plugin
+        PASS [   0.393s] ( 741/1119) codex-app-server::all suite::v2::plugin_share::plugin_share_update_targets_publishes_workspace_plugin
+        PASS [   0.399s] ( 742/1119) codex-app-server::all suite::v2::plugin_share::plugin_share_update_targets_rejects_when_plugin_sharing_disabled
+        PASS [   0.427s] ( 743/1119) codex-app-server::all suite::v2::plugin_share::plugin_share_update_targets_updates_share_targets
+        PASS [   0.436s] ( 744/1119) codex-app-server::all suite::v2::plugin_uninstall::plugin_uninstall_accepts_workspace_remote_plugin_id_shape
+        PASS [   0.319s] ( 745/1119) codex-app-server::all suite::v2::plugin_uninstall::plugin_uninstall_rejects_empty_remote_plugin_id
+        PASS [   0.293s] ( 746/1119) codex-app-server::all suite::v2::plugin_uninstall::plugin_uninstall_rejects_invalid_remote_plugin_id_before_network_call
+        PASS [   0.465s] ( 747/1119) codex-app-server::all suite::v2::plugin_uninstall::plugin_uninstall_rejects_before_post_when_remote_detail_fetch_fails
+        PASS [   0.296s] ( 748/1119) codex-app-server::all suite::v2::plugin_uninstall::plugin_uninstall_rejects_remote_plugin_id_with_spaces_before_network_call
+        PASS [   0.317s] ( 749/1119) codex-app-server::all suite::v2::plugin_uninstall::plugin_uninstall_rejects_remote_plugin_when_plugins_are_disabled
+        PASS [   0.325s] ( 750/1119) codex-app-server::all suite::v2::plugin_uninstall::plugin_uninstall_removes_plugin_cache_and_config_entry
+        PASS [   0.404s] ( 751/1119) codex-app-server::all suite::v2::plugin_uninstall::plugin_uninstall_tracks_analytics_event
+        PASS [   0.457s] ( 752/1119) codex-app-server::all suite::v2::plugin_uninstall::plugin_uninstall_uses_detail_scope_for_cache_namespace
+        PASS [   0.335s] ( 753/1119) codex-app-server::all suite::v2::process_exec::process_kill_terminates_running_process
+        PASS [   0.314s] ( 754/1119) codex-app-server::all suite::v2::process_exec::process_spawn_reports_buffered_output_cap_reached
+        PASS [   0.502s] ( 755/1119) codex-app-server::all suite::v2::plugin_uninstall::plugin_uninstall_writes_remote_plugin_to_cloud_when_remote_plugin_enabled
+        PASS [   0.304s] ( 756/1119) codex-app-server::all suite::v2::process_exec::process_spawn_returns_error_when_local_environment_is_disabled
+        PASS [   0.354s] ( 757/1119) codex-app-server::all suite::v2::process_exec::process_spawn_returns_before_exit_and_emits_exit_notification
+        PASS [   0.461s] ( 758/1119) codex-app-server::all suite::v2::rate_limit_reset_credits::consume_account_rate_limit_reset_credit_forwards_selected_credit_id
+        PASS [   0.397s] ( 759/1119) codex-app-server::all suite::v2::rate_limit_reset_credits::consume_account_rate_limit_reset_credit_rejects_empty_credit_id
+        PASS [   0.557s] ( 760/1119) codex-app-server::all suite::v2::rate_limit_reset_credits::consume_account_rate_limit_reset_credit_maps_backend_outcomes
+        PASS [   0.378s] ( 761/1119) codex-app-server::all suite::v2::rate_limit_reset_credits::consume_account_rate_limit_reset_credit_rejects_empty_idempotency_key
+        PASS [   0.364s] ( 762/1119) codex-app-server::all suite::v2::rate_limit_reset_credits::consume_account_rate_limit_reset_credit_surfaces_backend_failure
+        PASS [   0.307s] ( 763/1119) codex-app-server::all suite::v2::rate_limit_reset_credits::consume_rate_limit_reset_credit_requires_chatgpt_auth
+        PASS [   0.438s] ( 764/1119) codex-app-server::all suite::v2::rate_limits::get_account_rate_limits_preserves_count_when_reset_credit_details_fail
+        PASS [   0.276s] ( 765/1119) codex-app-server::all suite::v2::rate_limits::get_account_rate_limits_requires_auth
+        PASS [   0.499s] ( 766/1119) codex-app-server::all suite::v2::rate_limit_reset_credits::consume_timeout_releases_account_auth_queue
+        PASS [   0.255s] ( 767/1119) codex-app-server::all suite::v2::rate_limits::get_account_rate_limits_requires_chatgpt_auth
+        PASS [   0.285s] ( 768/1119) codex-app-server::all suite::v2::rate_limits::send_add_credits_nudge_email_requires_auth
+        PASS [   0.414s] ( 769/1119) codex-app-server::all suite::v2::rate_limits::send_add_credits_nudge_email_maps_cooldown
+        PASS [   0.455s] ( 770/1119) codex-app-server::all suite::v2::rate_limits::get_account_rate_limits_returns_snapshot
+        PASS [   0.420s] ( 771/1119) codex-app-server::all suite::v2::rate_limits::send_add_credits_nudge_email_posts_expected_body
+        PASS [   0.011s] ( 772/1119) codex-app-server::all suite::v2::realtime_conversation::realtime_automatic_standalone_output_is_item_and_append_speaks
+        PASS [   0.017s] ( 773/1119) codex-app-server::all suite::v2::realtime_conversation::realtime_automatic_handoff_output_is_item_and_append_speaks
+        PASS [   0.012s] ( 774/1119) codex-app-server::all suite::v2::realtime_conversation::realtime_conversation_requires_feature_flag
+        PASS [   0.015s] ( 775/1119) codex-app-server::all suite::v2::realtime_conversation::realtime_conversation_stop_emits_closed_notification
+        PASS [   0.013s] ( 776/1119) codex-app-server::all suite::v2::realtime_conversation::realtime_conversation_streams_v2_notifications
+        PASS [   0.011s] ( 777/1119) codex-app-server::all suite::v2::realtime_conversation::realtime_mode_uses_client_instructions_on_entry_and_exit
+        PASS [   0.010s] ( 778/1119) codex-app-server::all suite::v2::realtime_conversation::realtime_start_can_skip_startup_context
+        PASS [   0.010s] ( 779/1119) codex-app-server::all suite::v2::realtime_conversation::realtime_text_output_modality_requests_text_output_and_final_transcript
+        PASS [   0.010s] ( 780/1119) codex-app-server::all suite::v2::realtime_conversation::realtime_webrtc_start_emits_sdp_notification
+        PASS [   0.017s] ( 781/1119) codex-app-server::all suite::v2::realtime_conversation::realtime_webrtc_start_surfaces_backend_error
+        PASS [   0.011s] ( 782/1119) codex-app-server::all suite::v2::realtime_conversation::webrtc_v1_client_managed_handoffs_disable_automatic_output
+        PASS [   0.015s] ( 783/1119) codex-app-server::all suite::v2::realtime_conversation::webrtc_v1_default_automatic_output_uses_handoff_append
+        PASS [   0.011s] ( 784/1119) codex-app-server::all suite::v2::realtime_conversation::webrtc_v1_handoff_request_delegates_context_and_manual_append_speaks
+        PASS [   0.010s] ( 785/1119) codex-app-server::all suite::v2::realtime_conversation::webrtc_v1_ignores_codex_response_handoff_mode
+        PASS [   0.017s] ( 786/1119) codex-app-server::all suite::v2::realtime_conversation::webrtc_v1_start_posts_offer_returns_sdp_and_joins_sideband
+        PASS [   0.011s] ( 787/1119) codex-app-server::all suite::v2::realtime_conversation::webrtc_v3_start_posts_live_session_and_joins_without_session_update
+        PASS [   0.011s] ( 788/1119) codex-app-server::all suite::v2::realtime_conversation::websocket_v2_assistant_output_without_handoff_reaches_realtime_context
+        PASS [   0.264s] ( 789/1119) codex-app-server::all suite::v2::rate_limits::send_add_credits_nudge_email_requires_chatgpt_auth
+        PASS [   0.012s] ( 790/1119) codex-app-server::all suite::v2::realtime_conversation::websocket_v2_background_agent_progress_is_sent_before_function_output
+        PASS [   0.015s] ( 791/1119) codex-app-server::all suite::v2::realtime_conversation::websocket_v2_background_agent_returns_function_output
+        PASS [   0.014s] ( 792/1119) codex-app-server::all suite::v2::realtime_conversation::websocket_v2_background_agent_steering_ack_requests_response_create
+        PASS [   0.011s] ( 793/1119) codex-app-server::all suite::v2::realtime_conversation::websocket_v2_forwards_audio_and_text_between_client_and_sideband
+        PASS [   0.011s] ( 794/1119) codex-app-server::all suite::v2::realtime_conversation::websocket_v2_text_input_is_append_only_when_response_is_cancelled
+        PASS [   0.015s] ( 795/1119) codex-app-server::all suite::v2::realtime_conversation::websocket_v2_text_input_is_append_only_while_response_is_active
+        PASS [   0.017s] ( 796/1119) codex-app-server::all suite::v2::realtime_conversation::websocket_v2_tool_call_delegated_turn_can_execute_shell_tool
+        PASS [   0.016s] ( 797/1119) codex-app-server::all suite::v2::realtime_conversation::websocket_v2_tool_call_does_not_block_sideband_audio
+        PASS [   0.016s] ( 798/1119) codex-app-server::all suite::v2::realtime_conversation::websocket_v3_passes_initial_items_through_session_start
+        PASS [   0.015s] ( 799/1119) codex-app-server::all suite::v2::realtime_conversation::websocket_v3_routes_handoffs_by_session_mode
+        PASS [   0.295s] ( 800/1119) codex-app-server::all suite::v2::realtime_conversation::realtime_list_voices_returns_supported_names
+        PASS [   0.410s] ( 801/1119) codex-app-server::all suite::v2::rate_limits::send_add_credits_nudge_email_surfaces_backend_failure
+        PASS [   0.238s] ( 802/1119) codex-app-server::all suite::v2::remote_control::explicit_remote_control_startup_fails_when_disabled_by_requirements
+        PASS [   0.599s] ( 803/1119) codex-app-server::all suite::v2::remote_control::disable_waits_for_in_flight_durable_enable
+        PASS [   0.800s] ( 804/1119) codex-app-server::all suite::v2::recommended_plugins::first_turn_after_external_login_waits_for_recommended_plugins_without_tool_suggest
+        PASS [   0.886s] ( 805/1119) codex-app-server::all suite::v2::recommended_plugins::first_turn_after_external_login_waits_for_recommended_plugins
+        PASS [   0.726s] ( 806/1119) codex-app-server::all suite::v2::remote_control::listen_off_exits_without_persisted_remote_control_enable
+        PASS [   0.261s] ( 807/1119) codex-app-server::all suite::v2::remote_control::managed_requirements_allow_remote_control_true_does_not_enable_or_block_it
+        PASS [   0.489s] ( 808/1119) codex-app-server::all suite::v2::remote_control::listen_off_ignores_persisted_enable_when_disabled_by_requirements
+        PASS [   0.692s] ( 809/1119) codex-app-server::all suite::v2::remote_control::listen_off_honors_persisted_remote_control_enable
+        PASS [   0.258s] ( 810/1119) codex-app-server::all suite::v2::remote_control::managed_requirements_reject_all_remote_control_rpcs
+        PASS [   0.424s] ( 811/1119) codex-app-server::all suite::v2::remote_control::pairing_start_works_after_ephemeral_enable
+        PASS [   0.384s] ( 812/1119) codex-app-server::all suite::v2::remote_control::remote_control_disable_returns_disabled_status
+        PASS [   0.472s] ( 813/1119) codex-app-server::all suite::v2::remote_control::remote_control_client_management_works_while_disabled
+        PASS [   0.528s] ( 814/1119) codex-app-server::all suite::v2::remote_control::remote_control_enable_returns_connecting_status
+        PASS [   0.282s] ( 815/1119) codex-app-server::all suite::v2::remote_control::remote_control_status_read_returns_disabled_status
+        PASS [   0.494s] ( 816/1119) codex-app-server::all suite::v2::remote_control::remote_control_pairing_start_returns_pairing_artifacts
+        PASS [   0.406s] ( 817/1119) codex-app-server::all suite::v2::remote_control::remote_control_status_read_returns_connecting_status_after_enable
+        PASS [   0.241s] ( 818/1119) codex-app-server::all suite::v2::remote_thread_store::cold_thread_resume_reuses_non_local_history_probe
+        PASS [   0.179s] ( 819/1119) codex-app-server::all suite::v2::remote_thread_store::thread_delete_with_non_local_thread_store_does_not_create_local_persistence
+        PASS [   0.453s] ( 820/1119) codex-app-server::all suite::v2::remote_control::rpc_updates_durable_preference_but_ephemeral_does_not
+        PASS [   0.043s] ( 821/1119) codex-app-server::all suite::v2::remote_thread_store::thread_section_operations_without_sqlite_return_method_not_found
+        PASS [   0.384s] ( 822/1119) codex-app-server::all suite::v2::remote_control::stdio_eof_exits_with_remote_control_connection
+        PASS [   0.311s] ( 823/1119) codex-app-server::all suite::v2::remote_thread_store::thread_start_rejects_paginated_history_without_list_support
+        PASS [   0.566s] ( 824/1119) codex-app-server::all suite::v2::request_user_input::request_user_input_default_mode_forwards_non_blocking
+        PASS [   0.570s] ( 825/1119) codex-app-server::all suite::v2::request_permissions::request_permissions_round_trip
+        PASS [   0.304s] ( 826/1119) codex-app-server::all suite::v2::request_validation::request_handlers_reject_remote_image_urls
+        PASS [   0.544s] ( 827/1119) codex-app-server::all suite::v2::request_user_input::request_user_input_round_trip
+        PASS [   0.339s] ( 828/1119) codex-app-server::all suite::v2::review::review_start_rejects_empty_base_branch
+        PASS [   0.344s] ( 829/1119) codex-app-server::all suite::v2::review::review_start_rejects_detached_delivery_for_paginated_parent
+        PASS [   0.342s] ( 830/1119) codex-app-server::all suite::v2::review::review_start_rejects_empty_commit_sha
+        PASS [   0.346s] ( 831/1119) codex-app-server::all suite::v2::review::review_start_rejects_empty_custom_instructions
+        PASS [   0.009s] ( 832/1119) codex-app-server::all suite::v2::safety_check_downgrade::cyber_policy_response_emits_typed_error_notification_v2
+        PASS [   0.010s] ( 833/1119) codex-app-server::all suite::v2::safety_check_downgrade::model_verification_emits_typed_notification_and_warning_v2
+        PASS [   0.010s] ( 834/1119) codex-app-server::all suite::v2::safety_check_downgrade::openai_model_header_mismatch_emits_model_rerouted_notification_v2
+        PASS [   0.010s] ( 835/1119) codex-app-server::all suite::v2::safety_check_downgrade::response_model_field_mismatch_emits_model_rerouted_notification_v2_when_header_matches_requested
+        PASS [   0.010s] ( 836/1119) codex-app-server::all suite::v2::safety_check_downgrade::turn_moderation_metadata_emits_typed_notification_v2
+  TRY 1 FAIL [   0.014s] (─────────) codex-app-server::all suite::v2::selected_capability_stack::selected_capabilities_become_available_between_samples_in_one_turn
+  stdout ───
+
+    running 1 test
+    test suite::v2::selected_capability_stack::selected_capabilities_become_available_between_samples_in_one_turn ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::selected_capability_stack::selected_capabilities_become_available_between_samples_in_one_turn
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 857 filtered out; finished in 0.00s
+
+  stderr ───
+    Error: could not locate binary "test_stdio_server"; tried env vars ["CARGO_BIN_EXE_test_stdio_server"]; assert_cmd fallback failed: Cause: Cargo command not found: <candidate>/codex-rs/target/debug/test_stdio_server
+
+
+
+  TRY 2 FAIL [   0.015s] ( 837/1119) codex-app-server::all suite::v2::selected_capability_stack::selected_capabilities_become_available_between_samples_in_one_turn
+  stdout ───
+
+    running 1 test
+    test suite::v2::selected_capability_stack::selected_capabilities_become_available_between_samples_in_one_turn ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::selected_capability_stack::selected_capabilities_become_available_between_samples_in_one_turn
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 857 filtered out; finished in 0.00s
+
+  stderr ───
+    Error: could not locate binary "test_stdio_server"; tried env vars ["CARGO_BIN_EXE_test_stdio_server"]; assert_cmd fallback failed: Cause: Cargo command not found: <candidate>/codex-rs/target/debug/test_stdio_server
+
+
+
+  TRY 1 FAIL [   0.014s] (─────────) codex-app-server::all suite::v2::selected_capability_stack::selected_capability_stack_tracks_environment_availability_and_resume
+  stdout ───
+
+    running 1 test
+    test suite::v2::selected_capability_stack::selected_capability_stack_tracks_environment_availability_and_resume ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::selected_capability_stack::selected_capability_stack_tracks_environment_availability_and_resume
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 857 filtered out; finished in 0.00s
+
+  stderr ───
+    Error: could not locate binary "test_stdio_server"; tried env vars ["CARGO_BIN_EXE_test_stdio_server"]; assert_cmd fallback failed: Cause: Cargo command not found: <candidate>/codex-rs/target/debug/test_stdio_server
+
+
+
+  TRY 2 FAIL [   0.016s] ( 838/1119) codex-app-server::all suite::v2::selected_capability_stack::selected_capability_stack_tracks_environment_availability_and_resume
+  stdout ───
+
+    running 1 test
+    test suite::v2::selected_capability_stack::selected_capability_stack_tracks_environment_availability_and_resume ... FAILED
+
+    failures:
+
+    failures:
+        suite::v2::selected_capability_stack::selected_capability_stack_tracks_environment_availability_and_resume
+
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 857 filtered out; finished in 0.01s
+
+  stderr ───
+    Error: could not locate binary "test_stdio_server"; tried env vars ["CARGO_BIN_EXE_test_stdio_server"]; assert_cmd fallback failed: Cause: Cargo command not found: <candidate>/codex-rs/target/debug/test_stdio_server
+
+
+
+        PASS [   0.633s] ( 839/1119) codex-app-server::all suite::v2::review::review_start_runs_review_turn_and_emits_code_review_item
+        PASS [   0.532s] ( 840/1119) codex-app-server::all suite::v2::selected_environment::command_execution_notifications_preserve_selected_environment_paths
+        PASS [   0.717s] ( 841/1119) codex-app-server::all suite::v2::review::review_start_with_detached_delivery_returns_new_thread_id
+        PASS [   1.020s] ( 842/1119) codex-app-server::all suite::v2::rollout_migration::migrated_legacy_thread_cold_resume_preserves_model_context
+        PASS [   0.380s] ( 843/1119) codex-app-server::all suite::v2::selected_environment::thread_start_reports_selected_environment_metadata
+        PASS [   0.488s] ( 844/1119) codex-app-server::all suite::v2::selected_environment::thread_start_reports_selected_environment_instruction_source
+        PASS [   0.487s] ( 845/1119) codex-app-server::all suite::v2::selected_environment::turn_model_context_uses_selected_environment
+        PASS [   0.415s] ( 846/1119) codex-app-server::all suite::v2::session_end::app_server_shutdown_runs_session_end_for_all_loaded_threads
+        PASS [   0.476s] ( 847/1119) codex-app-server::all suite::v2::session_end::archive_runs_session_end_before_moving_transcript
+        PASS [   0.491s] ( 848/1119) codex-app-server::all suite::v2::session_end::delete_runs_session_end_before_removing_transcript
+        PASS [   0.350s] ( 849/1119) codex-app-server::all suite::v2::skills_list::skills_changed_notification_is_emitted_after_skill_change
+        PASS [   0.289s] ( 850/1119) codex-app-server::all suite::v2::skills_list::skills_list_accepts_relative_cwds
+        PASS [   0.525s] ( 851/1119) codex-app-server::all suite::v2::skills_list::skills_extra_roots_set_updates_process_runtime_roots
+        PASS [   0.479s] ( 852/1119) codex-app-server::all suite::v2::skills_list::skills_list_disabled_bundled_skills_preserves_shared_system_skill_cache
+        PASS [   0.489s] ( 853/1119) codex-app-server::all suite::v2::skills_list::skills_list_excludes_plugin_skills_when_workspace_codex_plugins_disabled
+        PASS [   0.308s] ( 854/1119) codex-app-server::all suite::v2::skills_list::skills_list_preserves_requested_cwd_order
+        PASS [   0.537s] ( 855/1119) codex-app-server::all suite::v2::skills_list::skills_list_loads_remote_installed_plugin_skills_from_cache
+        PASS [   0.306s] ( 856/1119) codex-app-server::all suite::v2::skills_list::skills_list_runtime_enable_refreshes_shared_system_skill_cache
+        PASS [   0.316s] ( 857/1119) codex-app-server::all suite::v2::skills_list::skills_list_skips_cwd_roots_when_environment_disabled
+        PASS [   0.340s] ( 858/1119) codex-app-server::all suite::v2::skills_list::skills_list_uses_cached_result_after_session_default_writes_until_force_reload
+        PASS [   0.398s] ( 859/1119) codex-app-server::all suite::v2::thread_archive::thread_archive_archives_spawned_descendants
+        PASS [   0.551s] ( 860/1119) codex-app-server::all suite::v2::thread_archive::thread_archive_rejects_owned_unmaterialized_paginated_descendant
+        PASS [   0.960s] ( 861/1119) codex-app-server::all suite::v2::thread_archive::thread_archive_clears_stale_subscriptions_before_resume
+        PASS [   0.469s] ( 862/1119) codex-app-server::all suite::v2::thread_archive::thread_archive_requires_materialized_rollout
+        PASS [   0.618s] ( 863/1119) codex-app-server::all suite::v2::thread_archive::thread_archive_succeeds_when_descendant_archive_fails
+        PASS [   0.309s] ( 864/1119) codex-app-server::all suite::v2::thread_archive::thread_archive_succeeds_when_spawned_descendant_is_missing
+        PASS [   0.366s] ( 865/1119) codex-app-server::all suite::v2::thread_delete::thread_delete_deletes_spawned_descendants
+        PASS [   0.362s] ( 866/1119) codex-app-server::all suite::v2::thread_delete::thread_delete_handles_live_threads_before_rollout_exists
+        PASS [   2.503s] ( 867/1119) codex-app-server::all suite::v2::sleep::external_sleep_polls_current_time_and_emits_items
+        PASS [   0.298s] ( 868/1119) codex-app-server::all suite::v2::thread_delete::thread_delete_preflights_external_fork_references_for_spawned_subtrees
+        PASS [   0.543s] ( 869/1119) codex-app-server::all suite::v2::thread_delete::thread_delete_rejects_paginated_writer_owned_by_another_process
+        PASS [   0.536s] ( 870/1119) codex-app-server::all suite::v2::thread_fork::paginated_thread_fork_ephemeral_remains_pathless_and_omits_listing
+        PASS [   1.063s] ( 871/1119) codex-app-server::all suite::v2::thread_fork::paginated_thread_fork_at_named_boundaries_keeps_only_terminal_prefix
+        PASS [   0.624s] ( 872/1119) codex-app-server::all suite::v2::thread_fork::pathless_ephemeral_thread_rejects_codex_home_path_after_reload
+        PASS [   0.961s] ( 873/1119) codex-app-server::all suite::v2::thread_fork::paginated_thread_fork_preserves_persisted_approvals_reviewer
+        PASS [   0.357s] ( 874/1119) codex-app-server::all suite::v2::thread_fork::thread_fork_can_cut_before_unfinished_stored_turn
+        PASS [   0.738s] ( 875/1119) codex-app-server::all suite::v2::thread_fork::thread_fork_at_last_turn_id_keeps_only_terminal_prefix
+        PASS [   0.332s] ( 876/1119) codex-app-server::all suite::v2::thread_fork::thread_fork_can_load_source_by_path
+        PASS [   0.412s] ( 877/1119) codex-app-server::all suite::v2::thread_fork::thread_fork_creates_new_thread_and_emits_started
+        PASS [   0.660s] ( 878/1119) codex-app-server::all suite::v2::thread_fork::thread_fork_creates_reference_backed_paginated_thread
+        PASS [   0.319s] ( 879/1119) codex-app-server::all suite::v2::thread_fork::thread_fork_emits_restored_token_usage_before_next_turn
+        PASS [   0.406s] ( 880/1119) codex-app-server::all suite::v2::thread_fork::thread_fork_ephemeral_remains_pathless_and_omits_listing
+        PASS [   1.237s] ( 881/1119) codex-app-server::all suite::v2::thread_fork::thread_fork_defers_inherited_active_goal_until_next_turn
+        PASS [   0.364s] ( 882/1119) codex-app-server::all suite::v2::thread_fork::thread_fork_inherits_explicit_source_name_from_session_index
+        PASS [   1.069s] ( 883/1119) codex-app-server::all suite::v2::thread_fork::thread_fork_freezes_active_paginated_turn_as_interrupted
+        PASS [   0.993s] ( 884/1119) codex-app-server::all suite::v2::thread_fork::thread_fork_persists_developer_interruption_marker_for_multi_agent_v2
+        PASS [   0.251s] ( 885/1119) codex-app-server::all suite::v2::thread_fork::thread_fork_rejects_incompatible_boundaries_and_ephemeral_goal_deferral
+        PASS [   0.751s] ( 886/1119) codex-app-server::all suite::v2::thread_fork::thread_fork_preserves_persisted_approvals_reviewer
+        PASS [   0.295s] ( 887/1119) codex-app-server::all suite::v2::thread_fork::thread_fork_rejects_unmaterialized_thread
+        PASS [   0.432s] ( 888/1119) codex-app-server::all suite::v2::thread_fork::thread_fork_surfaces_cloud_config_bundle_load_errors
+        PASS [   0.335s] ( 889/1119) codex-app-server::all suite::v2::thread_fork::thread_fork_with_empty_path_uses_thread_id
+        PASS [   0.548s] ( 890/1119) codex-app-server::all suite::v2::thread_fork::thread_fork_tracks_thread_initialized_analytics
+        PASS [   0.442s] ( 891/1119) codex-app-server::all suite::v2::thread_inject_items::thread_inject_items_adds_raw_response_items_to_thread_history
+        PASS [   0.540s] ( 892/1119) codex-app-server::all suite::v2::thread_inject_items::thread_inject_items_adds_raw_response_items_after_a_turn
+        PASS [  10.549s] ( 893/1119) codex-app-server::all suite::v2::skills_list::runtime_remote_plugin_toggle_updates_local_curated_plugin_skills
+        PASS [   0.308s] ( 894/1119) codex-app-server::all suite::v2::thread_list::thread_list_archived_filter
+        PASS [   0.303s] ( 895/1119) codex-app-server::all suite::v2::thread_list::thread_list_backwards_cursor_can_seed_forward_delta_sync
+        PASS [   0.300s] ( 896/1119) codex-app-server::all suite::v2::thread_list::thread_list_basic_empty
+        PASS [   0.306s] ( 897/1119) codex-app-server::all suite::v2::thread_list::thread_list_created_at_tie_breaks_by_uuid
+        PASS [   0.299s] ( 898/1119) codex-app-server::all suite::v2::thread_list::thread_list_default_sorts_by_created_at
+        PASS [   0.293s] ( 899/1119) codex-app-server::all suite::v2::thread_list::thread_list_empty_source_kinds_defaults_to_interactive_only
+        PASS [   0.347s] ( 900/1119) codex-app-server::all suite::v2::thread_list::thread_list_fetches_until_limit_or_exhausted
+        PASS [   0.297s] ( 901/1119) codex-app-server::all suite::v2::thread_list::thread_list_filters_by_source_kind_subagent_thread_spawn
+        PASS [   0.491s] ( 902/1119) codex-app-server::all suite::v2::thread_list::thread_list_enforces_max_limit
+        PASS [   0.286s] ( 903/1119) codex-app-server::all suite::v2::thread_list::thread_list_filters_by_subagent_variant
+        PASS [   0.291s] ( 904/1119) codex-app-server::all suite::v2::thread_list::thread_list_includes_git_info
+        PASS [   0.299s] ( 905/1119) codex-app-server::all suite::v2::thread_list::thread_list_invalid_cursor_returns_error
+        PASS [   0.278s] ( 906/1119) codex-app-server::all suite::v2::thread_list::thread_list_pagination_next_cursor_none_on_last_page
+        PASS [   0.289s] ( 907/1119) codex-app-server::all suite::v2::thread_list::thread_list_relation_filters_reject_invalid_requests
+        PASS [   0.350s] ( 908/1119) codex-app-server::all suite::v2::thread_list::thread_list_relation_filters_read_spawn_graph_from_state_db
+        PASS [   0.282s] ( 909/1119) codex-app-server::all suite::v2::thread_list::thread_list_respects_cwd_filters
+        PASS [   0.488s] ( 910/1119) codex-app-server::all suite::v2::thread_list::thread_list_reports_loaded_subagent_direct_input_capability
+        PASS [   0.565s] ( 911/1119) codex-app-server::all suite::v2::thread_list::thread_list_reports_system_error_idle_flag_after_failed_turn
+        PASS [   0.309s] ( 912/1119) codex-app-server::all suite::v2::thread_list::thread_list_respects_provider_filter
+        PASS [   0.371s] ( 913/1119) codex-app-server::all suite::v2::thread_list::thread_list_respects_search_term_filter
+        PASS [   0.334s] ( 914/1119) codex-app-server::all suite::v2::thread_list::thread_list_sort_recency_at_uses_state_db_order_with_provider_filter
+        PASS [   0.317s] ( 915/1119) codex-app-server::all suite::v2::thread_list::thread_list_sort_updated_at_orders_by_mtime
+        PASS [   0.330s] ( 916/1119) codex-app-server::all suite::v2::thread_list::thread_list_state_db_only_returns_sqlite_without_jsonl_repair
+        PASS [   0.309s] ( 917/1119) codex-app-server::all suite::v2::thread_list::thread_list_stops_when_not_enough_filtered_results_exist
+        PASS [   0.312s] ( 918/1119) codex-app-server::all suite::v2::thread_list::thread_list_updated_at_paginates_with_cursor
+        PASS [   0.279s] ( 919/1119) codex-app-server::all suite::v2::thread_list::thread_list_updated_at_tie_breaks_by_uuid
+        PASS [   0.285s] ( 920/1119) codex-app-server::all suite::v2::thread_list::thread_list_updated_at_uses_mtime
+        PASS [   0.315s] ( 921/1119) codex-app-server::all suite::v2::thread_list::thread_search_filters_by_source_kind
+        PASS [   0.305s] ( 922/1119) codex-app-server::all suite::v2::thread_list::thread_search_matches_json_escaped_content
+        PASS [   0.300s] ( 923/1119) codex-app-server::all suite::v2::thread_list::thread_search_returns_content_matches
+        PASS [   0.370s] ( 924/1119) codex-app-server::all suite::v2::thread_loaded_list::thread_loaded_list_returns_loaded_thread_ids
+        PASS [   0.423s] ( 925/1119) codex-app-server::all suite::v2::thread_loaded_list::thread_loaded_list_paginates
+        PASS [   0.332s] ( 926/1119) codex-app-server::all suite::v2::thread_memory_mode_set::thread_memory_mode_set_updates_stored_thread_state
+        PASS [   0.323s] ( 927/1119) codex-app-server::all suite::v2::thread_metadata_update::thread_metadata_update_can_clear_stored_git_fields
+        PASS [   0.400s] ( 928/1119) codex-app-server::all suite::v2::thread_metadata_update::thread_metadata_update_rejects_empty_git_info_patch
+        PASS [   0.286s] ( 929/1119) codex-app-server::all suite::v2::thread_metadata_update::thread_metadata_update_rejects_ephemeral_thread
+        PASS [   0.348s] ( 930/1119) codex-app-server::all suite::v2::thread_metadata_update::thread_metadata_update_repairs_loaded_thread_without_resetting_summary
+        PASS [  10.351s] ( 931/1119) codex-app-server::all suite::v2::thread_fork::thread_fork_can_exclude_turns_and_skip_restored_token_usage
+        PASS [   0.309s] ( 932/1119) codex-app-server::all suite::v2::thread_metadata_update::thread_metadata_update_repairs_missing_sqlite_row_for_archived_thread
+        PASS [   1.920s] ( 933/1119) codex-app-server::all suite::v2::thread_memory_mode_set::thread_memory_mode_set_updates_loaded_thread_state
+        PASS [   0.378s] ( 934/1119) codex-app-server::all suite::v2::thread_metadata_update::thread_metadata_update_repairs_missing_sqlite_row_for_stored_thread
+        PASS [   0.371s] ( 935/1119) codex-app-server::all suite::v2::thread_metadata_update::thread_section_move_pins_and_unpins_with_filtered_recency_pagination
+        PASS [   0.500s] ( 936/1119) codex-app-server::all suite::v2::thread_metadata_update::thread_sections_preserve_server_owned_manual_order_across_moves_and_restarts
+        PASS [   1.977s] ( 937/1119) codex-app-server::all suite::v2::thread_metadata_update::thread_metadata_update_patches_git_branch_and_returns_updated_thread
+        PASS [   0.305s] ( 938/1119) codex-app-server::all suite::v2::thread_read::paginated_stored_thread_routes_projected_turns
+        PASS [   0.610s] ( 939/1119) codex-app-server::all suite::v2::thread_read::paginated_history_lists_and_legacy_reads_use_projected_turns_and_items
+        PASS [   0.830s] ( 940/1119) codex-app-server::all suite::v2::thread_name_websocket::thread_name_updated_broadcasts_for_not_loaded_threads
+        PASS [   0.922s] ( 941/1119) codex-app-server::all suite::v2::thread_name_websocket::thread_name_updated_broadcasts_for_loaded_threads
+        PASS [   0.093s] ( 942/1119) codex-app-server::all suite::v2::thread_read::thread_list_includes_store_thread_without_rollout_path
+        PASS [   0.389s] ( 943/1119) codex-app-server::all suite::v2::thread_read::paginated_thread_name_set_is_reflected_in_read_list_and_metadata_resume
+        PASS [   0.267s] ( 944/1119) codex-app-server::all suite::v2::thread_read::thread_items_list_returns_unsupported
+        PASS [   0.103s] ( 945/1119) codex-app-server::all suite::v2::thread_read::thread_read_loaded_include_turns_reads_store_history_without_rollout_path
+        PASS [   0.316s] ( 946/1119) codex-app-server::all suite::v2::thread_read::thread_read_can_include_turns
+        PASS [   0.320s] ( 947/1119) codex-app-server::all suite::v2::thread_read::thread_read_can_return_archived_threads_by_id
+        PASS [   0.366s] ( 948/1119) codex-app-server::all suite::v2::thread_read::thread_read_include_turns_rejects_unmaterialized_loaded_thread
+        PASS [   0.380s] ( 949/1119) codex-app-server::all suite::v2::thread_read::thread_read_loaded_thread_returns_precomputed_path_before_materialization
+        PASS [   0.283s] ( 950/1119) codex-app-server::all suite::v2::thread_read::thread_read_returns_summary_without_turns
+        PASS [   0.426s] ( 951/1119) codex-app-server::all suite::v2::thread_read::thread_read_returns_forked_from_id_for_forked_threads
+        PASS [   0.505s] ( 952/1119) codex-app-server::all suite::v2::thread_read::thread_read_reports_system_error_idle_flag_after_failed_turn
+        PASS [   0.084s] ( 953/1119) codex-app-server::all suite::v2::thread_read::thread_turns_list_reads_store_history_without_rollout_path
+        PASS [   0.388s] ( 954/1119) codex-app-server::all suite::v2::thread_read::thread_resume_initial_turns_page_matches_requested_turns_list_page
+        PASS [   0.317s] ( 955/1119) codex-app-server::all suite::v2::thread_read::thread_turns_list_can_page_backward_and_forward
+        PASS [   0.316s] ( 956/1119) codex-app-server::all suite::v2::thread_read::thread_turns_list_rejects_cursor_when_anchor_turn_is_rolled_back
+        PASS [   0.369s] ( 957/1119) codex-app-server::all suite::v2::thread_read::thread_turns_list_rejects_unmaterialized_loaded_thread
+        PASS [   0.319s] ( 958/1119) codex-app-server::all suite::v2::thread_read::thread_turns_list_supports_requested_items_view
+        PASS [   0.890s] ( 959/1119) codex-app-server::all suite::v2::thread_read::thread_search_occurrences_reads_paginated_projection
+        PASS [   0.507s] ( 960/1119) codex-app-server::all suite::v2::thread_resume::cold_paginated_resume_omits_usage_when_its_turn_is_ambiguous
+        PASS [   0.484s] ( 961/1119) codex-app-server::all suite::v2::thread_resume::cold_paginated_resume_restores_usage_without_loading_turns
+        PASS [   0.302s] ( 962/1119) codex-app-server::all suite::v2::thread_resume::thread_goal_get_rejects_unmaterialized_thread
+        PASS [   0.583s] ( 963/1119) codex-app-server::all suite::v2::thread_resume::goal_first_live_thread_appears_in_state_db_thread_list
+        PASS [   0.374s] ( 964/1119) codex-app-server::all suite::v2::thread_resume::thread_goal_mutations_preserve_authoritative_sqlite_metadata
+        PASS [   0.390s] ( 965/1119) codex-app-server::all suite::v2::thread_resume::thread_goal_set_edits_objective_without_resetting_usage
+        PASS [   0.483s] ( 966/1119) codex-app-server::all suite::v2::thread_resume::thread_goal_set_persists_resumable_stopped_statuses
+        PASS [   0.016s] ( 967/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_accepts_personality_override
+        PASS [   0.346s] ( 968/1119) codex-app-server::all suite::v2::thread_resume::thread_goal_set_repairs_missing_sqlite_metadata
+        PASS [   0.515s] ( 969/1119) codex-app-server::all suite::v2::thread_resume::thread_goal_set_preserves_budget_limited_same_objective
+        PASS [   0.374s] ( 970/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_and_read_interrupt_incomplete_rollout_turn_when_thread_is_idle
+        PASS [   1.189s] ( 971/1119) codex-app-server::all suite::v2::thread_resume::thread_goal_lifecycle_emits_analytics_and_clear_deletes_goal
+        PASS [   0.343s] ( 972/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_can_load_source_by_external_path
+        PASS [   0.361s] ( 973/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_can_skip_turns_for_metadata_only_resume
+        PASS [   0.502s] ( 974/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_can_skip_turns_when_thread_is_running
+        PASS [   0.445s] ( 975/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_emits_restored_token_usage_before_next_turn
+        PASS [   0.575s] ( 976/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_defers_updated_at_until_turn_start
+        PASS [   0.366s] ( 977/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_fails_when_required_mcp_server_fails_to_initialize
+        PASS [   0.497s] ( 978/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_keeps_paused_goal_paused
+        PASS [   0.443s] ( 979/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_prefers_persisted_git_metadata_for_local_threads
+        PASS [   0.630s] ( 980/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_keeps_in_flight_turn_streaming
+        PASS [   0.981s] ( 981/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_paginated_model_context_preserves_original_metadata
+        PASS [   0.695s] ( 982/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_preserves_persisted_approvals_reviewer
+        PASS [   0.878s] ( 983/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_preserves_goal_first_and_fork_approvals_reviewer
+        PASS [   0.956s] ( 984/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_preserves_acknowledged_model_effort_and_approvals_reviewer_update
+        PASS [   0.306s] ( 985/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_rejects_archived_session_by_id
+        PASS [   0.514s] ( 986/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_rejects_history_when_thread_is_running
+        PASS [   0.555s] ( 987/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_rejects_mismatched_path_for_running_thread_id
+        PASS [   1.094s] ( 988/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_redacts_payloads_for_chatgpt_remote_clients
+        PASS [   0.952s] ( 989/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_rejects_legacy_writer_owned_by_another_process
+        PASS [   0.379s] ( 990/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_rejects_unmaterialized_thread
+        PASS [   0.705s] ( 991/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_rejoins_running_paginated_thread_with_initial_page
+        PASS [   1.081s] ( 992/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_rejects_paginated_writer_owned_by_another_process
+        PASS [   0.781s] ( 993/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_replays_pending_command_execution_request_approval
+        PASS [   0.349s] ( 994/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_returns_rollout_history
+        PASS [   0.823s] ( 995/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_replays_pending_file_change_request_approval
+        PASS [   0.509s] ( 996/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_running_thread_uses_cached_instruction_sources
+        PASS [   0.858s] ( 997/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_running_thread_tracks_thread_originator_in_analytics
+        PASS [   0.733s] ( 998/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_supports_history_and_overrides
+        PASS [   0.531s] ( 999/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_surfaces_cloud_config_bundle_load_errors
+        PASS [   0.409s] (1000/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_token_usage_replay_can_belong_to_interrupted_turn
+        PASS [   0.348s] (1001/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_token_usage_replay_ignores_stale_interrupted_tail_turn
+        PASS [   0.585s] (1002/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_tracks_thread_initialized_analytics
+        PASS [   0.429s] (1003/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_with_empty_path_uses_running_thread_id
+        PASS [   0.697s] (1004/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_uses_path_over_non_running_thread_id
+        PASS [   0.268s] (1005/1119) codex-app-server::all suite::v2::thread_rollback::thread_rollback_does_not_emit_deprecation_notice_to_codex_tui
+        PASS [   0.502s] (1006/1119) codex-app-server::all suite::v2::thread_resume::turn_start_updates_runtime_workspace_roots_for_loaded_thread
+        PASS [   0.310s] (1007/1119) codex-app-server::all suite::v2::thread_rollback::thread_rollback_rejects_paginated_thread
+        PASS [   0.883s] (1008/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_with_overrides_defers_updated_at_until_turn_start
+        PASS [   0.552s] (1009/1119) codex-app-server::all suite::v2::thread_rollback::thread_rollback_drops_last_turns_and_persists_to_rollout
+        PASS [   0.283s] (1010/1119) codex-app-server::all suite::v2::thread_sections::custom_section_management_rejects_empty_names_missing_ids_and_pinned_mutations
+        PASS [   0.439s] (1011/1119) codex-app-server::all suite::v2::thread_sections::custom_sections_remain_discoverable_across_ordered_updates_and_restart
+        PASS [   0.429s] (1012/1119) codex-app-server::all suite::v2::thread_sections::deleting_custom_sections_unassigns_active_and_archived_members
+        PASS [   0.432s] (1013/1119) codex-app-server::all suite::v2::thread_settings_update::thread_settings_update_cwd_retargets_default_environment
+        PASS [   0.458s] (1014/1119) codex-app-server::all suite::v2::thread_settings_update::thread_settings_update_emits_notification_and_updates_future_turns
+        PASS [   0.449s] (1015/1119) codex-app-server::all suite::v2::thread_settings_update::thread_settings_update_null_service_tier_uses_default
+        PASS [   0.290s] (1016/1119) codex-app-server::all suite::v2::thread_settings_update::thread_settings_update_rejects_sandbox_policy_with_permissions
+        PASS [   0.563s] (1017/1119) codex-app-server::all suite::v2::thread_shell_command::thread_shell_command_history_responses_exclude_persisted_command_executions
+        PASS [   0.591s] (1018/1119) codex-app-server::all suite::v2::thread_settings_update::turn_start_settings_override_emits_thread_settings_updated
+        PASS [   0.356s] (1019/1119) codex-app-server::all suite::v2::thread_shell_command::thread_shell_command_returns_error_when_local_environment_is_disabled
+        PASS [   0.584s] (1020/1119) codex-app-server::all suite::v2::thread_shell_command::thread_shell_command_uses_existing_active_turn
+        PASS [   0.343s] (1021/1119) codex-app-server::all suite::v2::thread_start::thread_start_accepts_absolute_runtime_workspace_roots
+        PASS [   0.326s] (1022/1119) codex-app-server::all suite::v2::thread_start::thread_start_accepts_default_service_tier
+        PASS [   0.310s] (1023/1119) codex-app-server::all suite::v2::thread_start::thread_start_accepts_metrics_service_name
+        PASS [   0.320s] (1024/1119) codex-app-server::all suite::v2::thread_start::thread_start_creates_thread_and_emits_started
+        PASS [   0.558s] (1025/1119) codex-app-server::all suite::v2::thread_start::thread_start_does_not_repeat_initialize_exec_policy_warning
+        PASS [   0.344s] (1026/1119) codex-app-server::all suite::v2::thread_start::thread_start_does_not_wait_for_optional_http_mcp_auth_discovery
+        PASS [   0.345s] (1027/1119) codex-app-server::all suite::v2::thread_start::thread_start_drops_unsupported_service_tier_id
+        PASS [   2.567s] (1028/1119) codex-app-server::all suite::v2::thread_settings_update::thread_settings_update_while_turn_is_active_emits_notification
+        PASS [   0.350s] (1029/1119) codex-app-server::all suite::v2::thread_start::thread_start_emits_mcp_server_status_updated_notifications
+        PASS [   0.367s] (1030/1119) codex-app-server::all suite::v2::thread_start::thread_start_ephemeral_remains_pathless
+        PASS [   0.360s] (1031/1119) codex-app-server::all suite::v2::thread_start::thread_start_fails_when_required_mcp_server_fails_to_initialize
+        PASS [   0.379s] (1032/1119) codex-app-server::all suite::v2::thread_start::thread_start_excludes_profile_workspace_roots_from_runtime_workspace_roots
+        PASS [   0.371s] (1033/1119) codex-app-server::all suite::v2::thread_start::thread_start_preserves_untrusted_project_trust
+        PASS [   0.392s] (1034/1119) codex-app-server::all suite::v2::thread_start::thread_start_history_mode_accepts_legacy_and_paginated
+        PASS [   0.372s] (1035/1119) codex-app-server::all suite::v2::thread_start::thread_start_provider_model_fallback_applies_to_configured_model
+        PASS [   0.303s] (1036/1119) codex-app-server::all suite::v2::thread_start::thread_start_rejects_relative_environment_cwd_as_invalid_request
+        PASS [   0.380s] (1037/1119) codex-app-server::all suite::v2::thread_start::thread_start_provider_model_fallback_ignores_dynamic_catalog
+        PASS [   0.401s] (1038/1119) codex-app-server::all suite::v2::thread_start::thread_start_provider_model_fallback_uses_bedrock_static_catalog
+        PASS [   0.283s] (1039/1119) codex-app-server::all suite::v2::thread_start::thread_start_rejects_unknown_environment_as_invalid_request
+        PASS [   0.345s] (1040/1119) codex-app-server::all suite::v2::thread_start::thread_start_respects_project_config_from_cwd
+        PASS [   0.357s] (1041/1119) codex-app-server::all suite::v2::thread_start::thread_start_response_excludes_empty_project_instruction_source
+        PASS [   0.333s] (1042/1119) codex-app-server::all suite::v2::thread_start::thread_start_response_includes_loaded_instruction_sources
+        PASS [   0.318s] (1043/1119) codex-app-server::all suite::v2::thread_start::thread_start_skips_trust_write_when_project_is_already_trusted
+        PASS [   0.493s] (1044/1119) codex-app-server::all suite::v2::thread_start::thread_start_surfaces_cloud_config_bundle_load_errors
+        PASS [   0.396s] (1045/1119) codex-app-server::all suite::v2::thread_start::thread_start_warns_for_exec_policy_parse_failure_after_initialize
+        PASS [   0.583s] (1046/1119) codex-app-server::all suite::v2::thread_start::thread_start_tracks_thread_initialized_analytics
+        PASS [   0.329s] (1047/1119) codex-app-server::all suite::v2::thread_start::thread_start_with_elevated_sandbox_trusts_project_and_followup_loads_project_config
+        PASS [   0.344s] (1048/1119) codex-app-server::all suite::v2::thread_start::thread_start_with_nested_git_cwd_trusts_repo_root
+        PASS [   0.389s] (1049/1119) codex-app-server::all suite::v2::thread_start::thread_start_with_read_only_sandbox_does_not_persist_project_trust
+        PASS [   0.445s] (1050/1119) codex-app-server::all suite::v2::thread_start::thread_start_without_selected_environment_includes_only_global_instruction_source
+        PASS [   0.458s] (1051/1119) codex-app-server::all suite::v2::thread_unarchive::thread_unarchive_moves_rollout_back_into_sessions_directory
+        PASS [   0.086s] (1052/1119) codex-app-server::all suite::v2::thread_unarchive::thread_unarchive_preserves_pathless_store_metadata
+        PASS [   0.675s] (1053/1119) codex-app-server::all suite::v2::thread_status::thread_status_changed_emits_runtime_updates
+        PASS [   0.951s] (1054/1119) codex-app-server::all suite::v2::thread_status::thread_status_changed_can_be_opted_out
+        PASS [   0.585s] (1055/1119) codex-app-server::all suite::v2::thread_unsubscribe::thread_unsubscribe_keeps_thread_loaded_until_idle_timeout
+        PASS [   0.746s] (1056/1119) codex-app-server::all suite::v2::thread_unsubscribe::thread_unsubscribe_during_turn_keeps_turn_running
+        PASS [   0.645s] (1057/1119) codex-app-server::all suite::v2::thread_unsubscribe::thread_unsubscribe_preserves_cached_status_before_idle_unload
+        PASS [   0.246s] (1058/1119) codex-app-server::all suite::v2::thread_unsubscribe::thread_unsubscribe_reports_not_subscribed_before_idle_unload
+        PASS [  10.414s] (1059/1119) codex-app-server::all suite::v2::thread_resume::thread_resume_skips_restored_token_usage_when_turns_are_excluded
+        PASS [   0.519s] (1060/1119) codex-app-server::all suite::v2::turn_interrupt::turn_interrupt_rejects_completed_turn
+        PASS [   0.012s] (1061/1119) codex-app-server::all suite::v2::turn_start::command_execution_notifications_include_process_id
+        PASS [   0.010s] (1062/1119) codex-app-server::all suite::v2::turn_start::command_execution_notifications_include_trusted_plugin_id
+        PASS [   0.620s] (1063/1119) codex-app-server::all suite::v2::turn_interrupt::turn_interrupt_resolves_pending_command_approval_request
+        PASS [   0.012s] (1064/1119) codex-app-server::all suite::v2::turn_start::thread_start_ignores_deprecated_multi_agent_mode
+        PASS [   0.489s] (1065/1119) codex-app-server::all suite::v2::turn_start::direct_input_to_multi_agent_v2_subagent_is_rejected
+        PASS [   0.453s] (1066/1119) codex-app-server::all suite::v2::turn_start::thread_start_omits_empty_instruction_overrides_from_model_request
+        PASS [   0.016s] (1067/1119) codex-app-server::all suite::v2::turn_start::turn_start_accepts_collaboration_mode_override_v2
+        PASS [   0.904s] (1068/1119) codex-app-server::all suite::v2::turn_start::code_mode_exec_emits_correlated_production_analytics
+        PASS [   0.015s] (1069/1119) codex-app-server::all suite::v2::turn_start::turn_start_accepts_personality_override_v2
+        PASS [   1.369s] (1070/1119) codex-app-server::all suite::v2::turn_interrupt::turn_interrupt_aborts_running_turn
+        PASS [   0.499s] (1071/1119) codex-app-server::all suite::v2::turn_start::turn_start_accepts_managed_network_profile_from_requirements
+        PASS [   0.010s] (1072/1119) codex-app-server::all suite::v2::turn_start::turn_start_change_personality_mid_thread_v2
+        PASS [   0.468s] (1073/1119) codex-app-server::all suite::v2::turn_start::turn_start_additional_context_flows_to_model_input
+        PASS [   0.012s] (1074/1119) codex-app-server::all suite::v2::turn_start::turn_start_does_not_stream_apply_patch_change_updates_without_feature_v2
+        PASS [   0.989s] (1075/1119) codex-app-server::all suite::v2::turn_start::turn_profile_tracks_blocking_tool_and_follow_up_sampling
+        PASS [   0.388s] (1076/1119) codex-app-server::all suite::v2::turn_start::turn_start_defaults_local_image_detail_to_high
+        PASS [   0.785s] (1077/1119) codex-app-server::all suite::v2::turn_start::turn_start_accepts_text_at_limit_with_mention_item
+        PASS [   0.017s] (1078/1119) codex-app-server::all suite::v2::turn_start::turn_start_emits_spawn_agent_item_with_model_metadata_v2
+        PASS [   0.018s] (1079/1119) codex-app-server::all suite::v2::turn_start::turn_start_emits_spawn_agent_item_with_effective_role_model_metadata_v2
+        PASS [   0.554s] (1080/1119) codex-app-server::all suite::v2::turn_start::turn_start_emits_notifications_and_accepts_model_override
+        PASS [   0.016s] (1081/1119) codex-app-server::all suite::v2::turn_start::turn_start_exec_approval_decline_v2
+        PASS [   0.015s] (1082/1119) codex-app-server::all suite::v2::turn_start::turn_start_exec_approval_invalid_response_v2
+        PASS [   0.017s] (1083/1119) codex-app-server::all suite::v2::turn_start::turn_start_exec_approval_toggle_v2
+        PASS [   0.014s] (1084/1119) codex-app-server::all suite::v2::turn_start::turn_start_explicit_local_environment_updates_legacy_cwd_between_turns
+        PASS [   0.016s] (1085/1119) codex-app-server::all suite::v2::turn_start::turn_start_file_change_approval_accept_for_session_persists_v2
+        PASS [   0.015s] (1086/1119) codex-app-server::all suite::v2::turn_start::turn_start_file_change_approval_decline_v2
+        PASS [   0.015s] (1087/1119) codex-app-server::all suite::v2::turn_start::turn_start_file_change_approval_invalid_response_v2
+        PASS [   0.016s] (1088/1119) codex-app-server::all suite::v2::turn_start::turn_start_file_change_approval_v2
+        PASS [   0.437s] (1089/1119) codex-app-server::all suite::v2::turn_start::turn_start_emits_thread_scoped_warning_notification_for_trimmed_skills
+        PASS [   0.011s] (1090/1119) codex-app-server::all suite::v2::turn_start::turn_start_ignores_deprecated_multi_agent_mode
+        PASS [   0.489s] (1091/1119) codex-app-server::all suite::v2::turn_start::turn_start_emits_raw_response_completed_with_upstream_usage
+        PASS [   0.013s] (1092/1119) codex-app-server::all suite::v2::turn_start::turn_start_permission_profile_rebinds_runtime_workspace_roots_between_turns
+        PASS [   0.501s] (1093/1119) codex-app-server::all suite::v2::turn_start::turn_start_emits_user_message_item_with_text_elements
+        PASS [   0.455s] (1094/1119) codex-app-server::all suite::v2::turn_start::turn_start_forwards_custom_local_image_detail
+        PASS [   0.647s] (1095/1119) codex-app-server::all suite::v2::turn_start::turn_start_rejects_invalid_permission_selection_before_starting_turn
+        PASS [   0.614s] (1096/1119) codex-app-server::all suite::v2::turn_start::turn_start_rejects_unknown_environment_before_starting_turn
+        PASS [   0.677s] (1097/1119) codex-app-server::all suite::v2::turn_start::turn_start_rejects_combined_oversized_text_input
+        PASS [   0.013s] (1098/1119) codex-app-server::all suite::v2::turn_start::turn_start_streams_apply_patch_change_updates_v2
+        PASS [   0.497s] (1099/1119) codex-app-server::all suite::v2::turn_start::turn_start_sends_originator_header
+        PASS [   0.502s] (1100/1119) codex-app-server::all suite::v2::turn_start::turn_start_sends_service_tier_id_to_model_request
+        PASS [   0.012s] (1101/1119) codex-app-server::all suite::v2::turn_start::turn_start_uses_thread_feature_overrides_for_request_user_input_tool_description_v2
+        PASS [   1.088s] (1102/1119) codex-app-server::all suite::v2::turn_start::turn_start_resolves_sticky_thread_local_environment_and_turn_overrides
+        PASS [   0.011s] (1103/1119) codex-app-server::all suite::v2::turn_start_zsh_fork::turn_start_shell_zsh_fork_exec_approval_cancel_v2
+        PASS [   0.011s] (1104/1119) codex-app-server::all suite::v2::turn_start_zsh_fork::turn_start_shell_zsh_fork_exec_approval_decline_v2
+        PASS [   0.016s] (1105/1119) codex-app-server::all suite::v2::turn_start_zsh_fork::turn_start_shell_zsh_fork_executes_command_v2
+        PASS [   0.017s] (1106/1119) codex-app-server::all suite::v2::turn_start_zsh_fork::turn_start_shell_zsh_fork_subcommand_decline_marks_parent_declined_v2
+        PASS [   0.456s] (1107/1119) codex-app-server::all suite::v2::turn_start::turn_start_with_empty_input_runs_model_request
+        PASS [   0.498s] (1108/1119) codex-app-server::all suite::v2::turn_start::turn_start_with_elevated_override_does_not_persist_project_trust
+        PASS [   0.980s] (1109/1119) codex-app-server::all suite::v2::turn_start::turn_start_tracks_thread_originator_in_analytics
+        PASS [   0.679s] (1110/1119) codex-app-server::all suite::v2::turn_steer::turn_steer_rejects_oversized_text_input
+        PASS [   0.695s] (1111/1119) codex-app-server::all suite::v2::turn_steer::turn_steer_requires_active_turn
+        PASS [   0.456s] (1112/1119) codex-app-server::all suite::v2::view_image::guardian_reviewer_inherits_disabled_view_image
+        PASS [   0.762s] (1113/1119) codex-app-server::all suite::v2::view_image::fresh_context_subagent_inherits_disabled_view_image_and_mcp_tools
+        PASS [   1.982s] (1114/1119) codex-app-server::all suite::v2::turn_steer::turn_steer_rejects_context_only_input_without_merging_context
+        PASS [   0.679s] (1115/1119) codex-app-server::all suite::v2::web_search::standalone_web_search_round_trips_output_for_custom_provider
+        PASS [   0.270s] (1116/1119) codex-app-server::all suite::v2::windows_sandbox_setup::windows_sandbox_setup_start_emits_completion_notification
+        PASS [   0.253s] (1117/1119) codex-app-server::all suite::v2::windows_sandbox_setup::windows_sandbox_setup_start_rejects_relative_cwd
+        PASS [   1.208s] (1118/1119) codex-app-server::all suite::v2::web_search::standalone_web_search_round_trips_output
+        PASS [   3.052s] (1119/1119) codex-app-server::all suite::v2::turn_steer::turn_steer_returns_active_turn_id
+────────────
+     Summary [ 132.864s] 1119 tests run: 1115 passed, 4 failed, 1 skipped
+  TRY 2 FAIL [   0.021s] ( 450/1119) codex-app-server::all suite::v2::executor_mcp::selected_executor_plugin_exposes_its_mcps_only_to_that_thread
+  TRY 2 FAIL [   0.025s] ( 578/1119) codex-app-server::all suite::v2::mcp_server_status::mcp_server_status_list_waits_for_live_stdio_metadata_before_using_cached_tools
+  TRY 2 FAIL [   0.015s] ( 837/1119) codex-app-server::all suite::v2::selected_capability_stack::selected_capabilities_become_available_between_samples_in_one_turn
+  TRY 2 FAIL [   0.016s] ( 838/1119) codex-app-server::all suite::v2::selected_capability_stack::selected_capability_stack_tracks_environment_availability_and_resume
+error: test run failed

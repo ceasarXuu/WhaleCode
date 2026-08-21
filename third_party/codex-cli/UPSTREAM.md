@@ -5,32 +5,67 @@ Imported for WhaleCode as a whole-repo upstream substrate.
 | Field | Value |
 | --- | --- |
 | Upstream repository | https://github.com/openai/codex |
-| Upstream ref | `refs/heads/main` |
-| Upstream commit | `fed0a8f4faa58db3138488cca77628c1d54a2cd8` |
+| Original import ref | `refs/heads/main` |
+| Initial imported baseline commit | `fed0a8f4faa58db3138488cca77628c1d54a2cd8` |
 | Commit date | 2026-04-26T19:49:54Z |
 | Import date | 2026-04-27 |
 | Import method | GitHub codeload tarball |
-| Tarball URL | https://codeload.github.com/openai/codex/tar.gz/refs/heads/main |
+| Original tarball URL | https://codeload.github.com/openai/codex/tar.gz/refs/heads/main |
+| Immutable baseline tarball | https://codeload.github.com/openai/codex/tar.gz/fed0a8f4faa58db3138488cca77628c1d54a2cd8 |
 | Local vendor path | `third_party/codex-cli/` |
 | Nested Git metadata | Not imported |
-| Local patch count | 1 active Whale overlay |
+| Current vendor state | `rust-v0.149.0` substrate + verified Whale identity, DeepSeek Responses, cache and TaskSpace overlay |
+| Overlay inventory | [`overlay-inventory.json`](../../docs/v0.0.5/codex-upstream-sync/overlay-inventory.json) |
+| Authoritative backport ledger | [`backport-ledger.json`](../../docs/v0.0.5/codex-upstream-sync/backport-ledger.json) |
+| Provenance backlog | [`backport-provenance-backlog.json`](../../docs/v0.0.5/codex-upstream-sync/backport-provenance-backlog.json) |
+| Current imported substrate | `rust-v0.149.0` / `758ef40f50c1a458425c7cfbf1eb12cbc07af0b0` |
+| Candidate qualification | [`upstream-candidate.json`](../../docs/v0.0.5/codex-upstream-sync/upstream-candidate.json), direction-supported with known test risks |
+| Upstream delta | [`upstream-delta-inventory.json`](../../docs/v0.0.5/codex-upstream-sync/upstream-delta-inventory.json) |
+| Overlay replay ledger | [`overlay-replay-ledger.json`](../../docs/v0.0.5/codex-upstream-sync/overlay-replay-ledger.json) |
 | License | Apache-2.0, see `LICENSE` |
 
-The vendor tree should stay as close to upstream as possible, but the first
-Whale runtime cut intentionally applies a small direct overlay for user-visible
-branding, DeepSeek defaults, and text-only provider compatibility. Keep crate
-names and broad module shape close to upstream unless a Whale runtime boundary
-requires otherwise.
+This is a derived vendor tree, not an unchanged snapshot of the initial
+baseline. The machine-generated inventory is the source of truth for path
+counts and classification; this file intentionally does not carry a manually
+maintained patch count. The authoritative ledger records confirmed selective
+backports. Inferred upstream provenance remains separate until its source and
+verification evidence are proved.
 
-Current local overlay:
+Current verified Whale overlay:
 
-- `whale` CLI binary and user-facing Whale naming.
+- `whale` primary CLI binary and top-level command identity.
 - `WHALE_HOME` / `~/.whale` runtime home isolation.
-- DeepSeek provider as the default, using `DEEPSEEK_API_KEY` and
-  Chat Completions streaming.
-- Unsupported OpenAI-specific entry points hidden or disabled for the Whale
-  build: desktop app integration, cloud/app server commands, remote auth,
-  native image input, native web search, and upstream self-update.
+- Whale-scoped direct and encrypted auth keyring services.
+- `remote_plugin` and `plugin_sharing` remain disabled by default while the
+  existing local `plugins` capability remains enabled.
+- Built-in DeepSeek Responses API provider, `DEEPSEEK_API_KEY`, Flash default,
+  visible Flash/Pro catalog, provider accounting, 1M context and Pro-backed
+  compaction.
+- Free final-wire/cache contracts for DeepSeek Standard and TaskSpace; the
+  accepted live cache baseline remains unchanged because no real model run was
+  authorized or required for this refresh.
+- TaskSpace R8 canonical domain and replay state, the single relational
+  state-runtime store, built-in `taskspace_exec` execution path, experimental
+  app-server RPC/events and fork/restart restoration. Legacy v2 JSON tables are
+  retained under `taskspace_v2_*` as a non-active archive during migration.
+
+The current generated overlay inventory is the authority for changed vendor
+paths relative to the immutable `rust-v0.149.0` tree. It includes production
+overlay, tests and generated protocol artifacts. OpenAI/ChatGPT login product UI, OpenAI-hosted remote
+plugin sharing and recommendations, Bedrock-specific model catalogs, remaining
+user-facing branding cleanup, Windows validation and the known TaskSpace TUI
+fixture remain outside the verified release matrix.
 
 Every future upstream refresh must update this file and add a matching sync log
-under `docs/migration/codex-sync/`.
+under `docs/migration/codex-sync/`. Validate the current state from the
+repository root with:
+
+```text
+python3 scripts/codex-upstream/validate_sync_metadata.py
+```
+
+The release-closeout evidence is recorded in
+[`2026-08-14-u17-release-closeout.md`](../../docs/migration/codex-sync/2026-08-14-u17-release-closeout.md). The subsequent project-main rebase and
+R8 semantic migration are recorded in
+[`2026-08-21-u18-main-rebase-r8-semantic-migration.md`](../../docs/migration/codex-sync/2026-08-21-u18-main-rebase-r8-semantic-migration.md). The 0.149 vendor cutover, product-matrix validation and accepted live cache qualification are recorded in
+[`2026-08-21-u19-codex-0149-release-closeout.md`](../../docs/migration/codex-sync/2026-08-21-u19-codex-0149-release-closeout.md).
