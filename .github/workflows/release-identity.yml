@@ -1,11 +1,12 @@
 name: release-identity
 
 on:
-  pull_request:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+    inputs:
+      version:
+        description: Whale product version (without v prefix)
+        required: true
+        default: 0.0.5
 
 permissions:
   contents: read
@@ -17,15 +18,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      - name: Check Whale and Codex release identities
-        run: python3 scripts/release/check_release_identity.py --tag v0.0.5
-      - name: Check Whale distribution ownership
-        run: python3 scripts/release/check_distribution_identity.py
-      - name: Check Whale user-visible brand identity
-        run: python3 scripts/release/check_brand_identity.py
-      - name: Check Whale npm release candidate
-        run: python3 scripts/release/check_npm_release_candidate.py --tag v0.0.5
-      - name: Check Whale native artifact workflow
-        run: python3 scripts/release/check_native_artifact_workflow.py
-      - name: Test release identity guard
-        run: python3 -m unittest discover -s scripts/release/tests -p 'test_*.py'
+      - name: Run local release preflight contract
+        env:
+          VERSION: ${{ inputs.version }}
+        run: bash scripts/release/run_local_preflight.sh "$VERSION"
