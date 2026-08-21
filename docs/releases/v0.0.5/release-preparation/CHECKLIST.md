@@ -44,9 +44,9 @@
 - [x] 选择 WhaleCode 原生构建 run `32495900738`；未使用 OpenAI/Codex vendor release run
 - [x] 已获用户授权并手动触发 `whale-native-artifacts`：最终候选来源为 main `77d6bf093`，输入版本为 `0.0.5`
 - [x] 六个平台制品齐全：Linux x64/arm64、macOS x64/arm64、Windows x64/arm64
-- [ ] 每个平台归档内的可执行文件名为 `whale` 或 `whale.exe`，且 `--version` 返回 `whale 0.0.5`
+- [x] 六平台草稿 npm 包均在对应原生 runner 的隔离前缀执行成功，`--version` 返回 `whale 0.0.5`
 - [x] 记录最终七个 npm tarball 的 SHA-256，并核对 staging 没有混入本机路径、凭据、日志或额外文件
-- [ ] 至少在 Linux、macOS、Windows 各完成一次全新 prefix 安装 smoke；同时确认已有官方 `codex` 命令未被覆盖
+- [x] Linux、macOS、Windows 双架构均完成隔离 prefix 安装 smoke，且未生成或覆盖 `codex` 命令（run `32521520611`）
 
 ### 发布与回滚授权
 
@@ -59,7 +59,7 @@
 ## 尚待外部输入
 
 - 六个平台构建均成功；manifest runner 因 GitHub 账户付款失败或 spending limit 被平台拒绝启动，本地使用同一 run 制品完成了相同聚合合同校验。发布者仍须修复 GitHub Actions 计费门禁。
-- Windows ARM64 hosted public-preview runner 已成功构建并上传；Windows/macOS 的实际安装 smoke 仍须在对应系统执行。
+- Windows ARM64 hosted public-preview runner 已成功构建、上传并完成隔离安装 smoke。
 - Chrome 网页账号权限已确认，但本机 `npm whoami` 返回 `ENEEDAUTH`；发布前仍须在 CLI 发布环境完成登录并确认 token/OTP 与 2FA。
 - `release.json` 保持 `status=preparing`、`publish_authorized=false`，直到上述人工项签核且用户明确授权实际发布。
 
