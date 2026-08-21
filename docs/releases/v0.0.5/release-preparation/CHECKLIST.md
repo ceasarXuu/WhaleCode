@@ -51,6 +51,7 @@
 ### 发布与回滚授权
 
 - [x] 已确认创建 GitHub Release 作为发布页；创建/推送 `v0.0.5` tag 与发布七个 npm 版本仍须另行明确授权
+- [x] 已创建仅发布者可见的草稿 Release，目标为六平台候选提交 `77d6bf093`，包含七个 npm tarball、manifest 和 SHA256SUMS；远端 tag 尚未创建
 - [ ] 确认发布顺序为六个平台包先发布，根元包最后发布
 - [ ] 确认失败停止条件：任一平台缺失、版本冲突、完整性不符或安装 smoke 失败时，不发布根元包
 - [ ] 确认回滚负责人和操作：修正 npm dist-tag、deprecate 错误版本、撤下 GitHub Release；npm 已发布版本不可覆盖或删除后复用
