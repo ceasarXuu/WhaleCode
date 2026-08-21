@@ -5,8 +5,8 @@ set -euo pipefail
 : "${GITHUB_ENV:?GITHUB_ENV is required}"
 
 case "$TARGET" in
-  x86_64-unknown-linux-musl) arch=x86_64 ;;
-  aarch64-unknown-linux-musl) arch=aarch64 ;;
+  x86_64-unknown-linux-musl) arch=x86_64 ; multiarch=x86_64-linux-gnu ;;
+  aarch64-unknown-linux-musl) arch=aarch64 ; multiarch=aarch64-linux-gnu ;;
   *) echo "unsupported Whale Linux target: $TARGET" >&2; exit 1 ;;
 esac
 
@@ -46,14 +46,13 @@ linker_var="${linker_var//-/_}"
 target_cc_var="CC_${TARGET//-/_}"
 target_cflags_var="CFLAGS_${TARGET//-/_}"
 target_pc_var="PKG_CONFIG_LIBDIR_${TARGET//-/_}"
+uapi_flags="-idirafter /usr/include -idirafter /usr/include/${multiarch}"
 {
   echo "${linker_var}=${linker}"
   echo "CC=${linker}"
   echo "TARGET_CC=${linker}"
   echo "${target_cc_var}=${linker}"
-  echo "CFLAGS=-idirafter /usr/include"
-  echo "TARGET_CFLAGS=-idirafter /usr/include"
-  echo "${target_cflags_var}=-idirafter /usr/include"
+  echo "${target_cflags_var}=${uapi_flags}"
   echo "PKG_CONFIG_ALLOW_CROSS=1"
   echo "PKG_CONFIG_PATH=${pc_dir}"
   echo "${target_pc_var}=${pc_dir}"
