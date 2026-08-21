@@ -1,7 +1,7 @@
 {
   "schema_version": "whalecode-cache-surface-v1",
   "baseline": {
-    "status": "accepted",
+    "status": "live_regression_failed",
     "surface_sha256": "2e419a893a56e491b3325bf4bc94054b3147d866e39d5c927f9d2f16bbcaff79",
     "source_commit": "dddd85413c3352a06bbc1cc89ff28cd0d5190b9e",
     "accepted_at": "2026-08-21T06:05:10+08:00",

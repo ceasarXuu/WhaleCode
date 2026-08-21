@@ -2,7 +2,7 @@
   "schema_version": "whalecode-cache-regression-gate-v1",
   "status": "blocked",
   "source": "head",
-  "subject_commit": "8637fed5d17f421e0507209540a7052e160e54e7",
+  "subject_commit": "7282b520d95696928b8fd963d484d8943a2a1a1a",
   "actual_surface_sha256": "bc5d56702d1ac61498d85d822b0a68ddc0ae58ab533bda1818db2e10fed3bf14",
   "expected_surface_sha256": "2e419a893a56e491b3325bf4bc94054b3147d866e39d5c927f9d2f16bbcaff79",
   "baseline_status": "accepted",
@@ -80,7 +80,7 @@
         "cwd": "third_party/codex-cli/codex-rs",
         "exit_code": 101,
         "timed_out": false,
-        "duration_ms": 28183,
+        "duration_ms": 831,
         "status": "fail",
         "output_tail": [
           "warning: function `redact_sensitive_line` is never used",
@@ -1168,7 +1168,7 @@
         "cwd": "third_party/codex-cli/codex-rs",
         "exit_code": 0,
         "timed_out": false,
-        "duration_ms": 781,
+        "duration_ms": 744,
         "status": "pass",
         "output_tail": [
           "",
@@ -1248,7 +1248,7 @@
         "cwd": "third_party/codex-cli/codex-rs",
         "exit_code": 0,
         "timed_out": false,
-        "duration_ms": 515,
+        "duration_ms": 488,
         "status": "pass",
         "output_tail": [
           "    |",
@@ -1307,7 +1307,7 @@
         "cwd": "third_party/codex-cli/codex-rs",
         "exit_code": 0,
         "timed_out": false,
-        "duration_ms": 334,
+        "duration_ms": 320,
         "status": "pass",
         "output_tail": [
           "",
@@ -1331,7 +1331,7 @@
         "cwd": "third_party/codex-cli/codex-rs",
         "exit_code": 0,
         "timed_out": false,
-        "duration_ms": 408,
+        "duration_ms": 395,
         "status": "pass",
         "output_tail": [
           "",
@@ -1356,7 +1356,7 @@
         "cwd": "third_party/codex-cli/codex-rs",
         "exit_code": 0,
         "timed_out": false,
-        "duration_ms": 484,
+        "duration_ms": 474,
         "status": "pass",
         "output_tail": [
           "    |",
@@ -1414,14 +1414,14 @@
         "cwd": "third_party/codex-cli/codex-rs",
         "exit_code": 0,
         "timed_out": false,
-        "duration_ms": 957,
+        "duration_ms": 914,
         "status": "pass",
         "output_tail": [
           "",
           "running 157 tests",
           "....................................................................................... 87/157",
           "......................................................................",
-          "test result: ok. 157 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s",
+          "test result: ok. 157 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s",
           "",
           "",
           "running 8 tests",
@@ -1436,7 +1436,7 @@
           "",
           "running 6 tests",
           "......",
-          "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s",
+          "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s",
           "",
           "",
           "running 1 test",
@@ -1455,7 +1455,7 @@
         "cwd": ".",
         "exit_code": 0,
         "timed_out": false,
-        "duration_ms": 48,
+        "duration_ms": 58,
         "status": "pass",
         "output_tail": [
           "................",
@@ -1469,12 +1469,7 @@
     ]
   },
   "require_clean_subject": true,
-  "release_relevant_changes": [
-    {
-      "path": "benchmarks/cache-regression/gate-reports/2026-08-21-u19-codex-0149.json",
-      "state": "untracked"
-    }
-  ],
+  "release_relevant_changes": [],
   "surface_file_count": 461,
   "sensitive_changes": []
 }

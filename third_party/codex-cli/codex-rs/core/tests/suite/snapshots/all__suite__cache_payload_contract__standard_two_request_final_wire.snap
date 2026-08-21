@@ -1,6 +1,6 @@
 ---
 source: core/tests/suite/cache_payload_contract.rs
-expression: "serde_json::to_string_pretty(&snapshot)?"
+expression: "render_cache_snapshot(\"standard_two_request_final_wire\", &snapshot)?"
 ---
 {
   "provider_identity": {
@@ -10,11 +10,12 @@ expression: "serde_json::to_string_pretty(&snapshot)?"
   },
   "request_1": {
     "client_metadata": {
+      "root_turn_id": "<ROOT_TURN_ID_1>",
       "session_id": "<SESSION_ID_1>",
       "thread_id": "<THREAD_ID_1>",
       "turn_id": "<TURN_ID_1>",
       "x-codex-installation-id": "<INSTALLATION_ID>",
-      "x-codex-turn-metadata": "{\"installation_id\":\"<INSTALLATION_ID>\",\"request_kind\":\"turn\",\"sandbox\":\"seccomp\",\"session_id\":\"<SESSION_ID_1>\",\"thread_id\":\"<THREAD_ID_1>\",\"turn_id\":\"<TURN_ID_1>\",\"turn_started_at_unix_ms\":\"<TURN_STARTED_AT_UNIX_MS>\",\"window_id\":\"<WINDOW_ID_1>\"}",
+      "x-codex-turn-metadata": "{\"agent_name\":\"<AGENT_NAME>\",\"auto_review_enabled\":false,\"installation_id\":\"<INSTALLATION_ID>\",\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false,\"request_kind\":\"turn\",\"root_turn_id\":\"<ROOT_TURN_ID_1>\",\"sandbox\":\"seccomp\",\"sandbox_mode\":\"read-only\",\"session_id\":\"<SESSION_ID_1>\",\"thread_id\":\"<THREAD_ID_1>\",\"turn_id\":\"<TURN_ID_1>\",\"turn_started_at_unix_ms\":\"<TURN_STARTED_AT_UNIX_MS>\",\"window_id\":\"<WINDOW_ID_1>\"}",
       "x-codex-window-id": "<WINDOW_ID_1>"
     },
     "include": [
@@ -504,11 +505,12 @@ expression: "serde_json::to_string_pretty(&snapshot)?"
   },
   "request_2": {
     "client_metadata": {
+      "root_turn_id": "<ROOT_TURN_ID_2>",
       "session_id": "<SESSION_ID_1>",
       "thread_id": "<THREAD_ID_1>",
       "turn_id": "<TURN_ID_2>",
       "x-codex-installation-id": "<INSTALLATION_ID>",
-      "x-codex-turn-metadata": "{\"installation_id\":\"<INSTALLATION_ID>\",\"request_kind\":\"turn\",\"sandbox\":\"seccomp\",\"session_id\":\"<SESSION_ID_1>\",\"thread_id\":\"<THREAD_ID_1>\",\"turn_id\":\"<TURN_ID_2>\",\"turn_started_at_unix_ms\":\"<TURN_STARTED_AT_UNIX_MS>\",\"window_id\":\"<WINDOW_ID_1>\"}",
+      "x-codex-turn-metadata": "{\"agent_name\":\"<AGENT_NAME>\",\"auto_review_enabled\":false,\"installation_id\":\"<INSTALLATION_ID>\",\"node_repl_auto_review_required\":false,\"node_repl_disabled\":false,\"request_kind\":\"turn\",\"root_turn_id\":\"<ROOT_TURN_ID_2>\",\"sandbox\":\"seccomp\",\"sandbox_mode\":\"read-only\",\"session_id\":\"<SESSION_ID_1>\",\"thread_id\":\"<THREAD_ID_1>\",\"turn_id\":\"<TURN_ID_2>\",\"turn_started_at_unix_ms\":\"<TURN_STARTED_AT_UNIX_MS>\",\"window_id\":\"<WINDOW_ID_1>\"}",
       "x-codex-window-id": "<WINDOW_ID_1>"
     },
     "include": [
