@@ -15,6 +15,9 @@
 - [x] 2026-08-21 只读 registry 快照仅有 `0.0.0-dev*`、`0.0.1-dev*`，尚无 `0.0.5*`（发布前仍须重新查询）
 - [x] cache-sensitive index gate 通过（fingerprint `9c817b9f59426efa097be43988d4731a2e7ba412bad63bdf69a466fcbcaaaced`）
 - [x] main worktree 引用门禁通过，未引用其他本地 worktree
+- [x] Whale 根仓库已建立手动触发、只读权限、六平台并行的未签名原生候选 workflow
+- [x] workflow 静态门禁确认不含 tag trigger、npm publish、GitHub Release、写权限或 vendor release workflow 调用
+- [x] 每个平台输出 npm staging 兼容归档、SHA-256 和 Whale 制品合同，并汇总六平台 manifest
 
 ## 发布者必须人工核验
 
@@ -36,6 +39,7 @@
 ### 原生制品
 
 - [ ] 选择并批准一个 WhaleCode 仓库的原生构建 run URL；不得使用 OpenAI/Codex vendor release run
+- [ ] 手动触发 `whale-native-artifacts`，确认来源为 main 的最终提交、输入版本为 `0.0.5`
 - [ ] 六个平台制品齐全：Linux x64/arm64、macOS x64/arm64、Windows x64/arm64
 - [ ] 每个平台归档内的可执行文件名为 `whale` 或 `whale.exe`，且 `--version` 返回 `whale 0.0.5`
 - [ ] 记录最终七个 npm tarball 的 SHA-256，并核对 staging 没有混入本机路径、凭据、日志或额外文件
@@ -50,14 +54,15 @@
 
 ## 尚待外部输入
 
-- 根仓库当前只有 release preflight CI，尚未建立 Whale 自有的六平台原生构建 workflow；这是实际 npm 发布前必须补齐的工程阻断项，不能用 vendor `rust-release.yml` 代替。
-- 建立 Whale 原生构建 workflow 后，仍需由发布者选定并批准具体 run URL。
+- Whale 自有六平台 workflow 已建立但尚未实际触发；仍需由发布者选定并批准具体 run URL，并人工核验六个平台 runner 的首次结果。
+- Windows ARM64 使用 GitHub hosted public-preview runner；首次运行必须确认 runner 可用性和实际二进制 smoke，失败时不得改用 vendor runner 或减少平台发布范围。
 - npm 发布账号、token/OTP 与 2FA 状态只能由发布者在发布环境确认。
 - `release.json` 保持 `status=preparing`、`publish_authorized=false`，直到上述人工项签核且用户明确授权实际发布。
 
 ## 当前禁止
 
 - 不得运行或复用 vendor 内 `rust-release.yml`。
+- 不得把 `whale-native-artifacts` 的未签名候选误称为正式签名发行物。
 - standalone、Homebrew、Desktop、R2、WinGet、SDK 和网站发布保持禁用。
 - 未明确授权前不得创建/推送 tag，不得发布 GitHub/npm/WinGet/R2 资产。
 - 不得使用 PATH 上的全局 Whale 或其他 worktree 的构建产物替代本 worktree 候选。

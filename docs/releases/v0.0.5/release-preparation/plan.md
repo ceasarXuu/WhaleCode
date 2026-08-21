@@ -32,6 +32,7 @@
 | W3 | 阻断身份混用 | 发布门禁 | `scripts/release/`、root CI | release identity preflight | 校验 Cargo、登记、tag 和 candidate | 错误版本在发布前失败 | 把口头约束变为机器门禁 | 新增一个 Python 脚本和测试，无网络 | unittest + 正反例 | 可独立移除 | verified |
 | W4 | 提供候选材料 | 文档 | 本目录、README、runbook | release notes/checklist | 写发布说明草稿与人工交接项 | 发布者能看到已验证与未授权边界 | 降低误发布风险 | 文档维护成本 | 链接和 preflight | 文档可回退 | verified |
 | W5 | 验证候选 | 构建/安装 | workspace 隔离环境 | whale binary | 离线检查、构建、安装并执行版本 smoke | 证明源码版本进入真实二进制 | 关闭版本登记到运行时链路 | 本地编译耗时；无模型费用 | doctor + `whale --version` | 保留源码，重建即可 | verified |
+| W6 | 建立六平台候选构建 | CI/制品 | root workflow、release scripts | Linux/macOS/Windows x64/arm64 | 由 Whale 自有 workflow 构建未签名归档、校验值和合同 | main 可手动生成 npm staging 兼容候选，不连接发布动作 | 解除复用 OpenAI 发布流程的风险 | 消耗 GitHub Actions 时长；Windows ARM runner 为 preview | 静态门禁、单元测试、首次 run 人工核验 | workflow 不自动触发，可独立回退 | verified-awaiting-first-run |
 
 ## Phase 1：身份与离线门禁
 
@@ -77,10 +78,11 @@ Product Decision Delta：`covered`（PD1/PD2）；没有新增产品语义。
 
 本阶段不在当前授权范围。确认发布渠道并明确授权实际发布后另行 rebase。
 
-工程前置阻断：根仓库尚无 Whale 自有的六平台原生构建 workflow。该流程需要独立确定 Linux ARM64 交叉编译、macOS/Windows 签名、制品 attestation 和 GitHub runner 权限；不得直接激活或包装 vendor `rust-release.yml`。
+工程入口已补齐：根仓库的 Whale 自有 workflow 使用六个平台原生 hosted runner，生成未签名 npm 候选、SHA-256 和制品合同；未调用或包装 vendor `rust-release.yml`。进入实际发布前仍须完成首次 run、六平台 smoke、发布账号和是否需要正式签名的人工决策。
 
 ## Plan Delta History
 
 | ID | Before Phase | Previous Plan | Current Fact | Proposed Change | Impact | User Approval | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | — | — | — | — | 当前无物质性变更 | — | — | — |
+| D1 | Phase 3 | 缺少 Whale 六平台构建入口 | 用户授权构建独立六平台 workflow | 增加 W6，限定为手动、只读、未签名、无发布动作 | 工程阻断从“缺入口”变为“待首次 run 与签核” | 2026-08-21 用户明确要求 | implemented |
