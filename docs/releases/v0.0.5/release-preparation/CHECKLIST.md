@@ -50,7 +50,8 @@
 
 ## 尚待外部输入
 
-- 原生六平台 Whale 构建 run 尚未选定和批准。
+- 根仓库当前只有 release preflight CI，尚未建立 Whale 自有的六平台原生构建 workflow；这是实际 npm 发布前必须补齐的工程阻断项，不能用 vendor `rust-release.yml` 代替。
+- 建立 Whale 原生构建 workflow 后，仍需由发布者选定并批准具体 run URL。
 - npm 发布账号、token/OTP 与 2FA 状态只能由发布者在发布环境确认。
 - `release.json` 保持 `status=preparing`、`publish_authorized=false`，直到上述人工项签核且用户明确授权实际发布。
 

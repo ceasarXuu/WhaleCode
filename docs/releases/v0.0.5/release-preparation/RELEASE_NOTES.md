@@ -17,6 +17,7 @@ WhaleCode v0.0.5 是以 DeepSeek 为核心的终端 coding agent 候选版本。
 - OpenAI/ChatGPT 登录、OpenAI remote catalog/plugin sharing、Bedrock 和相关上游专属测试不属于当前产品发布合同。
 - npm 是既有 Whale 独立分发渠道，但本次实际发布尚未授权；WinGet、R2 和网站渠道仍未建立，vendor 内上游发布工作流不得用于 Whale 发布。
 - Whale npm 元包已按 `@ceasarxuu/whalecode@0.0.5` 完成离线 staging/pack 验证；六个平台原生包仍必须来自明确批准的 WhaleCode 构建 run。
+- 根仓库尚未建立 Whale 自有的六平台原生构建 workflow，因此本候选当前不能进入实际 npm 发布。
 - 全量 upstream suite 存在已分类的非产品面失败，不能描述为全绿。
 
 ## 版本身份

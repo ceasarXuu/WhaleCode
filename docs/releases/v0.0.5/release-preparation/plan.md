@@ -77,6 +77,8 @@ Product Decision Delta：`covered`（PD1/PD2）；没有新增产品语义。
 
 本阶段不在当前授权范围。确认发布渠道并明确授权实际发布后另行 rebase。
 
+工程前置阻断：根仓库尚无 Whale 自有的六平台原生构建 workflow。该流程需要独立确定 Linux ARM64 交叉编译、macOS/Windows 签名、制品 attestation 和 GitHub runner 权限；不得直接激活或包装 vendor `rust-release.yml`。
+
 ## Plan Delta History
 
 | ID | Before Phase | Previous Plan | Current Fact | Proposed Change | Impact | User Approval | Status |
