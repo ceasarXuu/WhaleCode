@@ -5116,7 +5116,7 @@
       "status": "added"
     },
     {
-      "additions": 1010,
+      "additions": 1012,
       "baseline_sha256": null,
       "binary": false,
       "categories": [
@@ -5126,10 +5126,11 @@
         "provider_model",
         "test_fixture"
       ],
-      "current_sha256": "d8a54639729659b0809100afb0e88528353713c0c7a2a2c74a2d33b6a8cf2614",
+      "current_sha256": "2bc0d0039818e5e93fdc95ff1f24b69a4d24f077bedb506141526208b540c7c1",
       "deletions": 0,
-      "evidence_commit_count": 5,
+      "evidence_commit_count": 6,
       "evidence_commits": [
+        "130a562ce54a631966291e8026d23bffdd6b8769",
         "87adc13dbc26b76e836295c5268304aa23e41720",
         "99ab63d98095c6a2b8d64f455aa825475069d1e5",
         "720abe5290e248cedd81d35f87e3d584856fa4e9",
