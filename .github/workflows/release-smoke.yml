@@ -13,7 +13,9 @@ on:
         default: 0.0.5
 
 permissions:
-  contents: read
+  # Draft releases require push-level access even for asset downloads. Restore
+  # this to read after v0.0.5 is published and the assets become public.
+  contents: write
 
 concurrency:
   group: release-smoke-${{ inputs.tag }}
