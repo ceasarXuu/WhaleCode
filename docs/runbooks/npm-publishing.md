@@ -12,11 +12,17 @@ unscoped `whale` package is already taken.
 - npm package: `@ceasarxuu/whalecode`
 - installed command: `whale`
 - launcher: `third_party/codex-cli/codex-cli/bin/whale.js`
-- native binary path inside npm tarballs: `vendor/<target>/whale/whale(.exe)`
+- native binary path inside npm tarballs: `vendor/<target>/bin/whale(.exe)`
 - forbidden package identity: `@openai/codex`
 - forbidden npm command exposure: `codex`
 
-Run this guard after any npm packaging edit:
+Run the cross-platform distribution guard after any packaging or update-path edit:
+
+```powershell
+python scripts/release/check_distribution_identity.py
+```
+
+The legacy Windows isolation guard remains useful for local PATH checks:
 
 ```powershell
 Set-Location D:\WhaleCode
@@ -118,17 +124,19 @@ For a real release, stage the CLI package from the repository root of the
 vendored CLI checkout after the Rust release workflow has produced native
 artifacts:
 
-The npm package version is the Codex-compatible semver from
-`third_party/codex-cli/codex-rs/Cargo.toml` and the `rust-vX.Y.Z` tag. Do not
-append the Whale build number to npm versions; the build number is checked in at
-`third_party/codex-cli/BUILD_NUMBER`, embedded in the native TUI, and shown in
-the GitHub Release display name.
+The npm package version is the Whale product semver from
+`third_party/codex-cli/codex-rs/Cargo.toml` and the `vX.Y.Z` Whale tag. Codex
+substrate versions such as `0.149.0` must never be used as Whale npm versions.
+
+Native staging requires `--workflow-url` from an explicitly approved Whale build.
+Automatic discovery of the quarantined vendor `rust-release.yml` is disabled.
 
 ```powershell
 Set-Location D:\WhaleCode\third_party\codex-cli
 python .\scripts\stage_npm_packages.py `
-  --release-version 0.1.0 `
+  --release-version 0.0.5 `
   --package whalecode `
+  --workflow-url https://github.com/ceasarXuu/WhaleCode/actions/runs/<approved-run-id> `
   --output-dir .\dist\npm `
   --keep-staging-dirs
 ```
@@ -138,13 +146,13 @@ platform-specific optional dependency versions, so those versions must exist
 first:
 
 ```powershell
-npm publish .\dist\npm\whalecode-npm-linux-x64-0.1.0.tgz --tag linux-x64 --access public
-npm publish .\dist\npm\whalecode-npm-linux-arm64-0.1.0.tgz --tag linux-arm64 --access public
-npm publish .\dist\npm\whalecode-npm-darwin-x64-0.1.0.tgz --tag darwin-x64 --access public
-npm publish .\dist\npm\whalecode-npm-darwin-arm64-0.1.0.tgz --tag darwin-arm64 --access public
-npm publish .\dist\npm\whalecode-npm-win32-x64-0.1.0.tgz --tag win32-x64 --access public
-npm publish .\dist\npm\whalecode-npm-win32-arm64-0.1.0.tgz --tag win32-arm64 --access public
-npm publish .\dist\npm\whalecode-npm-0.1.0.tgz --access public
+npm publish .\dist\npm\whalecode-npm-linux-x64-0.0.5.tgz --tag linux-x64 --access public
+npm publish .\dist\npm\whalecode-npm-linux-arm64-0.0.5.tgz --tag linux-arm64 --access public
+npm publish .\dist\npm\whalecode-npm-darwin-x64-0.0.5.tgz --tag darwin-x64 --access public
+npm publish .\dist\npm\whalecode-npm-darwin-arm64-0.0.5.tgz --tag darwin-arm64 --access public
+npm publish .\dist\npm\whalecode-npm-win32-x64-0.0.5.tgz --tag win32-x64 --access public
+npm publish .\dist\npm\whalecode-npm-win32-arm64-0.0.5.tgz --tag win32-arm64 --access public
+npm publish .\dist\npm\whalecode-npm-0.0.5.tgz --access public
 ```
 
 For alpha releases, add an alpha dist-tag to the root publish and prefix the

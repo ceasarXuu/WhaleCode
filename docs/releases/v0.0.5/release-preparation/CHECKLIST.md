@@ -21,5 +21,8 @@
 ## 当前明确禁止
 
 - [ ] 未确认渠道前不得直接运行 vendor 内 `rust-release.yml`
+- [ ] `python3 scripts/release/check_distribution_identity.py` 通过
+- [ ] native npm 制品只接受显式批准的 Whale workflow URL
+- [ ] standalone、Homebrew、Desktop、R2、WinGet、SDK 和网站发布保持禁用，除非另行建立 Whale 自有渠道
 - [ ] 未明确授权前不得创建/推送 tag 或发布 GitHub/npm/WinGet/R2 资产
 - [ ] 不得用全局 `whale 0.1.0` 代替 workspace 候选二进制

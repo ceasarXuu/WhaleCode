@@ -1,3 +1,9 @@
+> [!WARNING]
+> This is a Codex upstream vendor snapshot, not Whale's distribution authority.
+> Do not use the OpenAI install or release commands below for Whale. Whale v0.0.5
+> is distributed only as `@ceasarxuu/whalecode`; see
+> [`DISTRIBUTION_QUARANTINE.md`](DISTRIBUTION_QUARANTINE.md).
+
 <p align="center"><strong>Codex CLI</strong> is a coding agent from OpenAI that runs locally on your computer.
 <p align="center">
   <img src="https://github.com/openai/codex/blob/main/.github/codex-cli-splash.png" alt="Codex CLI splash" width="80%" />

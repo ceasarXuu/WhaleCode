@@ -669,13 +669,11 @@ impl Daemon {
             return Ok(());
         }
 
-        let managed_codex_path = self.managed_codex_bin.display();
+        let managed_whale_path = self.managed_codex_bin.display();
         Err(anyhow!(
-            "managed standalone Codex install not found at {managed_codex_path}\n\n\
-             This command requires the standalone install managed by the Codex installer, because \
-             the daemon starts and updates app-server from that fixed path.\n\n\
-             Install it with:\n  curl -fsSL https://chatgpt.com/codex/install.sh | sh\n\n\
-             Then rerun the command you just tried."
+            "managed standalone Whale install not found at {managed_whale_path}\n\n\
+             Whale does not publish a standalone updater yet. Install Whale through \
+             `npm install -g @ceasarxuu/whalecode@latest` and do not use the pid-managed updater."
         ))
     }
 

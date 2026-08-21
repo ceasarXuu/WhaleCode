@@ -1,7 +1,7 @@
 # Problem P-001: Whale npm 发布身份在 Codex vendor 同步后回退
-- Status: diagnosed
+- Status: fixed
 - Created: 2026-08-21 09:39
-- Updated: 2026-08-21 10:18
+- Updated: 2026-08-21 18:30
 - Objective: 解释已独立发布的 Whale npm 包为什么在当前仓库中变回 OpenAI Codex 包配置，并审计同类分发面回退。
 - Symptoms:
   - 当前 `third_party/codex-cli/codex-cli/package.json` 声明 `@openai/codex`，而 Whale 之前已独立发布 npm 包。
@@ -27,16 +27,16 @@
   - 当前仓库另有一套仍有效的 Whale npm package manifest。
 - Fix criteria:
   - 用户授权修复后，恢复并验证 Whale 独立 package identity、launcher、平台包构建和只指向 Whale 资产的发布入口；加入同步/发布回归门禁；原始安装 smoke 通过。
-- Current conclusion: 这是 0.147 vendor cutover 中未重放 Whale 分发 overlay 导致的系统性回归，不是 npm registry 迁移或 OpenAI 接管；当前直接风险包括 Whale 运行时把更新动作导向 OpenAI Codex。
+- Current conclusion: 这是 0.147 vendor cutover 中未重放 Whale 分发 overlay 导致的系统性回归，不是 npm registry 迁移或 OpenAI 接管；Whale npm identity、launcher、更新/支持路由已恢复，未拥有的 standalone/Desktop/多渠道发布入口已显式禁用或隔离，并由根级 CI 门禁保护。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
   - H-004
 - Resolution basis:
-  - Root cause and distribution blast radius diagnosed by H-001/H-003 and E-001 through E-011；H-002/H-004 排除了替代解释和误报范围；尚未授权或实施修复。
+  - Root cause and distribution blast radius diagnosed by H-001/H-003 and E-001 through E-011；H-002/H-004 排除了替代解释和误报范围；E-012 through E-015 验证 Whale-owned 修复、渠道隔离、跨平台门禁和真实 launcher smoke。
 - Close reason:
-  - not closed
+  - 修复标准满足：`@ceasarxuu/whalecode@0.0.5` 可独立 staging，`whale.js` 启动真实 `whale 0.0.5`，活跃分发面不再指向 OpenAI，回归门禁已接入 main CI。
 
 ## Hypothesis H-001: 0.147 vendor cutover 覆盖并遗漏 Whale npm overlay
 - Status: confirmed
@@ -75,12 +75,12 @@
   - E-004
   - E-005
 - Conclusion: 0.147 vendor cutover 覆盖了 Whale npm/release overlay，发布身份未被纳入后续最小重放和门禁。
-- Repair design readiness: ready after user confirmation
-- Next step: 请求用户确认是否恢复 Whale 独立 npm 发布链并纳入 v0.0.5 release preparation。
+- Repair design readiness: implemented and validated
+- Next step: 只在建立并审批 Whale 自有 native artifact workflow 后执行正式 npm 发布；当前不得启用 vendor 上游发布模板。
 - Blocker:
-  - 修复尚未获得用户授权。
+  - none
 - Close reason:
-  - not closed
+  - repaired by Whale distribution overlay and regression guard
 
 ## Hypothesis H-002: Whale npm 配置仍在另一发布入口，当前 OpenAI 文件只是无效 vendor 快照
 - Status: refuted
@@ -293,12 +293,12 @@
   - E-010
   - E-011
 - Conclusion: 回退横跨运行时更新、npm 构建、安装器和 vendor 多渠道发布模板；最高优先级是已编译进 Whale 的更新/doctor 路径。
-- Repair design readiness: ready after user confirmation
-- Next step: 用户确认后按“运行时阻断 → npm 独立链恢复 → 其他渠道隔离/重建 → 门禁补强”分阶段修复。
+- Repair design readiness: implemented and validated
+- Next step: 保持 standalone、Desktop、R2、WinGet、Homebrew、签名和网站渠道禁用，直到各自具备 Whale-owned 资产与凭据合同。
 - Blocker:
-  - 修复尚未获得用户授权。
+  - none
 - Close reason:
-  - not closed
+  - active runtime routes repaired; unowned channels quarantined
 
 ## Hypothesis H-004: 仓库内所有 OpenAI 分发相关字样都必须改成 Whale
 - Status: refuted
@@ -458,3 +458,91 @@
   ```
 - Interpretation: 这不是制品上传目标，但会把 Whale 用户引导到 OpenAI 的安装、公告、release 和支持渠道；其中远程公告还允许上游在 Whale TUI 中动态改变文案，应作为独立产品边界修复。
 - Time: 2026-08-21 10:21
+
+## Evidence E-012: Whale npm identity 与真实 launcher smoke 已恢复
+- Related hypotheses:
+  - H-001
+  - H-003
+- Direction: supports
+- Type: test-output
+- Source: `build_npm_package.py --package whalecode --release-version 0.0.5`；staged `bin/whale.js --version`
+- Prediction or plan link:
+  - Fix criteria 的 package identity、launcher 和原始进程 smoke。
+- Matched signal:
+  - staged manifest 为 `@ceasarxuu/whalecode@0.0.5`，bin 为 `whale -> bin/whale.js`；launcher 从 Whale vendor layout 启动本地编译二进制并返回 `whale 0.0.5`。
+- Correlation keys:
+  - package `@ceasarxuu/whalecode`
+  - stage `/tmp/whale-npm-smoke.U1xW4H/package`
+- Raw content:
+  ```text
+  Staged version 0.0.5 for release
+  whale 0.0.5
+  ```
+- Interpretation: npm 元包身份和跨平台 launcher 合同已重新落到 Whale，不再依赖 `@openai/codex` 或 `codex.js`。
+- Time: 2026-08-21 18:12
+
+## Evidence E-013: 活跃分发面和根 CI 门禁通过
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: test-output
+- Source: `scripts/release/check_distribution_identity.py`、PowerShell compatibility guards、`.github/workflows/release-identity.yml`
+- Prediction or plan link:
+  - Fix criteria 的 Whale-only 发布入口和同步/发布回归门禁。
+- Matched signal:
+  - 门禁验证 manifest、launcher、六个平台 alias、更新/doctor/公告/支持路径、standalone/Desktop 禁用合同、vendor workflow 隔离；根 workflow 在 push/PR 执行门禁及单测。
+- Correlation keys:
+  - CI workflow `release-identity`
+- Raw content:
+  ```text
+  distribution identity check OK: all active routes are Whale-owned
+  Codex collision risk check OK
+  Build profile policy check OK
+  ```
+- Interpretation: 同类 vendor 同步回退会在合并前失败，不再只依赖人工审计。
+- Time: 2026-08-21 18:25
+
+## Evidence E-014: 分发门禁负向与发布身份测试通过
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: test-output
+- Source: `python3 -m unittest discover -s scripts/release/tests -p 'test_*.py'`
+- Prediction or plan link:
+  - 门禁必须拒绝 OpenAI runtime target、vendor release workflow 激活和 `codex.js` launcher，同时保留 Whale 0.0.5 / Codex substrate 0.149 双版本语义。
+- Matched signal:
+  - 10 个 release tests 全部通过（含六个平台包 staging）；release identity 输出 WhaleCode v0.0.5 与 Codex substrate rust-v0.149.0。
+- Correlation keys:
+  - Whale release `v0.0.5`
+  - substrate `rust-v0.149.0`
+- Raw content:
+  ```text
+  release identity check OK: WhaleCode v0.0.5; Codex substrate rust-v0.149.0
+  Ran 10 tests ... OK
+  ```
+- Interpretation: 149 不会再被登记为 Whale 版本，分发 owner 回退也有可证伪测试。
+- Time: 2026-08-21 18:25
+
+## Evidence E-015: 受影响 Rust 和 installer 行为验证通过
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: test-output
+- Source: targeted Cargo tests、release-mode update prompt test、`test_install_sh.py`
+- Prediction or plan link:
+  - 更新动作、公告/支持文案、doctor 和未拥有 installer 的安全行为保持可编译可测试。
+- Matched signal:
+  - update action 2、tooltips 14、history 1、feedback 16、doctor updates 2 项测试通过；release-mode update prompt 1 项通过；installer refusal 1 项通过；Cargo fmt 通过。
+- Correlation keys:
+  - Rust crates `codex-tui`、`codex-cli`
+- Raw content:
+  ```text
+  update_action: 2 passed
+  tooltips: 14 passed
+  feedback: 16 passed
+  doctor::updates: 2 passed
+  update_prompt --release: 1 passed
+  installer: 1 passed
+  ```
+- Interpretation: 修复覆盖 debug 与 release 条件编译面，未拥有渠道会明确拒绝，而不是回退到 OpenAI。
+- Time: 2026-08-21 18:30

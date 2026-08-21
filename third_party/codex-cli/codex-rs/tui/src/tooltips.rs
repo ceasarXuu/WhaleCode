@@ -3,22 +3,19 @@ use codex_protocol::account::PlanType;
 use lazy_static::lazy_static;
 use rand::Rng;
 
-const ANNOUNCEMENT_TIP_URL: &str =
-    "https://raw.githubusercontent.com/openai/codex/main/announcement_tip.toml";
+const ANNOUNCEMENT_TIP_URL: &str = "https://raw.githubusercontent.com/ceasarXuu/WhaleCode/main/third_party/codex-cli/announcement_tip.toml";
 
 const IS_MACOS: bool = cfg!(target_os = "macos");
 const IS_WINDOWS: bool = cfg!(target_os = "windows");
 
-const APP_TOOLTIP: &str = "Try the **Desktop app**. Run 'codex app' or visit https://chatgpt.com/codex?app-landing-page=true";
-const MACOS_APP_TOOLTIP: &str =
-    "Run `codex app` to open the Desktop app (it installs on macOS if needed).";
-const LINUX_APP_TOOLTIP: &str = "Try the **Desktop app** on Linux: install it from https://learn.chatgpt.com/docs/linux/linux-app and run 'chatgpt'.";
+const APP_TOOLTIP: &str = "Use `/help` to explore Whale commands.";
+const MACOS_APP_TOOLTIP: &str = "Use `/help` to explore Whale commands.";
+const LINUX_APP_TOOLTIP: &str = "Use `/help` to explore Whale commands.";
 const FAST_TOOLTIP: &str =
     "*New* Use **/fast** to enable our fastest inference with increased plan usage.";
-const OTHER_TOOLTIP: &str = "*New* Build faster with the **Desktop app**. Run 'codex app' or visit https://chatgpt.com/codex?app-landing-page=true";
-const OTHER_TOOLTIP_NON_MAC: &str = "*New* Build faster with Codex.";
-const FREE_GO_TOOLTIP: &str =
-    "*New* For a limited time, Codex is included in your plan for free – let’s build together.";
+const OTHER_TOOLTIP: &str = "*New* Build with Whale's multi-agent coding workflow.";
+const OTHER_TOOLTIP_NON_MAC: &str = "*New* Build with Whale's multi-agent coding workflow.";
+const FREE_GO_TOOLTIP: &str = "*New* Whale is open source – let’s build together.";
 
 const RAW_TOOLTIPS: &str = include_str!("../tooltips.txt");
 
@@ -48,7 +45,7 @@ fn experimental_tooltips() -> Vec<&'static str> {
         .collect()
 }
 
-/// Pick a random tooltip to show to the user when starting Codex.
+/// Pick a random tooltip to show to the user when starting Whale.
 pub(crate) fn get_tooltip(plan: Option<PlanType>, fast_mode_enabled: bool) -> Option<String> {
     let mut rng = rand::rng();
 
@@ -231,7 +228,7 @@ pub(crate) mod announcement {
             } else if cfg!(target_os = "windows") {
                 Self::Windows
             } else {
-                // Codex currently publishes CLI builds for macOS, Windows, and Linux.
+                // Whale currently targets CLI builds for macOS, Windows, and Linux.
                 Self::Linux
             }
         }
@@ -376,18 +373,15 @@ mod tests {
     }
 
     #[test]
-    fn desktop_app_tooltip_uses_supported_platform_launcher() {
-        let tooltip = TOOLTIPS
-            .iter()
-            .copied()
-            .find(|tip| tip.contains("Desktop app"));
+    fn help_tooltip_uses_supported_platform_slot() {
+        let tooltip = TOOLTIPS.iter().copied().find(|tip| *tip == APP_TOOLTIP);
 
         if linux_app_tooltip(LinuxDesktopSession::current()).is_some() {
-            let tooltip = tooltip.expect("Linux should advertise the desktop app");
+            let tooltip = tooltip.expect("Linux should advertise Whale help");
             assert_eq!(paid_app_tooltip(), Some(tooltip));
         } else if IS_MACOS {
-            let tooltip = tooltip.expect("macOS should advertise the desktop app");
-            insta::assert_snapshot!(tooltip, @"Run `codex app` to open the Desktop app (it installs on macOS if needed).");
+            let tooltip = tooltip.expect("macOS should advertise Whale help");
+            insta::assert_snapshot!(tooltip, @"Use `/help` to explore Whale commands.");
             assert_eq!(paid_app_tooltip(), Some(APP_TOOLTIP));
         } else if IS_WINDOWS {
             assert_eq!(tooltip, None);
@@ -405,7 +399,7 @@ mod tests {
             is_wsl: false,
         })
         .expect("graphical native Linux should advertise the desktop app");
-        insta::assert_snapshot!(tooltip, @"Try the **Desktop app** on Linux: install it from https://learn.chatgpt.com/docs/linux/linux-app and run 'chatgpt'.");
+        insta::assert_snapshot!(tooltip, @"Use `/help` to explore Whale commands.");
 
         assert_eq!(
             linux_app_tooltip(LinuxDesktopSession {
@@ -527,7 +521,7 @@ from_date = "2000-01-01"
     #[test]
     fn announcement_tip_toml_parse_comments() {
         let toml = r#"
-# Example announcement tips for Codex TUI.
+# Example announcement tips for Whale TUI.
 # Each [[announcements]] entry is evaluated in order; the last matching one is shown.
 # Dates are UTC, formatted as YYYY-MM-DD. The from_date is inclusive and the to_date is exclusive.
 # version_regex matches against the CLI version (env!("CARGO_PKG_VERSION")); omit to apply to all versions.
@@ -536,7 +530,7 @@ from_date = "2000-01-01"
 # target_oses optionally restricts the announcement to operating systems like ["macos", "windows"].
 
 [[announcements]]
-content = "Welcome to Codex! Check out the new onboarding flow."
+content = "Welcome to Whale! Check out the new onboarding flow."
 from_date = "2024-10-01"
 to_date = "2024-10-15"
 target_app = "cli"

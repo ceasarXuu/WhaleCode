@@ -72,7 +72,6 @@ use serde::Serialize;
 use supports_color::Stream;
 
 mod background;
-mod desktop;
 mod disk;
 mod git;
 mod network;
@@ -87,10 +86,6 @@ mod title;
 mod updates;
 #[cfg(target_os = "windows")]
 mod windows_dev_drive;
-
-#[cfg(test)]
-#[path = "doctor/desktop_tests.rs"]
-mod desktop_tests;
 
 use background::background_server_check;
 use git::git_check;
@@ -543,17 +538,6 @@ async fn build_report(
         }
     }
 
-    progress.begin("desktop");
-    if let Some(desktop) = desktop::collect().await {
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
-        if let Some(application) = desktop.application.as_ref() {
-            updates::append_desktop_update(&mut checks, config_result.as_ref().ok(), application)
-                .await;
-        }
-        progress.finish("desktop", overall_status(&desktop.checks));
-        checks.extend(desktop.checks);
-    }
-
     progress.settle();
 
     let overall_status = overall_status(&checks);
@@ -869,16 +853,16 @@ fn installation_check(show_details: bool) -> DoctorCheck {
     ));
     details.push(format!(
         "managed by bun: {}",
-        env::var_os("CODEX_MANAGED_BY_BUN").is_some()
+        env::var_os("WHALE_MANAGED_BY_BUN").is_some()
     ));
     details.push(format!(
         "managed by pnpm: {}",
-        env::var_os("CODEX_MANAGED_BY_PNPM").is_some()
+        env::var_os("WHALE_MANAGED_BY_PNPM").is_some()
     ));
     push_env_path_detail(
         &mut details,
         "managed package root",
-        "CODEX_MANAGED_PACKAGE_ROOT",
+        "WHALE_MANAGED_PACKAGE_ROOT",
     );
 
     let path_entries = codex_path_entries();
@@ -908,8 +892,8 @@ fn installation_check(show_details: bool) -> DoctorCheck {
                 npm_package_root,
             } => {
                 status = CheckStatus::Fail;
-                summary =
-                    "npm install -g @openai/codex would update a different install".to_string();
+                summary = "npm install -g @ceasarxuu/whalecode would update a different install"
+                    .to_string();
                 remediation = Some(format!(
                     "Fix PATH or npm prefix so the running package root ({}) matches the npm global package root ({}).",
                     running_package_root.display(),
@@ -925,7 +909,7 @@ fn installation_check(show_details: bool) -> DoctorCheck {
                 status = status.max(CheckStatus::Warning);
                 summary = "npm-managed launch is missing package-root provenance".to_string();
                 remediation = Some(
-                    "Reinstall or update Codex so the JS shim provides CODEX_MANAGED_PACKAGE_ROOT."
+                    "Reinstall or update Whale so the JS shim provides WHALE_MANAGED_PACKAGE_ROOT."
                         .to_string(),
                 );
             }
@@ -956,14 +940,14 @@ fn doctor_install_context(current_exe: Option<&Path>) -> InstallContext {
 }
 
 fn doctor_managed_by_npm(current_exe: Option<&Path>) -> bool {
-    env::var_os("CODEX_MANAGED_BY_NPM").is_some()
+    env::var_os("WHALE_MANAGED_BY_NPM").is_some()
         && !inherited_managed_env_for_cargo_binary(current_exe)
 }
 
 fn inherited_managed_env_for_cargo_binary(current_exe: Option<&Path>) -> bool {
-    if env::var_os("CODEX_MANAGED_BY_NPM").is_none()
-        && env::var_os("CODEX_MANAGED_BY_BUN").is_none()
-        && env::var_os("CODEX_MANAGED_BY_PNPM").is_none()
+    if env::var_os("WHALE_MANAGED_BY_NPM").is_none()
+        && env::var_os("WHALE_MANAGED_BY_BUN").is_none()
+        && env::var_os("WHALE_MANAGED_BY_PNPM").is_none()
     {
         return false;
     }
@@ -1065,7 +1049,7 @@ enum NpmRootCheck {
 }
 
 fn npm_global_root_check() -> NpmRootCheck {
-    let Some(running_package_root) = env::var_os("CODEX_MANAGED_PACKAGE_ROOT").map(PathBuf::from)
+    let Some(running_package_root) = env::var_os("WHALE_MANAGED_PACKAGE_ROOT").map(PathBuf::from)
     else {
         return NpmRootCheck::MissingPackageRoot;
     };
@@ -1082,7 +1066,7 @@ fn npm_global_root_check() -> NpmRootCheck {
 }
 
 fn compare_npm_package_roots(running_package_root: &Path, npm_root: &Path) -> NpmRootCheck {
-    let npm_package_root = npm_root.join("@openai").join("codex");
+    let npm_package_root = npm_root.join("@ceasarxuu").join("whalecode");
     let running = normalize_path_for_compare(running_package_root);
     let target = normalize_path_for_compare(&npm_package_root);
     if running == target {
@@ -3207,25 +3191,25 @@ mod tests {
 
     #[test]
     fn compare_npm_package_roots_detects_match() {
-        let running = PathBuf::from("/prefix/lib/node_modules/@openai/codex");
+        let running = PathBuf::from("/prefix/lib/node_modules/@ceasarxuu/whalecode");
         let npm_root = PathBuf::from("/prefix/lib/node_modules");
         assert_eq!(
             compare_npm_package_roots(&running, &npm_root),
             NpmRootCheck::Match {
-                package_root: npm_root.join("@openai").join("codex")
+                package_root: npm_root.join("@ceasarxuu").join("whalecode")
             }
         );
     }
 
     #[test]
     fn compare_npm_package_roots_detects_mismatch() {
-        let running = PathBuf::from("/old/lib/node_modules/@openai/codex");
+        let running = PathBuf::from("/old/lib/node_modules/@ceasarxuu/whalecode");
         let npm_root = PathBuf::from("/new/lib/node_modules");
         assert_eq!(
             compare_npm_package_roots(&running, &npm_root),
             NpmRootCheck::Mismatch {
                 running_package_root: running,
-                npm_package_root: npm_root.join("@openai").join("codex"),
+                npm_package_root: npm_root.join("@ceasarxuu").join("whalecode"),
             }
         );
     }

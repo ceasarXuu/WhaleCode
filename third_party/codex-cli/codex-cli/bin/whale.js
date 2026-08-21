@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Unified entry point for the Codex CLI.
+// Unified entry point for the Whale CLI npm package.
 
 import { spawn } from "node:child_process";
 import { existsSync, realpathSync } from "fs";
@@ -11,15 +11,16 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const require = createRequire(import.meta.url);
-const codexPackageRoot = realpathSync(path.join(__dirname, ".."));
+const whalePackageRoot = realpathSync(path.join(__dirname, ".."));
+const WHALE_NPM_NAME = "@ceasarxuu/whalecode";
 
 const PLATFORM_PACKAGE_BY_TARGET = {
-  "x86_64-unknown-linux-musl": "@openai/codex-linux-x64",
-  "aarch64-unknown-linux-musl": "@openai/codex-linux-arm64",
-  "x86_64-apple-darwin": "@openai/codex-darwin-x64",
-  "aarch64-apple-darwin": "@openai/codex-darwin-arm64",
-  "x86_64-pc-windows-msvc": "@openai/codex-win32-x64",
-  "aarch64-pc-windows-msvc": "@openai/codex-win32-arm64",
+  "x86_64-unknown-linux-musl": "whalecode-linux-x64",
+  "aarch64-unknown-linux-musl": "whalecode-linux-arm64",
+  "x86_64-apple-darwin": "whalecode-darwin-x64",
+  "aarch64-apple-darwin": "whalecode-darwin-arm64",
+  "x86_64-pc-windows-msvc": "whalecode-win32-x64",
+  "aarch64-pc-windows-msvc": "whalecode-win32-arm64",
 };
 
 const { platform, arch } = process;
@@ -76,7 +77,7 @@ if (!platformPackage) {
   throw new Error(`Unsupported target triple: ${targetTriple}`);
 }
 
-function findCodexExecutable() {
+function findWhaleExecutable() {
   let vendorRoot;
   try {
     const packageJsonPath = require.resolve(`${platformPackage}/package.json`);
@@ -85,29 +86,29 @@ function findCodexExecutable() {
     vendorRoot = path.join(__dirname, "..", "vendor");
   }
 
-  const codexExecutable = path.join(
+  const whaleExecutable = path.join(
     vendorRoot,
     targetTriple,
     "bin",
-    process.platform === "win32" ? "codex.exe" : "codex",
+    process.platform === "win32" ? "whale.exe" : "whale",
   );
-  if (existsSync(codexExecutable)) {
-    return codexExecutable;
+  if (existsSync(whaleExecutable)) {
+    return whaleExecutable;
   }
 
   const packageManager = detectPackageManager();
   const updateCommand =
     packageManager === "bun"
-      ? "bun install -g @openai/codex@latest"
+      ? `bun install -g ${WHALE_NPM_NAME}@latest`
       : packageManager === "pnpm"
-        ? "pnpm add -g @openai/codex@latest"
-        : "npm install -g @openai/codex@latest";
+        ? `pnpm add -g ${WHALE_NPM_NAME}@latest`
+        : `npm install -g ${WHALE_NPM_NAME}@latest`;
   throw new Error(
-    `Missing optional dependency ${platformPackage}. Reinstall Codex: ${updateCommand}`,
+    `Missing optional dependency ${platformPackage}. Reinstall Whale: ${updateCommand}`,
   );
 }
 
-const binaryPath = findCodexExecutable();
+const binaryPath = findWhaleExecutable();
 
 // Use an asynchronous spawn instead of spawnSync so that Node is able to
 // respond to signals (e.g. Ctrl-C / SIGINT) while the native binary is
@@ -115,15 +116,15 @@ const binaryPath = findCodexExecutable();
 // and guarantees that when either the child terminates or the parent
 // receives a fatal signal, both processes exit in a predictable manner.
 
-function isPnpmOwnedCodexInstall(nodeModulesDir) {
+function isPnpmOwnedWhaleInstall(nodeModulesDir) {
   if (!existsSync(path.join(nodeModulesDir, ".modules.yaml"))) {
     return false;
   }
 
   try {
     return (
-      realpathSync(path.join(nodeModulesDir, "@openai", "codex")) ===
-      codexPackageRoot
+      realpathSync(path.join(nodeModulesDir, "@ceasarxuu", "whalecode")) ===
+      whalePackageRoot
     );
   } catch {
     return false;
@@ -131,7 +132,7 @@ function isPnpmOwnedCodexInstall(nodeModulesDir) {
 }
 
 /**
- * Use heuristics to detect the package manager that was used to install Codex
+ * Use heuristics to detect the package manager that was used to install Whale
  * in order to give the user a hint about how to update it.
  */
 function detectPackageManager() {
@@ -139,19 +140,19 @@ function detectPackageManager() {
   // package in isolated global layouts. Search ancestors of both the canonical
   // package root and lexical entrypoint because pnpm may link either path.
   const entrypointDir = path.dirname(path.resolve(process.argv[1]));
-  for (const startDir of new Set([codexPackageRoot, entrypointDir])) {
+  for (const startDir of new Set([whalePackageRoot, entrypointDir])) {
     const filesystemRoot = path.parse(startDir).root;
     for (
       let currentDir = startDir;
       currentDir !== filesystemRoot;
       currentDir = path.dirname(currentDir)
     ) {
-      if (isPnpmOwnedCodexInstall(path.join(currentDir, "node_modules"))) {
+      if (isPnpmOwnedWhaleInstall(path.join(currentDir, "node_modules"))) {
         return "pnpm";
       }
     }
 
-    if (isPnpmOwnedCodexInstall(path.join(filesystemRoot, "node_modules"))) {
+    if (isPnpmOwnedWhaleInstall(path.join(filesystemRoot, "node_modules"))) {
       return "pnpm";
     }
   }
@@ -179,17 +180,17 @@ function detectPackageManager() {
 const packageManager = detectPackageManager();
 const packageManagerEnvVar =
   packageManager === "bun"
-    ? "CODEX_MANAGED_BY_BUN"
+    ? "WHALE_MANAGED_BY_BUN"
     : packageManager === "pnpm"
-      ? "CODEX_MANAGED_BY_PNPM"
-      : "CODEX_MANAGED_BY_NPM";
+      ? "WHALE_MANAGED_BY_PNPM"
+      : "WHALE_MANAGED_BY_NPM";
 const env = {
   ...process.env,
-  CODEX_MANAGED_PACKAGE_ROOT: codexPackageRoot,
+  WHALE_MANAGED_PACKAGE_ROOT: whalePackageRoot,
 };
-delete env.CODEX_MANAGED_BY_NPM;
-delete env.CODEX_MANAGED_BY_BUN;
-delete env.CODEX_MANAGED_BY_PNPM;
+delete env.WHALE_MANAGED_BY_NPM;
+delete env.WHALE_MANAGED_BY_BUN;
+delete env.WHALE_MANAGED_BY_PNPM;
 env[packageManagerEnvVar] = "1";
 
 const child = spawn(binaryPath, process.argv.slice(2), {

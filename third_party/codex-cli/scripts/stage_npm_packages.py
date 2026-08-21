@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage one or more Codex npm packages for release."""
+"""Stage one or more Whale npm packages for release."""
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -18,8 +18,7 @@ from typing import Sequence
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BUILD_SCRIPT = REPO_ROOT / "codex-cli" / "scripts" / "build_npm_package.py"
-WORKFLOW_NAME = ".github/workflows/rust-release.yml"
-GITHUB_REPO = "openai/codex"
+GITHUB_REPO = "ceasarXuu/WhaleCode"
 BINARY_TARGETS = (
     "x86_64-unknown-linux-musl",
     "aarch64-unknown-linux-musl",
@@ -36,9 +35,9 @@ _BUILD_MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_BUILD_MODULE)
 PACKAGE_NATIVE_COMPONENTS = getattr(_BUILD_MODULE, "PACKAGE_NATIVE_COMPONENTS", {})
 PACKAGE_EXPANSIONS = getattr(_BUILD_MODULE, "PACKAGE_EXPANSIONS", {})
-CODEX_PLATFORM_PACKAGES = getattr(_BUILD_MODULE, "CODEX_PLATFORM_PACKAGES", {})
-CODEX_PACKAGE_COMPONENT = getattr(
-    _BUILD_MODULE, "CODEX_PACKAGE_COMPONENT", "codex-package"
+WHALE_PLATFORM_PACKAGES = getattr(_BUILD_MODULE, "WHALE_PLATFORM_PACKAGES", {})
+WHALE_PACKAGE_COMPONENT = getattr(
+    _BUILD_MODULE, "WHALE_PACKAGE_COMPONENT", "whale-package"
 )
 
 
@@ -146,38 +145,13 @@ def expand_packages(packages: list[str]) -> list[str]:
     return expanded
 
 
-def resolve_release_workflow(version: str) -> dict:
-    stdout = subprocess.check_output(
-        [
-            "gh",
-            "run",
-            "list",
-            "--branch",
-            f"rust-v{version}",
-            "--json",
-            "workflowName,url,headSha",
-            "--workflow",
-            WORKFLOW_NAME,
-            "--jq",
-            "first(.[])",
-        ],
-        cwd=REPO_ROOT,
-        text=True,
-    )
-    workflow = json.loads(stdout or "null")
-    if not workflow:
-        raise RuntimeError(
-            f"Unable to find rust-release workflow for version {version}."
-        )
-    return workflow
-
-
 def resolve_workflow_url(version: str, override: str | None) -> tuple[str, str | None]:
     if override:
         return override, None
-
-    workflow = resolve_release_workflow(version)
-    return workflow["url"], workflow.get("headSha")
+    raise RuntimeError(
+        "Native Whale packages require --workflow-url from an explicitly approved "
+        f"Whale build for v{version}; automatic vendor workflow discovery is disabled."
+    )
 
 
 def install_native_components(
@@ -213,8 +187,8 @@ def install_from_workflow_artifacts(
 ) -> None:
     artifacts = select_target_artifacts(workflow_id, components)
     download_artifacts(workflow_id, artifacts_dir, artifacts)
-    if CODEX_PACKAGE_COMPONENT in components:
-        install_codex_package_archives(artifacts_dir, vendor_dir, BINARY_TARGETS)
+    if WHALE_PACKAGE_COMPONENT in components:
+        install_whale_package_archives(artifacts_dir, vendor_dir, BINARY_TARGETS)
     install_binary_components(
         artifacts_dir,
         vendor_dir,
@@ -226,7 +200,7 @@ def select_target_artifacts(
     workflow_id: str,
     components: Sequence[str],
 ) -> list[WorkflowArtifact]:
-    needs_target_artifacts = CODEX_PACKAGE_COMPONENT in components or any(
+    needs_target_artifacts = WHALE_PACKAGE_COMPONENT in components or any(
         component in BINARY_COMPONENTS for component in components
     )
     if not needs_target_artifacts:
@@ -309,7 +283,7 @@ def download_artifacts(
         )
 
 
-def install_codex_package_archives(
+def install_whale_package_archives(
     artifacts_dir: Path,
     vendor_dir: Path,
     targets: Sequence[str],
@@ -318,14 +292,14 @@ def install_codex_package_archives(
         return
 
     print(
-        "Installing Codex package archives for targets: " + ", ".join(targets),
+        "Installing Whale package archives for targets: " + ", ".join(targets),
         flush=True,
     )
     max_workers = min(len(targets), max(1, (os.cpu_count() or 1)))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(
-                install_single_codex_package_archive,
+                install_single_whale_package_archive,
                 artifacts_dir,
                 vendor_dir,
                 target,
@@ -337,13 +311,13 @@ def install_codex_package_archives(
             print(f"  installed {installed_path}", flush=True)
 
 
-def install_single_codex_package_archive(
+def install_single_whale_package_archive(
     artifacts_dir: Path,
     vendor_dir: Path,
     target: str,
 ) -> Path:
     artifact_subdir = artifact_dir_for_target(artifacts_dir, target)
-    archive_path = artifact_subdir / f"codex-package-{target}.tar.gz"
+    archive_path = artifact_subdir / f"whale-package-{target}.tar.gz"
     if not archive_path.exists():
         raise FileNotFoundError(f"Expected package archive not found: {archive_path}")
 
@@ -472,9 +446,9 @@ def run_command(cmd: list[str]) -> None:
 
 
 def tarball_name_for_package(package: str, version: str) -> str:
-    if package in CODEX_PLATFORM_PACKAGES:
-        platform = package.removeprefix("codex-")
-        return f"codex-npm-{platform}-{version}.tgz"
+    if package in WHALE_PLATFORM_PACKAGES:
+        platform = package.removeprefix("whalecode-")
+        return f"whalecode-npm-{platform}-{version}.tgz"
     return f"{package}-npm-{version}.tgz"
 
 

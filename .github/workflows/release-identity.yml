@@ -19,5 +19,7 @@ jobs:
           persist-credentials: false
       - name: Check Whale and Codex release identities
         run: python3 scripts/release/check_release_identity.py --tag v0.0.5
+      - name: Check Whale distribution ownership
+        run: python3 scripts/release/check_distribution_identity.py
       - name: Test release identity guard
         run: python3 -m unittest discover -s scripts/release/tests -p 'test_*.py'
