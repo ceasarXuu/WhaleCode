@@ -69,7 +69,7 @@
         "note": "用户总授权上限 CNY 1.00；本次只计划一个请求，采用更严格的 CNY 0.10 子上限。"
       },
       "evidence": {
-        "subject_commit": null,
+        "subject_commit": "5f907bc28fa7b098cb233705b9c7025677a0d949",
         "parent_failed_record": "WAR-20260822-053058-DEEPSEEK-VISION-R1",
         "planned_evidence_root": "benchmarks/deepseek-responses/evidence/WAR-20260823-001949-DEEPSEEK-VISION-FIX-R1",
         "stop_conditions": "零自动重试；任一失败、usage 缺失、1 request、12K input、1K output、CNY 0.10 或 3 分钟任一先到即停止。",
