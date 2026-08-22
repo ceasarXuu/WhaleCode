@@ -1,144 +1,195 @@
 # WhaleCode
 
-WhaleCode is an open-source terminal AI coding agent built for developers who
-want a Claude Code / Codex CLI style workflow with DeepSeek V4 at the center.
+WhaleCode 是一个以 DeepSeek V4 为核心的开源终端 AI coding agent。它可以在真实代码仓库中读取文件、执行命令、修改代码、运行测试，并通过 TaskSpace 组织复杂任务。
 
-It is designed to work inside real repositories: read code, plan changes, run
-commands, apply patches, verify results, and keep a replayable record of what
-happened. The product direction is multi-agent first, coding-native, and
-optimized for DeepSeek V4 Flash and Pro.
+当前稳定版本为 `v0.0.5`，默认模型是 `deepseek-v4-flash`。
 
-## Why WhaleCode
+## 安装
 
-Modern coding agents are becoming the main interface between developers and
-large codebases. WhaleCode focuses on three product goals:
+### 环境要求
 
-- Make terminal-based AI coding practical for daily engineering work.
-- Use multiple specialized agents when one linear assistant is not enough.
-- Turn create and debug workflows into explicit runtime primitives, not just
-  prompt conventions.
+- Node.js 16 或更高版本
+- DeepSeek API Key
+- 受支持的平台：Linux、macOS、Windows
 
-WhaleCode starts from the mature Codex CLI substrate for local execution,
-permissions, tools, patches, sessions, context handling, logs, MCP, and skills.
-Whale-specific behavior is added through bridge and overlay layers so the
-project can keep upstream compatibility while evolving its own product surface.
+### 通过 npm 安装
 
-## Core Capabilities
-
-| Capability | What it means for users |
-| --- | --- |
-| DeepSeek V4 first | Routes work across `deepseek-v4-flash` and `deepseek-v4-pro`, with support for long context, long output, and reasoning-content streaming. |
-| Terminal-native coding | Operates directly in your repo, using shell commands, patches, tests, logs, and local files as first-class workflow objects. |
-| Multi-agent collaboration | Coordinates role-based agents such as scouts, analysts, implementers, reviewers, judges, and verifiers to reduce single-agent blind spots. |
-| Create primitive | Treats new feature construction as a structured workflow with scaffolding, constraints, logging, tests, and verification gates. |
-| Debug primitive | Builds evidence chains from goals, hypotheses, logs, runtime behavior, and patches so diagnosis converges on root cause. |
-| Primitive modules | Keeps differentiated workflows pluggable so capabilities can be measured, replayed, improved, or removed without rewriting the core. |
-| Web Viewer direction | Plans a read-only TypeScript viewer for agent networks, DAG progress, tool activity, and session statistics. |
-
-## Product Shape
-
-WhaleCode is being built as a practical CLI first:
-
-```text
-Developer terminal
-  -> WhaleCode CLI
-  -> Codex-derived execution substrate
-  -> Whale bridge and primitive modules
-  -> DeepSeek V4 provider
-  -> optional Web Viewer
-```
-
-The near-term V1 goal is to deliver a mainstream coding-agent CLI foundation:
-
-- safe command execution and patch application;
-- repository-aware context management;
-- reliable session logs and replayable state;
-- model/provider configuration for DeepSeek V4;
-- create/debug workflows that can be tested as product behavior;
-- extension points for skills, tools, MCP servers, and primitive modules.
-
-## Current Status
-
-WhaleCode is under active development. The repository currently vendors Codex
-CLI under `third_party/codex-cli/` and layers Whale-specific work around that
-upstream substrate.
-
-The current WhaleCode release line is `v0.0.5`. Its Codex substrate is pinned
-separately at `rust-v0.149.0` and has been revalidated across DeepSeek Responses
-and the TaskSpace R8 fork/restart/final-wire path. The two version identities
-must not be interchanged. See the [0.149 substrate closeout
-report](docs/migration/codex-sync/2026-08-21-u19-codex-0149-release-closeout.md)
-and the [v0.0.5 release preparation
-manifest](docs/releases/v0.0.5/release-preparation/release.json).
-
-The active Rust workspace lives here:
-
-```powershell
-cd third_party/codex-cli/codex-rs
-cargo check -p codex-cli --locked
-cargo run --quiet -p codex-cli --bin whale -- --version
-```
-
-### Linux development workspace safety
-
-Every clone or worktree uses its own Whale runtime home, SQLite state, sessions,
-logs, temporary files, and installed development binary. Before workspace-sensitive
-development, create or refresh that binding:
+Linux、macOS 和 Windows 使用同一条命令：
 
 ```bash
-python3 scripts/workspace-safety/workspace_context.py bootstrap plan --json
-python3 scripts/workspace-safety/workspace_context.py bootstrap apply --expect <fingerprint>
-bash scripts/install-whale-local.sh --scope workspace
-python3 scripts/workspace-safety/workspace_context.py doctor --require-binary
+npm install -g @ceasarxuu/whalecode@latest --include=optional
 ```
 
-Use the exact fingerprint printed by the immediately preceding plan. On later
-starts, run `workspace_context.py require-ready`; after a branch change, plan and
-apply again. Do not copy legacy `~/.whale` data or fall back to a global `whale`.
-VS Code exposes matching Bootstrap Plan, Bootstrap Apply, Doctor, and Rust Check
-tasks. See [Local workspace safety](runbooks/local-workspace-safety.md) for the
-full workflow and recovery table.
+npm 会根据当前系统和 CPU 自动安装对应的 Whale 原生二进制。
 
-On Windows, local Whale builds should be installed through:
+| 系统 | 支持的架构 |
+| --- | --- |
+| Linux | x64、ARM64 |
+| macOS | Intel x64、Apple Silicon ARM64 |
+| Windows | x64、ARM64 |
+
+验证安装：
+
+```bash
+whale --version
+whale doctor
+```
+
+升级或卸载：
+
+```bash
+npm install -g @ceasarxuu/whalecode@latest --include=optional
+npm uninstall -g @ceasarxuu/whalecode
+```
+
+如果终端找不到 `whale`，请重新打开终端，并确认 npm 的全局 bin 目录已经加入 `PATH`。
+
+## 登录与快速开始
+
+从 [DeepSeek 开放平台](https://platform.deepseek.com/api_keys) 创建 API Key，然后通过标准输入交给 Whale。Key 不应写入仓库或命令参数。
+
+Linux / macOS：
+
+```bash
+export DEEPSEEK_API_KEY="your-api-key"
+printf '%s' "$DEEPSEEK_API_KEY" | whale login --with-api-key
+```
+
+Windows PowerShell：
 
 ```powershell
-scripts/install-whale-local.ps1
+$env:DEEPSEEK_API_KEY = "your-api-key"
+$env:DEEPSEEK_API_KEY | whale login --with-api-key
 ```
 
-The installer places `whale.exe` under `%USERPROFILE%\.whale\bin` and keeps it
-separate from official Codex locations such as `%APPDATA%\npm` and WindowsApps.
+检查登录状态并进入项目：
 
-## Repository Map
+```bash
+whale login status
+cd path/to/your-project
+whale
+```
+
+也可以直接执行一次非交互任务：
+
+```bash
+whale exec "解释这个仓库的入口和核心模块"
+```
+
+## 模型选择
+
+WhaleCode 当前内置三个 DeepSeek 模型：
+
+| 模型 | 建议用途 |
+| --- | --- |
+| `deepseek-v4-flash` | 默认选择，适合日常编码和常规任务 |
+| `deepseek-v4-pro` | 复杂设计、诊断和高质量推理 |
+| `deepseek-v4-flash-vision-exp` | 包含截图、界面或其他图片输入的任务 |
+
+启动时选择模型：
+
+```bash
+whale -m deepseek-v4-pro
+whale exec -m deepseek-v4-flash "修复这个测试"
+```
+
+进入交互界面后，可用 `/model` 切换模型和 reasoning effort。选择结果会用于当前会话，并保存为后续新会话的默认值。
+
+Vision 模型也可以处理纯文本。附加图片时，在图片参数后使用 `--` 分隔提示词：
+
+```bash
+whale exec \
+  -m deepseek-v4-flash-vision-exp \
+  --image ./screenshot.png \
+  -- "分析这张截图中的问题"
+```
+
+## 重点功能：TaskSpace
+
+TaskSpace 面向多文件、长链路和需要持续验证的复杂任务。它把任务表示为可持久化的结构化 Map，包含目标、工作节点、依赖、工具行动、结果引用和完成状态。与只依赖对话文本相比，这种状态可以在长任务、子线程、恢复和重启过程中继续被读取与校验。
+
+适合使用 TaskSpace 的场景：
+
+- 跨多个模块实现一项功能；
+- 需要调查、修改、测试和复核多个阶段；
+- 任务会使用多个 Agent 或需要中途恢复；
+- 希望查看当前工作节点、依赖和完成情况。
+
+对于解释一段代码、修改单个字符串等简单任务，默认 Standard 模式通常更快、更省。
+
+### 交互模式
+
+先启动 Whale，在提交任务前输入 `/taskspace`：
 
 ```text
-third_party/codex-cli/          Codex CLI upstream substrate snapshot
-patches/codex-cli/              local patch queue for unavoidable vendor edits
-docs/                           product, architecture, ADR, and runbook docs
-scripts/                        local development and installation scripts
-archive/deprecated/             recoverable historical implementations
+$ whale
+> /taskspace
+> 重构认证模块，保持兼容并补齐回归测试
 ```
 
-Whale-specific product work should prefer bridge, overlay, module, or script
-layers before changing the vendored upstream directly. When upstream files must
-change, the work should be documented so future Codex syncs remain manageable.
+`/taskspace` 会启用 TaskSpace，并在浏览器中打开当前 Map 的本地只读视图。任务执行期间可以再次输入：
 
-## Documentation
+```text
+/task-show
+```
 
-- [Development workflow](docs/runbooks/development-workflow.md)
-- [Local workspace safety](runbooks/local-workspace-safety.md)
-- [Windows development restore](docs/runbooks/windows-development-restore.md)
-- [Cross-system restore](docs/runbooks/cross-system-restore.md)
+`/task-show` 只查看当前 Map，不会改变运行模式。视图绑定在 `127.0.0.1`，会持续刷新任务节点、依赖、行动和结果状态。
+
+### 非交互模式
+
+```bash
+whale exec --taskspace "重构认证模块，保持兼容并补齐回归测试"
+```
+
+需要更强推理时可以同时选择 Pro：
+
+```bash
+whale exec --taskspace -m deepseek-v4-pro "定位并修复这个跨模块并发问题"
+```
+
+会话默认会持久化。退出后可恢复最近一次会话：
+
+```bash
+whale resume --last
+```
+
+恢复后使用 `/task-show` 查看当前 TaskSpace 状态。
+
+## 已知风险
+
+- **TaskSpace 仍是实验能力。** Map schema、交互方式和内部协议可能在后续版本演进，不应将其当前内部 JSON 结构作为稳定的外部 API。
+- **复杂任务会增加成本。** TaskSpace 本身会增加状态和工具协议开销；与多 Agent、Pro 模型或长任务组合时，API 请求数、token 消耗和耗时通常高于 Standard 模式。
+- **模型可能生成无效行动。** Runtime 会在执行前拒绝不符合 TaskSpace 合同的调用，避免无效 client Tool 产生副作用，但当前任务可能因此中断并需要恢复或重试。
+- **平台验证深度不同。** `v0.0.5` 的六个平台 npm 安装 smoke 已通过；完整的 DeepSeek + TaskSpace 端到端回归以 Linux 为主，Windows 原生终端和完整 TUI 矩阵仍未全部验证。
+- **本地视图包含任务元数据。** TaskSpace viewer 只监听 localhost，但会展示目标、节点和 source refs。不要通过端口转发或代理把它暴露给不受信任的网络。
+- **Agent 仍可能修改或执行代码。** TaskSpace 不会绕过 Whale 的 sandbox 和 approval 设置，但也不能替代 Git、代码审查和测试。建议在干净的 Git 工作区中运行，并在提交前检查 diff。
+- **原生二进制尚未签名。** 当前 npm/GitHub Release 制品附带完整性信息，但不是经过平台代码签名的发行物。
+
+遇到问题时先运行：
+
+```bash
+whale doctor --summary
+```
+
+## 项目状态与文档
+
+WhaleCode 正在持续开发。`v0.0.5` 使用 Codex CLI `0.149.0` 作为底层 substrate；两者是独立的版本号。
+
+- [v0.0.5 Release](https://github.com/ceasarXuu/WhaleCode/releases/tag/v0.0.5)
+- [发布说明](docs/releases/v0.0.5/release-preparation/RELEASE_NOTES.md)
+- [开发流程](docs/runbooks/development-workflow.md)
+- [本地 workspace 安全](runbooks/local-workspace-safety.md)
+- [系统架构](docs/plans/2026-04-24-system-architecture.md)
 - [Codex upstream substrate ADR](docs/adr/2026-04-27-codex-cli-upstream-substrate.md)
-- [System architecture](docs/plans/2026-04-24-system-architecture.md)
-- [Differentiated primitives architecture](docs/plans/2026-04-25-differentiated-primitives-architecture.md)
-- [Multi-agent collaboration architecture](docs/plans/2026-04-25-multi-agent-collaboration-architecture.md)
 
-## Project Principles
+仓库主要目录：
 
-- Open source by default.
-- Coding behavior must be generated through the agent/model path, not hardcoded
-  keyword replies or fake intelligence.
-- Differentiated features must become artifact schemas, phase gates, session
-  events, and replayable state.
-- Logging, testing, and constraints are part of product quality, not cleanup
-  tasks after implementation.
+```text
+third_party/codex-cli/   Codex CLI upstream substrate
+patches/codex-cli/       必要的 vendor patch queue
+docs/                    设计、发布和工程文档
+scripts/                 开发、验证和发布脚本
+benchmarks/              TaskSpace 与缓存回归证据
+```
+
+开发者从源码构建前，请先阅读 [本地 workspace 安全说明](runbooks/local-workspace-safety.md)，不要使用 PATH 中其他 worktree 或全局安装的 Whale 代替当前工作区构建产物。
