@@ -15,6 +15,8 @@ use codex_login::CodexAuth;
 use codex_login::ExternalAuth;
 use codex_login::ExternalAuthRefreshContext;
 use codex_login::TokenData;
+use codex_protocol::ProviderAccessMethod;
+use codex_protocol::ProviderRoute;
 use codex_protocol::auth::AuthMode;
 use codex_protocol::openai_models::ModelsResponse;
 use codex_protocol::openai_models::ReasoningEffort;
@@ -336,6 +338,7 @@ async fn file_cache_implements_models_cache_contract() {
         fetched_at: Utc::now(),
         etag: Some("file-etag".to_string()),
         client_version: Some(client_version.clone()),
+        provider_route: None,
         models: vec![remote_model(
             "file-cached",
             "File Cached",
@@ -367,6 +370,7 @@ async fn file_cache_refresh_ttl_renews_expired_entry_without_serving_it_stale() 
         fetched_at: expired_at,
         etag: Some("expired-etag".to_string()),
         client_version: Some(client_version.clone()),
+        provider_route: None,
         models: vec![remote_model(
             "expired-file-cache",
             "Expired File Cache",
@@ -437,6 +441,7 @@ async fn injected_cache_hit_avoids_remote_fetch() {
         fetched_at: Utc::now(),
         etag: Some("cached-etag".to_string()),
         client_version: Some(crate::client_version_to_whole()),
+        provider_route: None,
         models: cached_models.clone(),
     });
     let endpoint = TestModelsEndpoint::new(vec![vec![remote_model(
@@ -459,6 +464,54 @@ async fn injected_cache_hit_avoids_remote_fetch() {
 
     assert_eq!(catalog.models, cached_models);
     assert_eq!(endpoint.fetch_count(), 0);
+}
+
+#[tokio::test]
+async fn route_scoped_manager_rejects_another_provider_cache_entry() {
+    let openai_route = ProviderRoute::new("openai", ProviderAccessMethod::ApiKey);
+    let deepseek_route = ProviderRoute::new("deepseek", ProviderAccessMethod::ApiKey);
+    let cache = TestModelsCache::with_entry(ModelsCacheEntry {
+        fetched_at: Utc::now(),
+        etag: Some("deepseek-etag".to_string()),
+        client_version: Some(crate::client_version_to_whole()),
+        provider_route: Some(deepseek_route),
+        models: vec![remote_model("deepseek-cached", "DeepSeek Cached", 0)],
+    });
+    let remote_models = vec![remote_model("openai-remote", "OpenAI Remote", 0)];
+    let endpoint = TestModelsEndpoint::new(vec![remote_models.clone()]);
+    let manager = OpenAiModelsManager::new_with_cache_for_route(
+        cache.clone(),
+        openai_route.clone(),
+        endpoint.clone(),
+        Some(AuthManager::from_auth_for_testing(CodexAuth::from_api_key(
+            "openai-key",
+        ))),
+    );
+
+    let catalog = manager
+        .raw_model_catalog(
+            RefreshStrategy::OnlineIfUncached,
+            DEFAULT_HTTP_CLIENT_FACTORY,
+        )
+        .await;
+
+    assert!(
+        catalog
+            .models
+            .iter()
+            .any(|model| model.slug == remote_models[0].slug)
+    );
+    assert!(
+        catalog
+            .models
+            .iter()
+            .all(|model| model.slug != "deepseek-cached")
+    );
+    assert_eq!(endpoint.fetch_count(), 1);
+    assert_eq!(
+        cache.stored_entries()[0].provider_route.as_ref(),
+        Some(&openai_route)
+    );
 }
 
 #[tokio::test]
@@ -490,6 +543,7 @@ async fn injected_cache_read_error_falls_back_and_persists_remote_models() {
             fetched_at: stored_entries[0].fetched_at,
             etag: None,
             client_version: Some(crate::client_version_to_whole()),
+            provider_route: None,
             models: remote_models,
         }]
     );
@@ -527,6 +581,7 @@ async fn injected_cache_ttl_refresh_preserves_cached_payload() {
         fetched_at: cached_at,
         etag: Some("cached-etag".to_string()),
         client_version: Some(crate::client_version_to_whole()),
+        provider_route: None,
         models: cached_models.clone(),
     });
     let manager = OpenAiModelsManager::new_with_cache(
@@ -562,6 +617,7 @@ async fn chatgpt_auth_tokens_for_tests(codex_home: &Path) -> CodexAuth {
     let auth_dot_json = codex_login::AuthDotJson {
         auth_mode: Some(AuthMode::ChatgptAuthTokens),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(TokenData {
             id_token: codex_login::token_data::parse_chatgpt_jwt_claims(
                 "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.\

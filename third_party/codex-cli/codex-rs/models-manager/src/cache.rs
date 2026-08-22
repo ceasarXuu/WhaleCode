@@ -1,5 +1,6 @@
 use chrono::DateTime;
 use chrono::Utc;
+use codex_protocol::ProviderRoute;
 use codex_protocol::openai_models::ModelInfo;
 use serde::Deserialize;
 use serde::Serialize;
@@ -71,6 +72,9 @@ pub struct ModelsCacheEntry {
     /// The models manager rejects entries whose value is absent or differs from its current version.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_version: Option<String>,
+    /// Provider and access path that produced this catalog. Missing on legacy entries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_route: Option<ProviderRoute>,
     /// Models returned by the catalog endpoint.
     #[serde(
         deserialize_with = "codex_protocol::openai_models::deserialize_model_infos_with_legacy_base"

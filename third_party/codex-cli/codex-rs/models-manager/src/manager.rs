@@ -9,6 +9,8 @@ use crate::model_presets::retain_whale_models_for_listing;
 use chrono::Utc;
 use codex_http_client::HttpClientFactory;
 use codex_login::AuthManager;
+use codex_protocol::ProviderAccessMethod;
+use codex_protocol::ProviderRoute;
 use codex_protocol::auth::AuthMode;
 use codex_protocol::config_types::CollaborationModeMask;
 use codex_protocol::error::Result as CoreResult;
@@ -223,6 +225,7 @@ pub struct OpenAiModelsManager {
     remote_models: RwLock<Vec<ModelInfo>>,
     etag: RwLock<Option<String>>,
     cache: Option<Arc<dyn ModelsCache>>,
+    cache_route: Option<ProviderRoute>,
     endpoint_client: SharedModelsEndpointClient,
     auth_manager: Option<Arc<AuthManager>>,
 }
@@ -249,6 +252,44 @@ impl OpenAiModelsManager {
             ))),
             endpoint_client,
             auth_manager,
+            /*cache_route*/ None,
+        )
+    }
+
+    /// Construct a manager whose disk cache is isolated to one provider route.
+    pub fn new_for_route(
+        codex_home: PathBuf,
+        route: ProviderRoute,
+        endpoint_client: Arc<dyn ModelsEndpointClient>,
+        auth_manager: Option<Arc<AuthManager>>,
+    ) -> Self {
+        let access_method = match route.access_method {
+            ProviderAccessMethod::Chatgpt => "chatgpt",
+            ProviderAccessMethod::ApiKey => "api-key",
+        };
+        let provider_key: String = route
+            .model_provider_id
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                    ch
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let cache_path = codex_home.join(format!(
+            "models_cache.{}-{access_method}.json",
+            provider_key
+        ));
+        Self::new_with_optional_cache(
+            Some(Arc::new(FileModelsCache::new(
+                cache_path,
+                DEFAULT_MODEL_CACHE_TTL,
+            ))),
+            endpoint_client,
+            auth_manager,
+            Some(route),
         )
     }
 
@@ -257,7 +298,12 @@ impl OpenAiModelsManager {
         endpoint_client: Arc<dyn ModelsEndpointClient>,
         auth_manager: Option<Arc<AuthManager>>,
     ) -> Self {
-        Self::new_with_optional_cache(/*cache*/ None, endpoint_client, auth_manager)
+        Self::new_with_optional_cache(
+            /*cache*/ None,
+            endpoint_client,
+            auth_manager,
+            /*cache_route*/ None,
+        )
     }
 
     /// Constructs an OpenAI-compatible model manager with a caller-provided cache.
@@ -269,19 +315,36 @@ impl OpenAiModelsManager {
         endpoint_client: Arc<dyn ModelsEndpointClient>,
         auth_manager: Option<Arc<AuthManager>>,
     ) -> Self {
-        Self::new_with_optional_cache(Some(cache), endpoint_client, auth_manager)
+        Self::new_with_optional_cache(
+            Some(cache),
+            endpoint_client,
+            auth_manager,
+            /*cache_route*/ None,
+        )
+    }
+
+    #[cfg(test)]
+    fn new_with_cache_for_route(
+        cache: Arc<dyn ModelsCache>,
+        route: ProviderRoute,
+        endpoint_client: Arc<dyn ModelsEndpointClient>,
+        auth_manager: Option<Arc<AuthManager>>,
+    ) -> Self {
+        Self::new_with_optional_cache(Some(cache), endpoint_client, auth_manager, Some(route))
     }
 
     fn new_with_optional_cache(
         cache: Option<Arc<dyn ModelsCache>>,
         endpoint_client: Arc<dyn ModelsEndpointClient>,
         auth_manager: Option<Arc<AuthManager>>,
+        cache_route: Option<ProviderRoute>,
     ) -> Self {
         let remote_models = load_remote_models_from_file().unwrap_or_default();
         Self {
             remote_models: RwLock::new(remote_models),
             etag: RwLock::new(None),
             cache,
+            cache_route,
             endpoint_client,
             auth_manager,
         }
@@ -429,6 +492,7 @@ impl OpenAiModelsManager {
                 fetched_at: Utc::now(),
                 etag,
                 client_version: Some(client_version),
+                provider_route: self.cache_route.clone(),
                 models,
             };
             if let Err(err) = cache.store(&entry).await {
@@ -487,8 +551,6 @@ impl OpenAiModelsManager {
             codex_otel::start_global_timer("codex.remote_models.load_cache.duration_ms", &[]);
         let client_version = crate::client_version_to_whole();
         info!(client_version, "models cache: evaluating cache eligibility");
-        // TODO(celia-oai): Include provider identity in cache eligibility so switching
-        // providers does not reuse a fresh models_cache.json entry from another provider.
         let cache_entry = match cache.load(&client_version).await {
             Ok(Some(cache_entry)) => cache_entry,
             Ok(None) => {
@@ -506,6 +568,10 @@ impl OpenAiModelsManager {
                 cached_version = ?cache_entry.client_version,
                 "models cache: cache version mismatch"
             );
+            return false;
+        }
+        if cache_entry.provider_route != self.cache_route {
+            info!("models cache: provider route mismatch");
             return false;
         }
         let models = cache_entry.models.clone();
