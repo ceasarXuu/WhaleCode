@@ -63,7 +63,7 @@ async fn refresh_without_id_token() {
     let codex_home = tempdir().unwrap();
     let fake_jwt = write_auth_file(
         AuthFileParams {
-            openai_api_key: None,
+            openai_api_key: Some("preserved-api-key".to_string()),
             chatgpt_plan_type: Some("pro".to_string()),
             chatgpt_account_id: None,
         },
@@ -88,6 +88,11 @@ async fn refresh_without_id_token() {
     assert_eq!(tokens.id_token.raw_jwt, fake_jwt);
     assert_eq!(tokens.access_token, "new-access-token");
     assert_eq!(tokens.refresh_token, "new-refresh-token");
+    assert_eq!(
+        updated.openai_api_key.as_deref(),
+        Some("preserved-api-key"),
+        "refreshing ChatGPT tokens must not overwrite a coexisting API key"
+    );
 }
 
 #[test]

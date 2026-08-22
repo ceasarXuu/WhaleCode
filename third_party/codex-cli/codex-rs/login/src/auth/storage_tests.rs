@@ -433,6 +433,20 @@ fn auth_with_prefix(prefix: &str) -> AuthDotJson {
     }
 }
 
+#[test]
+fn secrets_keyring_round_trips_coexisting_openai_credentials() -> anyhow::Result<()> {
+    let codex_home = tempdir()?;
+    let mock_keyring = MockKeyringStore::default();
+    let storage =
+        SecretsKeyringAuthStorage::new(codex_home.path().to_path_buf(), Arc::new(mock_keyring));
+    let auth = auth_with_prefix("coexisting");
+
+    storage.save(&auth)?;
+
+    assert_eq!(storage.load()?, Some(auth));
+    Ok(())
+}
+
 fn jwt_with_payload(payload: serde_json::Value) -> String {
     let encode = |bytes: &[u8]| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes);
     let header_b64 = encode(br#"{"alg":"EdDSA","typ":"JWT"}"#);

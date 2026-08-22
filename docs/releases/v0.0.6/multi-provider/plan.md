@@ -1,6 +1,6 @@
 # WhaleCode v0.0.6 多 Provider 工程实施计划
 
-- Status: planned
+- Status: phase-0-verified-blocked-on-phase-1-plan-approval
 - Product Authority: `../../../../prd/2026-08-23-v0.0.6-multi-provider.md#confirmed-product-decisions`
 - Applicable Decisions: PD1, PD2, PD3, PD4, PD5, PD6, PD7, PD8, PD9, PD10, PD11, PD12, PD13, PD14, PD15, PD16
 - Current-State Evidence: `./current-state-inventory.md`
@@ -74,15 +74,15 @@
 
 | ID | Critical Assumption | Decision Unlocked | Cheapest Credible Method | Enough Evidence / Not Proven | Budget / Isolation | Stop / Cleanup | Status |
 |---|---|---|---|---|---|---|---|
-| V1 | 现有 file/keyring/auto 存储和 ChatGPT refresh 可被包装成多槽 inventory，而无需复制 OAuth/token-refresh 状态机 | W2–W4 的认证边界 | 为旧/新 `AuthDotJson` fixture、keyring mock 和两个 route-bound auth view 写离线 contract test；仅做最小类型 spike | 证明旧格式无损读取、两槽互不覆盖、ChatGPT refresh 不改变 API key；不证明真实服务凭据有效 | 无网络、无真实 Key、无模型费用 | spike 只保留被测试证明必要的类型；方向失败则删除 spike 并记录 Plan Delta | planned |
-| V2 | 现有 submission FIFO 能保证 active turn 后、下一用户输入前提交 provider settings，且旧 `TurnContext` 不被突变 | W8、W13 的切换时序 | core mock provider 测试：active stream/tool continuation 期间提交 transition，再排队用户输入并记录每次 provider snapshot | 证明当前 turn 全程旧 route、下一 turn 全程新 route、失败无半状态；不证明 TUI 文案 | 本地 mock HTTP/内存 rollout，无真实模型 | 若 FIFO seam 不足，停止 Phase 2，记录是否引入显式 pending slot 的物质 Plan Delta | planned |
-| V3 | OpenAI 专属 reasoning/hosted history 可在不改 canonical history 的前提下投影为 DeepSeek 可接受输入 | W12 的 history projector | 用现有 `ResponseItemEnvelope` fixture 生成目标 route request，验证加密字段、hosted items、媒体和 call/output 配对 | 证明序列化形状与配对不变量；不声称真实 Provider 接受，真实 probe 需另行预算授权 | 离线 fixture/mock server；禁止真实 Whale run | projector 不满足不变量则丢弃 spike，重新划定兼容矩阵并 rebase | planned |
+| V1 | 现有 file/keyring/auto 存储和 ChatGPT refresh 可被包装成多槽 inventory，而无需复制 OAuth/token-refresh 状态机 | W2–W4 的认证边界 | 为旧/新 `AuthDotJson` fixture、keyring mock 和两个 route-bound auth view 写离线 contract test；仅做最小类型 spike | 已证明现有 flat record 可同时承载 tokens/API key、keyring 可无损 round-trip、refresh 保留 API key；未证明真实凭据有效 | 无网络、无真实 Key、无模型费用 | 保留回归断言；按 D1 在 Phase 1 前审批简化后的存储边界 | direction-supported |
+| V2 | 现有 submission FIFO 能保证 active turn 后、下一用户输入前提交 provider settings，且旧 `TurnContext` 不被突变 | W8、W13 的切换时序 | core mock provider 测试：active stream/tool continuation 期间提交 transition，再排队用户输入并记录每次 provider snapshot | 已证明 active turn settings 更新只影响下一 turn；Provider prepared value 的完整失败回滚仍由 W8 验证 | 本地 mock HTTP/内存 rollout，无真实模型 | 保留现有 FIFO seam；W8 若发现 Provider 特有差异再记录 Plan Delta | direction-supported |
+| V3 | OpenAI 专属 reasoning/hosted history 可在不改 canonical history 的前提下投影为 DeepSeek 可接受输入 | W12 的 history projector | 用现有 `ResponseItemEnvelope` fixture 生成目标 route request，验证加密字段、hosted items、媒体和 call/output 配对 | 已证明请求格式化操作 clone 且不回写 canonical input，非 OpenAI request 可清除现有私有 metadata；完整 hosted/reasoning 矩阵留给 W12 | 离线 fixture/mock server；禁止真实 Whale run | 保留 clone-at-wire-boundary 方向；W12 仅扩展临时投影 | direction-supported |
 
 ## 5. Work Units
 
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| W1 | 固定 route identity | 协议/类型 | `protocol/src/protocol.rs`、app-server v2 thread/account schemas | `ProviderRoute`、route+model selection DTO | 新增非敏感、向后兼容的 route 类型并生成 schema fixture | 三条访问路由在 core/app-server/TUI 使用同一 identity | 消除 provider ID 与 auth mode 混淆 | Complexity：新增 1 个值类型和 schema 字段；Reach：协议消费者与 fixture | protocol serde/TS schema tests；`just write-app-server-schema` 后 diff 审核 | 字段全为 optional；移除新字段即可回到旧协议 | planned |
+| W1 | 固定 route identity | 协议/类型 | `protocol/src/provider_route.rs`、app-server v2 thread/account schemas | `ProviderRoute`、route+model selection DTO | 新增非敏感、向后兼容的 route 类型并生成 schema fixture | 三条访问路由在 core/app-server/TUI 使用同一 identity | 消除 provider ID 与 auth mode 混淆 | Complexity：新增 1 个值类型和 schema 字段；Reach：协议消费者与 fixture | serde 测试已通过；route 被 W7 API 引用后生成并审核 app-server schema fixture | 类型已实现且测试；API/schema 集成安全停在 W7 前 | implemented |
 | W2 | 建立多槽凭据存储 | 安全/数据 | `login/src/auth/storage.rs`、`manager.rs`、storage tests | `AuthDotJson` migration、credential inventory | 版本化扩展存储并兼容旧 OpenAI auth，加入 DeepSeek 独立槽 | 三类凭据可共存且旧用户不丢登录 | 满足 PD9/PD15 并修复 DeepSeek 错位 | Complexity：新增 schema/migration 分支；Reach：file/keyring/ephemeral、敏感数据生命周期 | V1；旧/新 fixture round-trip、权限、零 secret 日志测试 | 先只合并兼容读取；写入失败保持旧文件原子不变 | planned |
 | W3 | 提供 route-bound auth view | 认证运行时 | `login/src/auth/manager.rs`、`model-provider` client construction | `AuthManager` route selector / auth view | 从共享 inventory 构造目标 route 的认证投影并保留单一 ChatGPT refresh owner | 并发 session 可分别使用订阅、OpenAI API、DeepSeek | 防止切换一个 session 污染其他 session | Complexity：增加 route 选择分支；Reach：所有 provider request auth、refresh、401 路径 | 并发 mock requests、refresh 与 key 隔离 tests | 保留现有 legacy current-auth adapter，未迁移调用方仍可工作 | planned |
 | W4 | 精确登录登出与状态 | API/安全 | app-server protocol v2 account、`account_processor.rs`、TUI onboarding | login params、account status、logout target | 给登录/登出显式 route，返回三槽脱敏状态；复用原生 ChatGPT/API 流程并修正 DeepSeek 输入 | UI 可独立录入、更新、取消和清除任一访问方式 | 关闭凭据全生命周期 | Complexity：新增 account API 分支/通知；Reach：CLI/TUI/app-server 客户端与 cloud bundle 刷新 | account processor、onboarding、cancel、logout isolation tests | route 操作失败不改其他槽；保留 legacy logout adapter 到迁移完成 | planned |
@@ -115,19 +115,20 @@
 
 - Entry: PD1–PD16 active；不需要真实凭据或网络。
 - Work: V1、V2、V3、W1 的 route/schema 最小合同。
-- Exit evidence: 三项 validation 均为 `direction-supported`；协议旧 fixture 可读取；没有 secret 落盘/输出。
-- Product Decision Delta: 预期 `engineering-only`；若证据要求改变双槽、turn 边界或历史保留语义，分类为 `conflict` 并停止。
-- Next: 只有 V1–V3 支持方向且 Phase 1 rebase gate 为 ready 才继续。
+- Exit evidence: V1–V3 均为 `direction-supported`；`ProviderRoute` serde 测试 2/2、login refresh 测试 1/1、keyring coexistence 测试 1/1、active-turn next-turn 测试 1/1、wire-copy/非 OpenAI 清理测试 2/2 通过；全程无真实 Key、网络 Provider 或模型费用。
+- Product Decision Delta: `engineering-only`。实现未改变双槽、turn 边界或 canonical history 产品语义；D1 只简化后续私有存储设计。
+- Formatting note: `just fmt` 因本机缺少 `dotslash` 在 Bazel formatter 前置步骤失败；相关 Rust 文件已用 stable `rustfmt` 格式化，代码定向测试均通过。
+- Next: Phase 0 已 verified。Phase 1 的 D1 是物质性 Plan Delta，必须获得用户明确批准并把 gate 改为 ready 后才能继续。
 
 ### Phase 1：凭据与模型目录基础
 
 #### Pre-Phase Plan Rebase Gate
 
 - Rebase scope: Phase 0 类型/spike/测试结果 + W2–W6、W16 剩余设计
-- Material plan delta: pending
-- Plan delta record: pending
-- User approval: pending-if-material
-- Gate status: pending
+- Material plan delta: material
+- Plan delta record: D1
+- User approval: required-pending
+- Gate status: blocked-on-plan-approval
 
 - Entry: Phase 0 verified。
 - Work: W2–W6 中的认证/缓存/目录部分，W16 的认证脱敏。
@@ -203,7 +204,7 @@
 
 | Phase | Decision Surface | Implemented / Observed Semantics | Authority Coverage | Classification | Required Action |
 |---|---|---|---|---|---|
-| Phase 0 | route/auth/turn/history 可行性 | 待执行 | PD3–PD6、PD8、PD11、PD15 | pending | 完成 V1–V3 后填写；provisional/conflict 阻断 Phase 1 |
+| Phase 0 | route/auth/turn/history 可行性 | route identity 不含 secret；现有 flat auth record 支持 OpenAI 双槽存储/刷新；settings FIFO 保持 next-turn 边界；wire projection 基于副本 | PD3–PD6、PD8、PD11、PD15 | engineering-only | D1 仅修改后续工程设计；Phase 1 前请求计划审批 |
 | Phase 1 | 凭据与模型分组 | 待执行 | PD3–PD5、PD9、PD13、PD15、PD16 | pending | 阶段结束审计 |
 | Phase 2 | 原子切换、prompt/tools/compact/replay | 待执行 | PD6–PD11 | pending | 阶段结束审计 |
 | Phase 3 | 历史与生命周期 | 待执行 | PD6、PD7、PD10、PD11 | pending | 阶段结束审计 |
@@ -250,7 +251,7 @@
 
 | ID | Before Phase | Previous Plan | Current Fact | Proposed Change | Impact | User Approval | Status |
 |---|---|---|---|---|---|---|---|
-| — | — | — | — | 当前无物质性计划变化 | — | — | — |
+| D1 | Phase 1 | 新建版本化 credential inventory，并把旧 `AuthDotJson` 迁移到新结构 | 现有 `AuthDotJson` 已能同时保存 ChatGPT tokens 与 OpenAI API key；file/keyring round-trip 可保留两者；`persist_tokens` 原位刷新并保留 API key | 保留现有 flat OpenAI 字段作为双槽权威，仅新增 optional `DEEPSEEK_API_KEY` 槽；登录/登出改为字段级 merge/clear，route-bound auth 显式选槽；不新增 inventory 版本或嵌套迁移层 | 减少 schema/migration/兼容分支和批量迁移风险；W2/W3/W4 目标、产品行为和验证矩阵不变 | required-pending | proposed-blocking |
 
 ## 11. Completion Definition
 
