@@ -250,6 +250,7 @@ fn chatgpt_auth_with_refresh_token(refresh_token: &str) -> AuthDotJson {
     AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(TokenData {
             id_token: IdTokenInfo {
                 raw_jwt: minimal_jwt(),

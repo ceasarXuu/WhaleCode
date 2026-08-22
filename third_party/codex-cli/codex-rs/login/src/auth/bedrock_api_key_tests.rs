@@ -15,6 +15,7 @@ fn api_key_auth() -> AuthDotJson {
     AuthDotJson {
         auth_mode: Some(AuthMode::ApiKey),
         openai_api_key: Some("sk-test-key".to_string()),
+        deepseek_api_key: None,
         tokens: None,
         last_refresh: None,
         agent_identity: None,
@@ -27,6 +28,7 @@ fn bedrock_only_auth() -> AuthDotJson {
     AuthDotJson {
         auth_mode: None,
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: None,
         last_refresh: None,
         agent_identity: None,
@@ -71,6 +73,7 @@ async fn login_with_bedrock_api_key_replaces_openai_auth() -> anyhow::Result<()>
     let expected = AuthDotJson {
         auth_mode: Some(AuthMode::BedrockApiKey),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: None,
         last_refresh: None,
         agent_identity: None,

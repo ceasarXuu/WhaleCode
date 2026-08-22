@@ -36,13 +36,20 @@ use codex_secrets::SecretsManager;
 use once_cell::sync::Lazy;
 
 /// Expected structure for $CODEX_HOME/auth.json.
-#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
+#[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
 pub struct AuthDotJson {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth_mode: Option<AuthMode>,
 
     #[serde(rename = "OPENAI_API_KEY")]
     pub openai_api_key: Option<String>,
+
+    #[serde(
+        default,
+        rename = "DEEPSEEK_API_KEY",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub deepseek_api_key: Option<String>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokens: Option<TokenData>,

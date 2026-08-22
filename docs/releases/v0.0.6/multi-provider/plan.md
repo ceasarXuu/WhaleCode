@@ -1,6 +1,6 @@
 # WhaleCode v0.0.6 多 Provider 工程实施计划
 
-- Status: phase-0-verified-blocked-on-phase-1-plan-approval
+- Status: phase-1-in-progress
 - Product Authority: `../../../../prd/2026-08-23-v0.0.6-multi-provider.md#confirmed-product-decisions`
 - Applicable Decisions: PD1, PD2, PD3, PD4, PD5, PD6, PD7, PD8, PD9, PD10, PD11, PD12, PD13, PD14, PD15, PD16
 - Current-State Evidence: `./current-state-inventory.md`
@@ -83,9 +83,9 @@
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | W1 | 固定 route identity | 协议/类型 | `protocol/src/provider_route.rs`、app-server v2 thread/account schemas | `ProviderRoute`、route+model selection DTO | 新增非敏感、向后兼容的 route 类型并生成 schema fixture | 三条访问路由在 core/app-server/TUI 使用同一 identity | 消除 provider ID 与 auth mode 混淆 | Complexity：新增 1 个值类型和 schema 字段；Reach：协议消费者与 fixture | serde 测试已通过；route 被 W7 API 引用后生成并审核 app-server schema fixture | 类型已实现且测试；API/schema 集成安全停在 W7 前 | implemented |
-| W2 | 建立多槽凭据存储 | 安全/数据 | `login/src/auth/storage.rs`、`manager.rs`、storage tests | `AuthDotJson` migration、credential inventory | 版本化扩展存储并兼容旧 OpenAI auth，加入 DeepSeek 独立槽 | 三类凭据可共存且旧用户不丢登录 | 满足 PD9/PD15 并修复 DeepSeek 错位 | Complexity：新增 schema/migration 分支；Reach：file/keyring/ephemeral、敏感数据生命周期 | V1；旧/新 fixture round-trip、权限、零 secret 日志测试 | 先只合并兼容读取；写入失败保持旧文件原子不变 | planned |
-| W3 | 提供 route-bound auth view | 认证运行时 | `login/src/auth/manager.rs`、`model-provider` client construction | `AuthManager` route selector / auth view | 从共享 inventory 构造目标 route 的认证投影并保留单一 ChatGPT refresh owner | 并发 session 可分别使用订阅、OpenAI API、DeepSeek | 防止切换一个 session 污染其他 session | Complexity：增加 route 选择分支；Reach：所有 provider request auth、refresh、401 路径 | 并发 mock requests、refresh 与 key 隔离 tests | 保留现有 legacy current-auth adapter，未迁移调用方仍可工作 | planned |
-| W4 | 精确登录登出与状态 | API/安全 | app-server protocol v2 account、`account_processor.rs`、TUI onboarding | login params、account status、logout target | 给登录/登出显式 route，返回三槽脱敏状态；复用原生 ChatGPT/API 流程并修正 DeepSeek 输入 | UI 可独立录入、更新、取消和清除任一访问方式 | 关闭凭据全生命周期 | Complexity：新增 account API 分支/通知；Reach：CLI/TUI/app-server 客户端与 cloud bundle 刷新 | account processor、onboarding、cancel、logout isolation tests | route 操作失败不改其他槽；保留 legacy logout adapter 到迁移完成 | planned |
+| W2 | 建立多槽凭据存储 | 安全/数据 | `login/src/auth/storage.rs`、`manager.rs`、storage tests | flat `AuthDotJson` credential slots | 按 D1 兼容扩展 `DEEPSEEK_API_KEY`，OpenAI/DeepSeek 登录执行读取—字段级合并—原子保存 | 三类凭据可共存且旧用户不丢登录 | 满足 PD9/PD15 并修复 DeepSeek 错位 | Complexity：新增 optional 字段；Reach：file/keyring/ephemeral、敏感数据生命周期 | 197 个 `codex-login` 测试全过，含旧 fixture、keyring 三槽 round-trip、refresh 保留 | optional 字段可被旧版本忽略；写入失败保持旧文件原子不变 | implemented |
+| W3 | 提供 route-bound auth view | 认证运行时 | `login/src/auth/manager.rs`、`model-provider` client construction | `AuthManager::auth_for_route` | 从共享存储按 `ProviderRoute` 选择 ChatGPT/OpenAI API/DeepSeek API，不改变 legacy cached auth | 并发 session 可分别解析三条认证路径 | 防止切换一个 session 污染其他 session | Complexity：增加 route 选择分支；Reach：后续 provider request auth、refresh、401 路径 | 三路 route selection 与 key 隔离测试通过；client construction 接线留给 transition | 保留现有 legacy `auth()`，未迁移调用方行为不变 | auth-view-implemented |
+| W4 | 精确登录登出与状态 | API/安全 | app-server protocol v2 account、`account_processor.rs`、TUI onboarding | login params、account status、logout target | 已提供 DeepSeek 字段级 login 与 route 精确 logout；后续给 account API/TUI 接入并返回三槽脱敏状态 | 存储层可独立录入和清除访问方式；UI 尚未接线 | 先闭合凭据生命周期原语 | Complexity：字段级 merge/clear；Reach：后续 CLI/TUI/app-server 客户端 | route logout isolation 与 legacy login/logout 全套测试通过 | legacy logout 保留；route 操作失败不改其他槽 | storage-implemented-api-pending |
 | W5 | 隔离模型缓存 | 缓存/数据 | `models-manager/src/manager.rs`、cache types/tests | cache eligibility/path/key | 将 route identity 纳入 cache entry、ETag 与内存 catalog key，并兼容忽略旧无 identity cache | 不同 Provider/访问方式不串模型目录 | 消除错误模型与 ETag 复用 | Complexity：cache schema/key 增加；Reach：启动/刷新/磁盘缓存，触发缓存敏感门禁 | cache hit/miss/cross-route/legacy tests；cache regression gate | 新 cache 可失效重建；不得删除用户其他数据 | planned |
 | W6 | 生成三组模型目录 | 模型目录 | `models-manager`、bundled presets、app-server model listing、TUI `model_catalog.rs` | route-scoped catalog result | 移除全局 DeepSeek-only 过滤，按 route 获取/合并模型并携带 availability/reason | `/model` 总能看到三组，缺凭据项显示不可用而非消失 | 满足 PD14/PD16，且路由明确 | Complexity：catalog DTO/三路刷新；Reach：启动延迟、缓存、picker、模型默认值 | grouped catalog、缺凭据、同名模型、默认/最近模型 tests | 单路刷新失败只标记该组不可用，不污染当前 route | planned |
 | W7 | 扩展原子 settings 协议 | 协议/控制面 | app-server `thread.rs`、`thread_processor.rs`、core protocol | `ThreadSettingsUpdateParams`、`ThreadSettingsOverrides` | 让 route+model 作为一个 selection 进入现有 settings submission | `/provider` 与跨组 `/model` 共享同一 core 操作 | 避免先切 provider 再补 model 的半状态 | Complexity：协议字段/映射分支；Reach：所有 settings clients/schema | request validation、legacy model-only、invalid combination tests | optional 新字段保持旧客户端兼容 | planned |
@@ -118,7 +118,7 @@
 - Exit evidence: V1–V3 均为 `direction-supported`；`ProviderRoute` serde 测试 2/2、login refresh 测试 1/1、keyring coexistence 测试 1/1、active-turn next-turn 测试 1/1、wire-copy/非 OpenAI 清理测试 2/2 通过；全程无真实 Key、网络 Provider 或模型费用。
 - Product Decision Delta: `engineering-only`。实现未改变双槽、turn 边界或 canonical history 产品语义；D1 只简化后续私有存储设计。
 - Formatting note: `just fmt` 因本机缺少 `dotslash` 在 Bazel formatter 前置步骤失败；相关 Rust 文件已用 stable `rustfmt` 格式化，代码定向测试均通过。
-- Next: Phase 0 已 verified。Phase 1 的 D1 是物质性 Plan Delta，必须获得用户明确批准并把 gate 改为 ready 后才能继续。
+- Next: Phase 0 已 verified；D1 已于 2026-08-23 获用户批准，Phase 1 可以执行。
 
 ### Phase 1：凭据与模型目录基础
 
@@ -127,14 +127,20 @@
 - Rebase scope: Phase 0 类型/spike/测试结果 + W2–W6、W16 剩余设计
 - Material plan delta: material
 - Plan delta record: D1
-- User approval: required-pending
-- Gate status: blocked-on-plan-approval
+- User approval: approved-2026-08-23
+- Gate status: ready
 
 - Entry: Phase 0 verified。
 - Work: W2–W6 中的认证/缓存/目录部分，W16 的认证脱敏。
 - Exit evidence: 三槽共存、独立 login/logout、route-bound auth 并发隔离、三组 catalog 和 cache 隔离测试通过。
 - Product Decision Delta: 审计 PD3–PD5、PD9、PD13、PD15、PD16。
 - Cross-unit side effects: auth storage migration 与 models cache 都是磁盘敏感面；必须分别验证原子写和旧格式兼容。
+
+#### 当前实施证据
+
+- 认证基础提交范围：W2、W3 auth view、W4 storage primitives；W5/W6 与 account/TUI 接线尚未开始。
+- `just test -p codex-login`：197/197 通过；全部为本地 fixture/mock，没有真实 Provider 请求或模型费用。
+- 兼容行为：损坏的旧 auth 仍可被原生登录修复；有效旧记录执行字段级合并；OpenAI API 登录继续清除互斥的 Bedrock 激活状态，但保留 ChatGPT 与 DeepSeek 槽。
 
 ### Phase 2：Core 原子 Provider Transition
 
@@ -251,7 +257,7 @@
 
 | ID | Before Phase | Previous Plan | Current Fact | Proposed Change | Impact | User Approval | Status |
 |---|---|---|---|---|---|---|---|
-| D1 | Phase 1 | 新建版本化 credential inventory，并把旧 `AuthDotJson` 迁移到新结构 | 现有 `AuthDotJson` 已能同时保存 ChatGPT tokens 与 OpenAI API key；file/keyring round-trip 可保留两者；`persist_tokens` 原位刷新并保留 API key | 保留现有 flat OpenAI 字段作为双槽权威，仅新增 optional `DEEPSEEK_API_KEY` 槽；登录/登出改为字段级 merge/clear，route-bound auth 显式选槽；不新增 inventory 版本或嵌套迁移层 | 减少 schema/migration/兼容分支和批量迁移风险；W2/W3/W4 目标、产品行为和验证矩阵不变 | required-pending | proposed-blocking |
+| D1 | Phase 1 | 新建版本化 credential inventory，并把旧 `AuthDotJson` 迁移到新结构 | 现有 `AuthDotJson` 已能同时保存 ChatGPT tokens 与 OpenAI API key；file/keyring round-trip 可保留两者；`persist_tokens` 原位刷新并保留 API key | 保留现有 flat OpenAI 字段作为双槽权威，仅新增 optional `DEEPSEEK_API_KEY` 槽；登录/登出改为字段级 merge/clear，route-bound auth 显式选槽；不新增 inventory 版本或嵌套迁移层 | 减少 schema/migration/兼容分支和批量迁移风险；W2/W3/W4 目标、产品行为和验证矩阵不变 | approved-2026-08-23 | accepted |
 
 ## 11. Completion Definition
 

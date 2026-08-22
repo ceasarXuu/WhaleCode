@@ -1,6 +1,6 @@
 # v0.0.6 子主题：多 Provider 支持
 
-- 状态：Phase 0 已验证；Phase 1 等待 Plan Delta D1 批准
+- 状态：Phase 0 已验证；Phase 1 实施中
 - 产品权威：[多 Provider 切换 PRD](../../../../prd/2026-08-23-v0.0.6-multi-provider.md)
 - 代码盘点：[当前实现与差距清单](current-state-inventory.md)
 - 工程计划：[多 Provider 工程实施计划](plan.md)
@@ -27,4 +27,6 @@ OpenAI 官方与当前源码均确认 API key 可直接登录使用。产品规�
 
 ## 实施进度
 
-Phase 0 已完成非敏感 route identity、OpenAI 双凭据存储/刷新可行性、active-turn next-turn 边界和 wire-copy 历史投影方向验证。证据表明现有 `AuthDotJson` 已可承载 OpenAI 双槽，工程计划提出 D1：保留现有 flat 字段，仅新增 DeepSeek 独立槽并把登录/登出改为字段级操作。Phase 1 在该计划变更获得用户批准前保持阻断。
+Phase 0 已完成非敏感 route identity、OpenAI 双凭据存储/刷新可行性、active-turn next-turn 边界和 wire-copy 历史投影方向验证。证据表明现有 `AuthDotJson` 已可承载 OpenAI 双槽。D1 已获用户批准：保留现有 flat 字段，仅新增 DeepSeek 独立槽并把登录/登出改为字段级操作；Phase 1 已进入实施。
+
+Phase 1 已完成第一批认证基础：三槽凭据可在 file/keyring 中共存，`AuthManager` 可按 route 分别解析 OpenAI 订阅、OpenAI API 和 DeepSeek API，DeepSeek 提供独立登录入口，route logout 只清除目标槽。模型缓存隔离、三组 catalog 与 account/TUI 接线仍在后续批次。

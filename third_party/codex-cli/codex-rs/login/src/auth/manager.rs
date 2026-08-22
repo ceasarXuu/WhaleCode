@@ -22,6 +22,8 @@ use tokio::sync::watch;
 use tracing::instrument;
 
 use codex_agent_identity::ChatGptEnvironment;
+use codex_protocol::ProviderAccessMethod;
+use codex_protocol::ProviderRoute;
 use codex_protocol::auth::AuthMode;
 use codex_protocol::config_types::ForcedLoginMethod;
 use codex_protocol::config_types::ModelProviderAuthInfo;
@@ -63,6 +65,8 @@ use codex_config::types::AuthCredentialsStoreMode;
 use codex_http_client::HttpClient;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
+use codex_model_provider_info::DEEPSEEK_PROVIDER_ID;
+use codex_model_provider_info::OPENAI_PROVIDER_ID;
 use codex_protocol::account::PlanType as AccountPlanType;
 use codex_protocol::auth::PlanType as InternalPlanType;
 use codex_protocol::auth::RefreshTokenFailedError;
@@ -756,6 +760,7 @@ impl CodexAuth {
         let auth_dot_json = AuthDotJson {
             auth_mode: Some(AuthMode::Chatgpt),
             openai_api_key: None,
+            deepseek_api_key: None,
             tokens: Some(TokenData {
                 id_token: Default::default(),
                 access_token: "Access Token".to_string(),
@@ -888,6 +893,7 @@ fn persist_agent_identity_record(
 }
 
 pub const OPENAI_API_KEY_ENV_VAR: &str = "OPENAI_API_KEY";
+pub const DEEPSEEK_API_KEY_ENV_VAR: &str = "DEEPSEEK_API_KEY";
 pub const CODEX_API_KEY_ENV_VAR: &str = "CODEX_API_KEY";
 pub const CODEX_ACCESS_TOKEN_ENV_VAR: &str = "CODEX_ACCESS_TOKEN";
 
@@ -896,6 +902,10 @@ pub fn read_openai_api_key_from_env() -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+pub fn read_deepseek_api_key_from_env() -> Option<String> {
+    read_non_empty_env_var(DEEPSEEK_API_KEY_ENV_VAR)
 }
 
 pub fn read_codex_api_key_from_env() -> Option<String> {
@@ -955,28 +965,101 @@ pub async fn logout_with_revoke(
     )
 }
 
-/// Writes an `auth.json` that contains only the API key.
+/// Updates the OpenAI API key without clearing coexisting provider credentials.
 pub fn login_with_api_key(
     codex_home: &Path,
     api_key: &str,
     auth_credentials_store_mode: AuthCredentialsStoreMode,
     keyring_backend_kind: AuthKeyringBackendKind,
 ) -> std::io::Result<()> {
-    let auth_dot_json = AuthDotJson {
-        auth_mode: Some(AuthMode::ApiKey),
-        openai_api_key: Some(api_key.to_string()),
-        tokens: None,
-        last_refresh: None,
-        agent_identity: None,
-        personal_access_token: None,
-        bedrock_api_key: None,
-    };
+    let mut auth_dot_json = load_auth_dot_json_for_update(
+        codex_home,
+        auth_credentials_store_mode,
+        keyring_backend_kind,
+    )?;
+    auth_dot_json.auth_mode = Some(AuthMode::ApiKey);
+    auth_dot_json.openai_api_key = Some(api_key.to_string());
+    auth_dot_json.bedrock_api_key = None;
     save_auth(
         codex_home,
         &auth_dot_json,
         auth_credentials_store_mode,
         keyring_backend_kind,
     )
+}
+
+/// Updates the DeepSeek API key without changing the active legacy auth mode.
+pub fn login_with_deepseek_api_key(
+    codex_home: &Path,
+    api_key: &str,
+    auth_credentials_store_mode: AuthCredentialsStoreMode,
+    keyring_backend_kind: AuthKeyringBackendKind,
+) -> std::io::Result<()> {
+    let mut auth_dot_json = load_auth_dot_json_for_update(
+        codex_home,
+        auth_credentials_store_mode,
+        keyring_backend_kind,
+    )?;
+    auth_dot_json.deepseek_api_key = Some(api_key.to_string());
+    save_auth(
+        codex_home,
+        &auth_dot_json,
+        auth_credentials_store_mode,
+        keyring_backend_kind,
+    )
+}
+
+/// Clears only the credentials selected by `route`, preserving every other slot.
+pub fn logout_provider_route(
+    codex_home: &Path,
+    route: &ProviderRoute,
+    auth_credentials_store_mode: AuthCredentialsStoreMode,
+    keyring_backend_kind: AuthKeyringBackendKind,
+) -> std::io::Result<bool> {
+    let storage = create_auth_storage(
+        codex_home.to_path_buf(),
+        auth_credentials_store_mode,
+        keyring_backend_kind,
+    );
+    let Some(mut auth) = storage.load()? else {
+        return Ok(false);
+    };
+    let removed = match (route.model_provider_id.as_str(), route.access_method) {
+        (OPENAI_PROVIDER_ID, ProviderAccessMethod::ApiKey) => {
+            let removed = auth.openai_api_key.take().is_some();
+            if removed && auth.resolved_mode() == AuthMode::ApiKey {
+                auth.auth_mode = auth.tokens.as_ref().map(|_| AuthMode::Chatgpt);
+            }
+            removed
+        }
+        (OPENAI_PROVIDER_ID, ProviderAccessMethod::Chatgpt) => {
+            let removed = auth.tokens.take().is_some();
+            auth.last_refresh = None;
+            if removed && matches!(auth.resolved_mode(), AuthMode::Chatgpt) {
+                auth.agent_identity = None;
+                auth.auth_mode = auth.openai_api_key.as_ref().map(|_| AuthMode::ApiKey);
+            }
+            removed
+        }
+        (DEEPSEEK_PROVIDER_ID, ProviderAccessMethod::ApiKey) => {
+            auth.deepseek_api_key.take().is_some()
+        }
+        _ => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "unsupported provider route",
+            ));
+        }
+    };
+    if !removed {
+        return Ok(false);
+    }
+    if auth.has_auth_material() {
+        storage.save(&auth)?;
+    } else {
+        storage.delete()?;
+    }
+    Ok(true)
 }
 
 /// Writes an `auth.json` that contains only the access token.
@@ -998,6 +1081,7 @@ pub async fn login_with_access_token(
                 // deserialize auth.json after a rollback.
                 auth_mode: None,
                 openai_api_key: None,
+                deepseek_api_key: None,
                 tokens: None,
                 last_refresh: None,
                 agent_identity: None,
@@ -1016,6 +1100,7 @@ pub async fn login_with_access_token(
             AuthDotJson {
                 auth_mode: Some(AuthMode::AgentIdentity),
                 openai_api_key: None,
+                deepseek_api_key: None,
                 tokens: None,
                 last_refresh: None,
                 agent_identity: Some(AgentIdentityStorage::Jwt(jwt.to_string())),
@@ -1110,6 +1195,25 @@ pub fn load_auth_dot_json(
         keyring_backend_kind,
     );
     storage.load()
+}
+
+pub(crate) fn load_auth_dot_json_for_update(
+    codex_home: &Path,
+    auth_credentials_store_mode: AuthCredentialsStoreMode,
+    keyring_backend_kind: AuthKeyringBackendKind,
+) -> std::io::Result<AuthDotJson> {
+    match load_auth_dot_json(
+        codex_home,
+        auth_credentials_store_mode,
+        keyring_backend_kind,
+    ) {
+        Ok(auth) => Ok(auth.unwrap_or_default()),
+        Err(err) if err.kind() == std::io::ErrorKind::InvalidData => {
+            tracing::warn!("stored auth is invalid; replacing it during login");
+            Ok(AuthDotJson::default())
+        }
+        Err(err) => Err(err),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1690,6 +1794,15 @@ fn refresh_token_endpoint() -> String {
 }
 
 impl AuthDotJson {
+    fn has_auth_material(&self) -> bool {
+        self.openai_api_key.is_some()
+            || self.deepseek_api_key.is_some()
+            || self.tokens.is_some()
+            || self.agent_identity.is_some()
+            || self.personal_access_token.is_some()
+            || self.bedrock_api_key.is_some()
+    }
+
     fn from_external_access_token(
         access_token: &str,
         chatgpt_account_id: &str,
@@ -1712,6 +1825,7 @@ impl AuthDotJson {
         Ok(Self {
             auth_mode: Some(AuthMode::ChatgptAuthTokens),
             openai_api_key: None,
+            deepseek_api_key: None,
             tokens: Some(tokens),
             last_refresh: Some(Utc::now()),
             agent_identity: None,
@@ -2322,6 +2436,72 @@ impl AuthManager {
             return Some(auth);
         }
         self.auth_cached()
+    }
+
+    /// Resolves credentials for a provider route without changing the manager's active auth.
+    pub async fn auth_for_route(
+        &self,
+        route: &ProviderRoute,
+    ) -> std::io::Result<Option<CodexAuth>> {
+        match (route.model_provider_id.as_str(), route.access_method) {
+            (OPENAI_PROVIDER_ID, ProviderAccessMethod::ApiKey) => {
+                let stored = self.load_stored_auth()?;
+                Ok(read_openai_api_key_from_env()
+                    .or_else(|| stored.and_then(|auth| auth.openai_api_key))
+                    .map(|key| CodexAuth::from_api_key(&key)))
+            }
+            (DEEPSEEK_PROVIDER_ID, ProviderAccessMethod::ApiKey) => {
+                let stored = self.load_stored_auth()?;
+                Ok(read_deepseek_api_key_from_env()
+                    .or_else(|| stored.and_then(|auth| auth.deepseek_api_key))
+                    .map(|key| CodexAuth::from_api_key(&key)))
+            }
+            (OPENAI_PROVIDER_ID, ProviderAccessMethod::Chatgpt) => {
+                if matches!(
+                    self.auth_cached(),
+                    Some(CodexAuth::Chatgpt(_) | CodexAuth::ChatgptAuthTokens(_))
+                ) {
+                    return Ok(self.auth().await);
+                }
+                let Some(mut stored) = self.load_stored_auth()? else {
+                    return Ok(None);
+                };
+                if stored.tokens.is_none() {
+                    return Ok(None);
+                }
+                stored.auth_mode = Some(AuthMode::Chatgpt);
+                CodexAuth::from_auth_dot_json(
+                    &self.codex_home,
+                    stored,
+                    self.auth_credentials_store_mode,
+                    self.chatgpt_base_url.as_deref(),
+                    self.keyring_backend_kind,
+                    self.agent_identity_authapi_base_url.as_deref(),
+                    &self.auth_route_config,
+                )
+                .await
+                .map(Some)
+            }
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "unsupported provider route: {}/{}",
+                    route.model_provider_id,
+                    match route.access_method {
+                        ProviderAccessMethod::Chatgpt => "chatgpt",
+                        ProviderAccessMethod::ApiKey => "api-key",
+                    }
+                ),
+            )),
+        }
+    }
+
+    fn load_stored_auth(&self) -> std::io::Result<Option<AuthDotJson>> {
+        load_auth_dot_json(
+            &self.codex_home,
+            self.auth_credentials_store_mode,
+            self.keyring_backend_kind,
+        )
     }
 
     pub async fn agent_identity_auth(
