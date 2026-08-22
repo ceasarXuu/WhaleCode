@@ -1,15 +1,15 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-23T00:25:14+08:00",
+  "updated_at": "2026-08-23T00:25:56+08:00",
   "entries": [
     {
       "record_id": "WAR-20260823-001949-DEEPSEEK-VISION-FIX-R1",
       "record_type": "run_batch",
-      "status": "running",
+      "status": "settled",
       "started_at": "2026-08-23T00:25:14+08:00",
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "ended_at": "2026-08-23T00:25:56+08:00",
+      "elapsed_calendar_seconds": 42,
+      "aggregate_agent_wall_time_ms": 1467,
       "reason": "验证修复后的 DeepSeek Vision 冒烟素材、提示词与 marker 判定一致，并确认失败证据在断言前持久化。",
       "authorization": {
         "required": false,
@@ -39,22 +39,27 @@
         ],
         "repeats_per_arm_per_sample": 1,
         "planned_sample_runs": 1,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "pending"
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
-        "input": 0,
+        "input": 5080,
         "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "uncached_input": 5080,
+        "output": 39,
+        "reasoning_output": 31
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "estimated_from_provider_usage",
         "currency": "CNY",
-        "amount": 0.0,
+        "amount": 0.01829344,
         "actual_billed_amount": null,
-        "components": null,
+        "components": {
+          "cached_input": 0.0,
+          "uncached_input": 0.0178816,
+          "output": 0.00041184
+        },
         "pricing_snapshot": {
           "model": "deepseek-v4-flash-vision-exp",
           "captured_at": "2026-08-22",
@@ -65,8 +70,8 @@
             "output": 1.32
           }
         },
-        "formula": "12K peak uncached input + 1K peak output = USD 0.0066，按 8 CNY/USD 保守折算约 CNY 0.0528；运行硬上限 CNY 0.10。",
-        "note": "用户总授权上限 CNY 1.00；本次只计划一个请求，采用更严格的 CNY 0.10 子上限。"
+        "formula": "(5080/1e6*USD 0.44 + 39/1e6*USD 1.32) * 8 CNY/USD = CNY 0.01829344。",
+        "note": "按 provider usage 与 2026-08-22 官方价格快照估算；低于 CNY 0.10 运行子上限和用户批准的 CNY 1.00 总上限。"
       },
       "evidence": {
         "subject_commit": "5f907bc28fa7b098cb233705b9c7025677a0d949",
@@ -74,8 +79,12 @@
         "planned_evidence_root": "benchmarks/deepseek-responses/evidence/WAR-20260823-001949-DEEPSEEK-VISION-FIX-R1",
         "stop_conditions": "零自动重试；任一失败、usage 缺失、1 request、12K input、1K output、CNY 0.10 或 3 分钟任一先到即停止。",
         "provider_request_counter": "benchmarks/deepseek-responses/evidence/WAR-20260823-001949-DEEPSEEK-VISION-FIX-R1/provider-request-count.txt",
-        "usage_evidence_status": "pending",
-        "outcome": "planned"
+        "usage_evidence_status": "complete",
+        "actual_run_root": "benchmarks/deepseek-responses/evidence/WAR-20260823-001949-DEEPSEEK-VISION-FIX-R1",
+        "whale_binary_sha256": "38502cc58e9db74a3d8c06455ccffc7edbb0a0fbf7de5932ace696656b93f42b",
+        "runner_exit_code": 0,
+        "stop_reason": "completed",
+        "outcome": "一个 Vision Responses 请求完成；最终消息精确为 WHALE_DS_VISION_OK，marker_seen=true，validation_errors 为空，usage 完整，未重试。"
       }
     },
     {

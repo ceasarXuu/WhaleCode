@@ -1,7 +1,7 @@
 # Problem P-001: DeepSeek Vision 真实冒烟缺少预期 marker
-- Status: repair_in_progress
+- Status: fixed
 - Created: 2026-08-23 00:09
-- Updated: 2026-08-23 00:25
+- Updated: 2026-08-23 00:26
 - Objective: 确定 Vision 冒烟失败发生在图片入站、provider 路由、模型视觉语义还是测试判定层。
 - Symptoms:
   - `deepseek-v4-flash-vision-exp` 的 Responses 请求完成，但最终消息不含 `WHALE_DS_VISION_OK`。
@@ -22,18 +22,17 @@
   - 原始 `application/octet-stream` data URL 直接发送：历史边界的图片准备会解码并重新编码为规范图片 data URL。
 - Fix criteria:
   - 用不付费证据定位最可能层；若仍需真实重现，必须先获得新预算并在请求前持久化脱敏 wire/最终消息/usage。
-- Current conclusion: 失败由测试素材与提示词不一致导致。提示要求只在图片含 OpenAI knot logo 时输出 marker，实际 PNG 是打开的书本图标；模型不输出 marker 符合提示，runner 的严格断言随后将其判为失败。该记录不能作为 Vision 不支持图片的证据。
+- Current conclusion: 失败由测试素材与提示词不一致导致，现已修复。提示改为识别实际存在的红橙色描边打开书本，失败状态与证据在断言前持久化；一次真实 Vision-only 复验返回精确 marker，usage 完整且零重试。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
   - H-004
 - Resolution basis:
-  - E-002 直接检查实际输入素材，确认其为 100x100 的书本图标而非 OpenAI knot logo。
-  - E-003 证明 `--image` 到 Responses `input_image` 的本地链路可用。
-  - E-004 将错误判定确定到 marker 断言，且 provider 请求本身已完成。
+  - H-003 由 E-002/E-004 确认原始根因是 fixture/oracle 矛盾。
+  - H-004 由 E-005 确认修复后的真实 Vision Responses 验证通过。
 - Close reason:
-  - 根因已确认在测试 fixture/oracle，不在已观察到的图片传输路径。
+  - 原始症状在同模型、同素材、同 Vision-only 路径下不再出现。
 
 ## Hypothesis H-001: 图片在 Whale 输入转换或 wire 清理阶段丢失
 - Status: refuted
@@ -155,15 +154,15 @@
   - E-002
   - E-004
 - Conclusion: 测试图片是书本图标；提示明确要求非 knot logo 时解释，runner 又只接受 marker，因此正确的否定回答必然被判失败。
-- Repair design readiness: ready; repair requires user authorization
-- Next step: 若用户要求修复，改用与问题一致的确定性素材/问题，并保留最终消息与 usage 证据。
+- Repair design readiness: completed
+- Next step: none
 - Blocker:
   - none
 - Close reason:
   - E-002 与 E-004 共同满足根因证据门槛。
 
 ## Hypothesis H-004: 使提示词匹配书本素材可消除原始误判
-- Status: unverified
+- Status: confirmed
 - Parent: P-001
 - Claim: 将 Vision 提示改为识别实际存在的红橙色描边打开书本，并在断言前持久化真实状态、回复和 usage，可让同一 Vision-only 路径正确通过且保留失败证据。
 - Layer: fix-validation
@@ -192,17 +191,18 @@
   - Instrumentation status: permanent harness evidence hardening
   - Instrumentation lifecycle:
     - 保留失败 sample 的 status、validation_errors、final_message 与 usage；不保存凭据。
-- Evidence gate: pending
+- Evidence gate: satisfied
 - Related evidence:
   - E-002
   - E-004
-- Conclusion: unverified
-- Repair design readiness: authorized by user on 2026-08-23
-- Next step: 提交修复与 planned 账本记录，安装 workspace 二进制，再运行一次 Vision-only 验证。
+  - E-005
+- Conclusion: 修复后的唯一一次真实请求精确返回 marker；sample 与 summary 均 passed，usage 完整，失败证据字段为空且状态一致。
+- Repair design readiness: completed
+- Next step: none
 - Blocker:
-  - workspace binary attestation missing，需在真实运行前执行 workspace-scope install。
+  - none
 - Close reason:
-  - not closed
+  - E-005 满足全部 fix-validation 预测。
 
 ## Evidence E-001: 账本与失败证据只证明 marker 不匹配
 - Related hypotheses:
@@ -288,3 +288,27 @@
   ```
 - Interpretation: 对实际书本图标，模型遵循提示的正确输出与 runner 的通过条件互斥；因此“未通过”是 fixture/oracle 缺陷。
 - Time: 2026-08-23 00:24
+
+## Evidence E-005: 修复后的真实 Vision-only 冒烟通过
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: fix-validation
+- Source: `benchmarks/deepseek-responses/evidence/WAR-20260823-001949-DEEPSEEK-VISION-FIX-R1/summary.json`
+- Prediction or plan link:
+  - H-004 的真实 Vision marker、证据完整性和预算预测。
+- Matched signal:
+  - runner exit 0；provider_request_count=1；response_marker_seen=true；final_message 精确为 marker；validation_errors=[]；usage 完整。
+- Correlation keys:
+  - WAR-20260823-001949-DEEPSEEK-VISION-FIX-R1
+- Raw content:
+  ```text
+  status=passed
+  provider_request_count=1
+  input_tokens=5080
+  output_tokens=39
+  reasoning_output_tokens=31
+  final_message=WHALE_DS_VISION_OK
+  ```
+- Interpretation: 同一 Vision 模型与图片路径在修复 oracle 后通过，原始误判已消除；无证据表明图片传输或 Vision 路由失败。
+- Time: 2026-08-23 00:26
