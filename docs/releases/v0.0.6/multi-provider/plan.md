@@ -138,7 +138,7 @@
 
 #### 当前实施证据
 
-- 已完成范围：W2、W3 auth view、W4 storage primitives、W5 route-scoped cache、W6 grouped catalog core；三路 runtime manager registry 与 app-server/account/TUI 接线尚未完成。
+- 已完成范围：W2、W3 auth view、W4 storage primitives、W5 route-scoped cache、W6 grouped catalog core 与兼容 app-server `groups` 响应合同；三路 runtime manager registry 与 app-server/account/TUI 数据接线尚未完成。
 - `just test -p codex-login`：197/197 通过；全部为本地 fixture/mock，没有真实 Provider 请求或模型费用。
 - `just test -p codex-models-manager`：52/52 通过；另一 route 或旧无 route entry 不会命中新 route manager。
 - cache regression index gate：通过；surface `926188e1093dd019d07d8a8231c97592e3c3e5224c810c6481ef5e93043f6526`，Standard 与 TaskSpace 免费 final-wire 均可比较且无变化；未运行真实模型，发布级 live baseline 仍保持阻断。

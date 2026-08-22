@@ -216,3 +216,19 @@ pub struct ModelSafetyBufferingUpdatedNotification {
     pub show_buffering_ui: bool,
     pub faster_model: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ModelListResponse;
+
+    #[test]
+    fn model_list_defaults_groups_for_legacy_responses() {
+        let response: ModelListResponse = serde_json::from_value(serde_json::json!({
+            "data": [],
+            "nextCursor": null
+        }))
+        .expect("legacy model list response should deserialize");
+
+        assert!(response.groups.is_empty());
+    }
+}
