@@ -47,12 +47,14 @@
 
 因此，本主题必须先建立 Provider-scoped credential contract，不能把 DeepSeek Key 继续塞进 OpenAI 字段。
 
-### 2.3 未解决的认证问题
+### 2.3 认证实现缺口与后续确认结果
 
-- OpenAI 订阅与 OpenAI API 是否需要同时保存、随时互切，还是新登录覆盖旧登录。
-- DeepSeek Key 是否记住、存在哪里、如何更新和删除。
-- 切换前是否在线验证凭据；验证失败是否保持原 Provider 完全不变。
-- `/logout` 是退出当前访问方式、清除当前 Provider 凭据，还是清除所有凭据。
+盘点时以下问题尚未解决；后续已经由 PRD 的 PD9、PD13、PD15 确认：
+
+- OpenAI 订阅与 OpenAI API 凭据需要安全共存并随时互切，不能由新登录覆盖旧登录。
+- DeepSeek Key 按 Provider 安全持久化、可更新，并与 OpenAI 凭据隔离。
+- transition 失败必须保持原 Provider 完全不变；具体离线/在线校验层次由工程计划控制。
+- `/logout` 只清除当前访问方式，不得清除其他凭据。
 
 ## 3. `/provider` 与模型目录
 
@@ -90,7 +92,7 @@
 
 Provider 切换应只在 turn 边界生效。已捕获的 `TurnContext` 不应在单次 response stream、tool loop、retry 或 compact 中途改变 Provider。切换必须同时更新运行时 Provider、认证、模型目录、模型、提示词、工具/命令投影、压缩策略、持久化和 UI 缓存；任一预检失败时不得留下混合状态。
 
-这段是基于代码边界的设计建议，不是已确认产品规则。
+该 turn 边界后来已由 PRD 的 PD8 直接确认；具体原子提交路径由工程计划约束。
 
 ## 5. 系统提示词与动态能力面
 
@@ -153,9 +155,9 @@ Provider 切换应只在 turn 边界生效。已捕获的 `TurnContext` 不应�
 
 建议保留 canonical rollout 事实，只为目标 Provider 生成兼容 wire projection；不要为了适配新 Provider 破坏原始历史。
 
-## 8. 推荐的实现前门禁
+## 8. 已纳入工程计划的实现门禁
 
-以下是盘点后的工程建议，尚未获得产品确认：
+以下盘点建议已由产品决策覆盖并纳入 `plan.md`；工程执行仍需逐阶段 rebase：
 
 1. 将三项用户选择建模为两个 wire Provider、三个访问配置：OpenAI + ChatGPT auth、OpenAI + API auth、DeepSeek + DeepSeek credential。
 2. 新增原子 `ProviderTransition`，禁止在单次 active turn/tool loop 内切换。

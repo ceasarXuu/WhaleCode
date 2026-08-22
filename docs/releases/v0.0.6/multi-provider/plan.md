@@ -1,0 +1,263 @@
+# WhaleCode v0.0.6 多 Provider 工程实施计划
+
+- Status: planned
+- Product Authority: `../../../../prd/2026-08-23-v0.0.6-multi-provider.md#confirmed-product-decisions`
+- Applicable Decisions: PD1, PD2, PD3, PD4, PD5, PD6, PD7, PD8, PD9, PD10, PD11, PD12, PD13, PD14, PD15, PD16
+- Current-State Evidence: `./current-state-inventory.md`
+- Scope: Codex-derived Rust core、app-server protocol/server、认证、模型目录、TUI、rollout/replay、测试与发布文档
+
+## Execution Contract
+
+- Product Authority 中的 active 决策是本计划唯一用户权威；修改、重释或替换这些决策必须获得用户明确批准，Agent 不得自批。
+- 已验证的代码、测试和运行证据可以修订本计划，但不得静默改写 Product Authority。
+- 新的用户可见重大选择必须延期、标记为 provisional，或交由用户确认；未解决的 material `provisional` / `conflict` 会阻断依赖阶段。
+- 每个物质阶段结束后，只审计该阶段引入或改变的 Product Decision Delta。
+- 每个物质阶段开始前，必须用已完成实现和证据 rebase 全部剩余计划；gate 为 `pending` 或 `blocked-on-plan-approval` 时不得开始。
+- 设计方向、范围、模块/API/数据边界、工作单元、顺序、验证、回滚、收益、成本或风险发生物质变化时，必须记录 Plan Delta 并获得用户明确批准，之后才能应用修订并继续依赖实现。
+- 非物质性的局部实现细节可按代码事实调整，但应保持工作单元目标、外部行为、验证与安全停止边界不变。
+
+## 1. Current And Expected Behavior
+
+### Current
+
+- OpenAI ChatGPT 与 API key 都可登录，但 `AuthDotJson`/`AuthManager` 只表达一个当前认证；API key 登录会覆盖 token。
+- DeepSeek Provider 已存在，但只从 `DEEPSEEK_API_KEY` 环境变量取值；当前 DeepSeek Key UI 实际写入 OpenAI 字段。
+- `/model` 只更新 model/effort，模型目录被过滤为 DeepSeek，缓存不含 Provider identity。
+- `SessionConfiguration.provider` 在 session 初始化时固定；thread settings、turn context 和 replay 没有完整 Provider route。
+- prompt、tools、commands、compaction、history projection 各自具备部分 capability seam，但没有原子 Provider transition。
+
+### Expected
+
+- 三条稳定访问路由：`openai/chatgpt`、`openai/api-key`、`deepseek/api-key`；路由只含非敏感 identity，不含凭据。
+- `/provider` 和跨组 `/model` 选择生成同一种 session-scoped 原子 transition；active turn 中显示 pending，下一 turn 才采用新 route snapshot。
+- OpenAI 两套凭据与 DeepSeek Key 隔离、安全共存、独立登录登出；每次请求明确绑定访问路由。
+- provider、model、prompt、tools、commands、history projection 和 compaction policy 在同一个 prepared transition 中通过预检后一次提交。
+- canonical rollout 不因切换被改写；目标 Provider 只收到兼容的 wire projection；resume/fork/rollback/subagent 能恢复正确路由。
+
+## 2. Minimum-Sufficient Design
+
+### 2.1 Stable Route Identity
+
+在 `codex-protocol` 定义可序列化的 `ProviderRoute { model_provider_id, access_method }`，其中 `access_method` 首批只需 `Chatgpt` 与 `ApiKey`。模型选择由 `{ route, model, effort }` 表达。任何 rollout、状态、日志和 telemetry 只能记录该非敏感 route，不得记录 Key/token。
+
+同一 `openai` wire Provider 可对应两个 route；因此缓存、最近模型和 UI 分组使用 route identity，工具/wire capability 仍使用实际 `ModelProviderInfo`/`ModelProvider`。
+
+### 2.2 Credential Inventory And Route-Bound Auth
+
+保留 Codex 原生 OAuth/device/API-key 登录流程和 token 刷新实现，扩展现有认证存储为版本化 credential inventory：ChatGPT token、OpenAI API key、DeepSeek API key 可共存。旧 `auth.json` 必须向后兼容读取并一次性无损投影到新结构；写入继续使用现有 file/keyring/auto 后端。
+
+`AuthManager` 不再要求模型请求依赖一个进程级 active auth，而是提供 route-bound auth view。ChatGPT refresh 状态仍集中管理；API key view 只暴露目标 route 的 secret。登录/登出 API 必须显式携带 route，且只改变该槽。
+
+### 2.3 Prepared Provider Transition
+
+扩展 `thread/settings/update` 和 core `ThreadSettingsOverrides`，以一个可选 route+model selection 表达切换。handler 在持有旧 session authority 时完成凭据、模型 metadata、provider client、base instructions、history compatibility、context window/compaction 的预检，产出不含 secret 的 `PreparedProviderTransition`。
+
+只有完整 prepared value 才能替换 `SessionConfiguration` 的 route、provider、model/prompt policy；失败时丢弃 prepared value。已捕获的 `TurnContext` 永不变更。active turn 期间 transition 排在其完成之后、下一条用户输入之前提交；TUI 的 pending 状态由请求发起到 `ThreadSettingsApplied`/失败响应闭环驱动。
+
+### 2.4 Dynamic Surfaces Without A Mega-Registry
+
+不新增通用插件框架。复用现有模型 metadata、`ModelProvider` capability、base-instruction resolver、tool spec builder 和 compact router，只补四个窄合同：route-scoped catalog、command availability、wire history projection、prepared transition。这样避免把当前三条路由扩张成无需求的 Provider framework。
+
+### 2.5 Durable Context And Compatibility
+
+扩展 `ThreadSettingsSnapshot`、`ThreadSettingsAppliedEvent`、`TurnContextItem` 与 `PreviousTurnSettings` 记录 route；新增字段保持 serde 默认以读取旧 rollout。replay 从有效事件序列恢复最后 route，并顺便派生 session 内每条 route 的最近成功模型，不新增独立全局默认状态。
+
+历史在请求边界生成目标 route 的临时投影：先移除目标不支持的 provider-internal encrypted 字段和 hosted item/call-output 对，再复用现有 call/output、孤儿输出和媒体规范化。canonical history、compact checkpoint 和 rollout 原文保持不变。
+
+跨 route 仅在 comp hash 或窗口约束要求时，于 transition commit 前使用上一 turn 的 route-bound provider 完成 pre-turn compact；失败即保持旧 route。commit 后的自动/手动 compact 使用新 route capability。
+
+## 3. Pending Product Decisions
+
+无。若实现证据暴露新的用户可见重大选择，相关阶段必须标记 `blocked` 并回到用户确认，不能以工程默认值补齐产品权威。
+
+## 4. Pre-Investment Validation
+
+| ID | Critical Assumption | Decision Unlocked | Cheapest Credible Method | Enough Evidence / Not Proven | Budget / Isolation | Stop / Cleanup | Status |
+|---|---|---|---|---|---|---|---|
+| V1 | 现有 file/keyring/auto 存储和 ChatGPT refresh 可被包装成多槽 inventory，而无需复制 OAuth/token-refresh 状态机 | W2–W4 的认证边界 | 为旧/新 `AuthDotJson` fixture、keyring mock 和两个 route-bound auth view 写离线 contract test；仅做最小类型 spike | 证明旧格式无损读取、两槽互不覆盖、ChatGPT refresh 不改变 API key；不证明真实服务凭据有效 | 无网络、无真实 Key、无模型费用 | spike 只保留被测试证明必要的类型；方向失败则删除 spike 并记录 Plan Delta | planned |
+| V2 | 现有 submission FIFO 能保证 active turn 后、下一用户输入前提交 provider settings，且旧 `TurnContext` 不被突变 | W8、W13 的切换时序 | core mock provider 测试：active stream/tool continuation 期间提交 transition，再排队用户输入并记录每次 provider snapshot | 证明当前 turn 全程旧 route、下一 turn 全程新 route、失败无半状态；不证明 TUI 文案 | 本地 mock HTTP/内存 rollout，无真实模型 | 若 FIFO seam 不足，停止 Phase 2，记录是否引入显式 pending slot 的物质 Plan Delta | planned |
+| V3 | OpenAI 专属 reasoning/hosted history 可在不改 canonical history 的前提下投影为 DeepSeek 可接受输入 | W12 的 history projector | 用现有 `ResponseItemEnvelope` fixture 生成目标 route request，验证加密字段、hosted items、媒体和 call/output 配对 | 证明序列化形状与配对不变量；不声称真实 Provider 接受，真实 probe 需另行预算授权 | 离线 fixture/mock server；禁止真实 Whale run | projector 不满足不变量则丢弃 spike，重新划定兼容矩阵并 rebase | planned |
+
+## 5. Work Units
+
+| ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| W1 | 固定 route identity | 协议/类型 | `protocol/src/protocol.rs`、app-server v2 thread/account schemas | `ProviderRoute`、route+model selection DTO | 新增非敏感、向后兼容的 route 类型并生成 schema fixture | 三条访问路由在 core/app-server/TUI 使用同一 identity | 消除 provider ID 与 auth mode 混淆 | Complexity：新增 1 个值类型和 schema 字段；Reach：协议消费者与 fixture | protocol serde/TS schema tests；`just write-app-server-schema` 后 diff 审核 | 字段全为 optional；移除新字段即可回到旧协议 | planned |
+| W2 | 建立多槽凭据存储 | 安全/数据 | `login/src/auth/storage.rs`、`manager.rs`、storage tests | `AuthDotJson` migration、credential inventory | 版本化扩展存储并兼容旧 OpenAI auth，加入 DeepSeek 独立槽 | 三类凭据可共存且旧用户不丢登录 | 满足 PD9/PD15 并修复 DeepSeek 错位 | Complexity：新增 schema/migration 分支；Reach：file/keyring/ephemeral、敏感数据生命周期 | V1；旧/新 fixture round-trip、权限、零 secret 日志测试 | 先只合并兼容读取；写入失败保持旧文件原子不变 | planned |
+| W3 | 提供 route-bound auth view | 认证运行时 | `login/src/auth/manager.rs`、`model-provider` client construction | `AuthManager` route selector / auth view | 从共享 inventory 构造目标 route 的认证投影并保留单一 ChatGPT refresh owner | 并发 session 可分别使用订阅、OpenAI API、DeepSeek | 防止切换一个 session 污染其他 session | Complexity：增加 route 选择分支；Reach：所有 provider request auth、refresh、401 路径 | 并发 mock requests、refresh 与 key 隔离 tests | 保留现有 legacy current-auth adapter，未迁移调用方仍可工作 | planned |
+| W4 | 精确登录登出与状态 | API/安全 | app-server protocol v2 account、`account_processor.rs`、TUI onboarding | login params、account status、logout target | 给登录/登出显式 route，返回三槽脱敏状态；复用原生 ChatGPT/API 流程并修正 DeepSeek 输入 | UI 可独立录入、更新、取消和清除任一访问方式 | 关闭凭据全生命周期 | Complexity：新增 account API 分支/通知；Reach：CLI/TUI/app-server 客户端与 cloud bundle 刷新 | account processor、onboarding、cancel、logout isolation tests | route 操作失败不改其他槽；保留 legacy logout adapter 到迁移完成 | planned |
+| W5 | 隔离模型缓存 | 缓存/数据 | `models-manager/src/manager.rs`、cache types/tests | cache eligibility/path/key | 将 route identity 纳入 cache entry、ETag 与内存 catalog key，并兼容忽略旧无 identity cache | 不同 Provider/访问方式不串模型目录 | 消除错误模型与 ETag 复用 | Complexity：cache schema/key 增加；Reach：启动/刷新/磁盘缓存，触发缓存敏感门禁 | cache hit/miss/cross-route/legacy tests；cache regression gate | 新 cache 可失效重建；不得删除用户其他数据 | planned |
+| W6 | 生成三组模型目录 | 模型目录 | `models-manager`、bundled presets、app-server model listing、TUI `model_catalog.rs` | route-scoped catalog result | 移除全局 DeepSeek-only 过滤，按 route 获取/合并模型并携带 availability/reason | `/model` 总能看到三组，缺凭据项显示不可用而非消失 | 满足 PD14/PD16，且路由明确 | Complexity：catalog DTO/三路刷新；Reach：启动延迟、缓存、picker、模型默认值 | grouped catalog、缺凭据、同名模型、默认/最近模型 tests | 单路刷新失败只标记该组不可用，不污染当前 route | planned |
+| W7 | 扩展原子 settings 协议 | 协议/控制面 | app-server `thread.rs`、`thread_processor.rs`、core protocol | `ThreadSettingsUpdateParams`、`ThreadSettingsOverrides` | 让 route+model 作为一个 selection 进入现有 settings submission | `/provider` 与跨组 `/model` 共享同一 core 操作 | 避免先切 provider 再补 model 的半状态 | Complexity：协议字段/映射分支；Reach：所有 settings clients/schema | request validation、legacy model-only、invalid combination tests | optional 新字段保持旧客户端兼容 | planned |
+| W8 | 构建并原子提交 transition | session authority | `core/src/session/session.rs`、`handlers.rs`、`turn_context.rs` | `PreparedProviderTransition`、`SessionConfiguration::apply` | 在 apply 前解析 route auth/provider/model/prompt/compatibility，成功后一次替换 session snapshot | 当前 turn 保持旧 route，下一 turn 使用完整新 snapshot | 实现根能力并保证失败回滚 | Complexity：新增 prepared state 和 apply 分支；Reach：turn creation、settings FIFO、metrics | V2；成功/失败/active turn/queued input/retry/tool loop tests | prepared value 未提交可直接丢弃；commit 前不改 session | planned |
+| W9 | 原子切换 prompt 与 runtime capability | prompt/tools | session init/base instruction resolver、world state、`tools/spec_plan.rs` | transition prompt snapshot、model-switch fragment、tool plan | 复用初始化优先级重算目标 base instructions，并从新 provider/model 重建工具；写入 provider-switch developer context | 新 turn 的 prompt/tools 与 route 同步，旧 turn 不受影响 | 避免旧提示词和错误工具暴露 | Complexity：resolver 参数化、world-state diff；Reach：缓存前缀、每步 tool spec、system/developer context | prompt precedence、OpenAI↔DeepSeek、tool capability snapshots | 失败不提交 transition；可退回旧 resolver 路径 | planned |
+| W10 | 持久化 route 与最近模型 | rollout/replay | protocol snapshots/items、session rollout reconstruction | `ThreadSettingsSnapshot`、`TurnContextItem`、`PreviousTurnSettings` | 增加 optional route，持久化 settings applied/turn context，并从有效事件派生 route 最近模型 | resume 后恢复最后成功 route，切回时恢复该 route 最近模型 | 支持连续性、审计与兼容旧 rollout | Complexity：schema字段/replay状态；Reach：resume/fork/rollback/truncation/subagent | old fixture、multi-transition replay、rollback/fork/recent-model tests | optional/default 兼容；旧 rollout fallback 到 SessionMeta provider | planned |
+| W11 | 切换压缩策略 | context/compaction | `core/src/session/turn.rs`、`tasks/compact.rs`、`compact.rs` | provider-aware previous settings、pre-transition compact | 用 previous route provider 判断 comp hash/window 并在 commit 前按需压缩，commit 后绑定新 compact capability | 只在必要时压缩且不会用错 Provider | 保留上下文并避免无条件成本 | Complexity：previous route 与失败分支；Reach：manual/auto/remote/local compact、checkpoint | comp hash/downshift/remote↔local/credential missing/resume tests | compact 失败保持旧 route；checkpoint 写入失败不提交 | planned |
+| W12 | 生成目标 Provider 历史投影 | wire compatibility | `core/src/context_manager`、`client.rs` | `project_history_for_provider` | 在 request serialization 前过滤 encrypted/provider-hosted/unsupported item 并运行既有 normalization | canonical 历史不变，目标 wire 输入兼容 | 支持同 thread 跨 Provider 连续对话 | Complexity：兼容矩阵/投影分支；Reach：所有请求历史、token 估算、tool pairing | V3；OpenAI→DeepSeek→OpenAI round-trip、pairing、media、aborted call tests | projector 只生成临时副本；异常时拒绝请求而不改历史 | planned |
+| W13 | 提供 `/provider` 交互 | TUI | `slash_command.rs`、slash dispatch、chatwidget popup/app events | Provider selection popup、pending state | 新增命令并展示当前/认证/默认或最近模型/可用原因，提交 route transition | 用户可在 active turn 选择并看到下一 turn 生效 | 满足主要入口与可恢复反馈 | Complexity：popup/pending/error states；Reach：slash dispatch、app-server events、onboarding | snapshot/interaction tests：空闲、active、取消、登录、失败、成功 | 关闭 popup或失败只清 pending UI，不改变 core route | planned |
+| W14 | 改造分组 `/model` | TUI | `chatwidget/model_popups.rs`、`model_catalog.rs`、selection view | grouped routed model items | 按三组渲染全部模型；选择项提交 route+model，不执行跨 route 全局 config 持久化 | 一步完成跨 Provider 模型切换且计费路径明确 | 减少操作并避免无效全局 model/provider 组合 | Complexity：分组/availability/actions；Reach：reasoning popup、current/default 标记、旧 persist 行为 | grouped/same-name/unavailable/reasoning/cross-route tests | 同 route 旧 `/model` 行为保持；跨 route 失败保留当前选择 | planned |
+| W15 | 呈现 Provider-aware 命令能力 | TUI/runtime capability | `bottom_pane/slash_commands.rs`、slash dispatch | `CommandAvailability { enabled, reason }` | 将当前 route capability 输入命令列表和直接 dispatch guard | 不支持命令可见、禁用且原因一致 | 提升可发现性并阻止错误执行 | Complexity：availability reason 分支；Reach：命令菜单、键入路径、文案测试 | per-route availability snapshot + direct invocation tests | 无 capability 定义的命令默认保持现有行为 | planned |
+| W16 | 补齐脱敏与诊断 | observability/security | auth/provider errors、thread events、telemetry/status | route-safe fields、typed transition errors | 统一记录 route/stage/verdict，不记录 secret；为预检、排队、提交、投影、压缩失败提供 typed error | 用户和维护者能定位失败且凭据不泄露 | 降低支持与安全风险 | Complexity：错误枚举/字段；Reach：日志、rollout、status、telemetry | secret canary tests、snapshot/error mapping、rollout scan | 日志字段可独立回退；错误不得包含底层 secret body | planned |
+| W17 | 闭合生命周期语义 | 集成/恢复 | thread resume/fork/rollback、agent spawn、app-server thread tests | route restoration/inheritance | 让 resume/fork/rollback 恢复历史位置有效 route，subagent 继承创建时 route snapshot | 多 Provider session 在全部生命周期路径一致 | 防止只在主对话 happy path 生效 | Complexity：重建/继承分支；Reach：thread manager、agent control、rollout truncation | lifecycle matrix tests，含立即退出和 pending/aborted transition | 失败时拒绝恢复并给 typed error，不猜测凭据 | planned |
+| W18 | 完成回归与交付证据 | 验证/文档 | targeted suites、isolated runner、本主题文档 | test matrix、evidence summary、release status | 运行分层离线回归、schema/fmt/clippy/cache gate并更新证据 | 可证明 PD1–PD16 的实现覆盖和剩余限制 | 提供可审查交付基线 | Complexity：无生产抽象；Reach：构建时间、测试维护、文档 | 见第 8 节；不运行未授权真实模型 | 任一 gate 失败停止发布；源码提交可按原子 commit 回退 | planned |
+
+## 6. Phases
+
+### Phase 0：关键假设验证与合同定型
+
+#### Pre-Phase Plan Rebase Gate
+
+- Rebase scope: PRD、当前 auth/session/history 实现、V1–V3
+- Material plan delta: none
+- Plan delta record: not-required
+- User approval: not-required
+- Gate status: ready
+
+- Entry: PD1–PD16 active；不需要真实凭据或网络。
+- Work: V1、V2、V3、W1 的 route/schema 最小合同。
+- Exit evidence: 三项 validation 均为 `direction-supported`；协议旧 fixture 可读取；没有 secret 落盘/输出。
+- Product Decision Delta: 预期 `engineering-only`；若证据要求改变双槽、turn 边界或历史保留语义，分类为 `conflict` 并停止。
+- Next: 只有 V1–V3 支持方向且 Phase 1 rebase gate 为 ready 才继续。
+
+### Phase 1：凭据与模型目录基础
+
+#### Pre-Phase Plan Rebase Gate
+
+- Rebase scope: Phase 0 类型/spike/测试结果 + W2–W6、W16 剩余设计
+- Material plan delta: pending
+- Plan delta record: pending
+- User approval: pending-if-material
+- Gate status: pending
+
+- Entry: Phase 0 verified。
+- Work: W2–W6 中的认证/缓存/目录部分，W16 的认证脱敏。
+- Exit evidence: 三槽共存、独立 login/logout、route-bound auth 并发隔离、三组 catalog 和 cache 隔离测试通过。
+- Product Decision Delta: 审计 PD3–PD5、PD9、PD13、PD15、PD16。
+- Cross-unit side effects: auth storage migration 与 models cache 都是磁盘敏感面；必须分别验证原子写和旧格式兼容。
+
+### Phase 2：Core 原子 Provider Transition
+
+#### Pre-Phase Plan Rebase Gate
+
+- Rebase scope: Phase 1 credential/catalog API + W7–W11、W16 剩余设计
+- Material plan delta: pending
+- Plan delta record: pending
+- User approval: pending-if-material
+- Gate status: pending
+
+- Entry: route auth/catalog 可由 mock 稳定解析；V2 direction-supported。
+- Work: W7、W8、W9、W10、W11 和 transition 诊断。
+- Exit evidence: active turn/queued input/tool loop/compact 下旧 turn 不变、下一 turn 完整切换；失败无半状态；rollout 可恢复。
+- Product Decision Delta: 审计 PD6–PD11；任何同 turn 热替换均为 `conflict`。
+- Cross-unit side effects: session snapshot 扩大、base prompt 前缀变化、compact 请求归属改变；必须一并验证缓存与费用 route 字段。
+
+### Phase 3：History Projection 与生命周期恢复
+
+#### Pre-Phase Plan Rebase Gate
+
+- Rebase scope: Phase 2 durable route/compact 实现 + W12、W17
+- Material plan delta: pending
+- Plan delta record: pending
+- User approval: pending-if-material
+- Gate status: pending
+
+- Entry: transition/replay 核心测试 verified；V3 direction-supported。
+- Work: W12、W17。
+- Exit evidence: OpenAI→DeepSeek→OpenAI fixture round-trip，canonical history hash 不变；resume/fork/rollback/subagent route 正确。
+- Product Decision Delta: 审计 PD6、PD7、PD8、PD10、PD11。
+- Cross-unit side effects: wire token 数可能因投影变化；只记录差异，不把 mock 结果声称为真实 Provider 接受性。
+
+### Phase 4：TUI 统一交互与命令能力
+
+#### Pre-Phase Plan Rebase Gate
+
+- Rebase scope: Phase 1–3 最终 protocol/events/errors + W13–W15
+- Material plan delta: pending
+- Plan delta record: pending
+- User approval: pending-if-material
+- Gate status: pending
+
+- Entry: app-server/core transition API integrated；三组 catalog 可用。
+- Work: W13、W14、W15 和 UI 侧 W16。
+- Exit evidence: `/provider`、分组 `/model`、pending/取消/失败/登录、不支持命令交互 snapshots 全通过。
+- Product Decision Delta: 审计 PD2、PD3、PD8、PD12、PD14、PD16。
+- Cross-unit side effects: 跨 route `/model` 不写入无对应 provider 的全局 model；同 route 既有 reasoning 选择流程保持兼容。
+
+### Phase 5：集成回归与发布候选
+
+#### Pre-Phase Plan Rebase Gate
+
+- Rebase scope: 全部实现、schema/fixture、缓存指纹、回归结果、v0.0.6 文档
+- Material plan delta: pending
+- Plan delta record: pending
+- User approval: pending-if-material
+- Gate status: pending
+
+- Entry: Phase 1–4 各自 evidence verified，无 provisional/conflict。
+- Work: W18；修复仅限已批准设计内缺陷，物质范围变化先记录 Plan Delta。
+- Exit evidence: 第 8 节必需门禁全部通过，PRD acceptance criteria 有逐项测试证据，工作区无本任务未提交修改。
+- Product Decision Delta: 汇总各阶段审计，不用实现结果反向扩展 Product Authority。
+- Cross-unit side effects: 完整 vendor 回归耗时较长；使用隔离 runner，禁止宿主共享临时目录造成误判。
+
+## 7. Product Decision Delta Log
+
+| Phase | Decision Surface | Implemented / Observed Semantics | Authority Coverage | Classification | Required Action |
+|---|---|---|---|---|---|
+| Phase 0 | route/auth/turn/history 可行性 | 待执行 | PD3–PD6、PD8、PD11、PD15 | pending | 完成 V1–V3 后填写；provisional/conflict 阻断 Phase 1 |
+| Phase 1 | 凭据与模型分组 | 待执行 | PD3–PD5、PD9、PD13、PD15、PD16 | pending | 阶段结束审计 |
+| Phase 2 | 原子切换、prompt/tools/compact/replay | 待执行 | PD6–PD11 | pending | 阶段结束审计 |
+| Phase 3 | 历史与生命周期 | 待执行 | PD6、PD7、PD10、PD11 | pending | 阶段结束审计 |
+| Phase 4 | TUI 与命令可用性 | 待执行 | PD2、PD3、PD8、PD12、PD14、PD16 | pending | 阶段结束审计 |
+| Phase 5 | 整体验收 | 待执行 | PD1–PD16 | pending | 逐项链接测试证据 |
+
+## 8. Verification Strategy
+
+### Per-Unit Fast Loop
+
+- 格式：`cd third_party/codex-cli && just fmt-check`。
+- 定向测试：在 `third_party/codex-cli` 使用 `just test -p <crate> <test-filter>`；优先 login、models-manager、protocol、core、app-server、tui 的最小相关 suite。
+- 协议：`cd third_party/codex-cli && just write-app-server-schema`，审查生成 diff 后重跑 protocol/schema tests。
+- 静态检查：受影响 crate 使用 `just clippy -p <crate>`，不为未触及 crate 扩大日常反馈环。
+
+### Required Integration Matrix
+
+- Routes: OpenAI 订阅 ↔ OpenAI API；OpenAI → DeepSeek → OpenAI；同 route model-only。
+- Auth: 空/错 Key、取消、覆盖保护、独立 logout、ChatGPT refresh、并发 session 不串凭据。
+- Timing: idle、active stream、tool continuation、retry、manual/auto compact、queued input、transition 后立即退出。
+- History: encrypted reasoning、hosted web/image、function/custom/namespace tools、媒体、pending/aborted call、compact checkpoint。
+- Lifecycle: resume、fork、rollback、clear、subagent inherit、legacy rollout。
+- Catalog/UI: 三组、同名模型、缺凭据不可用原因、单组刷新失败、最近模型/default fallback、不支持命令。
+- Security/observability: auth files/keyring fixtures、rollout、logs、telemetry、errors 均无 secret。
+
+### Final Gates
+
+1. `cd third_party/codex-cli && just fmt-check`。
+2. 受影响 crate 的 `just clippy -p ...` 与定向 `just test -p ...`。
+3. 从仓库根运行 `python3 scripts/codex-upstream/run_isolated_tests.py <nextest args>` 覆盖 login、models-manager、protocol、core、app-server、tui；不得用宿主代理或共享临时目录失败判断回归。
+4. staged cache-sensitive 变更运行 `python3 scripts/cache-regression/check_cache_regression_gate.py --source index`；阻断时按仓库规则说明指纹和前缀风险并申请真实回归预算，禁止绕过。
+5. `git diff --check`、schema fixture diff 审核、敏感字段扫描、PRD acceptance criteria 到测试证据映射。
+6. 默认不发起真实模型请求。若 mock/fixture 无法证明 Provider 实际接受性，另行申请最多 3 sample 或专项预算并先登记全局 ledger；未授权不得运行。
+
+## 9. Safe Delivery And Commit Boundaries
+
+- 每个 W 单元或紧密耦合的最小闭环完成并通过相关测试后原子 commit/push；不得把凭据、cache fixture secret 或用户数据提交。
+- 优先顺序：兼容 schema/读取 → 新行为 behind complete call path → caller migration → legacy adapter cleanup。任何中间 commit 必须可编译或明确限定为纯测试/文档合同。
+- 不使用不可恢复删除；旧 auth/cache 数据迁移必须 copy-on-write/atomic replace，失败保留原文件。
+- 不新增分支；除非用户另行批准。
+- 若单阶段预计新增超过 500 行手写生产代码，或单个 Whale 自有文件将超过 500 行，阶段开始前拆分更小实现或向用户申请范围批准；vendor 上游原文件长度例外不等于新增代码预算例外。
+
+## 10. Plan Delta History
+
+| ID | Before Phase | Previous Plan | Current Fact | Proposed Change | Impact | User Approval | Status |
+|---|---|---|---|---|---|---|---|
+| — | — | — | — | 当前无物质性计划变化 | — | — | — |
+
+## 11. Completion Definition
+
+- PD1–PD16 的每项 acceptance behavior 均有自动化测试或明确、可复现的离线证据。
+- 三类凭据安全共存且独立注销；无 secret 出现在日志、rollout、telemetry、错误或 Git。
+- `/provider` 与分组 `/model` 在 active turn 中只显示 pending，下一 turn 原子生效；失败保持旧 route。
+- prompt、tools、commands、history projection 和 compaction 使用同一 route snapshot。
+- resume/fork/rollback/subagent 与 legacy rollout 恢复行为通过。
+- schema、fmt、clippy、targeted tests、isolated regression、cache regression gate 全部通过。
+- 本计划的 Phase gates、Product Decision Delta、Plan Delta 与证据链接已更新；工作区无本任务遗留未提交修改。

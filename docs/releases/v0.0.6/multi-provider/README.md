@@ -1,8 +1,9 @@
 # v0.0.6 子主题：多 Provider 支持
 
-- 状态：PRD 已就绪，可进入工程计划
+- 状态：PRD 与工程计划已就绪，待批准执行
 - 产品权威：[多 Provider 切换 PRD](../../../../prd/2026-08-23-v0.0.6-multi-provider.md)
 - 代码盘点：[当前实现与差距清单](current-state-inventory.md)
+- 工程计划：[多 Provider 工程实施计划](plan.md)
 
 ## 目标
 
@@ -22,4 +23,4 @@ OpenAI 订阅与 OpenAI API 复用 Codex 原生认证路径；选择 DeepSeek �
 
 OpenAI 官方与当前源码均确认 API key 可直接登录使用。产品规则已确认扩展为订阅 token 与 API key 双凭据安全共存，同时保持 Codex 原生登录流程；这是对当前单激活认证存储的明确扩展需求。
 
-本阶段只建立产品主题与代码事实基线，不授权进入实现。
+本阶段已建立产品权威、代码事实基线和分阶段工程计划；尚未进入实现。
