@@ -259,6 +259,7 @@ impl CatalogRequestProcessor {
         if total == 0 {
             return Ok(ModelListResponse {
                 data: Vec::new(),
+                groups: Vec::new(),
                 next_cursor: None,
             });
         }
@@ -287,6 +288,7 @@ impl CatalogRequestProcessor {
         };
         Ok(ModelListResponse {
             data: items,
+            groups: Vec::new(),
             next_cursor,
         })
     }

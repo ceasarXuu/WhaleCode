@@ -109,6 +109,7 @@ async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
         .await?;
     let ModelListResponse {
         data: items,
+        groups: _,
         next_cursor,
     } = mcp
         .request(|request_id| ClientRequest::ModelList {
@@ -139,6 +140,7 @@ async fn list_models_includes_hidden_models() -> Result<()> {
         .await?;
     let ModelListResponse {
         data: items,
+        groups: _,
         next_cursor,
     } = mcp
         .request(|request_id| ClientRequest::ModelList {
@@ -249,6 +251,7 @@ openai_base_url = "{server_uri}/v1"
     );
     let ModelListResponse {
         data: items,
+        groups: _,
         next_cursor,
     } = serde_json::from_value(response.result)?;
     let mut expected_presets: Vec<ModelPreset> =
@@ -300,6 +303,7 @@ async fn list_models_pagination_works() -> Result<()> {
     for _ in 0..expected_models.len() {
         let ModelListResponse {
             data: page_items,
+            groups: _,
             next_cursor,
         } = mcp
             .request(|request_id| ClientRequest::ModelList {

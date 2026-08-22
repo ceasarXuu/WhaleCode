@@ -5779,6 +5779,7 @@ impl CodexMessageProcessor {
         if total == 0 {
             let response = ModelListResponse {
                 data: Vec::new(),
+                groups: Vec::new(),
                 next_cursor: None,
             };
             outgoing.send_response(request_id, response).await;
@@ -5822,6 +5823,7 @@ impl CodexMessageProcessor {
         };
         let response = ModelListResponse {
             data: items,
+            groups: Vec::new(),
             next_cursor,
         };
         outgoing.send_response(request_id, response).await;

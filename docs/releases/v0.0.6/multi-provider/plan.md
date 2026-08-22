@@ -144,6 +144,7 @@
 - cache regression index gate：通过；surface `926188e1093dd019d07d8a8231c97592e3c3e5224c810c6481ef5e93043f6526`，Standard 与 TaskSpace 免费 final-wire 均可比较且无变化；未运行真实模型，发布级 live baseline 仍保持阻断。
 - W6 目录合同：`ProviderModelGroup` 携带非敏感 route、组名、稳定 availability reason 与模型集合；route 分流区分 ChatGPT-only/OpenAI API/DeepSeek 模型，缺少 API key 的组保持可见。`codex-models-manager` 54/54 与协议序列化测试通过。
 - W6 cache regression index gate：通过；surface `5a0b6fee9bb35398da33b4598a07dd14543c5450b62ff043476c70bf29c0879d`，免费 final-wire 无变化；未运行真实模型。
+- W6 app-server 合同：`model/list` 在保留旧 `data`/cursor 的同时新增 `groups`，稳定与 experimental schema fixture 已生成；`codex-app-server-protocol` 289/289 通过。app-server model-list 测试已可完整编译，其中 4 个旧断言暴露现有全局 DeepSeek-only 过滤与 OpenAI 目录预期的已知冲突，需由三路 runtime registry 接线解决，未修改断言掩盖差距。
 - 兼容行为：损坏的旧 auth 仍可被原生登录修复；有效旧记录执行字段级合并；OpenAI API 登录继续清除互斥的 Bedrock 激活状态，但保留 ChatGPT 与 DeepSeek 槽。
 
 ### Phase 2：Core 原子 Provider Transition

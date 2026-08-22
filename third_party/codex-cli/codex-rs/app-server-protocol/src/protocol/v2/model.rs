@@ -1,8 +1,10 @@
 use super::shared::v2_enum_from_core;
 use crate::JsonSchema;
 use crate::TS;
+use codex_protocol::ProviderRoute;
 use codex_protocol::openai_models::InputModality;
 use codex_protocol::openai_models::ModelAvailabilityNux as CoreModelAvailabilityNux;
+use codex_protocol::openai_models::ProviderModelAvailability as CoreProviderModelAvailability;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::openai_models::default_input_modalities;
 use codex_protocol::protocol::ModelRerouteReason as CoreModelRerouteReason;
@@ -15,6 +17,15 @@ use serde_json::Value as JsonValue;
 v2_enum_from_core!(
     pub enum ModelRerouteReason from CoreModelRerouteReason {
         HighRiskCyberActivity
+    }
+);
+
+v2_enum_from_core!(
+    pub enum ProviderModelAvailability from CoreProviderModelAvailability {
+        Available,
+        MissingCredentials,
+        CatalogUnavailable,
+        UnsupportedRoute
     }
 );
 
@@ -146,9 +157,22 @@ pub struct ReasoningEffortOption {
 #[ts(export_to = "v2/")]
 pub struct ModelListResponse {
     pub data: Vec<Model>,
+    /// Route-scoped groups for provider-aware clients. Legacy clients may continue using `data`.
+    #[serde(default)]
+    pub groups: Vec<ProviderModelGroup>,
     /// Opaque cursor to pass to the next call to continue after the last item.
     /// If None, there are no more items to return.
     pub next_cursor: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct ProviderModelGroup {
+    pub route: ProviderRoute,
+    pub display_name: String,
+    pub availability: ProviderModelAvailability,
+    pub models: Vec<Model>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema, TS)]

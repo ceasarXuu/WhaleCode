@@ -10467,6 +10467,14 @@
           },
           "type": "array"
         },
+        "groups": {
+          "default": [],
+          "description": "Route-scoped groups for provider-aware clients. Legacy clients may continue using `data`.",
+          "items": {
+            "$ref": "#/definitions/ProviderModelGroup"
+          },
+          "type": "array"
+        },
         "nextCursor": {
           "description": "Opaque cursor to pass to the next call to continue after the last item. If None, there are no more items to return.",
           "type": [
@@ -12591,6 +12599,65 @@
       },
       "required": [
         "path"
+      ],
+      "type": "object"
+    },
+    "ProviderAccessMethod": {
+      "description": "Authentication path used for a provider route. This enum never carries credentials.",
+      "enum": [
+        "chatgpt",
+        "apiKey"
+      ],
+      "type": "string"
+    },
+    "ProviderModelAvailability": {
+      "enum": [
+        "available",
+        "missingCredentials",
+        "catalogUnavailable",
+        "unsupportedRoute"
+      ],
+      "type": "string"
+    },
+    "ProviderModelGroup": {
+      "properties": {
+        "availability": {
+          "$ref": "#/definitions/ProviderModelAvailability"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "models": {
+          "items": {
+            "$ref": "#/definitions/Model"
+          },
+          "type": "array"
+        },
+        "route": {
+          "$ref": "#/definitions/ProviderRoute"
+        }
+      },
+      "required": [
+        "availability",
+        "displayName",
+        "models",
+        "route"
+      ],
+      "type": "object"
+    },
+    "ProviderRoute": {
+      "description": "Non-secret identity for selecting a model provider and its authentication path.",
+      "properties": {
+        "accessMethod": {
+          "$ref": "#/definitions/ProviderAccessMethod"
+        },
+        "modelProviderId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "accessMethod",
+        "modelProviderId"
       ],
       "type": "object"
     },
