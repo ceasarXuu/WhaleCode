@@ -104,25 +104,31 @@ def run_sample(
         stderr_tail = result.stderr.splitlines()[-12:]
         raise RuntimeError(f"{model} exited {result.returncode}: {stderr_tail}")
     events, usage, message, tools = parse_events(result.stdout)
+    marker_seen = marker in message
+    flash_tool_seen = model != "deepseek-v4-flash" or "command_execution" in tools
+    validation_errors = []
+    if not marker_seen:
+        validation_errors.append(f"{model} response did not contain required marker")
+    if not flash_tool_seen:
+        validation_errors.append("Flash sample did not complete the required command tool call")
     sample = {
         "model": model,
-        "status": "passed",
+        "status": "failed" if validation_errors else "passed",
         "elapsed_seconds": round(time.monotonic() - started, 3),
         "usage": usage,
         "event_types": sorted({event.get("type", "unknown") for event in events}),
         "completed_tool_types": tools,
         "response_marker": marker,
-        "response_marker_seen": marker in message,
+        "response_marker_seen": marker_seen,
         "final_message": message,
+        "validation_errors": validation_errors,
     }
     sample_path = evidence_root / f"{model}.json"
     sample_path.write_text(
         json.dumps(sample, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
-    if marker not in message:
-        raise RuntimeError(f"{model} response did not contain required marker")
-    if model == "deepseek-v4-flash" and "command_execution" not in tools:
-        raise RuntimeError("Flash sample did not complete the required command tool call")
+    if validation_errors:
+        raise RuntimeError("; ".join(validation_errors))
     return sample
 
 
@@ -189,7 +195,7 @@ def main() -> int:
                     workspace,
                     evidence_root,
                     "deepseek-v4-flash-vision-exp",
-                    "Inspect the attached image. Respond exactly WHALE_DS_VISION_OK if it contains the OpenAI knot logo; otherwise explain briefly.",
+                    "Inspect the attached image. Respond exactly WHALE_DS_VISION_OK if it depicts an open book icon with a red-orange outline; otherwise explain briefly.",
                     "WHALE_DS_VISION_OK",
                     env,
                     repo

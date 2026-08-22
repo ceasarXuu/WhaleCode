@@ -1,7 +1,7 @@
 # Problem P-001: DeepSeek Vision 真实冒烟缺少预期 marker
-- Status: resolved
+- Status: repair_in_progress
 - Created: 2026-08-23 00:09
-- Updated: 2026-08-23 00:24
+- Updated: 2026-08-23 00:25
 - Objective: 确定 Vision 冒烟失败发生在图片入站、provider 路由、模型视觉语义还是测试判定层。
 - Symptoms:
   - `deepseek-v4-flash-vision-exp` 的 Responses 请求完成，但最终消息不含 `WHALE_DS_VISION_OK`。
@@ -27,6 +27,7 @@
   - H-001
   - H-002
   - H-003
+  - H-004
 - Resolution basis:
   - E-002 直接检查实际输入素材，确认其为 100x100 的书本图标而非 OpenAI knot logo。
   - E-003 证明 `--image` 到 Responses `input_image` 的本地链路可用。
@@ -160,6 +161,48 @@
   - none
 - Close reason:
   - E-002 与 E-004 共同满足根因证据门槛。
+
+## Hypothesis H-004: 使提示词匹配书本素材可消除原始误判
+- Status: unverified
+- Parent: P-001
+- Claim: 将 Vision 提示改为识别实际存在的红橙色描边打开书本，并在断言前持久化真实状态、回复和 usage，可让同一 Vision-only 路径正确通过且保留失败证据。
+- Layer: fix-validation
+- Factor relation: all_of
+- Depends on:
+  - H-003 confirmed
+- Rationale:
+  - 修复直接消除 E-002/E-004 证明的 fixture/oracle 矛盾，不改变图片传输或模型协议。
+- Falsifiable predictions:
+  - If true: 同一图片经 `deepseek-v4-flash-vision-exp` 返回 `WHALE_DS_VISION_OK`，sample/summary 为 passed，usage 完整。
+  - If false: marker 仍缺失，或失败证据未包含 final_message/usage/failed 状态。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 修复后的同一 Vision-only 路径是否通过完整语义断言。
+  - Signal: sample JSON、summary JSON、provider request counter、usage 和 runner exit code。
+  - Capture method: 在账本 planned 记录和 CNY 1.00 用户授权下执行一个 Vision sample、最多一个 provider request、零自动重试。
+  - Event name or marker:
+    - WHALE_DS_VISION_OK
+  - Correlation keys:
+    - WAR-20260823-001949-DEEPSEEK-VISION-FIX-R1
+  - Differentiates from:
+    - 仅离线通过但真实 Vision 语义仍失败。
+  - Supports if:
+    - 请求计数为 1、runner exit 0、marker_seen=true、usage 完整且费用不超过 CNY 1.00。
+  - Refutes if:
+    - 任一通过条件不满足。
+  - Instrumentation status: permanent harness evidence hardening
+  - Instrumentation lifecycle:
+    - 保留失败 sample 的 status、validation_errors、final_message 与 usage；不保存凭据。
+- Evidence gate: pending
+- Related evidence:
+  - E-002
+  - E-004
+- Conclusion: unverified
+- Repair design readiness: authorized by user on 2026-08-23
+- Next step: 提交修复与 planned 账本记录，安装 workspace 二进制，再运行一次 Vision-only 验证。
+- Blocker:
+  - workspace binary attestation missing，需在真实运行前执行 workspace-scope install。
+- Close reason:
+  - not closed
 
 ## Evidence E-001: 账本与失败证据只证明 marker 不匹配
 - Related hypotheses:
