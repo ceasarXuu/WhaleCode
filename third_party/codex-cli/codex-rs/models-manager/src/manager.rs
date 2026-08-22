@@ -5,6 +5,7 @@ use crate::collaboration_mode_presets::builtin_collaboration_mode_presets;
 use crate::config::ModelsManagerConfig;
 use crate::model_info;
 use crate::model_presets::mark_whale_default_model;
+use crate::model_presets::retain_models_for_route;
 use crate::model_presets::retain_whale_models_for_listing;
 use chrono::Utc;
 use codex_http_client::HttpClientFactory;
@@ -18,6 +19,8 @@ use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ModelPreset;
 use codex_protocol::openai_models::ModelVisibility;
 use codex_protocol::openai_models::ModelsResponse;
+use codex_protocol::openai_models::ProviderModelAvailability;
+use codex_protocol::openai_models::ProviderModelGroup;
 use std::fmt;
 use std::future::Future;
 use std::path::PathBuf;
@@ -143,6 +146,25 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
         presets
     }
 
+    /// Build picker-ready presets for an explicit provider route.
+    fn build_available_models_for_route(
+        &self,
+        mut remote_models: Vec<ModelInfo>,
+        route: &ProviderRoute,
+    ) -> Vec<ModelPreset> {
+        remote_models.sort_by_key(|model| model.priority);
+        let mut presets: Vec<ModelPreset> = remote_models.into_iter().map(Into::into).collect();
+        let uses_codex_backend = route.model_provider_id == "openai"
+            && route.access_method == ProviderAccessMethod::Chatgpt;
+        presets = ModelPreset::filter_by_auth(presets, uses_codex_backend);
+        retain_models_for_route(&mut presets, route);
+        ModelPreset::mark_default_by_picker_visibility(&mut presets);
+        if route.model_provider_id == "deepseek" {
+            mark_whale_default_model(&mut presets);
+        }
+        presets
+    }
+
     /// List collaboration mode presets.
     ///
     /// Returns a static set of presets seeded with the configured model.
@@ -218,6 +240,60 @@ pub type ModelsManagerFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a
 
 /// Shared model manager handle used across runtime services.
 pub type SharedModelsManager = Arc<dyn ModelsManager>;
+
+/// One independently refreshed source in the provider-aware model catalog.
+#[derive(Clone)]
+pub struct ProviderModelsCatalogEntry {
+    pub route: ProviderRoute,
+    pub display_name: String,
+    pub manager: SharedModelsManager,
+}
+
+/// Aggregates route-isolated managers without hiding unauthenticated groups.
+#[derive(Clone)]
+pub struct ProviderModelsCatalog {
+    entries: Vec<ProviderModelsCatalogEntry>,
+    auth_manager: Arc<AuthManager>,
+}
+
+impl ProviderModelsCatalog {
+    pub fn new(entries: Vec<ProviderModelsCatalogEntry>, auth_manager: Arc<AuthManager>) -> Self {
+        Self {
+            entries,
+            auth_manager,
+        }
+    }
+
+    pub async fn list_model_groups(
+        &self,
+        refresh_strategy: RefreshStrategy,
+        http_client_factory: HttpClientFactory,
+    ) -> Vec<ProviderModelGroup> {
+        let mut groups = Vec::with_capacity(self.entries.len());
+        for entry in &self.entries {
+            let catalog = entry
+                .manager
+                .raw_model_catalog(refresh_strategy, http_client_factory.clone())
+                .await;
+            let models = entry
+                .manager
+                .build_available_models_for_route(catalog.models, &entry.route);
+            let availability = match self.auth_manager.auth_for_route(&entry.route).await {
+                Ok(Some(_)) if models.is_empty() => ProviderModelAvailability::CatalogUnavailable,
+                Ok(Some(_)) => ProviderModelAvailability::Available,
+                Ok(None) => ProviderModelAvailability::MissingCredentials,
+                Err(_) => ProviderModelAvailability::UnsupportedRoute,
+            };
+            groups.push(ProviderModelGroup {
+                route: entry.route.clone(),
+                display_name: entry.display_name.clone(),
+                availability,
+                models,
+            });
+        }
+        groups
+    }
+}
 
 /// OpenAI-compatible model manager backed by bundled models, cache, and `/models`.
 #[derive(Debug)]

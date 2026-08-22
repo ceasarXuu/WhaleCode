@@ -26,6 +26,7 @@ use strum_macros::EnumIter;
 use tracing::warn;
 use ts_rs::TS;
 
+use crate::ProviderRoute;
 use crate::config_types::Personality;
 use crate::config_types::ReasoningSummary;
 use crate::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
@@ -216,6 +217,28 @@ pub struct ModelServiceTier {
     pub id: String,
     pub name: String,
     pub description: String,
+}
+
+/// Route-scoped availability shown by provider-aware model pickers.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, TS, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub enum ProviderModelAvailability {
+    Available,
+    MissingCredentials,
+    CatalogUnavailable,
+    UnsupportedRoute,
+}
+
+/// Models offered through one provider and authentication route.
+#[derive(Debug, Clone, Deserialize, Serialize, TS, JsonSchema, PartialEq)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "v2/")]
+pub struct ProviderModelGroup {
+    pub route: ProviderRoute,
+    pub display_name: String,
+    pub availability: ProviderModelAvailability,
+    pub models: Vec<ModelPreset>,
 }
 
 /// Metadata describing a Codex-supported model.
@@ -937,6 +960,26 @@ mod tests {
             personality_friendly: Some("friendly".to_string()),
             personality_pragmatic: Some("pragmatic".to_string()),
         }
+    }
+
+    #[test]
+    fn provider_model_group_serializes_route_and_unavailability() {
+        let group = ProviderModelGroup {
+            route: ProviderRoute::new("deepseek", crate::ProviderAccessMethod::ApiKey),
+            display_name: "DeepSeek API".to_string(),
+            availability: ProviderModelAvailability::MissingCredentials,
+            models: Vec::new(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(group).expect("group should serialize"),
+            serde_json::json!({
+                "route": {"modelProviderId": "deepseek", "accessMethod": "apiKey"},
+                "displayName": "DeepSeek API",
+                "availability": "missingCredentials",
+                "models": []
+            })
+        );
     }
 
     #[test]

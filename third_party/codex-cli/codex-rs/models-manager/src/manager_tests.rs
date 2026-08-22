@@ -1545,6 +1545,102 @@ fn build_available_models_keeps_whale_listing_deepseek_only_and_flash_default() 
     assert_eq!(default_model_from_available(available), "deepseek-v4-flash");
 }
 
+#[test]
+fn build_available_models_for_route_splits_provider_catalogs() {
+    let manager = static_manager_for_tests(ModelsResponse { models: Vec::new() });
+    let mut chatgpt_only = remote_model("gpt-chatgpt", "ChatGPT", /*priority*/ 0);
+    chatgpt_only.supported_in_api = false;
+    let api = remote_model("gpt-api", "OpenAI API", /*priority*/ 1);
+    let deepseek = remote_model("deepseek-v4-flash", "DeepSeek", /*priority*/ 2);
+    let catalog = vec![chatgpt_only, api, deepseek];
+
+    let subscription = manager.build_available_models_for_route(
+        catalog.clone(),
+        &ProviderRoute::new("openai", ProviderAccessMethod::Chatgpt),
+    );
+    let openai_api = manager.build_available_models_for_route(
+        catalog.clone(),
+        &ProviderRoute::new("openai", ProviderAccessMethod::ApiKey),
+    );
+    let deepseek_api = manager.build_available_models_for_route(
+        catalog,
+        &ProviderRoute::new("deepseek", ProviderAccessMethod::ApiKey),
+    );
+
+    assert_eq!(
+        subscription
+            .iter()
+            .map(|model| model.model.as_str())
+            .collect::<Vec<_>>(),
+        vec!["gpt-chatgpt", "gpt-api"]
+    );
+    assert_eq!(
+        openai_api
+            .iter()
+            .map(|model| model.model.as_str())
+            .collect::<Vec<_>>(),
+        vec!["gpt-api"]
+    );
+    assert_eq!(deepseek_api[0].model, "deepseek-v4-flash");
+    assert!(deepseek_api[0].is_default);
+}
+
+#[tokio::test]
+async fn provider_catalog_keeps_missing_credential_groups_visible() {
+    let auth_manager =
+        AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
+    let response = ModelsResponse {
+        models: vec![
+            remote_model("gpt-route-model", "OpenAI", /*priority*/ 0),
+            remote_model("deepseek-v4-flash", "DeepSeek", /*priority*/ 1),
+        ],
+    };
+    let entry = |route, display_name: &str| ProviderModelsCatalogEntry {
+        route,
+        display_name: display_name.to_string(),
+        manager: Arc::new(StaticModelsManager::new(
+            Some(Arc::clone(&auth_manager)),
+            response.clone(),
+        )),
+    };
+    let catalog = ProviderModelsCatalog::new(
+        vec![
+            entry(
+                ProviderRoute::new("openai", ProviderAccessMethod::Chatgpt),
+                "OpenAI Subscription",
+            ),
+            entry(
+                ProviderRoute::new("openai", ProviderAccessMethod::ApiKey),
+                "OpenAI API",
+            ),
+            entry(
+                ProviderRoute::new("deepseek", ProviderAccessMethod::ApiKey),
+                "DeepSeek API",
+            ),
+        ],
+        auth_manager,
+    );
+
+    let groups = catalog
+        .list_model_groups(
+            RefreshStrategy::Offline,
+            DEFAULT_HTTP_CLIENT_FACTORY.clone(),
+        )
+        .await;
+
+    assert_eq!(groups.len(), 3);
+    assert_eq!(groups[0].availability, ProviderModelAvailability::Available);
+    assert_eq!(
+        groups[1].availability,
+        ProviderModelAvailability::MissingCredentials
+    );
+    assert_eq!(
+        groups[2].availability,
+        ProviderModelAvailability::MissingCredentials
+    );
+    assert_eq!(groups[2].models[0].model, "deepseek-v4-flash");
+}
+
 #[tokio::test]
 async fn static_manager_reads_latest_auth_mode() {
     let auth_manager =
