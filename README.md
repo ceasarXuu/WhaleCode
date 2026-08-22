@@ -1,5 +1,7 @@
 # WhaleCode
 
+[English](README.en.md) | 简体中文
+
 WhaleCode 是一个以 DeepSeek V4 为核心的开源终端 AI coding agent。它可以在真实代码仓库中读取文件、执行命令、修改代码、运行测试，并通过 TaskSpace 组织复杂任务。
 
 当前稳定版本为 `v0.0.5`，默认模型是 `deepseek-v4-flash`。
