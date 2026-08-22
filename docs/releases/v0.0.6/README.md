@@ -3,3 +3,7 @@
 状态：开发中。
 
 本目录用于集中维护 WhaleCode v0.0.6 的版本开发与发布材料。
+
+## 子主题
+
+- [DeepSeek 当前三模型与 Responses 能力适配](deepseek-responses-adaptation.md)：记录模型目录、Vision 输入、thinking、工具能力、SSE、真实验证证据与剩余风险。
