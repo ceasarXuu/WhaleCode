@@ -253,13 +253,13 @@ mod tests {
                 "Disable terminal pets",
                 "BSOD",
                 "Chefito",
-                "Whale",
                 "Dewey",
                 "Fireball",
                 "Null Signal",
                 "Rocky",
                 "Seedy",
                 "Stacky",
+                "Whale",
             ],
         );
         assert_eq!(params.initial_selected_idx, Some(2));
@@ -278,9 +278,13 @@ mod tests {
             PetPickerPreviewState::default(),
         );
 
-        assert_eq!(params.initial_selected_idx, Some(2));
-        assert_eq!(params.items[2].name, "Whale");
-        assert!(!params.items[2].is_current);
+        let whale_idx = params
+            .items
+            .iter()
+            .position(|item| item.name == "Whale")
+            .expect("bundled Whale pet");
+        assert_eq!(params.initial_selected_idx, Some(whale_idx));
+        assert!(!params.items[whale_idx].is_current);
     }
 
     #[test]

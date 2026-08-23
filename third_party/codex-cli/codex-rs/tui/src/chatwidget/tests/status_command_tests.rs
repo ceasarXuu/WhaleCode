@@ -8,7 +8,7 @@ use codex_utils_path_uri::PathUri;
 #[tokio::test]
 async fn status_command_renders_immediately_and_refreshes_rate_limits_for_chatgpt_auth() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-    set_chatgpt_auth(&mut chat);
+    set_chatgpt_rate_limit_context(&mut chat);
 
     chat.dispatch_command(SlashCommand::Status);
 
@@ -34,7 +34,7 @@ async fn status_command_renders_immediately_and_refreshes_rate_limits_for_chatgp
 #[tokio::test]
 async fn status_command_refresh_updates_cached_limits_for_future_status_outputs() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-    set_chatgpt_auth(&mut chat);
+    set_chatgpt_rate_limit_context(&mut chat);
 
     chat.dispatch_command(SlashCommand::Status);
 
@@ -138,7 +138,7 @@ async fn status_command_renders_native_and_foreign_instruction_sources() {
 #[tokio::test]
 async fn status_command_overlapping_refreshes_update_matching_cells_only() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-    set_chatgpt_auth(&mut chat);
+    set_chatgpt_rate_limit_context(&mut chat);
 
     chat.dispatch_command(SlashCommand::Status);
     match rx.try_recv() {
@@ -182,7 +182,7 @@ async fn status_command_overlapping_refreshes_update_matching_cells_only() {
 #[tokio::test]
 async fn account_update_rejects_stale_status_rate_limit_snapshots() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-    set_chatgpt_auth(&mut chat);
+    set_chatgpt_rate_limit_context(&mut chat);
     chat.dispatch_command(SlashCommand::Status);
     assert_matches!(rx.try_recv(), Ok(AppEvent::InsertHistoryCell(_)));
     let request_id = match rx.try_recv() {

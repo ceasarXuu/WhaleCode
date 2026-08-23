@@ -45,8 +45,8 @@ pub enum SlashCommand {
     TaskSpace,
     #[strum(serialize = "task-show")]
     TaskShow,
-    Agent,
     Agents,
+    Agent,
     Side,
     Btw,
     Copy,

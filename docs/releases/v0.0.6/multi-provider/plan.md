@@ -239,8 +239,8 @@
 - User approval: not-required
 - Gate status: ready
 
-- Entry: Phase 1–4 功能切片 evidence verified；隔离 TUI 全量基线已知为 3709/3755 通过、46 失败、6 跳过。
-- Rebase facts (2026-08-24): Phase 4 相关 model popup 陈旧快照已对齐并单测通过；剩余失败横跨 feedback、guardian、status、pets 等未属于 multi-provider 的模块。其中 `/ag` 失败可独立定位为既有 `Agent`/`Agents` 前缀选择冲突；ChatGPT rate-limit prefetch 失败来自测试使用 DeepSeek 默认 provider 却期待 `requires_openai_auth=true`。W18 不会为追求全绿扩张修复这些无关功能，也不会把失败误报为通过；它们若在最终矩阵中保持，发布状态仍为 blocked，并给出精确证据。
+- Entry: Phase 1–4 功能切片 evidence verified；core final-wire 与 TUI 全量基线已恢复，继续当前 HEAD 的六 crate 集成与静态门禁。
+- Rebase facts (2026-08-24): TUI 的 46 项失败被证明来自 DeepSeek 默认值后的陈旧快照、ChatGPT/image 专属测试未显式建立适用 route/model、`Agent`/`Agents` 前缀顺序、宠物 fixture 和归档错误文案兼容。均以局部测试合同或兼容修复收敛，没有扩展 provider 产品行为。
 - Work: W18；修复仅限已批准设计内缺陷，物质范围变化先记录 Plan Delta。
 - Exit evidence: 第 8 节必需门禁全部通过，PRD acceptance criteria 有逐项测试证据，工作区无本任务未提交修改。
 - Product Decision Delta: 汇总各阶段审计，不用实现结果反向扩展 Product Authority。
@@ -250,6 +250,7 @@
 - Static gates (2026-08-24): `cargo fmt --all -- --check` 通过。`just fmt-check` 因本机缺失 `dotslash` 且仓库已有 nightly `imports_granularity` 格式差异失败；`just clippy -p codex-tui` 在未触及的 `state/src/runtime/taskspace_action_settlements.rs` 被 `clippy::expect_used` 阻断。两项均如实保留为发布阻断，未修改无关源码绕过。
 - Phase 5 status: blocked。功能实现已原子提交且定向门禁通过，但 Completion Definition 要求的绝对全量回归、`just fmt-check` 与 clippy 未通过，v0.0.6 multi-provider 不能标记为 release-ready。
 - Core baseline repair evidence (2026-08-24): 在逐项证据修复后，第二次完整 core 隔离回归 `4ce4aa74-8ece-40e1-bf0a-10cd8d8dc543` 为 3741/3743 通过，唯一两项失败是受保护的 Standard/TaskSpace final-wire 快照。用户批准的 `deepseek-v4-flash` Standard + map-request 最小真实回归 `WAR-20260824-072043-CACHE-REGRESSION-9306DB50` 以 14 请求、139785 input、115456 cached input、3544 output、0.03372612 CNY 完成；两臂业务成功且 request 2+ 命中率分别为 95.7606%/87.0019%。证据晋升后两项快照定向 2/2 通过，staged cache gate 以 surface `4a15b25ca426b61703a212e1c40283dbecc1b06dd0e06600784c83a675c5e053` 通过。Phase 5 仍等待其余受影响 crate 与静态门禁基于当前 HEAD 的重新盘点，不提前标记 release-ready。
+- Integration repair evidence (2026-08-24): 六 crate 中间回归 `6fb4733d-9f74-40fb-9f18-7f3103b486ad` 已从早期 356 项失败降至 50 项；随后 cache feature-graph 顺序 2/2、protocol 权限 fixture 1/1、app-server executor skill 1/1 定向通过。TUI 完整隔离回归 `4717b325-e3c4-4f3b-ace7-e5b672d49086` 为 3755/3755 通过、6 跳过。cache evidence 渲染政策的稳定化改动仍需新的真实缓存资格运行，且六 crate 当前 HEAD 与静态门禁仍待复验，因此 Phase 5 保持进行中。
 
 ## 7. Product Decision Delta Log
 
@@ -259,8 +260,8 @@
 | Phase 1 | 凭据与模型分组 | 三条 route 的凭据可共存并精确读写/登出；状态仅暴露 configured 布尔值；目录和缓存按 route 隔离，缺凭据组保持可见；DeepSeek onboarding 不再写入 OpenAI 槽 | PD3–PD5、PD9、PD13、PD15、PD16 | conforming | 无新增产品决策；进入 Phase 2 rebase |
 | Phase 2 | 原子切换、prompt/tools/compact/replay | session runtime registry、prepared snapshot、route-bound turn client、route rollout 字段、旧 route compact 与 revision/CAS 补偿已闭合；补偿只覆盖 provider/model 选择，不覆盖后续独立 settings | PD6–PD11 | conforming | D2、D3 已实施并通过门禁；Phase 2 verified |
 | Phase 3 | 历史与生命周期 | resume/rollback/普通 fork 从有效 rollout 重绑历史位置 route/model/prompt；subagent fork 保留 spawning-turn snapshot；目标 provider request 使用可逆 history clone 投影 | PD6、PD7、PD10、PD11 | conforming | D4 已实施并通过门禁；Phase 3 verified，进入 Phase 4 rebase |
-| Phase 4 | TUI 与命令可用性 | route-aware `/provider`、分组 `/model`、三类凭据恢复、catalog 刷新及真实受限命令原因已闭合 | PD2、PD3、PD4、PD5、PD8、PD12、PD14、PD16 | conforming | Phase 4 定向门禁通过；隔离 TUI 全量基线 46 个失败留 W18 分类，不影响本切片原子提交 |
-| Phase 5 | 整体验收 | core 基线缺口已逐项修复；完整 core 仅剩的两项 final-wire 已经真实双臂缓存验证、证据晋升并定向通过；其余受影响 crate 与静态门禁尚待当前 HEAD 重跑 | PD1–PD16 | in-progress | 继续 W18 当前实现重基线；仅修复有证据的工程缺口，遇到新增产品选择或预算再请求用户 |
+| Phase 4 | TUI 与命令可用性 | route-aware `/provider`、分组 `/model`、三类凭据恢复、catalog 刷新及真实受限命令原因已闭合；TUI 全量基线已恢复 | PD2、PD3、PD4、PD5、PD8、PD12、PD14、PD16 | conforming | Phase 4 定向门禁与 TUI 3755/3755 全量回归通过 |
+| Phase 5 | 整体验收 | core final-wire 已真实双臂验证并晋升；cache/protocol/app-server 定向缺口与 TUI 全量基线已恢复；六 crate 当前 HEAD、静态门禁和 cache policy revalidation 待闭合 | PD1–PD16 | in-progress | 继续 W18 当前实现重基线；新真实缓存运行须重新取得预算批准 |
 
 ## 8. Verification Strategy
 

@@ -254,6 +254,11 @@ pub(crate) fn set_chatgpt_auth(chat: &mut ChatWidget) {
     chat.model_catalog = test_model_catalog(&chat.config);
 }
 
+pub(crate) fn set_chatgpt_rate_limit_context(chat: &mut ChatWidget) {
+    set_chatgpt_auth(chat);
+    chat.config.model_provider.requires_openai_auth = true;
+}
+
 fn test_model_info(slug: &str, priority: i32, supports_fast_mode: bool) -> ModelInfo {
     let mut service_tiers = Vec::new();
     if supports_fast_mode {

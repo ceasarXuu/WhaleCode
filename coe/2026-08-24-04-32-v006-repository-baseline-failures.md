@@ -2029,3 +2029,48 @@
   ```
 - Interpretation: 这是测试 fixture 权限域重叠造成的工程假失败，不涉及 provider 或权限产品决策。
 - Time: 2026-08-24 07:33 +0800
+
+## Hypothesis H-034: TUI ChatGPT/image 测试继承 DeepSeek 默认上下文
+- Status: confirmed
+- Failure signature:
+  - rate-limit 测试只把 account 布尔值设为 ChatGPT，却仍保留 `requires_openai_auth=false` 的 DeepSeek provider；fast-mode 与本地图像测试同样沿用不支持相应能力的 DeepSeek 默认模型。
+- Prediction:
+  - 仅在测试目标明确依赖 ChatGPT rate-limit、fast tier 或 image modality 时建立对应 provider/model fixture，非目标 TUI 测试继续使用 Whale 的 DeepSeek 默认值，功能断言应恢复。
+- Falsification:
+  - 显式 fixture 后仍不产生 rate-limit event、fast 状态或 image submit op。
+- Minimal experiment:
+  - 增加窄 ChatGPT rate-limit helper，并只修改相关测试的 model/provider 前提。
+- User/product decision required: no
+
+## Hypothesis H-035: 剩余 TUI 基线由确定性 fixture 与品牌快照陈旧造成
+- Status: confirmed
+- Failure signature:
+  - 其余差异为 DeepSeek 默认模型和 Whale doctor 文件名快照、`Agent`/`Agents` 同前缀顺序、宠物排序与 base64 子串误判，以及 TUI 只识别 `whale unarchive` 而内嵌 app-server 返回 `codex unarchive`。
+- Prediction:
+  - 按真实目录顺序和协议类型断言、兼容两种归档命令文案，并只接受已审阅的默认模型/品牌/宽度快照后，TUI 全量应无失败。
+- Falsification:
+  - 基线更新后出现任何非快照失败，或快照包含未审阅的行为变化。
+- Minimal experiment:
+  - 先验证 13 项非快照合同，再机械更新 33 项已分类快照，最后以原始隔离 runner 全量复验。
+- User/product decision required: no
+
+## Evidence E-050: TUI 全量基线恢复为 3755/3755
+- Related hypotheses:
+  - H-034
+  - H-035
+- Direction: supports
+- Type: verification
+- Source: codex-tui 完整隔离 nextest
+- Prediction or plan link:
+  - H-034 的显式能力 fixture 与 H-035 的确定性断言/已审阅快照预测。
+- Matched signal:
+  - 非快照合同先以 13/13 通过；最终 TUI 全量 3755/3755 通过、6 跳过，未新增 provider 产品分支。
+- Correlation keys:
+  - targeted runs `8aa90ec1-7c74-487d-b20b-fe6433c94b16`, `d01774d2-a0cd-4efc-ad82-af7b9a5cbd59`
+  - full run `4717b325-e3c4-4f3b-ace7-e5b672d49086`
+- Raw content:
+  ```text
+  3755 tests run: 3755 passed, 6 skipped
+  ```
+- Interpretation: TUI 的 46 项失败均为可证实的工程基线缺口；没有需要用户决定的新 provider 行为。
+- Time: 2026-08-24 07:42 +0800
