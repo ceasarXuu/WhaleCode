@@ -363,10 +363,10 @@ async fn cold_resume_rebinds_last_successful_provider_runtime() {
         deepseek_route.clone(),
         "deepseek-v4-flash",
     ));
-    let mut options = StartThreadOptions::new(config);
+    let mut options = StartThreadOptions::new(config.clone());
     options.initial_history = InitialHistory::Resumed(ResumedHistory {
         conversation_id: ThreadId::new(),
-        history: Arc::new(history),
+        history: Arc::new(history.clone()),
         rollout_path: None,
     });
 
@@ -392,8 +392,66 @@ async fn cold_resume_rebinds_last_successful_provider_runtime() {
         .await
         .expect("switch to recent OpenAI model");
     let openai_snapshot = resumed.thread.config_snapshot().await;
-    assert_eq!(openai_snapshot.route, Some(openai_route));
+    assert_eq!(openai_snapshot.route, Some(openai_route.clone()));
     assert_eq!(openai_snapshot.model, "gpt-5.5");
+
+    let mut child_config = config.clone();
+    child_config.model = Some("gpt-5.5".to_string());
+    child_config.model_provider_id = "openai".to_string();
+    child_config.model_provider =
+        codex_model_provider_info::built_in_model_providers(/*openai_base_url*/ None)["openai"]
+            .clone();
+    let child = manager
+        .state
+        .fork_thread_with_source(
+            child_config.clone(),
+            InitialHistory::Forked(history.clone()),
+            /*history_mode*/ None,
+            manager.agent_control(),
+            SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
+                parent_thread_id: resumed.thread_id,
+                depth: 1,
+                agent_path: None,
+                agent_nickname: None,
+                agent_role: None,
+            }),
+            /*thread_source*/ Some(ThreadSource::Subagent),
+            /*parent_thread_id*/ Some(resumed.thread_id),
+            /*forked_from_thread_id*/ Some(resumed.thread_id),
+            /*inherited_environments*/ None,
+            /*inherited_exec_policy*/ None,
+            /*environments*/ None,
+            ExtensionDataInit::new(),
+        )
+        .await
+        .expect("spawn full-history child from switched provider turn");
+    let child_thread = manager
+        .get_thread(child.thread_id)
+        .await
+        .expect("load forked child");
+    let child_snapshot = child_thread.config_snapshot().await;
+    assert_eq!(child_snapshot.route, Some(openai_route.clone()));
+    assert_eq!(child_snapshot.model, "gpt-5.5");
+    child_thread
+        .shutdown_and_wait()
+        .await
+        .expect("shut down forked child");
+
+    let mut root_fork_options = StartThreadOptions::new(child_config);
+    root_fork_options.initial_history = InitialHistory::Forked(history);
+    let root_fork = manager
+        .start_thread(root_fork_options)
+        .await
+        .expect("start ordinary history fork");
+    let root_fork_snapshot = root_fork.thread.config_snapshot().await;
+    assert_eq!(root_fork_snapshot.route, Some(deepseek_route.clone()));
+    assert_eq!(root_fork_snapshot.model, "deepseek-v4-flash");
+    root_fork
+        .thread
+        .shutdown_and_wait()
+        .await
+        .expect("shut down ordinary history fork");
+
     resumed
         .thread
         .session

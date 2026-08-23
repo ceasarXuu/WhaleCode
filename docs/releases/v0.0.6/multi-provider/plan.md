@@ -98,7 +98,7 @@
 | W14 | 改造分组 `/model` | TUI | `chatwidget/model_popups.rs`、`model_catalog.rs`、selection view | grouped routed model items | 按三组渲染全部模型；选择项提交 route+model，不执行跨 route 全局 config 持久化 | 一步完成跨 Provider 模型切换且计费路径明确 | 减少操作并避免无效全局 model/provider 组合 | Complexity：分组/availability/actions；Reach：reasoning popup、current/default 标记、旧 persist 行为 | grouped/same-name/unavailable/reasoning/cross-route tests | 同 route 旧 `/model` 行为保持；跨 route 失败保留当前选择 | planned |
 | W15 | 呈现 Provider-aware 命令能力 | TUI/runtime capability | `bottom_pane/slash_commands.rs`、slash dispatch | `CommandAvailability { enabled, reason }` | 将当前 route capability 输入命令列表和直接 dispatch guard | 不支持命令可见、禁用且原因一致 | 提升可发现性并阻止错误执行 | Complexity：availability reason 分支；Reach：命令菜单、键入路径、文案测试 | per-route availability snapshot + direct invocation tests | 无 capability 定义的命令默认保持现有行为 | planned |
 | W16 | 补齐脱敏与诊断 | observability/security | auth/provider errors、thread events、telemetry/status | route-safe fields、typed transition errors | 统一记录 route/stage/verdict，不记录 secret；为预检、排队、提交、投影、压缩失败提供 typed error | 用户和维护者能定位失败且凭据不泄露 | 降低支持与安全风险 | Complexity：错误枚举/字段；Reach：日志、rollout、status、telemetry | secret canary tests、snapshot/error mapping、rollout scan | 日志字段可独立回退；错误不得包含底层 secret body | planned |
-| W17 | 闭合生命周期语义 | 集成/恢复 | thread resume/fork/rollback、agent spawn、app-server thread tests | route restoration/inheritance | 让 resume/fork/rollback 恢复历史位置有效 route，subagent 继承创建时 route snapshot | 多 Provider session 在全部生命周期路径一致 | 防止只在主对话 happy path 生效 | Complexity：重建/继承分支；Reach：thread manager、agent control、rollout truncation | lifecycle matrix tests，含立即退出和 pending/aborted transition | 失败时拒绝恢复并给 typed error，不猜测凭据 | planned |
+| W17 | 闭合生命周期语义 | 集成/恢复 | thread resume/fork/rollback、agent spawn、app-server thread tests | route restoration/inheritance | 让 resume/fork/rollback 恢复历史位置有效 route，subagent 继承创建时 route snapshot | 多 Provider session 在全部生命周期路径一致 | 防止只在主对话 happy path 生效 | Complexity：重建/继承分支；Reach：thread manager、agent control、rollout truncation | lifecycle matrix tests，含立即退出和 pending/aborted transition | 失败时拒绝恢复并给 typed error，不猜测凭据 | implemented |
 | W18 | 完成回归与交付证据 | 验证/文档 | targeted suites、isolated runner、本主题文档 | test matrix、evidence summary、release status | 运行分层离线回归、schema/fmt/clippy/cache gate并更新证据 | 可证明 PD1–PD16 的实现覆盖和剩余限制 | 提供可审查交付基线 | Complexity：无生产抽象；Reach：构建时间、测试维护、文档 | 见第 8 节；不运行未授权真实模型 | 任一 gate 失败停止发布；源码提交可按原子 commit 回退 | planned |
 
 ## 6. Phases
@@ -111,7 +111,7 @@
 - Material plan delta: none
 - Plan delta record: not-required
 - User approval: not-required
-- Gate status: ready
+- Gate status: verified
 
 - Entry: PD1–PD16 active；不需要真实凭据或网络。
 - Work: V1、V2、V3、W1 的 route/schema 最小合同。
@@ -186,7 +186,7 @@
 - Material plan delta: material（D4 proposal）
 - Plan delta record: D4
 - User approval: user-approved-plan-direct: 2026-08-23（“批准，继续”）
-- Gate status: ready
+- Gate status: verified
 
 - Entry: transition/replay 核心测试 verified；V3 direction-supported。
 - Rebased execution slices:
@@ -196,7 +196,8 @@
 - Estimated handwritten production code: 650–950 行；建议 Phase 3 上限 1000 行，测试/schema/generated/docs 不计入。达到上限仍不能闭合 replay + projection 时停止扩张并重新审批。
 - Lifecycle slice evidence (2026-08-23): reverse rollout 只从成功、未被 rollback 的 user-turn segment 派生 active route 与 route→最近成功模型；冷 resume 在 `SessionConfigured` 前经 runtime registry 重绑 provider/models manager/model/base prompt，缺 route/credential/model 时返回含 route+stage 且不含 secret 的错误。成功 turn 更新 session 派生缓存；仅切 route 时优先最近成功模型、再回退目标 catalog 首选。rollback/recent-model 测试 1/1、OpenAI API↔DeepSeek 冷恢复与往返测试 1/1、`cargo check -p codex-core` 通过；全部使用本地伪凭据与离线 catalog，无真实模型请求。
 - Wire projection evidence (2026-08-23): DeepSeek 路径按仓库现有原生 Responses contract 保留可读 reasoning，只在 request clone 上清除 OpenAI 私有 reasoning、function args、agent/tool output 密文；provider-hosted search/image、opaque compaction 和 unknown request controls 不进入非 OpenAI wire。私有-only tool output 与 call 成对移除，随后复用既有 call/output 和媒体 normalization；切回 OpenAI 时原 clone 保持完整。投影单元测试 6/6、既有 non-OpenAI request 集成测试 1/1、`cargo check -p codex-core` 通过，无真实模型请求。当前 Phase 3 手写生产代码净增约 381/1000 行。
-- Exit evidence: OpenAI→DeepSeek→OpenAI fixture round-trip，canonical history hash 不变；resume/fork/rollback/subagent route 正确。
+- Fork/subagent evidence (2026-08-23): 普通 history fork 继续从所选历史切点恢复最后成功 route；full-history 子 Agent 则保留 spawning turn 已捕获的完整 route/model snapshot，避免父会话刚切换 provider 时被旧成功 turn 反向覆盖，并把该 snapshot 记入子 session 的 route 最近模型派生缓存。扩展冷恢复测试同时覆盖 DeepSeek→OpenAI spawning-turn 子 fork 与同一历史的普通 root fork，1/1 通过；`cargo check -p codex-core` 通过。当前 Phase 3 手写生产代码净增约 395/1000 行。
+- Exit evidence: OpenAI→DeepSeek→OpenAI fixture round-trip，canonical history clone 不变；resume/rollback/recent-model/subagent fork route 正确，普通 fork 保留历史切点语义。Phase 3 verified。
 - Product Decision Delta: 审计 PD6、PD7、PD8、PD10、PD11。
 - Cross-unit side effects: wire token 数可能因投影变化；只记录差异，不把 mock 结果声称为真实 Provider 接受性。
 
@@ -239,7 +240,7 @@
 | Phase 0 | route/auth/turn/history 可行性 | route identity 不含 secret；现有 flat auth record 支持 OpenAI 双槽存储/刷新；settings FIFO 保持 next-turn 边界；wire projection 基于副本 | PD3–PD6、PD8、PD11、PD15 | engineering-only | D1 仅修改后续工程设计；Phase 1 前请求计划审批 |
 | Phase 1 | 凭据与模型分组 | 三条 route 的凭据可共存并精确读写/登出；状态仅暴露 configured 布尔值；目录和缓存按 route 隔离，缺凭据组保持可见；DeepSeek onboarding 不再写入 OpenAI 槽 | PD3–PD5、PD9、PD13、PD15、PD16 | conforming | 无新增产品决策；进入 Phase 2 rebase |
 | Phase 2 | 原子切换、prompt/tools/compact/replay | session runtime registry、prepared snapshot、route-bound turn client、route rollout 字段、旧 route compact 与 revision/CAS 补偿已闭合；补偿只覆盖 provider/model 选择，不覆盖后续独立 settings | PD6–PD11 | conforming | D2、D3 已实施并通过门禁；Phase 2 verified |
-| Phase 3 | 历史与生命周期 | resume 已从有效 rollout 重绑最后成功 route/model/prompt，route 最近模型与 rollback 同源重放；目标 provider request 使用可逆 history clone 投影。尚待 fork/subagent 继承矩阵闭合 | PD6、PD7、PD10、PD11 | engineering-only material plan delta | D4 + Phase 3 1000 行上限已获用户批准，实施中 |
+| Phase 3 | 历史与生命周期 | resume/rollback/普通 fork 从有效 rollout 重绑历史位置 route/model/prompt；subagent fork 保留 spawning-turn snapshot；目标 provider request 使用可逆 history clone 投影 | PD6、PD7、PD10、PD11 | conforming | D4 已实施并通过门禁；Phase 3 verified，进入 Phase 4 rebase |
 | Phase 4 | TUI 与命令可用性 | 待执行 | PD2、PD3、PD8、PD12、PD14、PD16 | pending | 阶段结束审计 |
 | Phase 5 | 整体验收 | 待执行 | PD1–PD16 | pending | 逐项链接测试证据 |
 

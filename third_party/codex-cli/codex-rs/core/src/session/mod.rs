@@ -607,9 +607,17 @@ impl Session {
         let restored_provider_lifecycle = rollout_reconstruction::reconstruct_provider_lifecycle(
             conversation_history.get_rollout_items(),
         );
-        let restoring_provider_selection = restored_provider_lifecycle.active_selection.is_some();
-        let restored_provider_selection = restored_provider_lifecycle.active_selection;
-        let restored_recent_provider_models = restored_provider_lifecycle.recent_models;
+        // A subagent fork inherits the complete route/model snapshot captured by its spawning
+        // turn. Its copied history may end at the parent's previous successful turn, so replaying
+        // that route here would incorrectly undo a provider switch that is already active for the
+        // parent turn. Ordinary user forks still restore the route at their selected history cut.
+        let inherit_subagent_fork_snapshot =
+            parent_thread_id.is_some() && matches!(conversation_history, InitialHistory::Forked(_));
+        let restored_provider_selection = (!inherit_subagent_fork_snapshot)
+            .then_some(restored_provider_lifecycle.active_selection)
+            .flatten();
+        let restoring_provider_selection = restored_provider_selection.is_some();
+        let mut restored_recent_provider_models = restored_provider_lifecycle.recent_models;
         let (models_manager, initial_provider_route, initial_provider, restored_model) =
             if let Some((route, model)) = restored_provider_selection {
                 let runtime = provider_runtime_registry.get(&route).ok_or_else(|| {
@@ -697,6 +705,9 @@ impl Session {
                 )
                 .await
         };
+        if inherit_subagent_fork_snapshot && let Some(route) = initial_provider_route.as_ref() {
+            restored_recent_provider_models.insert(route.clone(), model.clone());
+        }
         let trusted_guardian_reviewer =
             crate::guardian::is_guardian_reviewer_source(&session_source)
                 && !matches!(conversation_history, InitialHistory::Resumed(_));
