@@ -139,6 +139,7 @@ impl App {
         }
         let mut model = config.model.clone().unwrap_or(bootstrap.default_model);
         let available_models = bootstrap.available_models;
+        let provider_model_groups = bootstrap.provider_model_groups;
         let remote_connection = crate::status::remote_connection::remote_connection_status_value(
             &app_server_target,
             app_server.server_version(),
@@ -167,7 +168,10 @@ impl App {
         if let Some(updated_model) = config.model.clone() {
             model = updated_model;
         }
-        let model_catalog = Arc::new(ModelCatalog::new(available_models.clone()));
+        let model_catalog = Arc::new(ModelCatalog::with_provider_groups(
+            available_models.clone(),
+            provider_model_groups,
+        ));
         let feedback_audience = bootstrap.feedback_audience;
         let auth_mode = bootstrap.auth_mode;
         let has_chatgpt_account = bootstrap.has_chatgpt_account;

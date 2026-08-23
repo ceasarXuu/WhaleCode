@@ -36,6 +36,7 @@ use codex_app_server_protocol::ThreadItemsListResponse;
 use codex_connectors::AppInfo;
 use codex_file_search::FileMatch;
 use codex_message_history::HistoryBatchCursor;
+use codex_protocol::ProviderRoute;
 use codex_protocol::ThreadId;
 use codex_protocol::openai_models::ModelPreset;
 use codex_utils_absolute_path::AbsolutePathBuf;
@@ -886,6 +887,13 @@ pub(crate) enum AppEvent {
     /// Update the current model slug in the running app and widget.
     UpdateModel(String),
 
+    /// Select a provider route and optional model for this thread only.
+    SelectProviderModel {
+        route: ProviderRoute,
+        model: Option<String>,
+        effort: Option<ReasoningEffort>,
+    },
+
     /// Update the current personality in the running app and widget.
     UpdatePersonality(Personality),
 
@@ -915,11 +923,13 @@ pub(crate) enum AppEvent {
 
     /// Open the reasoning selection popup after picking a model.
     OpenReasoningPopup {
+        route: Option<ProviderRoute>,
         model: ModelPreset,
     },
 
     /// Open the explicit Max/Ultra reasoning selection popup for a model.
     OpenAdvancedReasoningPopup {
+        route: Option<ProviderRoute>,
         model: ModelPreset,
     },
 

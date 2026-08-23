@@ -11,6 +11,7 @@ use codex_app_server_protocol::AskForApproval as AppServerAskForApproval;
 use codex_app_server_protocol::ThreadSettings;
 use codex_app_server_protocol::ThreadSettingsUpdateParams;
 use codex_config::types::ApprovalsReviewer;
+use codex_protocol::ProviderRoute;
 use codex_protocol::ThreadId;
 use codex_protocol::config_types::ModeKind;
 use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_WORKSPACE;
@@ -18,6 +19,30 @@ use codex_protocol::models::PermissionProfile;
 use codex_protocol::openai_models::MODEL_SPECIALTY_CYBER;
 
 impl App {
+    pub(super) async fn sync_active_thread_provider_model_setting(
+        &mut self,
+        app_server: &mut AppServerSession,
+        route: ProviderRoute,
+        model: Option<String>,
+        effort: Option<codex_protocol::openai_models::ReasoningEffort>,
+    ) -> bool {
+        let Some(thread_id) = self.active_thread_id else {
+            return false;
+        };
+        self.send_thread_settings_update(
+            app_server,
+            ThreadSettingsUpdateParams {
+                thread_id: thread_id.to_string(),
+                route: Some(route),
+                model,
+                effort,
+                collaboration_mode: Some(self.chat_widget.effective_collaboration_mode()),
+                ..ThreadSettingsUpdateParams::default()
+            },
+        )
+        .await
+    }
+
     pub(super) async fn sync_active_thread_model_setting(
         &mut self,
         app_server: &mut AppServerSession,
@@ -249,7 +274,8 @@ fn apply_thread_settings_to_session(session: &mut ThreadSessionState, settings: 
 }
 
 fn thread_settings_update_has_changes(params: &ThreadSettingsUpdateParams) -> bool {
-    params.cwd.is_some()
+    params.route.is_some()
+        || params.cwd.is_some()
         || params.approval_policy.is_some()
         || params.approvals_reviewer.is_some()
         || params.sandbox_policy.is_some()
@@ -260,4 +286,21 @@ fn thread_settings_update_has_changes(params: &ThreadSettingsUpdateParams) -> bo
         || params.summary.is_some()
         || params.collaboration_mode.is_some()
         || params.personality.is_some()
+}
+
+#[cfg(test)]
+mod provider_route_tests {
+    use super::*;
+    use codex_protocol::ProviderAccessMethod;
+
+    #[test]
+    fn route_only_update_is_not_dropped() {
+        let params = ThreadSettingsUpdateParams {
+            thread_id: ThreadId::new().to_string(),
+            route: Some(ProviderRoute::new("deepseek", ProviderAccessMethod::ApiKey)),
+            ..ThreadSettingsUpdateParams::default()
+        };
+
+        assert!(thread_settings_update_has_changes(&params));
+    }
 }

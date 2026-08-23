@@ -456,7 +456,9 @@ async fn queued_settings_selection_applies_before_next_input() {
     assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
     while let Ok(event) = rx.try_recv() {
         match event {
-            AppEvent::OpenReasoningPopup { model } => chat.open_reasoning_popup(model),
+            AppEvent::OpenReasoningPopup { route, model } => {
+                chat.open_reasoning_popup(route, model)
+            }
             AppEvent::UpdateModel(model) => chat.set_model(&model),
             AppEvent::UpdateReasoningEffort(effort) => chat.set_reasoning_effort(effort),
             AppEvent::SettingsSelectionClosed => {
@@ -478,6 +480,64 @@ async fn queued_settings_selection_applies_before_next_input() {
         other => panic!("expected queued message with updated model, got {other:?}"),
     }
     assert!(chat.input_queue.queued_user_messages.is_empty());
+}
+
+#[tokio::test]
+async fn provider_and_model_pickers_preserve_route_groups() {
+    use crate::model_catalog::ProviderModelGroup;
+    use codex_app_server_protocol::ProviderModelAvailability;
+    use codex_protocol::ProviderAccessMethod;
+    use codex_protocol::ProviderRoute;
+
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.2")).await;
+    chat.thread_id = Some(ThreadId::new());
+    let openai_model = get_available_model(&chat, "gpt-5.2");
+    let mut deepseek_model = openai_model.clone();
+    deepseek_model.model = "deepseek-v4-flash".to_string();
+    deepseek_model.display_name = "DeepSeek V4 Flash".to_string();
+    let openai_route = ProviderRoute::new("openai", ProviderAccessMethod::Chatgpt);
+    let deepseek_route = ProviderRoute::new("deepseek", ProviderAccessMethod::ApiKey);
+    let groups = vec![
+        ProviderModelGroup {
+            route: openai_route.clone(),
+            display_name: "OpenAI Subscription".to_string(),
+            availability: ProviderModelAvailability::Available,
+            models: vec![openai_model.clone()],
+        },
+        ProviderModelGroup {
+            route: deepseek_route,
+            display_name: "DeepSeek".to_string(),
+            availability: ProviderModelAvailability::MissingCredentials,
+            models: vec![deepseek_model],
+        },
+    ];
+    chat.model_catalog = std::sync::Arc::new(ModelCatalog::with_provider_groups(
+        vec![openai_model],
+        groups,
+    ));
+
+    chat.open_provider_popup();
+    let provider_popup = render_bottom_popup(&chat, /*width*/ 90);
+    assert!(provider_popup.contains("OpenAI Subscription"));
+    assert!(provider_popup.contains("Sign-in or API key required"));
+    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_matches!(
+        rx.try_recv().expect("provider selection event"),
+        AppEvent::SelectProviderModel { route, model: None, effort: None }
+            if route == openai_route
+    );
+
+    chat.open_model_popup();
+    let model_popup = render_bottom_popup(&chat, /*width*/ 90);
+    assert!(model_popup.contains("OpenAI Subscription"));
+    assert!(model_popup.contains("DeepSeek"));
+    assert!(model_popup.contains("DeepSeek V4 Flash"));
+    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_matches!(
+        rx.try_recv().expect("routed reasoning popup event"),
+        AppEvent::OpenReasoningPopup { route: Some(route), model }
+            if route == openai_route && model.model == "gpt-5.2"
+    );
 }
 
 #[tokio::test]

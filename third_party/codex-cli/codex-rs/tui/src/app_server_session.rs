@@ -14,6 +14,7 @@ pub(crate) use history::thread_items_page_params;
 
 use crate::bottom_pane::FeedbackAudience;
 use crate::legacy_core::config::Config;
+use crate::model_catalog::ProviderModelGroup;
 use crate::service_tier_resolution;
 use crate::session_state::MessageHistoryMetadata;
 use crate::session_state::ThreadSessionState;
@@ -50,6 +51,7 @@ use codex_app_server_protocol::ModelListParams;
 use codex_app_server_protocol::ModelListResponse;
 use codex_app_server_protocol::NewThreadModelDefaults;
 use codex_app_server_protocol::ProviderCredentialStatusListResponse;
+use codex_app_server_protocol::ProviderModelGroup as ApiProviderModelGroup;
 use codex_app_server_protocol::RateLimitSnapshot;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ReviewDelivery;
@@ -265,6 +267,7 @@ pub(crate) struct AppServerBootstrap {
     pub(crate) feedback_audience: FeedbackAudience,
     pub(crate) has_chatgpt_account: bool,
     pub(crate) available_models: Vec<ModelPreset>,
+    pub(crate) provider_model_groups: Vec<ProviderModelGroup>,
 }
 
 pub(crate) struct AppServerSession {
@@ -455,6 +458,11 @@ impl AppServerSession {
             .requirements
             .and_then(|requirements| requirements.models)
             .and_then(|models| models.new_thread);
+        let provider_model_groups = models
+            .groups
+            .into_iter()
+            .map(provider_model_group_from_api)
+            .collect::<Vec<_>>();
         let available_models = models
             .data
             .into_iter()
@@ -527,6 +535,7 @@ impl AppServerSession {
             feedback_audience,
             has_chatgpt_account,
             available_models,
+            provider_model_groups,
         })
     }
 
@@ -1594,6 +1603,19 @@ fn model_preset_from_api_model(model: ApiModel) -> ModelPreset {
         // `model/list` already returns models filtered for the active client/auth context.
         supported_in_api: true,
         input_modalities: model.input_modalities,
+    }
+}
+
+fn provider_model_group_from_api(group: ApiProviderModelGroup) -> ProviderModelGroup {
+    ProviderModelGroup {
+        route: group.route,
+        display_name: group.display_name,
+        availability: group.availability,
+        models: group
+            .models
+            .into_iter()
+            .map(model_preset_from_api_model)
+            .collect(),
     }
 }
 

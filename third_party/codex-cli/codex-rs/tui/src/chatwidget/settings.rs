@@ -493,6 +493,7 @@ impl ChatWidget {
 
     fn apply_thread_settings(&mut self, mut settings: ThreadSettings) {
         let cwd_changed = self.config.cwd != settings.cwd;
+        self.current_provider_route = settings.route.clone();
         self.apply_thread_settings_cwd(settings.cwd.clone());
         self.config.model_provider_id = settings.model_provider.clone();
         self.set_service_tier(settings.service_tier.clone());
@@ -540,6 +541,14 @@ impl ChatWidget {
         }
         self.refresh_plugin_mentions();
         self.request_redraw();
+    }
+
+    pub(crate) fn current_provider_route(&self) -> Option<&codex_protocol::ProviderRoute> {
+        self.current_provider_route.as_ref()
+    }
+
+    pub(crate) fn is_task_running(&self) -> bool {
+        self.bottom_pane.is_task_running()
     }
 
     fn apply_thread_settings_cwd(&mut self, cwd: AbsolutePathBuf) {

@@ -19,6 +19,11 @@ impl ChatWidget {
             return;
         }
 
+        let groups = self.model_catalog.provider_groups().to_vec();
+        if !groups.is_empty() {
+            self.open_provider_models_popup(groups);
+            return;
+        }
         let presets: Vec<ModelPreset> = match self.model_catalog.try_list_models() {
             Ok(models) => models,
             Err(_) => {
@@ -30,6 +35,105 @@ impl ChatWidget {
             }
         };
         self.open_model_popup_with_presets(presets);
+    }
+
+    pub(crate) fn open_provider_popup(&mut self) {
+        let current_route = self.current_provider_route().cloned();
+        let items = self
+            .model_catalog
+            .provider_groups()
+            .iter()
+            .map(|group| {
+                let route = group.route.clone();
+                let disabled_reason = provider_unavailable_reason(&group.availability);
+                SelectionItem {
+                    name: group.display_name.clone(),
+                    description: disabled_reason.clone().or_else(|| {
+                        group
+                            .models
+                            .iter()
+                            .find(|model| model.is_default)
+                            .or_else(|| group.models.first())
+                            .map(|model| format!("Uses {}", model.display_name))
+                    }),
+                    is_current: current_route.as_ref() == Some(&group.route),
+                    is_disabled: disabled_reason.is_some(),
+                    disabled_reason,
+                    actions: vec![Box::new(move |tx| {
+                        tx.send(AppEvent::SelectProviderModel {
+                            route: route.clone(),
+                            model: None,
+                            effort: None,
+                        });
+                    })],
+                    dismiss_on_select: true,
+                    ..Default::default()
+                }
+            })
+            .collect();
+        self.bottom_pane.show_selection_view(SelectionViewParams {
+            title: Some("Select Provider".to_string()),
+            subtitle: Some("Changes apply to this session from the next turn.".to_string()),
+            footer_hint: Some(standard_popup_hint_line()),
+            items,
+            ..Default::default()
+        });
+    }
+
+    fn open_provider_models_popup(
+        &mut self,
+        groups: Vec<crate::model_catalog::ProviderModelGroup>,
+    ) {
+        let current_route = self.current_provider_route().cloned();
+        let current_model = self.current_model().to_string();
+        let mut items = Vec::new();
+        for group in groups {
+            let disabled_reason = provider_unavailable_reason(&group.availability);
+            items.push(SelectionItem {
+                name: group.display_name.clone(),
+                description: disabled_reason.clone(),
+                is_disabled: true,
+                disabled_reason,
+                disabled_gutter_marker: Some("─"),
+                ..Default::default()
+            });
+            for preset in group.models {
+                let route = group.route.clone();
+                let preset_for_action = preset.clone();
+                let group_disabled = provider_unavailable_reason(&group.availability);
+                items.push(SelectionItem {
+                    name: format!("  {}", preset.display_name),
+                    description: (!preset.description.is_empty())
+                        .then_some(preset.description.clone()),
+                    is_current: current_route.as_ref() == Some(&group.route)
+                        && current_model == preset.model,
+                    is_default: preset.is_default,
+                    is_disabled: group_disabled.is_some(),
+                    disabled_reason: group_disabled,
+                    actions: vec![Box::new(move |tx| {
+                        tx.send(AppEvent::OpenReasoningPopup {
+                            route: Some(route.clone()),
+                            model: preset_for_action.clone(),
+                        });
+                    })],
+                    dismiss_parent_on_child_accept: true,
+                    search_value: Some(format!(
+                        "{} {} {}",
+                        group.display_name, preset.display_name, preset.model
+                    )),
+                    ..Default::default()
+                });
+            }
+        }
+        self.bottom_pane.show_selection_view(SelectionViewParams {
+            title: Some("Select Model".to_string()),
+            subtitle: Some("Models are grouped by provider and billing route.".to_string()),
+            footer_hint: Some(standard_popup_hint_line()),
+            items,
+            is_searchable: true,
+            search_placeholder: Some("Search all provider models".to_string()),
+            ..Default::default()
+        });
     }
 
     fn model_menu_header(&self, title: &str, subtitle: &str) -> Box<dyn Renderable> {
@@ -110,6 +214,7 @@ impl ChatWidget {
                     let preset_for_action = preset.clone();
                     vec![Box::new(move |tx| {
                         tx.send(AppEvent::OpenReasoningPopup {
+                            route: None,
                             model: preset_for_action.clone(),
                         });
                     })]
@@ -120,6 +225,7 @@ impl ChatWidget {
                             Some(preset.default_reasoning_effort.clone()),
                         );
                     self.model_selection_actions(
+                        None,
                         model.clone(),
                         Some(preset.default_reasoning_effort.clone()),
                         should_prompt_plan_mode_scope,
@@ -205,6 +311,7 @@ impl ChatWidget {
             let actions: Vec<SelectionAction> = vec![Box::new(move |tx| {
                 let preset_for_event = preset_for_action.clone();
                 tx.send(AppEvent::OpenReasoningPopup {
+                    route: None,
                     model: preset_for_event,
                 });
             })];
@@ -234,6 +341,7 @@ impl ChatWidget {
 
     fn model_selection_actions(
         &self,
+        route: Option<codex_protocol::ProviderRoute>,
         model_for_action: String,
         effort_for_action: Option<ReasoningEffortConfig>,
         should_prompt_plan_mode_scope: bool,
@@ -242,7 +350,13 @@ impl ChatWidget {
             .as_ref()
             .and_then(|effort| self.ultra_reasoning_concurrency_warning(effort));
         vec![Box::new(move |tx| {
-            if effort_for_action == Some(ReasoningEffortConfig::Ultra) {
+            if let Some(route) = route.clone() {
+                tx.send(AppEvent::SelectProviderModel {
+                    route,
+                    model: Some(model_for_action.clone()),
+                    effort: effort_for_action.clone(),
+                });
+            } else if effort_for_action == Some(ReasoningEffortConfig::Ultra) {
                 tx.send(AppEvent::ApplyAdvancedReasoning {
                     model: model_for_action.clone(),
                     effort: ReasoningEffortConfig::Ultra,
@@ -397,7 +511,11 @@ impl ChatWidget {
     ///
     /// Max and Ultra require an explicit second step so expensive efforts cannot
     /// be selected accidentally while moving through the normal effort scale.
-    pub(crate) fn open_reasoning_popup(&mut self, preset: ModelPreset) {
+    pub(crate) fn open_reasoning_popup(
+        &mut self,
+        route: Option<codex_protocol::ProviderRoute>,
+        preset: ModelPreset,
+    ) {
         let default_effort = preset.default_reasoning_effort.clone();
         let supported = &preset.supported_reasoning_efforts;
         let in_plan_mode =
@@ -447,7 +565,15 @@ impl ChatWidget {
                         effort: selected_effort,
                     });
             } else {
-                self.apply_model_and_effort(selected_model, selected_effort);
+                if let Some(route) = route {
+                    self.app_event_tx.send(AppEvent::SelectProviderModel {
+                        route,
+                        model: Some(selected_model),
+                        effort: selected_effort,
+                    });
+                } else {
+                    self.apply_model_and_effort(selected_model, selected_effort);
+                }
             }
             return;
         }
@@ -506,6 +632,7 @@ impl ChatWidget {
                 choice_effort.clone(),
             );
             let actions = self.model_selection_actions(
+                route.clone(),
                 model_slug.clone(),
                 choice_effort,
                 should_prompt_plan_mode_scope,
@@ -534,8 +661,10 @@ impl ChatWidget {
                 "consume"
             };
             let preset_for_action = preset;
+            let route_for_action = route.clone();
             let actions: Vec<SelectionAction> = vec![Box::new(move |tx| {
                 tx.send(AppEvent::OpenAdvancedReasoningPopup {
+                    route: route_for_action.clone(),
                     model: preset_for_action.clone(),
                 });
             })];
@@ -567,7 +696,11 @@ impl ChatWidget {
     }
 
     /// Open the explicit Max/Ultra effort picker for the given model.
-    pub(crate) fn open_advanced_reasoning_popup(&mut self, preset: ModelPreset) {
+    pub(crate) fn open_advanced_reasoning_popup(
+        &mut self,
+        route: Option<codex_protocol::ProviderRoute>,
+        preset: ModelPreset,
+    ) {
         let mut choices = preset
             .supported_reasoning_efforts
             .iter()
@@ -603,6 +736,7 @@ impl ChatWidget {
             let should_prompt_plan_mode_scope = self
                 .should_prompt_plan_mode_reasoning_scope(model_slug.as_str(), Some(effort.clone()));
             let actions = self.model_selection_actions(
+                route.clone(),
                 model_slug.clone(),
                 Some(effort.clone()),
                 should_prompt_plan_mode_scope,
@@ -704,5 +838,23 @@ impl ChatWidget {
         self.apply_model_and_effort_without_persist(model.clone(), effort.clone());
         self.app_event_tx
             .send(AppEvent::PersistModelSelection { model, effort });
+    }
+}
+
+fn provider_unavailable_reason(
+    availability: &codex_app_server_protocol::ProviderModelAvailability,
+) -> Option<String> {
+    use codex_app_server_protocol::ProviderModelAvailability;
+    match availability {
+        ProviderModelAvailability::Available => None,
+        ProviderModelAvailability::MissingCredentials => {
+            Some("Sign-in or API key required".to_string())
+        }
+        ProviderModelAvailability::CatalogUnavailable => {
+            Some("Model catalog is currently unavailable".to_string())
+        }
+        ProviderModelAvailability::UnsupportedRoute => {
+            Some("This provider route is not supported".to_string())
+        }
     }
 }
