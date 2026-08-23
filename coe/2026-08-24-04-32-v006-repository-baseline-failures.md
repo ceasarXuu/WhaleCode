@@ -44,6 +44,7 @@
   - H-016
   - H-017
   - H-018
+  - H-019
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -757,6 +758,49 @@
 - Conclusion: provider-sensitive core 单测必须显式声明 OpenAI，默认 DeepSeek 的产品行为保持不变。
 - Repair design readiness: implemented and verified
 - Next step: none for H-018
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-019: guardian mock 测试误用默认 DeepSeek provider
+- Status: confirmed
+- Parent: P-001
+- Claim: 三项 guardian 测试仅覆盖 OpenAI mock base URL，却继承默认 DeepSeek provider，自动审查因缺少 DeepSeek API key fail-closed。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 失败拒绝文本明确报告 `DEEPSEEK_API_KEY` 缺失，而 fixture 挂载的是 `/v1/responses` SSE。
+- Falsifiable predictions:
+  - If true: 显式绑定 OpenAI provider 后，guardian 仍走既有安全逻辑且三项通过。
+  - If false: 仍返回空权限或通用自动审查失败。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: provider 协议与 mock 不一致。
+  - Signal: guardian 响应、权限 grant、目标回归。
+  - Capture method: 仅修正三项 fixture provider 后运行定向 nextest。
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - OpenAI provider ID
+    - `/v1/responses`
+  - Differentiates from:
+    - guardian 安全策略错误
+    - 权限 grant 丢失
+  - Supports if:
+    - 三项全部通过。
+  - Refutes if:
+    - 原失败信号保持。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-035
+- Conclusion: guardian 的安全与授权逻辑无需修改；OpenAI mock fixture 必须显式声明 OpenAI provider。
+- Repair design readiness: implemented and verified
+- Next step: none for H-019
 - Blocker:
   - none
 - Close reason:
@@ -1491,3 +1535,22 @@
   ```
 - Interpretation: 生产 router 和 refresh 策略无需修改，失败来自测试依赖旧全局 OpenAI 默认。
 - Time: 2026-08-24 06:25 +0800
+
+## Evidence E-035: guardian 显式 OpenAI fixture 恢复
+- Related hypotheses:
+  - H-019
+- Direction: supports
+- Type: verification
+- Source: core 三项定向隔离 nextest
+- Prediction or plan link:
+  - H-019 的显式 provider 对照。
+- Matched signal:
+  - MCP deny rationale、shell strict auto-review 与网络权限 grant 均恢复预期。
+- Correlation keys:
+  - nextest run `5da31c27-39c6-4c14-a169-75e176e08066`
+- Raw content:
+  ```text
+  guardian provider fixtures: 3 passed
+  ```
+- Interpretation: 失败来自测试协议配置不一致，不是 guardian 生产安全逻辑缺口。
+- Time: 2026-08-24 06:35 +0800
