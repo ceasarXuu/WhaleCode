@@ -20,9 +20,9 @@ mod provider_wire_sections;
 use provider_wire_sections::ProviderWireSectionCost;
 
 const TRACE_PATH_ENV: &str = "WHALE_PROVIDER_WIRE_TRACE_PATH";
-const WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION: &str = "codex-0.147-default";
+const WHALECODE_STANDARD_BASE_INSTRUCTIONS_VERSION: &str = "whalecode-standard-v0.0.6";
 const WHALECODE_STANDARD_BASE_INSTRUCTIONS_SHA256: &str =
-    "ac8ae107a0d72fe3476b430afb161ea4e67da2e446d778aefc44828160559807";
+    "84affc85717284d5a201ad6123a4c63a5ed68f57558f84f3b8b94ce8b7996cad";
 const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_VERSION: &str = "whalecode-taskspace-0.147";
 const WHALECODE_TASKSPACE_BASE_INSTRUCTIONS_SHA256: &str =
     "f1a963f8476d98dee15cba3118e962981c8f0b7231b28a5884c32fc4be234363";

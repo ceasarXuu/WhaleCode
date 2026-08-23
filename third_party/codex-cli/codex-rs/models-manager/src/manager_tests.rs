@@ -1721,6 +1721,10 @@ fn bundled_deepseek_models_preserve_long_context_contract() {
             .iter()
             .find(|model| model.slug == slug)
             .unwrap_or_else(|| panic!("bundled catalog should contain {slug}"));
+        assert_eq!(
+            model.get_model_instructions(/*personality*/ None),
+            crate::model_info::BASE_INSTRUCTIONS
+        );
 
         assert_eq!(model.context_window, Some(1_000_000));
         assert_eq!(model.max_context_window, Some(1_000_000));

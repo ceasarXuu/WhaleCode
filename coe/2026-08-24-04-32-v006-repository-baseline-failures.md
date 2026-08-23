@@ -45,6 +45,7 @@
   - H-017
   - H-018
   - H-019
+  - H-020
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -806,6 +807,49 @@
 - Close reason:
   - not closed
 
+## Hypothesis H-020: DeepSeek 内置模型目录缺失基础系统提示词
+- Status: confirmed
+- Parent: P-001
+- Claim: 三个 DeepSeek bundled model 的 legacy `base_instructions` 为空，导致 Standard final-wire 没有 `instructions`，同时缓存快照仍保留旧 effort 与工具能力。
+- Layer: model-catalog
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - final-wire 直接断言 `instructions` 缺失；模型目录三个 DeepSeek 条目均为空字符串，违反 v0.0.6 PD6 的 provider prompt 快照合同。
+- Falsifiable predictions:
+  - If true: catalog 读取时为空 DeepSeek 条目补现有 Whale base prompt 后，请求携带稳定 instructions，连续两轮前缀保持且 provider 能力过滤不变。
+  - If false: final-wire 仍无 instructions，或历史/工具前缀发生非预期变化。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: DeepSeek model metadata 是否向 request 提供非空 Whale base prompt。
+  - Signal: model instructions、final-wire body、provider-wire identity、双请求 prefix。
+  - Capture method: bundled catalog 测试、mock Responses final-wire、cache snapshot 与 provider trace 定向回归。
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - `deepseek-v4-flash`
+    - `whalecode-standard-v0.0.6`
+  - Differentiates from:
+    - Responses serializer 丢弃 instructions
+    - cache stabilizer 错误
+  - Supports if:
+    - Whale instructions 非空且两轮相同，六项 core 合同与两项 model catalog 合同通过。
+  - Refutes if:
+    - 修复 model metadata 后 wire 仍为空。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-036
+- Conclusion: 根因是 bundled DeepSeek metadata 空 prompt；复用单一 Whale base prompt 即可，不需要新增 provider prompt 框架。
+- Repair design readiness: implemented and verified offline
+- Next step: 发布晋升仍受既有真实 cache baseline 门禁约束
+- Blocker:
+  - 真实缓存回归需要独立预算授权，当前不影响继续清理离线工程失败。
+- Close reason:
+  - not closed
+
 ## Evidence E-001: 失败按 crate 与模块聚类
 - Related hypotheses:
   - H-002
@@ -1554,3 +1598,27 @@
   ```
 - Interpretation: 失败来自测试协议配置不一致，不是 guardian 生产安全逻辑缺口。
 - Time: 2026-08-24 06:35 +0800
+
+## Evidence E-036: DeepSeek Whale prompt 与缓存前缀合同恢复
+- Related hypotheses:
+  - H-020
+- Direction: supports
+- Type: verification
+- Source: bundled catalog、mock Responses final-wire、provider trace 定向回归
+- Prediction or plan link:
+  - H-020 的非空 prompt 与稳定前缀预测。
+- Matched signal:
+  - 三个 DeepSeek 模型复用单一 Whale base prompt；请求 instructions 为 20,723 bytes，首行标识 WhaleCode；第二轮 instructions 相同且 input prefix 保持；effort 为 high；DeepSeek 不支持的 namespace multi-agent tool 未暴露。
+- Correlation keys:
+  - models nextest `9ecbc7ec-8058-4f2c-a2d5-1194b75291ca`
+  - core nextest `f0daa822-dedf-4d9f-b72d-a6c1ce33288a`
+- Raw content:
+  ```text
+  bundled catalog: 2 passed
+  final-wire/provider-trace: 6 passed
+  request_1.instructions_bytes: 20723
+  request_2.instructions_same: true
+  request_2.prefix_preserved: true
+  ```
+- Interpretation: system prompt 缺失已从目录根因修复；工具过滤与双轮 cache prefix 同时保持目标合同。
+- Time: 2026-08-24 06:52 +0800
