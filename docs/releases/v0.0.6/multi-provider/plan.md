@@ -1,6 +1,6 @@
 # WhaleCode v0.0.6 多 Provider 工程实施计划
 
-- Status: phase-2-in-progress
+- Status: phase-3-in-progress
 - Product Authority: `../../../../prd/2026-08-23-v0.0.6-multi-provider.md#confirmed-product-decisions`
 - Applicable Decisions: PD1, PD2, PD3, PD4, PD5, PD6, PD7, PD8, PD9, PD10, PD11, PD12, PD13, PD14, PD15, PD16
 - Current-State Evidence: `./current-state-inventory.md`
@@ -91,8 +91,8 @@
 | W7 | 扩展原子 settings 协议 | 协议/控制面 | app-server `thread.rs`、`thread_processor.rs`、core protocol | `ThreadSettingsUpdateParams`、`ThreadSettingsOverrides` | 让 route+model 作为一个 selection 进入现有 settings submission | `/provider` 与跨组 `/model` 共享同一 core 操作 | 避免先切 provider 再补 model 的半状态 | Complexity：协议字段/映射分支；Reach：所有 settings clients/schema | request validation、legacy model-only、invalid combination tests | optional 新字段保持旧客户端兼容 | implemented |
 | W8 | 构建并原子提交 transition | session authority | `core/src/session/session.rs`、`handlers.rs`、`turn_context.rs` | `PreparedProviderTransition`、`SessionConfiguration::apply` | 在 apply 前解析 route auth/provider/model/prompt/compatibility，成功后一次替换 session snapshot | 当前 turn 保持旧 route，下一 turn 使用完整新 snapshot | 实现根能力并保证失败回滚 | Complexity：新增 prepared state 和 apply 分支；Reach：turn creation、settings FIFO、metrics | V2；成功/失败/active turn/queued input/retry/tool loop tests | prepared value 未提交可直接丢弃；commit 前不改 session | implemented-runtime-foundation |
 | W9 | 原子切换 prompt 与 runtime capability | prompt/tools | session init/base instruction resolver、world state、`tools/spec_plan.rs` | transition prompt snapshot、model-switch fragment、tool plan | 复用初始化优先级重算目标 base instructions，并从新 provider/model 重建工具；写入 provider-switch developer context | 新 turn 的 prompt/tools 与 route 同步，旧 turn 不受影响 | 避免旧提示词和错误工具暴露 | Complexity：resolver 参数化、world-state diff；Reach：缓存前缀、每步 tool spec、system/developer context | prompt precedence、OpenAI↔DeepSeek、tool capability snapshots | 失败不提交 transition；可退回旧 resolver 路径 | implemented-runtime-foundation |
-| W10 | 持久化 route 与最近模型 | rollout/replay | protocol snapshots/items、session rollout reconstruction | `ThreadSettingsSnapshot`、`TurnContextItem`、`PreviousTurnSettings` | 增加 optional route，持久化 settings applied/turn context，并从有效事件派生 route 最近模型 | resume 后恢复最后成功 route，切回时恢复该 route 最近模型 | 支持连续性、审计与兼容旧 rollout | Complexity：schema字段/replay状态；Reach：resume/fork/rollback/truncation/subagent | old fixture、multi-transition replay、rollback/fork/recent-model tests | optional/default 兼容；旧 rollout fallback 到 SessionMeta provider | in-progress-route-persisted |
-| W11 | 切换压缩策略 | context/compaction | `core/src/session/turn.rs`、`tasks/compact.rs`、`compact.rs` | provider-aware previous settings、pre-transition compact | 用 previous route provider 判断 comp hash/window 并在 commit 前按需压缩，commit 后绑定新 compact capability | 只在必要时压缩且不会用错 Provider | 保留上下文并避免无条件成本 | Complexity：previous route 与失败分支；Reach：manual/auto/remote/local compact、checkpoint | comp hash/downshift/remote↔local/credential missing/resume tests | compact 失败保持旧 route；checkpoint 写入失败不提交 | in-progress-route-aware-client |
+| W10 | 持久化 route 与最近模型 | rollout/replay | protocol snapshots/items、session rollout reconstruction | `ThreadSettingsSnapshot`、`TurnContextItem`、`PreviousTurnSettings` | 增加 optional route，持久化 settings applied/turn context，并从有效事件派生 route 最近模型 | resume 后恢复最后成功 route，切回时恢复该 route 最近模型 | 支持连续性、审计与兼容旧 rollout | Complexity：schema字段/replay状态；Reach：resume/fork/rollback/truncation/subagent | old fixture、multi-transition replay、rollback/fork/recent-model tests | optional/default 兼容；旧 rollout fallback 到 SessionMeta provider | route-persisted-lifecycle-deferred-to-phase-3 |
+| W11 | 切换压缩策略 | context/compaction | `core/src/session/turn.rs`、`tasks/compact.rs`、`compact.rs` | provider-aware previous settings、pre-transition compact | 用 previous route provider 判断 comp hash/window 并在 commit 前按需压缩，commit 后绑定新 compact capability | 只在必要时压缩且不会用错 Provider | 保留上下文并避免无条件成本 | Complexity：previous route 与失败分支；Reach：manual/auto/remote/local compact、checkpoint | comp hash/downshift/remote↔local/credential missing/resume tests | compact 失败保持旧 route；checkpoint 写入失败不提交 | implemented |
 | W12 | 生成目标 Provider 历史投影 | wire compatibility | `core/src/context_manager`、`client.rs` | `project_history_for_provider` | 在 request serialization 前过滤 encrypted/provider-hosted/unsupported item 并运行既有 normalization | canonical 历史不变，目标 wire 输入兼容 | 支持同 thread 跨 Provider 连续对话 | Complexity：兼容矩阵/投影分支；Reach：所有请求历史、token 估算、tool pairing | V3；OpenAI→DeepSeek→OpenAI round-trip、pairing、media、aborted call tests | projector 只生成临时副本；异常时拒绝请求而不改历史 | planned |
 | W13 | 提供 `/provider` 交互 | TUI | `slash_command.rs`、slash dispatch、chatwidget popup/app events | Provider selection popup、pending state | 新增命令并展示当前/认证/默认或最近模型/可用原因，提交 route transition | 用户可在 active turn 选择并看到下一 turn 生效 | 满足主要入口与可恢复反馈 | Complexity：popup/pending/error states；Reach：slash dispatch、app-server events、onboarding | snapshot/interaction tests：空闲、active、取消、登录、失败、成功 | 关闭 popup或失败只清 pending UI，不改变 core route | planned |
 | W14 | 改造分组 `/model` | TUI | `chatwidget/model_popups.rs`、`model_catalog.rs`、selection view | grouped routed model items | 按三组渲染全部模型；选择项提交 route+model，不执行跨 route 全局 config 持久化 | 一步完成跨 Provider 模型切换且计费路径明确 | 减少操作并避免无效全局 model/provider 组合 | Complexity：分组/availability/actions；Reach：reasoning popup、current/default 标记、旧 persist 行为 | grouped/same-name/unavailable/reasoning/cross-route tests | 同 route 旧 `/model` 行为保持；跨 route 失败保留当前选择 | planned |
@@ -176,20 +176,24 @@
 - D3 transition compensation evidence (2026-08-23): provider/model 选择进入带 revision 的 pending 状态；下一 turn 先使用旧 route 执行必要压缩，成功后以 revision finalize，压缩失败则以同一 revision 恢复稳定 route/model。旧 turn 的失败无法撤销更新的选择；补偿只回滚 route/model/runtime/base prompt，不覆盖后续独立的 Plan/Default 模式、模式指令、reasoning summary、权限或环境设置。state 并发/补偿测试 2/2、compact 失败集成测试 1/1、previous-model compact 5/5 通过。
 - Active-turn route evidence (2026-08-23): app-server 在旧 provider 请求仍处于 active 时接受跨 route settings update，通知立即呈现目标 OpenAI API route/model，而已发出的请求仍保持旧 `mock_provider`/`mock-model`；定向测试 1/1 通过。目标 route 的凭据预检与 route-bound client 请求由 W3/W8 既有测试独立覆盖，未为重复断言引入双协议 mock 基础设施。
 - Phase 2 current-slice cache regression index gate：通过；surface `08a45ae670503ef84aa668bf3842fb5b0ec0e2a8567a23376618a0cb1c6bd9ba`，免费 final-wire 可比较且无回归；未运行真实模型，发布级 live baseline 继续阻断。
-- Remaining before Phase 2 exit: W10 route 最近模型与完整 resume/fork/rollback 证据；W11 把必要 compact 移到 transition commit 前并证明 compact/checkpoint 失败保留旧 route；补 queued input/tool-loop capability snapshots 与 transition typed diagnostics。Phase 2 继续保持 `in progress`。
+- Phase 2 Exit：verified。active-turn 跨 route 1/1、带 tool continuation 的 next-turn settings 1/1、turn-scoped provider client 绑定 1/1、pending revision/CAS 2/2、compact 失败补偿 1/1、previous-model compact 5/5、app-server settings 10/10、core/app-server check 与 staged cache gate 均通过。route 已进入协议、turn context 与 rollout；从有效 rollout 恢复 session route 和每条 route 最近成功模型需要同时处理 rollback/fork/resume，按原计划归入 Phase 3 的 W10/W17，避免先引入不可重放的内存 map。
 
 ### Phase 3：History Projection 与生命周期恢复
 
 #### Pre-Phase Plan Rebase Gate
 
 - Rebase scope: Phase 2 durable route/compact 实现 + W12、W17
-- Material plan delta: pending
-- Plan delta record: pending
-- User approval: pending-if-material
-- Gate status: pending
+- Material plan delta: material（D4 proposal）
+- Plan delta record: D4
+- User approval: user-approved-plan-direct: 2026-08-23（“批准，继续”）
+- Gate status: ready
 
 - Entry: transition/replay 核心测试 verified；V3 direction-supported。
-- Work: W12、W17。
+- Rebased execution slices:
+  1. W10 + W17 lifecycle snapshot：让现有 reverse rollout reconstruction 在同一有效段/rollback 语义下产出最后成功 route 与 route→最近成功模型；resume/fork/rollback 只通过 runtime registry 重新绑定完整 provider/model/prompt snapshot，不新增全局默认或不可重放内存旁路。
+  2. W12 wire projection：在 request 边界从 canonical history clone 生成目标 provider 投影，先闭合 encrypted/provider-hosted item 与 call/output 配对，再覆盖媒体；canonical rollout、checkpoint 和原 history hash 保持不变。
+  3. Lifecycle consumers：subagent 继承创建时的 route snapshot；缺凭据或目录不兼容时返回带 route/stage 的脱敏错误，不猜测替代 provider。
+- Estimated handwritten production code: 650–950 行；建议 Phase 3 上限 1000 行，测试/schema/generated/docs 不计入。达到上限仍不能闭合 replay + projection 时停止扩张并重新审批。
 - Exit evidence: OpenAI→DeepSeek→OpenAI fixture round-trip，canonical history hash 不变；resume/fork/rollback/subagent route 正确。
 - Product Decision Delta: 审计 PD6、PD7、PD8、PD10、PD11。
 - Cross-unit side effects: wire token 数可能因投影变化；只记录差异，不把 mock 结果声称为真实 Provider 接受性。
@@ -232,8 +236,8 @@
 |---|---|---|---|---|---|
 | Phase 0 | route/auth/turn/history 可行性 | route identity 不含 secret；现有 flat auth record 支持 OpenAI 双槽存储/刷新；settings FIFO 保持 next-turn 边界；wire projection 基于副本 | PD3–PD6、PD8、PD11、PD15 | engineering-only | D1 仅修改后续工程设计；Phase 1 前请求计划审批 |
 | Phase 1 | 凭据与模型分组 | 三条 route 的凭据可共存并精确读写/登出；状态仅暴露 configured 布尔值；目录和缓存按 route 隔离，缺凭据组保持可见；DeepSeek onboarding 不再写入 OpenAI 槽 | PD3–PD5、PD9、PD13、PD15、PD16 | conforming | 无新增产品决策；进入 Phase 2 rebase |
-| Phase 2 | 原子切换、prompt/tools/compact/replay | 当前 session 只持有单一 provider/models manager，model update 仅改 `CollaborationMode`；要原子切 route，必须把 Phase 1 route catalog 提升为 session 可读的窄 runtime registry，并让 prepared snapshot 同时携带 provider/manager/prompt policy。compact 失败回滚需要 revision/CAS，且补偿边界只能覆盖 provider/model 选择，不能覆盖后续独立 settings | PD6–PD11 | engineering-only material plan delta | D2、D3 与本阶段 1350 行上限已批准，实施中 |
-| Phase 3 | 历史与生命周期 | 待执行 | PD6、PD7、PD10、PD11 | pending | 阶段结束审计 |
+| Phase 2 | 原子切换、prompt/tools/compact/replay | session runtime registry、prepared snapshot、route-bound turn client、route rollout 字段、旧 route compact 与 revision/CAS 补偿已闭合；补偿只覆盖 provider/model 选择，不覆盖后续独立 settings | PD6–PD11 | conforming | D2、D3 已实施并通过门禁；Phase 2 verified |
+| Phase 3 | 历史与生命周期 | route 已持久化，但 resume 目前只恢复为 previous-turn metadata，尚未重新绑定 session runtime；route 最近成功模型必须与 rollback/fork 同源重放，wire history 仍缺目标 provider 投影 | PD6、PD7、PD10、PD11 | engineering-only material plan delta | D4 + Phase 3 1000 行上限已获用户批准，实施中 |
 | Phase 4 | TUI 与命令可用性 | 待执行 | PD2、PD3、PD8、PD12、PD14、PD16 | pending | 阶段结束审计 |
 | Phase 5 | 整体验收 | 待执行 | PD1–PD16 | pending | 逐项链接测试证据 |
 
@@ -279,6 +283,8 @@
 |---|---|---|---|---|---|---|---|
 | D1 | Phase 1 | 新建版本化 credential inventory，并把旧 `AuthDotJson` 迁移到新结构 | 现有 `AuthDotJson` 已能同时保存 ChatGPT tokens 与 OpenAI API key；file/keyring round-trip 可保留两者；`persist_tokens` 原位刷新并保留 API key | 保留现有 flat OpenAI 字段作为双槽权威，仅新增 optional `DEEPSEEK_API_KEY` 槽；登录/登出改为字段级 merge/clear，route-bound auth 显式选槽；不新增 inventory 版本或嵌套迁移层 | 减少 schema/migration/兼容分支和批量迁移风险；W2/W3/W4 目标、产品行为和验证矩阵不变 | approved-2026-08-23 | accepted |
 | D2 | Phase 2 | `PreparedProviderTransition` 直接在现有 session authority 内解析目标 provider/catalog | `Session` 只持有启动时的一套 `SharedModelProvider` 与 `SharedModelsManager`；Phase 1 的三路 manager registry 当前归 `ThreadManager`，而 runtime provider 的 auth 仍走 legacy active auth；仅扩展 settings 字段会产生 provider、manager 与 route 不一致 | 新增仅覆盖三条已确认 route 的窄 `ProviderRuntimeRegistry` 并注入 session services；新增 route-bound runtime provider factory；prepare 产出 provider + models manager + model metadata + prompt policy 的完整值，commit 不再执行 I/O | 模块边界扩大但产品行为不变；消除半切换和 legacy active-auth 串路风险；预计本阶段 900–1200 行手写生产代码，上限 1200 行 | user-approved-plan-direct: 2026-08-23 | accepted |
+| D3 | Phase 2 | settings 提交后立即替换稳定 session snapshot，下一 turn 的必要压缩沿用目标 route | 压缩必须使用旧 route/model 的窗口、hash 与 compact client；且 settings 可在压缩期间被再次更新，普通回滚会覆盖较新的用户选择 | provider/model 选择先进入带 revision 的 pending transition；下一 turn 用旧 route 完成必要压缩后 CAS finalize，失败则只补偿同 revision 的 provider/model/runtime/base prompt | 新增窄 pending 状态与补偿分支；避免用错 Provider 压缩，也避免旧失败撤销较新选择；Phase 2 手写生产代码上限调整为 1350 行 | user-approved-plan-direct: 2026-08-23 | accepted |
+| D4 | Phase 3 | 分开实现 route 最近模型、resume 恢复、rollback/fork 和历史投影 | route 已写入 turn/rollout，但 resume 只恢复 previous-turn metadata；独立内存 recent-model map 无法遵守 rollback/fork/replay；canonical history 也不能为某个 Provider 原地改写 | W10 与 W17 合并复用 reverse rollout 的有效段语义，派生最后成功 route 及 route→最近成功模型，再由 runtime registry 重绑完整 snapshot；W12 只在请求边界投影 canonical history clone；subagent 继承创建时 snapshot；错误保持 route/stage 脱敏信息 | 生命周期状态可重放且不新增全局旁路；历史切换可逆；Phase 3 按三个闭环切片实施，手写生产代码上限 1000 行 | user-approved-plan-direct: 2026-08-23（“批准，继续”） | accepted |
 
 ## 11. Completion Definition
 
