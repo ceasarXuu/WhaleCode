@@ -40,6 +40,8 @@
   - H-012
   - H-013
   - H-014
+  - H-015
+  - H-016
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -428,7 +430,7 @@
   - not closed
 
 ## Hypothesis H-011: command/exec 测试误把宿主不可见等同于子进程权限错误
-- Status: confirmed
+- Status: refuted
 - Parent: P-001
 - Claim: 隔离沙箱允许命令在临时文件系统视图中完成父路径写入，但不会把该写入暴露给宿主；原测试用 shell `!` 要求写入返回错误，误判了隔离合同。
 - Layer: test-fixture
@@ -443,8 +445,10 @@
 - Evidence gate: satisfied
 - Related evidence:
   - E-018
-- Conclusion: 测试已改为直接验证持久化边界，而非假定沙箱后端必须返回权限错误。
-- Repair design readiness: implemented and verified
+  - E-026
+  - E-028
+- Conclusion: 先前 `/dev/shm` 不可见环境给出了误导性通过；在沙箱可见的 `/var/tmp` 上，父目录写入正确返回只读错误，原 `!` 断言才是权限边界合同。
+- Repair design readiness: reverted incorrect repair and verified
 - Next step: none for H-011
 - Blocker:
   - none
@@ -619,6 +623,50 @@
 - Conclusion: 根因是隔离 runner 的默认临时挂载选择；显式配置无效时静默回退还会掩盖对照，需改为快速失败。
 - Repair design readiness: implemented and verified
 - Next step: none for H-015
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-016: app-server 隔离回归缺少 code-mode host 预构建与离线 V8 资产绑定
+- Status: confirmed
+- Parent: P-001
+- Claim: app-server 的 Code Mode、ImageGen Code Mode 和相关 analytics 用例依赖 `codex-code-mode-host`，但隔离 runner 未预构建它；直接补构建时，代理被清理的资格化环境又无法自动下载 V8 归档。
+- Layer: test-infrastructure
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 完整回归中四项失败共享 host binary 不存在或 cell 为空信号；绑定资格化流程已校验的本地 V8 资产并构建 host 后，四项全部通过。
+- Falsifiable predictions:
+  - If true: runner 对 app-server/core scope 预构建 host，并自动复用校验通过的候选缓存后，四项用例无需产品改动即可通过。
+  - If false: host 存在后仍出现相同 Null image、hasCell=false 或远端 host 启动失败。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 失败由缺失 runtime helper 产生。
+  - Signal: host spawn 错误、V8 build 输出、绑定缓存后的目标回归。
+  - Capture method: 完整 nextest 与五项定向对照。
+  - Event name or marker:
+    - `failed to spawn code-mode host`
+  - Correlation keys:
+    - `codex-code-mode-host`
+    - nextest test names
+  - Differentiates from:
+    - ImageGen tool result映射错误
+    - analytics correlation 逻辑错误
+  - Supports if:
+    - 构建 host 后四项同时恢复。
+  - Refutes if:
+    - 任一原信号保留。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-027
+  - E-028
+- Conclusion: app-server 测试的运行时依赖未被 runner 声明；应复用既有、带校验的 V8 候选缓存，不开放隔离测试的宿主代理。
+- Repair design readiness: implemented and verified
+- Next step: none for H-016
 - Blocker:
   - none
 - Close reason:
@@ -1163,3 +1211,97 @@
   ```
 - Interpretation: 修复位于正确工程层，没有通过改写 session approval 产品行为或删除 legacy 覆盖来换取通过。
 - Time: 2026-08-24 05:55 +0800
+
+## Evidence E-026: 沙箱可见根目录证伪 command-exec 的隔离写入假设
+- Related hypotheses:
+  - H-011
+  - H-015
+- Direction: refutes H-011; supports H-015
+- Type: diagnostic
+- Source: 完整 app-server 隔离 nextest 与 command-exec 定向对照
+- Prediction or plan link:
+  - H-011 的父目录写入会成功但不持久化预测。
+- Matched signal:
+  - runner 切换到 `/var/tmp` 后，去掉 `!` 的测试稳定返回 `Read-only file system` 和 exit 2；这正是原测试要求捕获的权限拒绝。
+- Correlation keys:
+  - full app-server run
+  - nextest run `654520e3-f954-494b-ab82-ee4a38aebe66`
+- Raw content:
+  ```text
+  sh: 1: cannot create ../parent.txt: Read-only file system
+  actual exitCode: 2
+  ```
+- Interpretation: 先前修正受 `/dev/shm` 文件视图异常污染，应恢复原来的负向权限断言。
+- Time: 2026-08-24 06:02 +0800
+
+## Evidence E-027: 四项 Code Mode 失败由缺失 host helper 共同解释
+- Related hypotheses:
+  - H-016
+- Direction: supports
+- Type: diagnostic
+- Source: 完整 app-server nextest、V8 构建日志与带本地资产的目标对照
+- Prediction or plan link:
+  - H-016 的 runtime helper 缺失预测。
+- Matched signal:
+  - 完整回归报告 `codex-code-mode-host` 不存在，ImageGen 输出为 Null、analytics 为 hasCell=false；使用资格化缓存中的 V8 archive/binding 构建 host 后，两个 remote-host、ImageGen 和 analytics 四项同时通过。
+- Correlation keys:
+  - full app-server summary `1235 passed, 5 failed, 1 skipped`
+  - nextest run `654520e3-f954-494b-ab82-ee4a38aebe66`
+- Raw content:
+  ```text
+  failed to spawn code-mode host .../target/debug/codex-code-mode-host: No such file
+  V8-bound target rerun: four Code Mode dependent tests PASS
+  ```
+- Interpretation: 四项不是独立产品回归；runner 需要像 MCP helper 一样声明 host，并只接受哈希校验通过的既有 V8 缓存。
+- Time: 2026-08-24 06:03 +0800
+
+## Evidence E-028: helper 与权限负向合同的目标回归通过
+- Related hypotheses:
+  - H-011
+  - H-016
+- Direction: supports
+- Type: verification
+- Source: runner Python 单测与 app-server 五项定向 nextest
+- Prediction or plan link:
+  - H-011 原权限合同恢复与 H-016 helper 修复。
+- Matched signal:
+  - runner 校验 V8 archive/binding 成对哈希、为 app-server 构建 host；原 command-exec 负向写入、两个 remote host、ImageGen 和 analytics 全部通过。
+- Correlation keys:
+  - nextest run `6a6c081a-28ec-4c93-96df-ca1408c31872`
+- Raw content:
+  ```text
+  runner unittest: 11 passed
+  app-server target set: 5 passed, 1236 skipped
+  ```
+- Interpretation: 五项失败均在测试基础设施/错误测试改动层闭环，未修改 Code Mode、ImageGen、analytics 或权限生产逻辑。
+- Time: 2026-08-24 06:06 +0800
+
+## Evidence E-029: app-server 完整隔离回归清零
+- Related hypotheses:
+  - H-005
+  - H-006
+  - H-007
+  - H-008
+  - H-009
+  - H-010
+  - H-011
+  - H-012
+  - H-013
+  - H-014
+  - H-015
+  - H-016
+- Direction: supports
+- Type: verification
+- Source: Codex app-server 完整隔离 nextest
+- Prediction or plan link:
+  - app-server 原始 52 项失败簇的完整回归。
+- Matched signal:
+  - 修复 runner 临时根、runtime helper、fixture feature/provider/品牌合同及跨 provider 消息表示后，app-server 全量无失败。
+- Correlation keys:
+  - full app-server rerun
+- Raw content:
+  ```text
+  Summary [176.399s] 1240 tests run: 1240 passed, 1 skipped
+  ```
+- Interpretation: app-server 模块已从 52 项基线失败恢复为全绿；剩余发布门禁应继续在 core/TUI/protocol 等模块收敛。
+- Time: 2026-08-24 06:10 +0800

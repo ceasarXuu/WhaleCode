@@ -456,7 +456,7 @@ async fn command_exec_permission_profile_project_roots_use_command_cwd() -> Resu
             command: vec![
                 "sh".to_string(),
                 "-lc".to_string(),
-                "printf child > child.txt && printf parent > ../parent.txt".to_string(),
+                "printf child > child.txt && ! printf parent > ../parent.txt".to_string(),
             ],
             process_id: None,
             tty: false,
@@ -477,7 +477,7 @@ async fn command_exec_permission_profile_project_roots_use_command_cwd() -> Resu
     let response: CommandExecResponse = mcp.read_response(command_request_id).await?;
     assert_eq!(
         response.exit_code, 0,
-        "sandboxed command should complete in its isolated filesystem view: {response:?}"
+        "parent cwd write should fail under command project-root profile: {response:?}"
     );
     assert_eq!(
         std::fs::read_to_string(command_dir.join("child.txt"))?,
