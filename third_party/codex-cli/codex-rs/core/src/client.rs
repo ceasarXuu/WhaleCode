@@ -1141,20 +1141,13 @@ impl ModelClient {
         responses_metadata: &CodexResponsesMetadata,
         provider: &SharedModelProvider,
     ) -> Result<ResponsesApiRequest> {
-        let mut input = prompt.get_formatted_input_for_request(model_info.use_responses_lite);
+        let input = prompt.get_formatted_input_for_request(model_info.use_responses_lite);
         let is_openai = provider.info().is_openai();
-        if !is_openai {
-            for item in &mut input {
-                item.clear_internal_chat_message_metadata_passthrough();
-                if let ResponseItem::FunctionCall {
-                    encrypted_function_args,
-                    ..
-                } = item
-                {
-                    *encrypted_function_args = None;
-                }
-            }
-        }
+        let mut input = crate::context_manager::project_history_for_provider(
+            input,
+            is_openai,
+            &model_info.input_modalities,
+        );
         let (instructions, tools) = if model_info.use_responses_lite {
             let tools = if provider.capabilities().namespace_tools {
                 create_tools_json_for_responses_lite(&prompt.tools)?
