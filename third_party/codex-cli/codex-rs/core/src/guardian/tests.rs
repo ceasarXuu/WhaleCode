@@ -246,6 +246,15 @@ async fn guardian_test_session_and_turn(
     guardian_test_session_and_turn_with_base_url(server.uri().as_str()).await
 }
 
+fn configure_guardian_openai_provider(config: &mut Config, base_url: &str) {
+    let provider = ModelProviderInfo::create_openai_provider(Some(format!("{base_url}/v1")));
+    config.model_provider_id = OPENAI_PROVIDER_ID.to_string();
+    config
+        .model_providers
+        .insert(OPENAI_PROVIDER_ID.to_string(), provider.clone());
+    config.model_provider = provider;
+}
+
 async fn guardian_test_session_turn_and_rx(
     server: &wiremock::MockServer,
 ) -> (
@@ -259,7 +268,7 @@ async fn guardian_test_session_turn_and_rx(
         .expect("session should be uniquely owned")
         .thread_id = fixed_guardian_parent_session_id();
     let mut config = (*turn.config).clone();
-    config.model_provider.base_url = Some(format!("{}/v1", server.uri()));
+    configure_guardian_openai_provider(&mut config, server.uri().as_str());
     let config = Arc::new(config);
     let models_manager = test_support::models_manager_with_provider(
         config.codex_home.to_path_buf(),
@@ -317,7 +326,7 @@ async fn guardian_test_session_and_turn_with_base_url(
     let (mut session, mut turn) = crate::session::tests::make_session_and_context().await;
     session.thread_id = fixed_guardian_parent_session_id();
     let mut config = (*turn.config).clone();
-    config.model_provider.base_url = Some(format!("{base_url}/v1"));
+    configure_guardian_openai_provider(&mut config, base_url);
     let config = Arc::new(config);
     let models_manager = test_support::models_manager_with_provider(
         config.codex_home.to_path_buf(),
@@ -1732,7 +1741,7 @@ async fn guardian_request_model_for_auto_review(
     )
     .await;
     let GuardianReviewOutcome::Completed(_) = outcome else {
-        panic!("expected guardian assessment");
+        panic!("expected guardian assessment, got {outcome:?}");
     };
 
     let request = request_log.single_request();
@@ -1896,7 +1905,7 @@ async fn guardian_review_request_layout_matches_model_visible_request_snapshot()
     let temp_cwd = TempDir::new()?;
     let mut config = (*turn.config).clone();
     config.cwd = temp_cwd.abs();
-    config.model_provider.base_url = Some(format!("{}/v1", server.uri()));
+    configure_guardian_openai_provider(&mut config, server.uri().as_str());
     config.memories.use_memories = true;
     config
         .features
@@ -2649,7 +2658,7 @@ async fn guardian_review_surfaces_responses_api_errors_in_rejection_reason() -> 
     let (mut session, mut turn, rx) =
         crate::session::tests::make_session_and_context_with_rx().await;
     let mut config = (*turn.config).clone();
-    config.model_provider.base_url = Some(format!("{}/v1", server.uri()));
+    configure_guardian_openai_provider(&mut config, server.uri().as_str());
     let config = Arc::new(config);
     let models_manager = test_support::models_manager_with_provider(
         config.codex_home.to_path_buf(),

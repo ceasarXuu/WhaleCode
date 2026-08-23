@@ -1,7 +1,7 @@
 # Problem P-001: v0.0.6 多 Provider 发布被仓库基线失败阻断
 - Status: investigating
 - Created: 2026-08-24 04:32 +0800
-- Updated: 2026-08-24 04:51 +0800
+- Updated: 2026-08-24 06:02 +0800
 - Objective: 在不改写已确认产品逻辑的前提下，找到并修复阻断 v0.0.6 multi-provider 发布门禁的仓库基线根因。
 - Symptoms:
   - 受影响六 crate 的隔离 nextest 矩阵执行 9284 项，8928 通过、356 失败。
@@ -30,6 +30,7 @@
   - H-002
   - H-003
   - H-004
+  - H-005
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -197,9 +198,50 @@
 - Evidence gate: pending
 - Related evidence:
   - E-001
-- Conclusion: unverified
+- Conclusion: Guardian 两份请求布局快照已确认仅落后于既有 Whale 品牌文本；TUI 等其余快照仍需分别核验，不能据此整体判定。
 - Repair design readiness: blocked until Status is confirmed and Evidence gate is satisfied
 - Next step: 定向生成代表性 snapshot diff。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-005: Guardian 测试夹具隐式继承 DeepSeek 默认 Provider
+- Status: confirmed
+- Parent: P-001
+- Claim: Guardian 单测用 dummy OpenAI API auth 和 OpenAI mock server 验证 Responses 行为，却只覆盖 `base_url`，因此在 Whale 默认 DeepSeek 后仍要求 `DEEPSEEK_API_KEY` 并批量失败。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 失败直接报告缺少 `DEEPSEEK_API_KEY`，而测试请求、认证和 mock 均属于 OpenAI fixture。
+- Falsifiable predictions:
+  - If true: 在 fixture 中同时绑定 OpenAI provider ID、registry entry 和 concrete provider 后，失败无需修改 Guardian 生产逻辑即可恢复。
+  - If false: 显式绑定 OpenAI 后仍以同样的缺少 DeepSeek key 或 Guardian 业务断言失败。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: fixture provider 与测试协议不一致。
+  - Signal: 原始认证错误、显式 OpenAI 对照运行、剩余失败类型。
+  - Capture method: 仅修改测试配置，重跑完整 Guardian 单测簇与三个代表测试。
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - guardian test name
+  - Differentiates from:
+    - H-003
+  - Supports if:
+    - 原失败批量恢复，剩余差异可独立归因。
+  - Refutes if:
+    - 原失败保持不变。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-009
+- Conclusion: 显式 OpenAI fixture 将原 15 个 Guardian 单测失败中的 12 个直接恢复；补齐两个手工 fixture 后，错误传播测试恢复，剩余两项仅为品牌快照。
+- Repair design readiness: implemented and verified
+- Next step: none for H-005
 - Blocker:
   - none
 - Close reason:
@@ -383,3 +425,68 @@
   ```
 - Interpretation: MCP helper 缺失的 runner 工程缺口已修复；Code Mode host 仍需等待或绕开上游 rusty_v8 资产问题。
 - Time: 2026-08-24 05:25 +0800
+
+## Evidence E-009: Guardian 显式 OpenAI fixture 恢复原失败簇
+- Related hypotheses:
+  - H-005
+- Direction: supports
+- Type: diagnostic
+- Source: `core/src/guardian/tests.rs` 与隔离 Guardian 定向 nextest
+- Prediction or plan link:
+  - H-005 的显式绑定 OpenAI 后无需修改生产逻辑即可恢复预测。
+- Matched signal:
+  - helper 同步 provider ID、registry entry 和 concrete provider 后，原 15 个 Guardian 单测失败只剩 3 个；补齐两个独立手工 fixture 后，Responses API 错误传播测试通过，剩余两项为快照文本差异。
+- Correlation keys:
+  - 66-test Guardian unit cluster
+  - `guardian_review_uses_preferred_review_model_without_model_catalog_override`
+  - `guardian_review_surfaces_responses_api_errors_in_rejection_reason`
+- Raw content:
+  ```text
+  before: 15 Guardian unit failures
+  after shared fixture binding: 63 passed, 3 failed
+  focused follow-up: API error test passed; two request-layout snapshots differed only by Codex -> Whale branding
+  ```
+- Interpretation: Guardian 生产路径无需修改；根因是上游测试夹具未声明其 OpenAI provider 前提。
+- Time: 2026-08-24 06:02 +0800
+
+## Evidence E-010: Guardian 请求快照仅包含既有品牌替换
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: snapshot
+- Source: 两份 Guardian request-layout `.snap.new` 对照
+- Prediction or plan link:
+  - H-004 的快照差异应与已接受品牌演进一致且不丢失状态预测。
+- Matched signal:
+  - 所有内容差异均为 `Codex agent/session` 改为 `Whale agent/session`；请求、历史、cache key、审批动作和 prior rationale 均保持不变。
+- Correlation keys:
+  - `guardian_review_request_layout_matches_model_visible_request_snapshot`
+  - `guardian_reuses_prompt_cache_key_and_appends_prior_reviews`
+- Raw content:
+  ```text
+  The following is the Codex agent history -> The following is the Whale agent history
+  Reviewed Codex session id -> Reviewed Whale session id
+  The Codex agent has requested -> The Whale agent has requested
+  ```
+- Interpretation: 这两份快照可以安全更新；证据不外推到尚未审查的 TUI 快照。
+- Time: 2026-08-24 06:02 +0800
+
+## Evidence E-011: Guardian 完整单测簇恢复
+- Related hypotheses:
+  - H-004
+  - H-005
+- Direction: supports
+- Type: verification
+- Source: 隔离 nextest Guardian unit filter
+- Prediction or plan link:
+  - H-005 修复与 H-004 Guardian 子集快照更新后应完整恢复。
+- Matched signal:
+  - 66 项 Guardian 单测全部通过，无 `.snap.new` 遗留。
+- Correlation keys:
+  - nextest run `2f2b942a-ae8e-49fc-9bdc-98332a7ceed7`
+- Raw content:
+  ```text
+  Summary [1.012s] 66 tests run: 66 passed, 3685 skipped
+  ```
+- Interpretation: Guardian 单测失败簇已由 fixture 与预期基线修复闭环，未修改生产运行时。
+- Time: 2026-08-24 06:05 +0800
