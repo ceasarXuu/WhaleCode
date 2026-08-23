@@ -1622,3 +1622,34 @@
   ```
 - Interpretation: system prompt 缺失已从目录根因修复；工具过滤与双轮 cache prefix 同时保持目标合同。
 - Time: 2026-08-24 06:52 +0800
+
+## Hypothesis H-021: injected model cache 测试误用了生产 Whale 模型过滤策略
+- Status: confirmed
+- Failure signature:
+  - 两项 injected cache 测试找不到自定义 slug，因而无法验证 cache hit 与 endpoint fallback。
+- Prediction:
+  - 仅在测试构造的 models manager 上关闭 Whale picker 过滤后，自定义模型会进入可用目录，两项缓存路径均通过；生产 manager 行为无需改变。
+- Falsification:
+  - 关闭测试过滤后模型仍不可用，或请求模型与注入 slug 不一致。
+- Minimal experiment:
+  - 对测试 helper 添加 `.with_whale_filter(false)`，定向运行 `suite::injected_models_cache::`。
+- User/product decision required: no
+
+## Evidence E-037: injected cache fixture 与生产 picker 策略解耦
+- Related hypotheses:
+  - H-021
+- Direction: supports
+- Type: verification
+- Source: core injected_models_cache 定向 nextest
+- Prediction or plan link:
+  - H-021 的测试过滤预测。
+- Matched signal:
+  - cache hit 路径未访问 endpoint；cache error 路径访问 endpoint 并回写 cache；两条请求都使用对应的自定义模型 slug。
+- Correlation keys:
+  - nextest run `6719c4ec-93cf-4fa2-9992-805bacb4eb9f`
+- Raw content:
+  ```text
+  injected model cache: 2 passed
+  ```
+- Interpretation: 这是测试夹具与 v0.0.6 生产模型过滤策略耦合造成的工程缺口，修复未放宽实际产品的模型展示范围。
+- Time: 2026-08-24 07:08 +0800

@@ -137,13 +137,18 @@ fn models_manager(
     cache: Arc<dyn ModelsCache>,
     endpoint: Arc<TestModelsEndpoint>,
 ) -> SharedModelsManager {
-    Arc::new(OpenAiModelsManager::new_with_cache(
-        cache,
-        endpoint,
-        Some(AuthManager::from_auth_for_testing(
-            CodexAuth::create_dummy_chatgpt_auth_for_testing(),
-        )),
-    ))
+    Arc::new(
+        OpenAiModelsManager::new_with_cache(
+            cache,
+            endpoint,
+            Some(AuthManager::from_auth_for_testing(
+                CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+            )),
+        )
+        // These tests exercise arbitrary injected OpenAI catalog entries rather than
+        // Whale's production picker policy, so keep the fixture's catalog unfiltered.
+        .with_whale_filter(false),
+    )
 }
 
 async fn run_agent_with_model(models_manager: SharedModelsManager, model_slug: &str) -> Result<()> {
