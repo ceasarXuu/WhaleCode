@@ -1,7 +1,124 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-23T00:25:56+08:00",
+  "updated_at": "2026-08-24T07:21:46+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260824-072043-CACHE-REGRESSION-9306DB50",
+      "record_type": "run_batch",
+      "status": "settled",
+      "started_at": "2026-08-24T07:20:53+08:00",
+      "ended_at": "2026-08-24T07:21:46+08:00",
+      "elapsed_calendar_seconds": 52.79,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "Validate v0.0.6 multi-provider prompt, tool, model-catalog, and context-projection final-wire changes on the minimum DeepSeek Standard plus TaskSpace map-request matrix approved by the user on 2026-08-24.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260824-V006-MULTI-PROVIDER-FINAL-WIRE",
+        "reference": "用户于 2026-08-24 在已明确说明 deepseek-v4-flash、single-file-fast-fix、Standard + map-request 各 1 次、零重试、最多 36 个 provider 请求、360000 input token、20000 output token、0.40 CNY、1440 秒以及四项立即停止条件后回复‘允许，继续’，明确批准该最小真实缓存回归预算。",
+        "budget_summary": {
+          "provider_requests": 36,
+          "input_tokens": 360000,
+          "output_tokens": 20000,
+          "elapsed_seconds": 1440,
+          "estimated_cost": 0.4,
+          "currency": "CNY"
+        },
+        "note": "严格绑定预算提案 CBP-2FC162901AD9D95D。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "12d6335f250701a91e423ca3a5ed29a8387f5f755ffdd24df6ca87baa6850c91",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "standard",
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 2,
+        "actual_sample_runs": 2,
+        "api_requests": 14,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 139785,
+        "cached_input": 115456,
+        "uncached_input": 24329,
+        "output": 3544
+      },
+      "monetary_cost": {
+        "status": "estimated",
+        "currency": "CNY",
+        "amount": 0.03372612,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.00230912,
+          "uncached_input": 0.024329,
+          "output": 0.007088
+        },
+        "pricing_snapshot": {
+          "currency": "CNY",
+          "captured_at": "2026-08-18",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "按完整 provider token 遥测和冻结价格估算。"
+      },
+      "evidence": {
+        "planned_run_root": "target/cache-hit-regression/WAR-20260824-072043-CACHE-REGRESSION-9306DB50",
+        "subject_commit": "ddd803b7a3bb223624bb0fd3069a144bc51d5734",
+        "surface_sha256": "4a15b25ca426b61703a212e1c40283dbecc1b06dd0e06600784c83a675c5e053",
+        "proposal_id": "CBP-2FC162901AD9D95D",
+        "proposal_contract_sha256": "c7b6198636713ea3279c880191eb7b0dc37c15453e05fa82e6a6ee04e15ffb58",
+        "proposal_path": "benchmarks/cache-regression/proposals/2026-08-24-v006-multi-provider-final-wire.json",
+        "proposal_sha256": "8ce43aecd019d991c980dfa6fa5c213af09fc43ff4a69dc2287dd96e39b08993",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260824-V006-MULTI-PROVIDER-FINAL-WIRE.json",
+        "authorization_sha256": "2b6351f9a495840c1ffa075498c45c7d17e6678410a8bece6a0b245fe462d7cc",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "single-file-fast-fix"
+          ],
+          "arms": [
+            "standard",
+            "map-request"
+          ],
+          "repeat": 1,
+          "planned_sample_runs": 2,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 2,
+          "stop_conditions": [
+            "after_any_run_failure",
+            "after_any_business_failure",
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "Validate v0.0.6 multi-provider prompt, tool, model-catalog, and context-projection final-wire changes on the minimum DeepSeek Standard plus TaskSpace map-request matrix approved by the user on 2026-08-24."
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_run_failure",
+          "after_any_business_failure",
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "complete",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260824-072043-CACHE-REGRESSION-9306DB50/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "15b024b3218ee270aa56e8e28953fe0b84781bb1852d4cd7ef7bda4ca541f889",
+        "actual_run_root": "target/cache-hit-regression/WAR-20260824-072043-CACHE-REGRESSION-9306DB50",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260824-072043-CACHE-REGRESSION-9306DB50.json",
+        "runner_exit_code": 0,
+        "outcome": "completed"
+      }
+    },
     {
       "record_id": "WAR-20260823-001949-DEEPSEEK-VISION-FIX-R1",
       "record_type": "run_batch",

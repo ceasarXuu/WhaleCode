@@ -1,0 +1,43 @@
+{
+  "schema_version": "whalecode-cache-baseline-acceptance-v1",
+  "status": "accepted",
+  "accepted_by": "user",
+  "accepted_at": "2026-08-24T07:22:17+08:00",
+  "acceptance_reference": "用户于 2026-08-24 在被明确告知仅当双臂真实缓存回归通过且敏感面指纹匹配时才晋升 baseline 后回复‘允许，继续’。本接受仅覆盖 v0.0.6 多 provider 变更产生的 Standard 与 TaskSpace 两项 final-wire 候选；真实 deepseek-v4-flash Standard + map-request 双臂均业务成功、usage 完整且未超过预算。",
+  "result_path": "benchmarks/cache-regression/results/WAR-20260824-072043-CACHE-REGRESSION-9306DB50.json",
+  "result_sha256": "4ba1a75530f78ee95d83001b5948f44a6861b98dcf951bb9d8d1fe65aedd5f71",
+  "proposal_path": "benchmarks/cache-regression/proposals/2026-08-24-v006-multi-provider-final-wire.json",
+  "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260824-V006-MULTI-PROVIDER-FINAL-WIRE.json",
+  "accepted_scope": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "standard",
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "Validate v0.0.6 multi-provider prompt, tool, model-catalog, and context-projection final-wire changes on the minimum DeepSeek Standard plus TaskSpace map-request matrix approved by the user on 2026-08-24."
+  },
+  "acknowledged_unverified_scope": [],
+  "accepted_scenarios": [
+    {
+      "scenario_id": "standard_two_request_final_wire",
+      "after_payload_sha256": "56ed98633c79e51e7ef0a969a937c67e58198d27ba7b9848f39e60869beae56c"
+    },
+    {
+      "scenario_id": "taskspace_production_tool_wire",
+      "after_payload_sha256": "00caf1b6db5fc2b539a975c5384d078091883590bacd9cb5f2665adf4978f89c"
+    }
+  ]
+}

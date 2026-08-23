@@ -1927,3 +1927,43 @@
   ```
 - Interpretation: 两项均为测试环境和 fixture 隔离缺口，生产产品逻辑无需变更。
 - Time: 2026-08-24 08:41 +0800
+
+## Evidence E-046: core 完整隔离回归仅剩受控缓存快照
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: verification
+- Source: core 完整隔离 nextest
+- Prediction or plan link:
+  - 完成所有已确认工程修复后重跑完整 core，而不是以定向测试替代回归。
+- Matched signal:
+  - 3743 项中 3741 通过、仅两项 cache final-wire 快照失败、9 跳过；此前 compact、Bedrock、WebSocket、realtime、MCP、hook 等失败全部消失。
+- Correlation keys:
+  - nextest run `4ce4aa74-8ece-40e1-bf0a-10cd8d8dc543`
+- Raw content:
+  ```text
+  3743 tests run: 3741 passed, 2 failed, 9 skipped
+  ```
+- Interpretation: core 工程缺口已收敛，剩余差异严格落在仓库要求的真实缓存接受流程内。
+- Time: 2026-08-24 07:16 +0800
+
+## Evidence E-047: v0.0.6 final-wire 真实缓存基线已接受
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: provider verification
+- Source: 专用 cache regression runner、全局账本、baseline promotion gate
+- Prediction or plan link:
+  - 用户批准的最小 Standard + map-request 双臂、零重试资格运行。
+- Matched signal:
+  - 2/2 sample-run 业务成功，14 请求；input 139785、cached 115456、uncached 24329、output 3544；Standard request 2+ 命中率 95.7606%，map-request 87.0019%，usage coverage 100%；估算费用 0.03372612 CNY，耗时 52.79 秒。晋升后两项 final-wire 2/2 通过，index gate 以 surface `4a15b25ca426b61703a212e1c40283dbecc1b06dd0e06600784c83a675c5e053` 通过。
+- Correlation keys:
+  - record `WAR-20260824-072043-CACHE-REGRESSION-9306DB50`
+  - nextest run `69c1803c-cd54-4ad5-8e72-601e62cc181a`
+- Raw content:
+  ```text
+  runner status: completed
+  cache regression gate: PASS（已接受证据晋升）
+  ```
+- Interpretation: 新 prompt/tools/model catalog final-wire 在 DeepSeek 最小真实矩阵中保持高缓存命中和业务正确性；基线晋升由证据链完成，不是手工绕过快照。
+- Time: 2026-08-24 07:23 +0800

@@ -1,6 +1,6 @@
 # v0.0.6 子主题：多 Provider 支持
 
-- 状态：Phase 0 已验证；Phase 1 实施中
+- 状态：Phase 1–4 已验证；Phase 5 基线修复与发布验收进行中
 - 产品权威：[多 Provider 切换 PRD](../../../../prd/2026-08-23-v0.0.6-multi-provider.md)
 - 代码盘点：[当前实现与差距清单](current-state-inventory.md)
 - 工程计划：[多 Provider 工程实施计划](plan.md)

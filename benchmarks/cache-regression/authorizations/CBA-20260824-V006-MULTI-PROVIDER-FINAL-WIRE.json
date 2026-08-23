@@ -1,0 +1,39 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v2",
+  "status": "granted",
+  "approved_by": "user",
+  "authorization_id": "CBA-20260824-V006-MULTI-PROVIDER-FINAL-WIRE",
+  "approval_reference": "用户于 2026-08-24 在已明确说明 deepseek-v4-flash、single-file-fast-fix、Standard + map-request 各 1 次、零重试、最多 36 个 provider 请求、360000 input token、20000 output token、0.40 CNY、1440 秒以及四项立即停止条件后回复‘允许，继续’，明确批准该最小真实缓存回归预算。",
+  "approved_at": "2026-08-24T07:19:09+08:00",
+  "proposal_id": "CBP-2FC162901AD9D95D",
+  "proposal_sha256": "c7b6198636713ea3279c880191eb7b0dc37c15453e05fa82e6a6ee04e15ffb58",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "standard",
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "Validate v0.0.6 multi-provider prompt, tool, model-catalog, and context-projection final-wire changes on the minimum DeepSeek Standard plus TaskSpace map-request matrix approved by the user on 2026-08-24."
+  },
+  "approved_maximums": {
+    "provider_requests": 36,
+    "input_tokens": 360000,
+    "output_tokens": 20000,
+    "elapsed_seconds": 1440,
+    "estimated_cost": 0.4,
+    "currency": "CNY"
+  }
+}
