@@ -60,11 +60,14 @@ fn communication_from_tool_message(
     message: String,
     source: &crate::tools::context::ToolCallSource,
     trigger_turn: bool,
+    target_is_openai: bool,
 ) -> InterAgentCommunication {
-    if !matches!(
-        source,
-        crate::tools::context::ToolCallSource::DirectPlaintextMessage
-    ) {
+    if target_is_openai
+        && !matches!(
+            source,
+            crate::tools::context::ToolCallSource::DirectPlaintextMessage
+        )
+    {
         return InterAgentCommunication::new_encrypted(
             author,
             recipient,
@@ -81,4 +84,41 @@ fn communication_from_tool_message(
     let content =
         InterAgentMessage::new(message_type, recipient.clone(), author.clone(), message).render();
     InterAgentCommunication::new(author, recipient, Vec::new(), content, trigger_turn)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tools::context::ToolCallSource;
+
+    #[test]
+    fn tool_messages_use_the_target_provider_representation() {
+        let author = AgentPath::root();
+        let recipient = AgentPath::try_from("/root/worker").expect("valid agent path");
+
+        let openai = communication_from_tool_message(
+            author.clone(),
+            recipient.clone(),
+            "secret".to_string(),
+            &ToolCallSource::Direct,
+            true,
+            true,
+        );
+        assert!(openai.content.is_empty());
+        assert_eq!(openai.encrypted_content.as_deref(), Some("secret"));
+
+        let portable = communication_from_tool_message(
+            author,
+            recipient,
+            "portable".to_string(),
+            &ToolCallSource::Direct,
+            true,
+            false,
+        );
+        assert_eq!(
+            portable.content,
+            "Message Type: NEW_TASK\nTask name: /root/worker\nSender: /root\nPayload:\nportable"
+        );
+        assert!(portable.encrypted_content.is_none());
+    }
 }

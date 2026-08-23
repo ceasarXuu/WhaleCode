@@ -12,6 +12,7 @@ use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::UserInput;
 use core_test_support::responses;
 use pretty_assertions::assert_eq;
+use serde_json::Value;
 use serde_json::json;
 use std::time::Duration;
 use tempfile::TempDir;
@@ -26,6 +27,18 @@ const NAMESPACE: &str = "collaboration";
 const PARENT_INSTRUCTIONS: &str = "parent-only developer instructions";
 const CHILD_INSTRUCTIONS: &str = "child-only developer instructions";
 const ROLE_INSTRUCTIONS: &str = "configured role developer instructions";
+
+fn is_agent_message_request(request: &wiremock::Request, recipient: &str) -> bool {
+    serde_json::from_slice::<Value>(&request.body)
+        .ok()
+        .and_then(|body| body.get("input").and_then(Value::as_array).cloned())
+        .is_some_and(|items| {
+            items.iter().any(|item| {
+                item.get("type").and_then(Value::as_str) == Some("agent_message")
+                    && item.get("recipient").and_then(Value::as_str) == Some(recipient)
+            })
+        })
+}
 
 /// V2 fork modes, roles, and unset/blank overrides expose their agreed instruction precedence.
 #[test_case("no history"; "no history")]
@@ -121,10 +134,7 @@ async fn spawned_subagents_apply_configured_developer_instruction_precedence(
     .await;
     let child_request = responses::mount_sse_once_match(
         &server,
-        |request: &wiremock::Request| {
-            let body = String::from_utf8_lossy(&request.body);
-            body.contains(CHILD_PROMPT) && !body.contains(SPAWN_CALL_ID)
-        },
+        |request: &wiremock::Request| is_agent_message_request(request, "/root/worker"),
         responses::sse(vec![
             responses::ev_response_created("child-work"),
             responses::ev_assistant_message("child-message", "child complete"),
@@ -317,10 +327,7 @@ async fn compacted_full_history_fork_replaces_parent_developer_instructions() ->
     .await;
     let child_request = responses::mount_sse_once_match(
         &server,
-        |request: &wiremock::Request| {
-            let body = String::from_utf8_lossy(&request.body);
-            body.contains(CHILD_PROMPT) && !body.contains(SPAWN_CALL_ID)
-        },
+        |request: &wiremock::Request| is_agent_message_request(request, "/root/compacted_worker"),
         responses::sse(vec![
             responses::ev_response_created("compacted-child-work"),
             responses::ev_assistant_message("compacted-child-message", "child complete"),
@@ -499,10 +506,7 @@ async fn cold_resume_preserves_effective_developer_instructions_for_roleless_wor
     .await;
     let initial_child_request = responses::mount_sse_once_match(
         &server,
-        |request: &wiremock::Request| {
-            let body = String::from_utf8_lossy(&request.body);
-            body.contains(INITIAL_TASK) && !body.contains(SPAWN_CALL_ID)
-        },
+        |request: &wiremock::Request| is_agent_message_request(request, "/root/worker"),
         responses::sse(vec![
             responses::ev_response_created("initial-child-work"),
             responses::ev_assistant_message("initial-child-message", "initial child complete"),
@@ -620,10 +624,7 @@ async fn cold_resume_preserves_effective_developer_instructions_for_roleless_wor
     .await;
     let resumed_child_request = responses::mount_sse_once_match(
         &server,
-        |request: &wiremock::Request| {
-            let body = String::from_utf8_lossy(&request.body);
-            body.contains(FOLLOWUP_TASK) && !body.contains(FOLLOWUP_CALL_ID)
-        },
+        |request: &wiremock::Request| is_agent_message_request(request, "/root/worker"),
         responses::sse(vec![
             responses::ev_response_created("resumed-child-work"),
             responses::ev_assistant_message("resumed-child-message", "resumed child complete"),

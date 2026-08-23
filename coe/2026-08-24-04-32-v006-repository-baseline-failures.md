@@ -37,6 +37,7 @@
   - H-009
   - H-010
   - H-011
+  - H-012
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -448,6 +449,48 @@
 - Close reason:
   - not closed
 
+## Hypothesis H-012: 非 OpenAI 子 Agent 的消息正文被 provider 历史投影剥离
+- Status: confirmed
+- Parent: P-001
+- Claim: multi-agent v2 对普通工具调用无条件把消息正文写入 OpenAI 专用 `encrypted_content`；非 OpenAI provider 的历史投影只保留文本内容，因此 DeepSeek 子 Agent 只收到消息头而丢失 payload。
+- Layer: runtime
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 冷恢复测试把 matcher 改为稳定的结构化消息匹配后，捕获到 `Payload:` 后正文为空；源码路径同时显示发送端无条件构造 encrypted content，接收端对非 OpenAI 历史删除 encrypted content。
+- Falsifiable predictions:
+  - If true: 根据目标 provider 选择消息表示后，DeepSeek/mock 子 Agent 能看到完整 payload，OpenAI 路径仍保留 encrypted content。
+  - If false: 改为可移植明文信封后冷恢复测试仍缺失正文，或 OpenAI 加密合同被破坏。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 正文丢失发生在 encrypted inter-agent content 到 non-OpenAI history projection 的边界。
+  - Signal: mock 捕获的请求正文、发送端构造类型、投影后保留的 content 类型。
+  - Capture method: 结构化 wiremock matcher、源码路径核对、provider 双路径单测。
+  - Event name or marker:
+    - `agent_message`
+  - Correlation keys:
+    - recipient agent path
+  - Differentiates from:
+    - 仅测试 matcher 超时或 developer instructions 未恢复
+  - Supports if:
+    - 原请求含消息头但 payload 为空，且 provider-aware 表示恢复正文。
+  - Refutes if:
+    - 请求未经过 encrypted content，或 provider-aware 表示不改变结果。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-019
+  - E-020
+- Conclusion: 根因已确认；发送端必须以目标 provider 能消费的表示写入会话，未知 provider 保守使用可移植明文以保证语义完整。
+- Repair design readiness: implemented and verified
+- Next step: 运行 cache regression gate 并提交。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
 ## Evidence E-001: 失败按 crate 与模块聚类
 - Related hypotheses:
   - H-002
@@ -833,3 +876,50 @@
   ```
 - Interpretation: 三项均为测试合同或夹具偏差，未发现需要新增产品决策的运行时缺口。
 - Time: 2026-08-24 05:17 +0800
+
+## Evidence E-019: 非 OpenAI 投影可稳定复现 inter-agent payload 丢失
+- Related hypotheses:
+  - H-012
+- Direction: supports
+- Type: diagnostic
+- Source: app-server 冷恢复请求捕获与 core 消息构造、provider projection 源码
+- Prediction or plan link:
+  - H-012 的 encrypted content 在 non-OpenAI 投影边界丢失预测。
+- Matched signal:
+  - 稳定 matcher 捕获到目标 `agent_message` 及正确 recipient，但 `Payload:` 后为空；发送端使用 `new_encrypted`，而非 OpenAI 投影仅保留 `InputText`。
+- Correlation keys:
+  - `/root/worker`
+  - `/root/worker/nested`
+- Raw content:
+  ```text
+  Message Type: NEW_TASK
+  Task name: <recipient>
+  Sender: <sender>
+  Payload:
+  <empty>
+  ```
+- Interpretation: 超时表象不是 developer instructions 恢复失败；它暴露了跨 provider 会话消息正文的真实语义丢失。
+- Time: 2026-08-24 05:32 +0800
+
+## Evidence E-020: provider-aware 消息表示恢复正文并保留 OpenAI 加密合同
+- Related hypotheses:
+  - H-012
+- Direction: supports
+- Type: fix-validation
+- Source: codex-core 与 app-server 隔离 nextest
+- Prediction or plan link:
+  - H-012 的 DeepSeek 明文、OpenAI 加密双路径预测。
+- Matched signal:
+  - 纯单测验证 OpenAI 目标仍使用 encrypted content、非 OpenAI 目标使用完整结构化文本；三项核心消息测试、两项冷恢复测试及 view-image 子 Agent 测试全部通过；扩大 multi-agent 集合 102/102 通过。
+- Correlation keys:
+  - nextest run `a59019a0-6f74-4b7e-8e2e-59f41befc296`
+  - nextest run `389c61d1-7da7-44e3-a5bf-dcd6db148d31`
+  - multi-agent regression filter on final implementation
+- Raw content:
+  ```text
+  focused provider/message tests: 5 passed
+  cold resume variants: 2 passed
+  expanded multi-agent regression: 102 passed
+  ```
+- Interpretation: 修复解决了原始 payload 丢失，并用双路径合同防止以禁用 OpenAI 加密为代价换取通过。
+- Time: 2026-08-24 05:32 +0800

@@ -89,6 +89,17 @@ pub(crate) async fn handle_message_string_tool(
         .ensure_v2_agent_loaded(resume_config, receiver_thread_id)
         .await
         .map_err(|err| collab_agent_error(receiver_thread_id, err))?;
+    let target_is_openai = session
+        .services
+        .agent_control
+        .get_agent_config_snapshot(receiver_thread_id)
+        .await
+        .is_some_and(|snapshot| {
+            turn.config
+                .model_providers
+                .get(&snapshot.model_provider_id)
+                .is_some_and(|provider| provider.is_openai())
+        });
     let author = turn
         .session_source
         .get_agent_path()
@@ -99,6 +110,7 @@ pub(crate) async fn handle_message_string_tool(
         message,
         &source,
         mode.trigger_turn(),
+        target_is_openai,
     );
     let kind = match mode {
         MessageDeliveryMode::QueueOnly => AgentCommunicationKind::Message,
