@@ -1684,3 +1684,34 @@
   ```
 - Interpretation: 失败来自陈旧测试历史与能力断言，不需要放宽 Azure provider 或上下文正规化的安全校验。
 - Time: 2026-08-24 07:16 +0800
+
+## Hypothesis H-023: 三项 core 单测仍断言旧 Codex 品牌文本
+- Status: confirmed
+- Failure signature:
+  - Bedrock 凭据提示、delegate approval 错误和 sandbox network denial 三项实际文本均为 Whale，测试仍期待 Codex。
+- Prediction:
+  - 只同步三项精确字符串后用例全部通过，错误分类、审批策略和网络拒绝行为保持不变。
+- Falsification:
+  - 更新品牌文本后仍出现非文本差异。
+- Minimal experiment:
+  - 修改三处测试期望并用隔离 runner 定向执行三项单测。
+- User/product decision required: no
+
+## Evidence E-039: core 剩余品牌断言同步完成
+- Related hypotheses:
+  - H-023
+- Direction: supports
+- Type: verification
+- Source: core 三项定向隔离 nextest
+- Prediction or plan link:
+  - H-023 的纯文本漂移预测。
+- Matched signal:
+  - Bedrock unauthorized、delegate approval fail-closed、sandbox network denial 三项均通过。
+- Correlation keys:
+  - nextest run `4f6d19c7-05d9-41f9-852d-8f8da8bdb0b9`
+- Raw content:
+  ```text
+  core brand contracts: 3 passed
+  ```
+- Interpretation: 三项均为 v0.0.6 品牌迁移后的测试漂移，没有修改生产错误处理或安全边界。
+- Time: 2026-08-24 07:27 +0800
