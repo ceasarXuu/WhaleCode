@@ -1998,3 +1998,34 @@
   ```
 - Interpretation: 失败是测试证据序列化随依赖特性图漂移的工程缺口，不是 provider 产品行为或缓存回归。
 - Time: 2026-08-24 07:33 +0800
+
+## Hypothesis H-033: permission intersection 测试的工作区与 Tmpdir 授权重叠
+- Status: confirmed
+- Failure signature:
+  - 测试期望临时目录保持 Write、工作区祖先降为 Read，但 synthetic workspace 由 `TempDir::new()` 创建在同一个系统临时目录下，实际解析为 Write。
+- Prediction:
+  - 把 synthetic workspace 建在当前隔离仓库目录、避开系统临时目录后，权限交集合同应通过且无需修改产品算法。
+- Falsification:
+  - 路径分离后工作区祖先仍为 Write，或 Tmpdir Write 元数据丢失。
+- Minimal experiment:
+  - 仅替换该测试的 workspace fixture 根目录并定向运行。
+- User/product decision required: no
+
+## Evidence E-049: permission intersection 路径隔离后恢复
+- Related hypotheses:
+  - H-033
+- Direction: supports
+- Type: verification
+- Source: protocol 定向隔离 nextest
+- Prediction or plan link:
+  - H-033 的独立 workspace/Tmpdir 路径预测。
+- Matched signal:
+  - 路径分离后权限交集测试 1/1 通过，网络策略、Tmpdir Write、受保护元数据与 workspace 范围断言均保持原样。
+- Correlation keys:
+  - nextest run `7723d008-6124-4431-9ef4-7255f7a8c386`
+- Raw content:
+  ```text
+  1 test run: 1 passed, 296 skipped
+  ```
+- Interpretation: 这是测试 fixture 权限域重叠造成的工程假失败，不涉及 provider 或权限产品决策。
+- Time: 2026-08-24 07:33 +0800
