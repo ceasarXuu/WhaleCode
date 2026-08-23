@@ -40,12 +40,25 @@ def _has_workspace_markers(path: Path) -> bool:
 
 def _runtime_base(source: dict[str, str] | None = None) -> Path:
     environment = os.environ if source is None else source
-    candidates: list[Path] = []
     if configured := environment.get(RUNTIME_ROOT_ENV):
-        candidates.append(Path(configured).expanduser())
+        candidate = Path(configured).expanduser()
+        if (
+            candidate.is_dir()
+            and os.access(candidate, os.W_OK | os.X_OK)
+            and not _has_workspace_markers(candidate)
+        ):
+            return candidate.resolve()
+        raise RuntimeError(
+            f"{RUNTIME_ROOT_ENV} must name a writable directory without "
+            "ancestor .git/.codex markers"
+        )
+
+    candidates: list[Path] = []
+    if os.name == "posix":
+        candidates.append(Path("/var/tmp"))
+    candidates.append(Path(tempfile.gettempdir()))
     if os.name == "posix":
         candidates.append(Path("/dev/shm"))
-    candidates.append(Path(tempfile.gettempdir()))
 
     for candidate in candidates:
         if (

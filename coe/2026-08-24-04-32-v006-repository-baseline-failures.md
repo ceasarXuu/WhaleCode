@@ -38,6 +38,8 @@
   - H-010
   - H-011
   - H-012
+  - H-013
+  - H-014
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -491,6 +493,137 @@
 - Close reason:
   - not closed
 
+## Hypothesis H-013: host-only file-change fixture 被自动环境绑定到不同 cwd
+- Status: refuted
+- Parent: P-001
+- Claim: session approval 持久化测试在宿主 `workspace` 准备文件，却通过 `start_thread` helper 自动选择另一个 local environment cwd；首轮新增文件可见，但第二轮隔离视图无法读取宿主文件，导致补丁失败和测试超时。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 测试已明确声明 apply-patch fixture 只在 host materialize；运行日志同时显示 thread cwd 与自动 environment cwd 不同，第二轮报宿主 README 不存在，而 approval request 确实已被跳过。
+- Falsifiable predictions:
+  - If true: 对该 host-only 测试禁用 auto environment 并显式启动 thread 后，两轮补丁成功且第二轮不发审批请求。
+  - If false: 对齐 cwd 后仍出现审批重复或文件不可见。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 失败来自 fixture 环境选择，不是 AcceptForSession 状态丢失。
+  - Signal: thread/environment cwd、第二轮 approval request 数量、apply_patch 错误路径。
+  - Capture method: 隔离测试日志与测试 helper 源码对照。
+  - Event name or marker:
+    - `FileChangeRequestApproval`
+  - Correlation keys:
+    - `patch-call-1`
+    - `patch-call-2`
+  - Differentiates from:
+    - session approval 未持久化
+  - Supports if:
+    - 第二轮没有 approval request，但读取与 host fixture 同名路径失败。
+  - Refutes if:
+    - 第二轮再次发出 approval request。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-021
+  - E-023
+- Conclusion: approval 持久化行为已生效，但禁用自动环境后相同路径仍不可见；cwd 分裂不是根因。
+- Repair design readiness: not applicable
+- Next step: 由 H-015 解释并修复隔离临时根目录可见性。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-014: legacy attribution 测试输入被误品牌化为当前 Whale 文本
+- Status: confirmed
+- Parent: P-001
+- Claim: 冷恢复测试的 CommitOnly legacy fixture 被品牌提交改成 Whale trailer，但生产迁移器故意只识别旧 Codex trailer，因此该分支不再触发 legacy 替换。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - `git blame` 显示同一品牌提交只修改测试常量；生产 `LEGACY_COMMIT_ATTRIBUTION_INSTRUCTIONS` 保持 Codex，用于真实旧 rollout 兼容。
+- Falsifiable predictions:
+  - If true: 恢复测试的 Codex legacy trailer 后，commit-only 分支保留一次历史 Codex commit 指令、不产生当前 Whale commit 指令，并追加一次 disabled 指令；unlinked PR 分支保留一次当前 Whale commit 指令并追加一次 disabled 指令。
+  - If false: 恢复真实 legacy 输入后 disabled 指令仍缺失，或任一分支发生重复。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: fixture 不再匹配生产 legacy matcher。
+  - Signal: 测试/生产 legacy 常量逐字差异、品牌提交 blame、两个参数化分支结果。
+  - Capture method: 源码与 blame 对照、隔离参数化测试。
+  - Event name or marker:
+    - `<git_attribution>`
+  - Correlation keys:
+    - `commit_only`
+    - `unlinked_pull_request`
+  - Differentiates from:
+    - workspace attribution policy 请求失败
+  - Supports if:
+    - 只有 commit_only 失败，完整策略与 unlinked PR 分支通过。
+  - Refutes if:
+    - 两个 legacy 分支或策略请求同时失败。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-022
+  - E-024
+  - E-025
+- Conclusion: 生产规则按历史类型保留一份既有 commit 指令并追加 disabled 覆盖；测试必须区分 Codex legacy 与 Whale 当前指令，不能继续用品牌替换后的同一字符串计数。
+- Repair design readiness: implemented and verified
+- Next step: none for H-014
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-015: 隔离 runner 的 `/dev/shm` 根目录对受限文件沙箱不可见
+- Status: confirmed
+- Parent: P-001
+- Claim: Codex 隔离 runner 在 Linux 优先把测试临时根放到 `/dev/shm`，但 app-server 的受限 apply-patch 文件沙箱不暴露该挂载，导致宿主创建或首轮创建的 workspace 文件在校验进程中不可见。
+- Layer: test-infrastructure
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 将 README 预先写入宿主 workspace 后，首轮 update 仍报文件不存在；同一测试仅将有效临时根改为 `/var/tmp` 即通过。
+- Falsifiable predictions:
+  - If true: runner 默认优先选择 `/var/tmp` 后，原始 Add→Update approval 用例通过，无需修改产品逻辑或测试环境选择。
+  - If false: `/var/tmp` 下仍出现相同文件不可见，或必须改变 approval/session 实现才能通过。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: `/dev/shm` 挂载边界而非审批状态或 cwd 选择造成不可见。
+  - Signal: 实际 runtime cwd、预存文件首轮 update、仅改变 runtime root 的对照结果。
+  - Capture method: 隔离 nextest 日志及 `WHALE_CODEX_TEST_TMPDIR=/var/tmp` 对照。
+  - Event name or marker:
+    - `apply_patch verification failed`
+  - Correlation keys:
+    - nextest runtime root
+    - `patch-call-1`
+  - Differentiates from:
+    - H-013
+    - AcceptForSession 状态丢失
+  - Supports if:
+    - `/dev/shm` 失败而 `/var/tmp` 通过。
+  - Refutes if:
+    - 两个根目录结果相同。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-023
+  - E-025
+- Conclusion: 根因是隔离 runner 的默认临时挂载选择；显式配置无效时静默回退还会掩盖对照，需改为快速失败。
+- Repair design readiness: implemented and verified
+- Next step: none for H-015
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
 ## Evidence E-001: 失败按 crate 与模块聚类
 - Related hypotheses:
   - H-002
@@ -923,3 +1056,110 @@
   ```
 - Interpretation: 修复解决了原始 payload 丢失，并用双路径合同防止以禁用 OpenAI 加密为代价换取通过。
 - Time: 2026-08-24 05:32 +0800
+
+## Evidence E-021: session approval 已跳过但自动环境中缺少宿主文件
+- Related hypotheses:
+  - H-013
+- Direction: supports
+- Type: diagnostic
+- Source: app-server file-change approval 隔离 nextest 与 TestAppServer helper
+- Prediction or plan link:
+  - H-013 的 cwd/environment fixture 分裂预测。
+- Matched signal:
+  - thread/turn cwd 是 host `workspace`，自动 environment cwd 是另一个临时目录；第二轮没有收到 approval request，但 apply_patch 报 host `workspace/README.md` 不存在并导致 completion 等待超时。
+- Correlation keys:
+  - nextest run `be5d9def-8a02-4866-aaab-ee8827a4a653`
+  - `patch-call-2`
+- Raw content:
+  ```text
+  apply_patch verification failed: Failed to read file to update .../workspace/README.md: No such file or directory
+  Error: deadline has elapsed
+  ```
+- Interpretation: AcceptForSession 已生效；失败位于 host-only fixture 与自动 environment 的文件视图边界。
+- Time: 2026-08-24 05:41 +0800
+
+## Evidence E-022: 只有被误品牌化的 commit-only legacy 分支失败
+- Related hypotheses:
+  - H-014
+- Direction: supports
+- Type: diagnostic
+- Source: app-server git-attribution 隔离 nextest、生产 matcher 与 git blame
+- Prediction or plan link:
+  - H-014 的测试常量不再匹配真实 legacy 文本预测。
+- Matched signal:
+  - 完整认证工作区策略和 unlinked PR legacy 分支通过；commit-only 分支 disabled 指令计数为 0。生产常量为 Codex trailer，测试常量由品牌提交单独改成 Whale trailer。
+- Correlation keys:
+  - nextest run `be5d9def-8a02-4866-aaab-ee8827a4a653`
+  - commit `875277b54d`
+- Raw content:
+  ```text
+  commit_only: expected disabled attribution count 1, actual 0
+  unlinked_pull_request: PASS
+  git_attribution_follows_authenticated_workspace_policy: PASS
+  ```
+- Interpretation: 当前 Whale attribution 产品行为无需修改；应让 migration fixture 继续代表真实旧 Codex rollout。
+- Time: 2026-08-24 05:41 +0800
+
+## Evidence E-023: 文件不可见由 runtime root 决定而非自动环境 cwd
+- Related hypotheses:
+  - H-013
+  - H-015
+- Direction: refutes H-013; supports H-015
+- Type: diagnostic
+- Source: app-server file-change approval 隔离 nextest 对照
+- Prediction or plan link:
+  - H-013 的禁用自动环境预测与 H-015 的 runtime root 预测。
+- Matched signal:
+  - 禁用 auto environment 后，在 `/dev/shm` 预先创建 README，首轮 update 仍报文件不存在；使用通过安全检查的 `/var/tmp` 作为唯一变量后，同一诊断用例通过。
+- Correlation keys:
+  - nextest run `0c2e1cf0-740a-40c0-ac9f-2044f2e26b7b`
+  - nextest run `cbce9cee-6e56-4905-a680-34294343a88e`
+- Raw content:
+  ```text
+  /dev/shm: apply_patch verification failed ... README.md: No such file or directory
+  /var/tmp: PASS [1.350s]
+  ```
+- Interpretation: auto environment 不是必要条件；受限文件校验进程看不到 `/dev/shm` 下的测试 workspace，`/var/tmp` 可见。
+- Time: 2026-08-24 05:52 +0800
+
+## Evidence E-024: 品牌拆分后 legacy attribution 必须按历史类型分别计数
+- Related hypotheses:
+  - H-014
+- Direction: supports
+- Type: diagnostic
+- Source: app-server git-attribution 隔离 nextest与品牌前测试合同
+- Prediction or plan link:
+  - H-014 的真实 Codex legacy fixture 预测。
+- Matched signal:
+  - 恢复 Codex legacy 输入后 disabled 指令出现；commit-only 请求保留一次 Codex 历史指令、Whale 当前指令为零。品牌前 `COMMIT_ATTRIBUTION` 本就与 Codex legacy 文本相同，因此旧断言计数的是历史指令，不是迁移成新品牌指令。
+- Correlation keys:
+  - nextest commit-only branch
+  - commit `875277b54d`
+- Raw content:
+  ```text
+  commit_only: Whale current count 0; Codex legacy count 1; disabled count 1
+  pre-brand test: COMMIT_ATTRIBUTION == Codex legacy trailer
+  ```
+- Interpretation: 不应修改生产迁移器；测试需恢复历史 fixture，并显式区分历史 Codex 与当前 Whale 指令。
+- Time: 2026-08-24 05:54 +0800
+
+## Evidence E-025: runner 与 app-server 目标集合完成回归
+- Related hypotheses:
+  - H-014
+  - H-015
+- Direction: supports
+- Type: verification
+- Source: Python runner 单测与 Codex app-server 隔离 nextest
+- Prediction or plan link:
+  - H-014/H-015 修复后的目标回归。
+- Matched signal:
+  - runner 单测覆盖显式无效目录快速失败和 `/var/tmp` 默认选择；原始 file-change approval 用例未改动即恢复，git-attribution 两个 legacy 分支同时通过。
+- Correlation keys:
+  - nextest run `0e8b37a6-11d5-46a7-9043-fbdeae8469ed`
+- Raw content:
+  ```text
+  runner unittest: 8 passed
+  app-server target set: 7 passed, 1234 skipped
+  ```
+- Interpretation: 修复位于正确工程层，没有通过改写 session approval 产品行为或删除 legacy 覆盖来换取通过。
+- Time: 2026-08-24 05:55 +0800

@@ -53,7 +53,7 @@ const PR_ATTRIBUTION: &str = "Generated with [Whale](https://github.com/ceasarXu
 const ATTRIBUTION_DISABLED: &str = "attribution is disabled for the current workspace";
 const LEGACY_COMMIT_ATTRIBUTION_INSTRUCTIONS: &str = "\
 When you write or edit a git commit message, ensure the message ends with this trailer exactly once:
-Co-authored-by: Whale <noreply@whalecode.local>
+Co-authored-by: Codex <noreply@openai.com>
 
 Rules:
 - Keep existing trailers and append this trailer at the end if missing.
@@ -311,9 +311,26 @@ async fn cold_resume_replaces_legacy_attribution_without_duplication(
     assert_eq!(initial_text.matches(COMMIT_ATTRIBUTION).count(), 1);
     assert_eq!(initial_text.matches(PR_ATTRIBUTION).count(), 1);
     assert_eq!(initial_text.matches(ATTRIBUTION_DISABLED).count(), 0);
+    let expected_current_commit_count = match legacy_attribution {
+        LegacyAttribution::CommitOnly => 0,
+        LegacyAttribution::UnlinkedPullRequest => 1,
+    };
+    let expected_legacy_commit_count = match legacy_attribution {
+        LegacyAttribution::CommitOnly => 1,
+        LegacyAttribution::UnlinkedPullRequest => 0,
+    };
     for request in &requests[1..] {
         let developer_text = request.message_input_texts("developer").join("\n");
-        assert_eq!(developer_text.matches(COMMIT_ATTRIBUTION).count(), 1);
+        assert_eq!(
+            developer_text.matches(COMMIT_ATTRIBUTION).count(),
+            expected_current_commit_count
+        );
+        assert_eq!(
+            developer_text
+                .matches("Co-authored-by: Codex <noreply@openai.com>")
+                .count(),
+            expected_legacy_commit_count
+        );
         assert_eq!(developer_text.matches(PR_ATTRIBUTION).count(), 0);
         assert_eq!(developer_text.matches(ATTRIBUTION_DISABLED).count(), 1);
     }

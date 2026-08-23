@@ -67,14 +67,24 @@ class RunIsolatedTestsTests(unittest.TestCase):
                 "_has_workspace_markers",
                 side_effect=lambda path: path == contaminated,
             ):
-                selected = run_isolated_tests._runtime_base(
-                    {run_isolated_tests.RUNTIME_ROOT_ENV: str(contaminated)}
-                )
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    run_isolated_tests.RUNTIME_ROOT_ENV,
+                ):
+                    run_isolated_tests._runtime_base(
+                        {run_isolated_tests.RUNTIME_ROOT_ENV: str(contaminated)}
+                    )
 
-        if Path("/dev/shm").is_dir():
-            self.assertEqual(selected, Path("/dev/shm"))
-        else:
-            self.assertNotEqual(selected, contaminated)
+    @unittest.skipUnless(Path("/var/tmp").is_dir(), "/var/tmp is unavailable")
+    def test_runtime_base_prefers_sandbox_visible_posix_temp_root(self) -> None:
+        with patch.object(
+            run_isolated_tests,
+            "_has_workspace_markers",
+            return_value=False,
+        ):
+            selected = run_isolated_tests._runtime_base({})
+
+        self.assertEqual(selected, Path("/var/tmp"))
 
     def test_runtime_base_honors_safe_explicit_directory(self) -> None:
         with tempfile.TemporaryDirectory() as root:
