@@ -1746,3 +1746,34 @@
   ```
 - Interpretation: 修复只消除测试对全局默认 provider 的依赖和逻辑矛盾，未改变生产角色权限或模型优先级。
 - Time: 2026-08-24 07:35 +0800
+
+## Hypothesis H-025: WebSocket 多轮测试未适配 provider-bound turn session
+- Status: confirmed
+- Failure signature:
+  - 首轮后 provider-bound client session 关闭连接，旧测试服务器仍要求第二轮复用同一连接；紧邻 `TurnComplete` 的 `start_or_steer` 还可能被判为 steer，使模型更新只作用于后续 turn。
+- Prediction:
+  - 测试 harness 同步 OpenAI provider registry；按 turn 分配 WebSocket 连接；先持久化模型设置并用 idle-only 启动下一轮后，第二轮应使用新模型/service tier，且 Responses Lite 工具形状正确。
+- Falsification:
+  - 独立连接后仍回退 HTTPS，或 idle 下一轮仍使用旧模型/旧 service tier。
+- Minimal experiment:
+  - 修正 WebSocket harness 与两项多轮脚本，运行完整 agent_websocket suite。
+- User/product decision required: no
+
+## Evidence E-041: 下一轮 WebSocket 模型与 service tier 切换合同恢复
+- Related hypotheses:
+  - H-025
+- Direction: supports
+- Type: verification
+- Source: core agent_websocket 完整定向隔离 nextest
+- Prediction or plan link:
+  - H-025 的 provider-bound 连接与 idle 下一轮预测。
+- Matched signal:
+  - startup prewarm 与首轮共享第一连接；下一 turn 建立独立连接；模型从 `gpt-5.2` 切至 `gpt-5.4`，Responses Lite 省略顶层 tools/instructions；service tier 从 priority 恢复 default。
+- Correlation keys:
+  - nextest run `0bc83093-6e18-4bd6-9213-14364a5878e4`
+- Raw content:
+  ```text
+  agent websocket contracts: 8 passed
+  ```
+- Interpretation: 这直接验证了 UI 设置在当前 turn 后持久化、由下一 idle turn 生效的产品语义，同时保持 provider transport 状态不跨 turn 泄漏。
+- Time: 2026-08-24 07:57 +0800
