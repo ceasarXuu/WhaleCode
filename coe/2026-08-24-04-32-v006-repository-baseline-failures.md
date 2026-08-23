@@ -42,6 +42,7 @@
   - H-014
   - H-015
   - H-016
+  - H-017
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -667,6 +668,49 @@
 - Conclusion: app-server 测试的运行时依赖未被 runner 声明；应复用既有、带校验的 V8 候选缓存，不开放隔离测试的宿主代理。
 - Repair design readiness: implemented and verified
 - Next step: none for H-016
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-017: tool spec 规划测试隐式继承 DeepSeek provider 能力
+- Status: confirmed
+- Parent: P-001
+- Claim: `spec_plan_tests` 的通用探针沿用 `make_session_and_context` 的 Whale 默认 DeepSeek provider，但多数用例验证 namespace、deferred tool search 和 hosted tools 等 OpenAI 能力，导致工具被正确过滤后测试误报。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 24 项失败集中表现为 namespace/deferred/hosted tool 缺失；规划器明确按 provider capabilities 门禁，文件中显式 Bedrock 用例反而通过。
+- Falsifiable predictions:
+  - If true: 通用 probe 显式绑定 OpenAI provider 后，namespace/deferred/hosted 工具断言恢复；显式 Bedrock 用例仍通过。
+  - If false: 绑定 OpenAI 后原工具仍缺失或 Bedrock 合同被破坏。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 测试 provider 与被测能力合同不一致。
+  - Signal: 失败工具类别、provider capabilities gate、完整 spec-plan 文件回归。
+  - Capture method: 只修改测试探针 provider，运行 49 项 spec-plan 单测。
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - provider ID
+    - tool namespace/exposure
+  - Differentiates from:
+    - tool registry 生产实现丢失
+  - Supports if:
+    - 原 24 项失败全部恢复。
+  - Refutes if:
+    - 同一缺失信号保留。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-030
+  - E-031
+- Conclusion: 通用 spec-plan fixture 必须显式选择支持其工具合同的 OpenAI provider；provider 专属用例继续自行覆盖。
+- Repair design readiness: implemented and verified
+- Next step: none for H-017
 - Blocker:
   - none
 - Close reason:
@@ -1305,3 +1349,42 @@
   ```
 - Interpretation: app-server 模块已从 52 项基线失败恢复为全绿；剩余发布门禁应继续在 core/TUI/protocol 等模块收敛。
 - Time: 2026-08-24 06:10 +0800
+
+## Evidence E-030: core 完整回归将剩余失败聚类到 61 项
+- Related hypotheses:
+  - H-017
+- Direction: supports
+- Type: diagnostic
+- Source: Codex core 完整隔离 nextest
+- Prediction or plan link:
+  - app-server 清零后对最大初始失败模块重新基线。
+- Matched signal:
+  - Code Mode 大簇已恢复；剩余 61 项中 24 项集中于 `tools::spec_plan::tests`，共同缺失 namespace、deferred search、dynamic/hosted 工具。
+- Correlation keys:
+  - nextest run `0a33cf05-d9ae-404f-bc9e-52bea9bda1fa`
+- Raw content:
+  ```text
+  core: 3743 tests run; 3681 passed; 61 failed; 1 timed out; 9 skipped
+  spec_plan: 24 failures
+  ```
+- Interpretation: runner helper 已消除初始 Code Mode 基础设施失败，最大剩余簇是 provider-sensitive 测试探针。
+- Time: 2026-08-24 06:16 +0800
+
+## Evidence E-031: 显式 OpenAI spec-plan fixture 恢复完整模块
+- Related hypotheses:
+  - H-017
+- Direction: supports
+- Type: verification
+- Source: core spec-plan 隔离 nextest
+- Prediction or plan link:
+  - H-017 的显式 provider 对照。
+- Matched signal:
+  - 通用 probe 与三个直接构造 turn 的用例绑定 OpenAI provider 后，原 24 项失败全部恢复，显式 Bedrock 测试仍通过。
+- Correlation keys:
+  - `tools::spec_plan::tests` filtered rerun
+- Raw content:
+  ```text
+  Summary [0.682s] 49 tests run: 49 passed, 3703 skipped
+  ```
+- Interpretation: 生产工具规划能力门禁正确；测试不能依赖全局默认 provider。
+- Time: 2026-08-24 06:19 +0800
