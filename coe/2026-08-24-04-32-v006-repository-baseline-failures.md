@@ -1,7 +1,7 @@
 # Problem P-001: v0.0.6 多 Provider 发布被仓库基线失败阻断
 - Status: investigating
 - Created: 2026-08-24 04:32 +0800
-- Updated: 2026-08-24 06:12 +0800
+- Updated: 2026-08-24 06:27 +0800
 - Objective: 在不改写已确认产品逻辑的前提下，找到并修复阻断 v0.0.6 multi-provider 发布门禁的仓库基线根因。
 - Symptoms:
   - 受影响六 crate 的隔离 nextest 矩阵执行 9284 项，8928 通过、356 失败。
@@ -32,6 +32,7 @@
   - H-004
   - H-005
   - H-006
+  - H-007
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -284,6 +285,47 @@
 - Conclusion: 原用例的默认前提已被 Whale 默认 DeepSeek 配置取代；生产 endpoint 与 provider capability 实现一致。
 - Repair design readiness: implemented and verified
 - Next step: none for H-006
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-007: app-server 插件测试仍依赖已取消的 feature 隐式启用
+- Status: confirmed
+- Parent: P-001
+- Claim: plugin sharing 与 recommended plugins 的正向测试未显式启用完整 feature 依赖，因当前稳定 feature 默认关闭而提前进入禁用或 legacy 路径。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 失败分别稳定报告 `plugin sharing is disabled` 和缺少 `<recommended_plugins>`；feature registry 明确将两者默认设为 false。
+- Falsifiable predictions:
+  - If true: 只在正向测试夹具显式启用对应 feature 后，分享与推荐簇恢复，显式禁用测试继续通过。
+  - If false: 启用 feature 后仍以相同禁用信号失败。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 请求未进入被测正向路径是因为 fixture 缺少 opt-in。
+  - Signal: feature registry、禁用错误、正反向文件级测试结果。
+  - Capture method: 修改共享正向 fixture，运行 plugin_share 与 recommended_plugins 两个完整模块。
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - feature key and test module
+  - Differentiates from:
+    - H-002
+  - Supports if:
+    - 正向与显式禁用用例同时通过。
+  - Refutes if:
+    - 同一禁用错误保留或禁用态语义被破坏。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-014
+- Conclusion: 分享簇已证明失败发生在测试配置门禁；推荐路径还要求 `remote_plugin`，首轮只启用 `recommended_plugins` 的对照仍进入 legacy 模式，进一步确认完整依赖必须由 fixture 声明。
+- Repair design readiness: implemented and verified
+- Next step: none for H-007
 - Blocker:
   - none
 - Close reason:
@@ -571,3 +613,46 @@
   ```
 - Interpretation: 更新后的测试同时覆盖 Whale 默认值和 OpenAI 支持，避免以弱化断言换取通过。
 - Time: 2026-08-24 06:15 +0800
+
+## Evidence E-014: 插件正向用例提前命中默认关闭门禁
+- Related hypotheses:
+  - H-007
+- Direction: supports
+- Type: reproduction
+- Source: app-server 全量隔离 nextest、feature registry 与测试 fixture
+- Prediction or plan link:
+  - H-007 的缺少显式 feature opt-in 预测。
+- Matched signal:
+  - plugin_share 正向夹具仅写 `plugins=true`，10 个原失败中多数返回 `plugin sharing is disabled`；推荐测试在 tool_suggest=true 分支不写 `recommended_plugins=true`，两项均缺少推荐上下文。
+- Correlation keys:
+  - nextest run `809e6bfc-92e6-4b2f-9e1b-6d5d1e0fe660`
+- Raw content:
+  ```text
+  Feature::RemotePlugin default_enabled=false
+  Feature::PluginSharing default_enabled=false
+  Feature::RecommendedPlugins default_enabled=false
+  recommended_plugins_mode_for_config requires plugins_enabled && remote_plugin_enabled && ChatGPT auth
+  ```
+- Interpretation: 测试应声明其 feature 前提；不应为恢复上游测试而改变 Whale 产品默认。
+- Time: 2026-08-24 06:27 +0800
+
+## Evidence E-015: 插件正向 fixture 补齐 feature 依赖后模块恢复
+- Related hypotheses:
+  - H-007
+- Direction: supports
+- Type: verification
+- Source: app-server plugin_share 与 recommended_plugins 隔离 nextest
+- Prediction or plan link:
+  - H-007 的正向和显式禁用测试应同时通过预测。
+- Matched signal:
+  - plugin_share 14/14 通过（含两项显式禁用合同）；recommended_plugins 在补齐 `remote_plugin` 后 2/2 通过。
+- Correlation keys:
+  - nextest run `e8b0d648-5453-4366-a3dd-12ca29c00b95`
+  - nextest run `f4b10337-d6aa-4e33-9a76-de5b48b88586`
+- Raw content:
+  ```text
+  plugin_share: 14 passed
+  recommended_plugins: 2 passed
+  ```
+- Interpretation: 12 个原全量失败已闭环；产品默认关闭与不可用错误行为保持不变。
+- Time: 2026-08-24 06:31 +0800
