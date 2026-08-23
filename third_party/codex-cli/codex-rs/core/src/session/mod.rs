@@ -244,6 +244,7 @@ pub(crate) use self::input_queue::TurnInputQueue;
 use self::review::spawn_review_thread;
 use self::session::AppServerClientMetadata;
 use self::session::PreparedProviderTransition;
+use self::session::ProviderSelectionSnapshot;
 use self::session::Session;
 use self::session::SessionConfiguration;
 pub(crate) use self::session::SessionSettingsUpdate;
@@ -1625,6 +1626,41 @@ impl Session {
         state.previous_turn_settings()
     }
 
+    async fn pending_provider_transition_for_turn(
+        &self,
+        turn_context: &TurnContext,
+    ) -> Option<u64> {
+        let state = self.state.lock().await;
+        state.pending_provider_transition_for_turn(
+            turn_context.route.as_ref(),
+            &turn_context.model_info.slug,
+        )
+    }
+
+    async fn finalize_provider_transition(&self, revision: u64) -> bool {
+        let mut state = self.state.lock().await;
+        state.finalize_provider_transition(revision)
+    }
+
+    async fn abort_provider_transition(&self, revision: u64) -> bool {
+        let notify_config_contributors = !self.services.extensions.config_contributors().is_empty();
+        let (aborted, previous_config, new_config) = {
+            let mut state = self.state.lock().await;
+            let previous_config = notify_config_contributors
+                .then(|| self.build_effective_session_config(&state.session_configuration));
+            let aborted = state.abort_provider_transition(revision);
+            let new_config = (notify_config_contributors && aborted)
+                .then(|| self.build_effective_session_config(&state.session_configuration));
+            (aborted, previous_config, new_config)
+        };
+        if aborted {
+            self.emit_config_changed_contributors(previous_config.as_ref(), new_config.as_ref());
+            self.mark_mcp_runtime_dirty();
+            self.schedule_mcp_prewarm();
+        }
+        aborted
+    }
+
     fn prepare_provider_transition<'a>(
         &'a self,
         updates: &'a mut SessionSettingsUpdate,
@@ -1722,6 +1758,8 @@ impl Session {
         let notify_config_contributors = !self.services.extensions.config_contributors().is_empty();
         let (previous_config, new_config, permission_profile_changed, mcp_inputs_changed) = {
             let mut state = self.state.lock().await;
+            let previous_provider_selection =
+                ProviderSelectionSnapshot::capture(&state.session_configuration);
             let updated = match self.apply_session_settings(&state.session_configuration, &updates)
             {
                 Ok(updated) => updated,
@@ -1755,6 +1793,7 @@ impl Session {
                     .update_thread_config(&environment_config);
             }
             state.session_configuration = updated;
+            state.record_provider_selection_change(previous_provider_selection);
             let new_config = notify_config_contributors
                 .then(|| self.build_effective_session_config(&state.session_configuration));
             (

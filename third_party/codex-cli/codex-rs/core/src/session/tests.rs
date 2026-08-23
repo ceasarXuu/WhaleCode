@@ -4929,6 +4929,113 @@ pub(crate) async fn make_session_configuration_for_tests() -> SessionConfigurati
     }
 }
 
+fn change_provider_selection(
+    state: &mut SessionState,
+    route: Option<codex_protocol::ProviderRoute>,
+    model: &str,
+) {
+    let previous = ProviderSelectionSnapshot::capture(&state.session_configuration);
+    state.session_configuration.route = route;
+    state
+        .session_configuration
+        .collaboration_mode
+        .settings
+        .model = model.to_string();
+    state.record_provider_selection_change(previous);
+}
+
+#[tokio::test]
+async fn pending_provider_transition_rejects_stale_abort_and_restores_stable_selection() {
+    let configuration = make_session_configuration_for_tests().await;
+    let stable_route = configuration.route.clone();
+    let stable_model = configuration.collaboration_mode.model().to_string();
+    let mut state = SessionState::new(configuration);
+    let deepseek = codex_protocol::ProviderRoute::new(
+        "deepseek",
+        codex_protocol::ProviderAccessMethod::ApiKey,
+    );
+    change_provider_selection(&mut state, Some(deepseek.clone()), "deepseek-v4-flash");
+    let first_revision = state
+        .pending_provider_transition_for_turn(Some(&deepseek), "deepseek-v4-flash")
+        .expect("first transition should be pending");
+
+    let openai =
+        codex_protocol::ProviderRoute::new("openai", codex_protocol::ProviderAccessMethod::ApiKey);
+    change_provider_selection(&mut state, Some(openai.clone()), "gpt-5.6");
+    let second_revision = state
+        .pending_provider_transition_for_turn(Some(&openai), "gpt-5.6")
+        .expect("replacement transition should be pending");
+
+    state.session_configuration.collaboration_mode.mode =
+        codex_protocol::config_types::ModeKind::Plan;
+    state
+        .session_configuration
+        .collaboration_mode
+        .settings
+        .developer_instructions = Some("preserve later mode instructions".to_string());
+    state.session_configuration.model_reasoning_summary =
+        Some(codex_protocol::config_types::ReasoningSummary::Detailed);
+
+    assert!(!state.abort_provider_transition(first_revision));
+    assert_eq!(state.session_configuration.route, Some(openai));
+    assert!(state.abort_provider_transition(second_revision));
+    assert_eq!(state.session_configuration.route, stable_route);
+    assert_eq!(
+        state.session_configuration.collaboration_mode.model(),
+        stable_model
+    );
+    assert_eq!(
+        state.session_configuration.collaboration_mode.mode,
+        codex_protocol::config_types::ModeKind::Plan
+    );
+    assert_eq!(
+        state
+            .session_configuration
+            .collaboration_mode
+            .settings
+            .developer_instructions
+            .as_deref(),
+        Some("preserve later mode instructions")
+    );
+    assert_eq!(
+        state.session_configuration.model_reasoning_summary,
+        Some(codex_protocol::config_types::ReasoningSummary::Detailed)
+    );
+}
+
+#[tokio::test]
+async fn pending_provider_transition_finalize_and_return_to_stable_are_revision_safe() {
+    let configuration = make_session_configuration_for_tests().await;
+    let stable_route = configuration.route.clone();
+    let stable_model = configuration.collaboration_mode.model().to_string();
+    let mut state = SessionState::new(configuration);
+    let deepseek = codex_protocol::ProviderRoute::new(
+        "deepseek",
+        codex_protocol::ProviderAccessMethod::ApiKey,
+    );
+    change_provider_selection(&mut state, Some(deepseek.clone()), "deepseek-v4-flash");
+    let revision = state
+        .pending_provider_transition_for_turn(Some(&deepseek), "deepseek-v4-flash")
+        .expect("transition should be pending");
+    assert!(state.finalize_provider_transition(revision));
+    assert!(!state.abort_provider_transition(revision));
+
+    change_provider_selection(&mut state, stable_route.clone(), &stable_model);
+    let back_revision = state
+        .pending_provider_transition_for_turn(stable_route.as_ref(), &stable_model)
+        .expect("return transition should be pending after finalize");
+    assert!(state.abort_provider_transition(back_revision));
+    assert_eq!(state.session_configuration.route, Some(deepseek.clone()));
+
+    change_provider_selection(&mut state, stable_route, &stable_model);
+    change_provider_selection(&mut state, Some(deepseek), "deepseek-v4-flash");
+    assert!(
+        state
+            .pending_provider_transition_for_turn(None, &stable_model)
+            .is_none()
+    );
+}
+
 #[tokio::test]
 async fn emit_subagent_session_started_includes_fork_lineage_and_originator() {
     use wiremock::Mock;

@@ -145,6 +145,49 @@ pub(crate) struct PreparedProviderTransition {
     pub(crate) base_instructions: String,
 }
 
+#[derive(Clone)]
+pub(crate) struct ProviderSelectionSnapshot {
+    route: Option<ProviderRoute>,
+    provider: SharedModelProvider,
+    models_manager: SharedModelsManager,
+    model: String,
+    base_instructions: String,
+}
+
+impl ProviderSelectionSnapshot {
+    pub(crate) fn capture(configuration: &SessionConfiguration) -> Self {
+        Self {
+            route: configuration.route.clone(),
+            provider: Arc::clone(&configuration.provider),
+            models_manager: Arc::clone(&configuration.models_manager),
+            model: configuration.collaboration_mode.model().to_string(),
+            base_instructions: configuration.base_instructions.clone(),
+        }
+    }
+
+    pub(crate) fn has_same_selection(&self, configuration: &SessionConfiguration) -> bool {
+        self.route == configuration.route && self.model == configuration.collaboration_mode.model()
+    }
+
+    pub(crate) fn matches_turn(&self, route: Option<&ProviderRoute>, model: &str) -> bool {
+        self.route.as_ref() == route && self.model == model
+    }
+
+    pub(crate) fn restore_into(self, configuration: &mut SessionConfiguration) {
+        configuration.route = self.route;
+        configuration.provider = self.provider;
+        configuration.models_manager = self.models_manager;
+        configuration.collaboration_mode.settings.model = self.model;
+        configuration.base_instructions = self.base_instructions;
+    }
+}
+
+pub(crate) struct PendingProviderTransition {
+    pub(crate) revision: u64,
+    pub(crate) previous: ProviderSelectionSnapshot,
+    pub(crate) target: ProviderSelectionSnapshot,
+}
+
 impl SessionConfiguration {
     pub(super) fn cwd(&self) -> &AbsolutePathBuf {
         &self.legacy_fallback_cwd

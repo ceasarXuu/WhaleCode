@@ -2860,6 +2860,79 @@ async fn pre_sampling_compact_keeps_unknown_previous_model_for_api_key_auth_and_
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pre_sampling_compact_failure_restores_pending_model_selection() {
+    skip_if_no_network!();
+
+    let server = MockServer::start().await;
+    let previous_model = "custom/gpt-5.5";
+    let previous_model_family = "gpt-5.5";
+    let next_model = "gpt-5.6";
+    let mut previous_model_info = model_info_with_optional_comp_hash("gpt-5.4", Some("hash-a"));
+    previous_model_info.slug = previous_model_family.to_string();
+    let mut next_model_info = model_info_with_optional_comp_hash("gpt-5.4", Some("hash-b"));
+    next_model_info.slug = next_model.to_string();
+    let model_catalog = ModelsResponse {
+        models: vec![previous_model_info, next_model_info],
+    };
+    let request_log = mount_sse_sequence(
+        &server,
+        vec![
+            sse(vec![
+                ev_assistant_message("m1", "before switch"),
+                ev_completed_with_tokens("r1", /*total_tokens*/ 100),
+            ]),
+            sse_failed("compact-failed", "server_error", "compact failed"),
+        ],
+    )
+    .await;
+
+    let mut model_provider = non_openai_model_provider(&server);
+    model_provider.stream_max_retries = Some(0);
+    let test = test_codex()
+        .with_model(previous_model)
+        .with_config(move |config| {
+            config.model_provider = model_provider;
+            config.model_catalog = Some(model_catalog);
+            set_test_compact_prompt(config);
+        })
+        .build(&server)
+        .await
+        .expect("build test codex");
+
+    test.codex
+        .start_or_steer_turn(disabled_permission_user_turn(
+            "before switch",
+            test.cwd.path().to_path_buf(),
+            previous_model.to_string(),
+        ))
+        .await
+        .expect("submit first turn");
+    wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::TurnComplete(_))
+    })
+    .await;
+
+    test.codex
+        .start_or_steer_turn(disabled_permission_user_turn(
+            "after switch",
+            test.cwd.path().to_path_buf(),
+            next_model.to_string(),
+        ))
+        .await
+        .expect("submit switched turn");
+    wait_for_event(&test.codex, |event| matches!(event, EventMsg::Error(_))).await;
+    wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::TurnComplete(_))
+    })
+    .await;
+
+    let settings = test.codex.thread_settings_snapshot().await;
+    assert_eq!(settings.route, None);
+    assert_eq!(settings.model, previous_model);
+    assert_eq!(request_log.requests().len(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pre_sampling_compact_skips_when_either_comp_hash_is_missing() {
     skip_if_no_network!();
 

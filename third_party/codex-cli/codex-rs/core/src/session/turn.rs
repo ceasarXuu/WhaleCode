@@ -169,6 +169,9 @@ pub(crate) async fn run_turn(
             .model_client
             .new_session_for_provider(Arc::clone(&turn_context.provider))
     });
+    let pending_provider_transition = sess
+        .pending_provider_transition_for_turn(&turn_context)
+        .await;
     // TODO(ccunningham): Pre-turn compaction runs before context updates and the
     // new user message are recorded. Estimate pending incoming items (context
     // diffs/full reinjection + user input) and trigger compaction preemptively
@@ -191,10 +194,25 @@ pub(crate) async fn run_turn(
             (client_session, result)
         }
     }));
-    let (client_session, pre_sampling_compact_result) = pre_sampling_compact_task
-        .await
-        .map_err(|err| CodexErr::Fatal(format!("pre-sampling compact task failed: {err}")))?;
+    let (client_session, pre_sampling_compact_result) = match pre_sampling_compact_task.await {
+        Ok(result) => result,
+        Err(err) => {
+            if let Some(revision) = pending_provider_transition
+                && sess.abort_provider_transition(revision).await
+            {
+                super::thread_settings::emit_applied(&sess, turn_context.sub_id.clone()).await;
+            }
+            return Err(CodexErr::Fatal(format!(
+                "pre-sampling compact task failed: {err}"
+            )));
+        }
+    };
     if let Err(err) = pre_sampling_compact_result {
+        if let Some(revision) = pending_provider_transition
+            && sess.abort_provider_transition(revision).await
+        {
+            super::thread_settings::emit_applied(&sess, turn_context.sub_id.clone()).await;
+        }
         if matches!(err.details(), CodexErrorDetails::TurnAborted) {
             run_hooks_and_record_inputs(&sess, &turn_context, &input, PersistContext::Standard)
                 .await;
@@ -208,6 +226,9 @@ pub(crate) async fn run_turn(
             .await;
         error!("Failed to run pre-sampling compact");
         return Ok(None);
+    }
+    if let Some(revision) = pending_provider_transition {
+        let _ = sess.finalize_provider_transition(revision).await;
     }
     let mut client_session = Some(client_session);
 

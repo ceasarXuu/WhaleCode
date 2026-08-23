@@ -157,8 +157,8 @@
 
 - Rebase scope: Phase 1 已实现的三路 credential/catalog registry + 当前 settings FIFO、`SessionConfiguration`、`TurnContext`、compaction 实现 + W7–W11、W16
 - Material plan delta: material（D2）
-- Plan delta record: D2
-- User approval: user-approved-plan-direct: 2026-08-23（D2 + Phase 2 手写生产代码上限 1200 行）
+- Plan delta record: D2、D3
+- User approval: user-approved-plan-direct: 2026-08-23（D2 + Phase 2 手写生产代码上限 1200 行；D3 + 上限调整为 1350 行）
 - Gate status: ready
 
 - Entry: route auth/catalog 可由 mock 稳定解析；V2 direction-supported。
@@ -168,11 +168,12 @@
   2. W8 runtime：在 session services 注入窄 `ProviderRuntimeRegistry`，每个 route 绑定 `ModelProviderInfo`、route-bound provider factory 与 Phase 1 models manager；prepare 阶段完成凭据/模型/provider 校验，commit 阶段只交换已构造 snapshot。
   3. W9 surfaces：基于 prepared provider/model 重新解析 base instructions，工具继续由新 `TurnContext` 的 provider/model capability 生成，不新增常驻 mega-registry。
   4. W11 compact：`PreviousTurnSettings` 增加 route；需要 pre-transition compact 时显式使用旧 turn snapshot，成功后才提交新 route。
-- Estimated handwritten production code: 900–1200 行；建议本阶段上限 1200 行，测试/schema/generated/docs 不计入。若达到上限仍不能闭合原子 transition，停止扩张并重新审批。
+- Estimated handwritten production code: 900–1350 行；本阶段经 D3 批准的上限为 1350 行，测试/schema/generated/docs 不计入。若达到上限仍不能闭合原子 transition，停止扩张并重新审批。
 - Exit evidence: active turn/queued input/tool loop/compact 下旧 turn 不变、下一 turn 完整切换；失败无半状态；rollout 可恢复。
 - Product Decision Delta: 审计 PD6–PD11；任何同 turn 热替换均为 `conflict`。
 - Cross-unit side effects: session snapshot 扩大、base prompt 前缀变化、compact 请求归属改变；必须一并验证缓存与费用 route 字段。
 - Current evidence (2026-08-23): W7 schema 与 core/app-server 映射完成；W8 prepare 会在 commit 前离线验证 route credential、目标模型、provider runtime 与 base instructions，失败不改 session；每个 turn 的 `ModelClientSession` 绑定其不可变 provider snapshot，WebSocket/sticky state 不跨 provider；legacy/custom provider 仅在 effective provider 与命名配置一致时绑定内建 route，避免错误猜测 DeepSeek；W10 optional route 已进入 settings/turn-context/rollout reconstruction；W11 previous-route compaction 已使用旧 route provider、catalog 与 client。默认线程栈下 previous-model compact 5/5、`codex-core` provider-binding 1/1、protocol route round-trip 1/1、app-server settings suite 9/9 通过；stack-overflow 诊断与修复证据记录于 `../../../../coe/2026-08-23-20-45-provider-compact-stack-overflow.md`。
+- D3 transition compensation evidence (2026-08-23): provider/model 选择进入带 revision 的 pending 状态；下一 turn 先使用旧 route 执行必要压缩，成功后以 revision finalize，压缩失败则以同一 revision 恢复稳定 route/model。旧 turn 的失败无法撤销更新的选择；补偿只回滚 route/model/runtime/base prompt，不覆盖后续独立的 Plan/Default 模式、模式指令、reasoning summary、权限或环境设置。state 并发/补偿测试 2/2、compact 失败集成测试 1/1、previous-model compact 5/5 通过。
 - Phase 2 current-slice cache regression index gate：通过；surface `08a45ae670503ef84aa668bf3842fb5b0ec0e2a8567a23376618a0cb1c6bd9ba`，免费 final-wire 可比较且无回归；未运行真实模型，发布级 live baseline 继续阻断。
 - Remaining before Phase 2 exit: W10 route 最近模型与完整 resume/fork/rollback 证据；W11 把必要 compact 移到 transition commit 前并证明 compact/checkpoint 失败保留旧 route；补 queued input/tool-loop capability snapshots 与 transition typed diagnostics。Phase 2 继续保持 `in progress`。
 
@@ -230,7 +231,7 @@
 |---|---|---|---|---|---|
 | Phase 0 | route/auth/turn/history 可行性 | route identity 不含 secret；现有 flat auth record 支持 OpenAI 双槽存储/刷新；settings FIFO 保持 next-turn 边界；wire projection 基于副本 | PD3–PD6、PD8、PD11、PD15 | engineering-only | D1 仅修改后续工程设计；Phase 1 前请求计划审批 |
 | Phase 1 | 凭据与模型分组 | 三条 route 的凭据可共存并精确读写/登出；状态仅暴露 configured 布尔值；目录和缓存按 route 隔离，缺凭据组保持可见；DeepSeek onboarding 不再写入 OpenAI 槽 | PD3–PD5、PD9、PD13、PD15、PD16 | conforming | 无新增产品决策；进入 Phase 2 rebase |
-| Phase 2 | 原子切换、prompt/tools/compact/replay | 当前 session 只持有单一 provider/models manager，model update 仅改 `CollaborationMode`；要原子切 route，必须把 Phase 1 route catalog 提升为 session 可读的窄 runtime registry，并让 prepared snapshot 同时携带 provider/manager/prompt policy | PD6–PD11 | engineering-only material plan delta | D2 与本阶段 1200 行上限已批准，实施中 |
+| Phase 2 | 原子切换、prompt/tools/compact/replay | 当前 session 只持有单一 provider/models manager，model update 仅改 `CollaborationMode`；要原子切 route，必须把 Phase 1 route catalog 提升为 session 可读的窄 runtime registry，并让 prepared snapshot 同时携带 provider/manager/prompt policy。compact 失败回滚需要 revision/CAS，且补偿边界只能覆盖 provider/model 选择，不能覆盖后续独立 settings | PD6–PD11 | engineering-only material plan delta | D2、D3 与本阶段 1350 行上限已批准，实施中 |
 | Phase 3 | 历史与生命周期 | 待执行 | PD6、PD7、PD10、PD11 | pending | 阶段结束审计 |
 | Phase 4 | TUI 与命令可用性 | 待执行 | PD2、PD3、PD8、PD12、PD14、PD16 | pending | 阶段结束审计 |
 | Phase 5 | 整体验收 | 待执行 | PD1–PD16 | pending | 逐项链接测试证据 |

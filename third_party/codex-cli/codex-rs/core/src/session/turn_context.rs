@@ -764,6 +764,8 @@ impl Session {
         let notify_config_contributors = !self.services.extensions.config_contributors().is_empty();
         let update_result: CodexResult<_> = {
             let mut state = self.state.lock().await;
+            let previous_provider_selection =
+                ProviderSelectionSnapshot::capture(&state.session_configuration);
             match self.apply_session_settings(&state.session_configuration, &updates) {
                 Ok(next) => {
                     let mcp_inputs_changed =
@@ -791,6 +793,7 @@ impl Session {
                             .update_thread_config(&environment_config);
                     }
                     state.session_configuration = next.clone();
+                    state.record_provider_selection_change(previous_provider_selection);
                     let new_config = notify_config_contributors
                         .then(|| self.build_effective_session_config(&state.session_configuration));
                     Ok((

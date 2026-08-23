@@ -17,6 +17,8 @@ use crate::action_map::ActionMapStoreHandle;
 use crate::action_map::ProjectionCursor;
 use crate::context_manager::ContextManager;
 use crate::session::PreviousTurnSettings;
+use crate::session::session::PendingProviderTransition;
+use crate::session::session::ProviderSelectionSnapshot;
 use crate::session::session::SessionConfiguration;
 use crate::session::time_reminder::CurrentTimeReminderState;
 use crate::session_startup_prewarm::SessionStartupPrewarmHandle;
@@ -42,6 +44,8 @@ pub(crate) struct SessionState {
     /// model/realtime handling on subsequent regular turns (including full-context
     /// reinjection after resume or `/compact`).
     previous_turn_settings: Option<PreviousTurnSettings>,
+    pending_provider_transition: Option<PendingProviderTransition>,
+    provider_transition_revision: u64,
     /// Runtime accounting state for the active auto-compaction window.
     auto_compact_window: AutoCompactWindow,
     /// Startup prewarmed session prepared during session initialization.
@@ -81,6 +85,8 @@ impl SessionState {
             mcp_dependency_prompted: HashSet::new(),
             additional_context: AdditionalContextStore::default(),
             previous_turn_settings: None,
+            pending_provider_transition: None,
+            provider_transition_revision: 0,
             auto_compact_window: AutoCompactWindow::new_with_ids(auto_compact_window_ids),
             startup_prewarm: None,
             current_time_reminder: CurrentTimeReminderState::default(),
@@ -121,6 +127,61 @@ impl SessionState {
         previous_turn_settings: Option<PreviousTurnSettings>,
     ) {
         self.previous_turn_settings = previous_turn_settings;
+    }
+
+    pub(crate) fn record_provider_selection_change(&mut self, previous: ProviderSelectionSnapshot) {
+        if previous.has_same_selection(&self.session_configuration) {
+            return;
+        }
+        let stable = self
+            .pending_provider_transition
+            .take()
+            .map_or(previous, |pending| pending.previous);
+        self.provider_transition_revision = self.provider_transition_revision.wrapping_add(1);
+        if stable.has_same_selection(&self.session_configuration) {
+            return;
+        }
+        self.pending_provider_transition = Some(PendingProviderTransition {
+            revision: self.provider_transition_revision,
+            previous: stable,
+            target: ProviderSelectionSnapshot::capture(&self.session_configuration),
+        });
+    }
+
+    pub(crate) fn pending_provider_transition_for_turn(
+        &self,
+        route: Option<&codex_protocol::ProviderRoute>,
+        model: &str,
+    ) -> Option<u64> {
+        self.pending_provider_transition
+            .as_ref()
+            .filter(|pending| pending.target.matches_turn(route, model))
+            .map(|pending| pending.revision)
+    }
+
+    pub(crate) fn finalize_provider_transition(&mut self, revision: u64) -> bool {
+        if self
+            .pending_provider_transition
+            .as_ref()
+            .is_some_and(|pending| pending.revision == revision)
+        {
+            self.pending_provider_transition = None;
+            return true;
+        }
+        false
+    }
+
+    pub(crate) fn abort_provider_transition(&mut self, revision: u64) -> bool {
+        let Some(pending) = self
+            .pending_provider_transition
+            .take_if(|pending| pending.revision == revision)
+        else {
+            return false;
+        };
+        pending
+            .previous
+            .restore_into(&mut self.session_configuration);
+        true
     }
 
     pub(crate) fn set_next_turn_is_first(&mut self, value: bool) {
