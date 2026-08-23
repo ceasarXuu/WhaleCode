@@ -369,6 +369,8 @@ export type { ProjectChangeType } from "./ProjectChangeType";
 export type { ProjectChangedNotification } from "./ProjectChangedNotification";
 export type { ProjectRoot } from "./ProjectRoot";
 export type { ProviderAccessMethod } from "./ProviderAccessMethod";
+export type { ProviderCredentialStatus } from "./ProviderCredentialStatus";
+export type { ProviderCredentialStatusListResponse } from "./ProviderCredentialStatusListResponse";
 export type { ProviderModelAvailability } from "./ProviderModelAvailability";
 export type { ProviderModelGroup } from "./ProviderModelGroup";
 export type { ProviderRoute } from "./ProviderRoute";

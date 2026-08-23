@@ -33,7 +33,10 @@ use codex_app_server_protocol::JSONRPCMessage;
 use codex_app_server_protocol::JSONRPCNotification;
 use codex_app_server_protocol::JSONRPCResponse;
 use codex_app_server_protocol::LoginAccountResponse;
+use codex_app_server_protocol::LogoutAccountParams;
 use codex_app_server_protocol::LogoutAccountResponse;
+use codex_app_server_protocol::ProviderCredentialStatus;
+use codex_app_server_protocol::ProviderCredentialStatusListResponse;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ServerNotification;
 use codex_app_server_protocol::ServerRequest;
@@ -49,6 +52,8 @@ use codex_login::auth::BedrockApiKeyAuth;
 use codex_login::load_auth_dot_json;
 use codex_login::login_with_api_key;
 use codex_login::login_with_bedrock_api_key;
+use codex_protocol::ProviderAccessMethod;
+use codex_protocol::ProviderRoute;
 use codex_protocol::account::PlanType as AccountPlanType;
 use codex_protocol::auth::AuthMode as DomainAuthMode;
 use core_test_support::responses;
@@ -1352,7 +1357,7 @@ async fn logout_managed_bedrock_restores_default_account() -> Result<()> {
         read_account(&mut mcp).await?,
         GetAccountResponse {
             account: None,
-            requires_openai_auth: true,
+            requires_openai_auth: false,
         }
     );
     Ok(())
@@ -2378,6 +2383,74 @@ async fn get_account_no_auth() -> Result<()> {
 
     assert_eq!(account.account, None, "expected no account");
     assert_eq!(account.requires_openai_auth, true);
+    Ok(())
+}
+
+#[tokio::test]
+async fn deepseek_login_reports_redacted_provider_credentials_and_route_logout_isolated()
+-> Result<()> {
+    let codex_home = TempDir::new()?;
+    create_config_toml(codex_home.path(), CreateConfigTomlParams::default())?;
+    login_with_api_key(
+        codex_home.path(),
+        "openai-secret",
+        AuthCredentialsStoreMode::File,
+        AuthKeyringBackendKind::default(),
+    )?;
+
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .without_auto_env()
+        .with_env_overrides(&[("OPENAI_API_KEY", None), ("DEEPSEEK_API_KEY", None)])
+        .build_initialized_with_timeout(DEFAULT_READ_TIMEOUT)
+        .await?;
+    let login_id = mcp
+        .send_login_account_request(json!({
+            "type": "deepseekApiKey",
+            "apiKey": "deepseek-secret"
+        }))
+        .await?;
+    let login: LoginAccountResponse =
+        timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(login_id)).await??;
+    assert_eq!(login, LoginAccountResponse::DeepseekApiKey {});
+
+    let read_id = mcp.send_provider_credential_status_list_request().await?;
+    let credentials: ProviderCredentialStatusListResponse =
+        timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(read_id)).await??;
+    assert_eq!(
+        credentials.data,
+        vec![
+            ProviderCredentialStatus {
+                route: ProviderRoute::new("openai", ProviderAccessMethod::Chatgpt),
+                configured: false,
+            },
+            ProviderCredentialStatus {
+                route: ProviderRoute::new("openai", ProviderAccessMethod::ApiKey),
+                configured: true,
+            },
+            ProviderCredentialStatus {
+                route: ProviderRoute::new("deepseek", ProviderAccessMethod::ApiKey),
+                configured: true,
+            },
+        ]
+    );
+
+    let deepseek_route = ProviderRoute::new("deepseek", ProviderAccessMethod::ApiKey);
+    let logout_id = mcp
+        .send_logout_provider_route_request(LogoutAccountParams {
+            route: deepseek_route,
+        })
+        .await?;
+    let _: LogoutAccountResponse =
+        timeout(DEFAULT_READ_TIMEOUT, mcp.read_response(logout_id)).await??;
+    let stored = load_auth_dot_json(
+        codex_home.path(),
+        AuthCredentialsStoreMode::File,
+        AuthKeyringBackendKind::default(),
+    )?
+    .expect("OpenAI credential should remain");
+    assert_eq!(stored.openai_api_key.as_deref(), Some("openai-secret"));
+    assert_eq!(stored.deepseek_api_key, None);
     Ok(())
 }
 

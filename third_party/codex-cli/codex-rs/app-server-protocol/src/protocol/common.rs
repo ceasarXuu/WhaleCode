@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use crate::JSONRPCNotification;
 use crate::JSONRPCRequest;
 use crate::JsonSchema;
+#[allow(unused_imports)]
+use crate::LogoutAccountParams;
 use crate::RequestId;
 use crate::TS;
 #[cfg(test)]
@@ -1207,7 +1209,7 @@ client_request_definitions! {
     },
 
     LogoutAccount => "account/logout" {
-        params: #[ts(type = "undefined")] #[serde(skip_serializing_if = "Option::is_none")] Option<()>,
+        params: #[ts(optional, as = "Option<LogoutAccountParams>", inline)] #[serde(default, skip_serializing_if = "Option::is_none")] v2::NullableLogoutAccountParams,
         serialization: global("account-auth"),
         response: v2::LogoutAccountResponse,
     },
@@ -1350,6 +1352,12 @@ client_request_definitions! {
         params: v2::GetAccountParams,
         serialization: global("account-auth"),
         response: v2::GetAccountResponse,
+    },
+
+    ProviderCredentialStatusList => "account/providerCredentials/read" {
+        params: #[ts(type = "undefined")] #[serde(skip_serializing_if = "Option::is_none")] Option<()>,
+        serialization: global_shared_read("account-auth"),
+        response: v2::ProviderCredentialStatusListResponse,
     },
 
     /// DEPRECATED APIs below
@@ -3233,6 +3241,25 @@ mod tests {
     }
 
     #[test]
+    fn serialize_account_login_deepseek_api_key() -> Result<()> {
+        let request = ClientRequest::LoginAccount {
+            request_id: RequestId::Integer(2),
+            params: v2::LoginAccountParams::DeepseekApiKey {
+                api_key: "deepseek-secret".to_string(),
+            },
+        };
+        assert_eq!(
+            json!({
+                "method": "account/login/start",
+                "id": 2,
+                "params": {"type": "deepseekApiKey", "apiKey": "deepseek-secret"}
+            }),
+            serde_json::to_value(&request)?,
+        );
+        Ok(())
+    }
+
+    #[test]
     fn serialize_account_login_amazon_bedrock() -> Result<()> {
         let request = ClientRequest::LoginAccount {
             request_id: RequestId::Integer(2),
@@ -3364,6 +3391,30 @@ mod tests {
             json!({
                 "method": "account/logout",
                 "id": 5,
+            }),
+            serde_json::to_value(&request)?,
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn serialize_provider_route_logout() -> Result<()> {
+        let request = ClientRequest::LogoutAccount {
+            request_id: RequestId::Integer(6),
+            params: Some(v2::LogoutAccountParams {
+                route: codex_protocol::ProviderRoute::new(
+                    "deepseek",
+                    codex_protocol::ProviderAccessMethod::ApiKey,
+                ),
+            }),
+        };
+        assert_eq!(
+            json!({
+                "method": "account/logout",
+                "id": 6,
+                "params": {
+                    "route": {"modelProviderId": "deepseek", "accessMethod": "apiKey"}
+                }
             }),
             serde_json::to_value(&request)?,
         );

@@ -2496,6 +2496,31 @@ impl AuthManager {
         }
     }
 
+    /// Reports whether a provider route has usable credential material without exposing it.
+    pub fn has_credentials_for_route(&self, route: &ProviderRoute) -> std::io::Result<bool> {
+        let stored = self.load_stored_auth()?;
+        Ok(
+            match (route.model_provider_id.as_str(), route.access_method) {
+                (OPENAI_PROVIDER_ID, ProviderAccessMethod::ApiKey) => {
+                    read_openai_api_key_from_env().is_some()
+                        || stored
+                            .as_ref()
+                            .is_some_and(|auth| auth.openai_api_key.is_some())
+                }
+                (DEEPSEEK_PROVIDER_ID, ProviderAccessMethod::ApiKey) => {
+                    read_deepseek_api_key_from_env().is_some()
+                        || stored
+                            .as_ref()
+                            .is_some_and(|auth| auth.deepseek_api_key.is_some())
+                }
+                (OPENAI_PROVIDER_ID, ProviderAccessMethod::Chatgpt) => {
+                    stored.as_ref().is_some_and(|auth| auth.tokens.is_some())
+                }
+                _ => false,
+            },
+        )
+    }
+
     fn load_stored_auth(&self) -> std::io::Result<Option<AuthDotJson>> {
         load_auth_dot_json(
             &self.codex_home,

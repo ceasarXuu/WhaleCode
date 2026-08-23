@@ -41,6 +41,7 @@ use codex_app_server_protocol::GetAccountParams;
 use codex_app_server_protocol::GetAccountRateLimitsResponse;
 use codex_app_server_protocol::GetAccountResponse;
 use codex_app_server_protocol::JSONRPCErrorError;
+use codex_app_server_protocol::LogoutAccountParams;
 use codex_app_server_protocol::LogoutAccountResponse;
 use codex_app_server_protocol::MapRuntimeMode;
 use codex_app_server_protocol::MemoryResetResponse;
@@ -48,6 +49,7 @@ use codex_app_server_protocol::Model as ApiModel;
 use codex_app_server_protocol::ModelListParams;
 use codex_app_server_protocol::ModelListResponse;
 use codex_app_server_protocol::NewThreadModelDefaults;
+use codex_app_server_protocol::ProviderCredentialStatusListResponse;
 use codex_app_server_protocol::RateLimitSnapshot;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ReviewDelivery;
@@ -121,6 +123,7 @@ use codex_app_server_protocol::TurnSteerParams;
 use codex_app_server_protocol::TurnSteerResponse;
 use codex_app_server_protocol::UserInput;
 use codex_otel::TelemetryAuthMode;
+use codex_protocol::ProviderRoute;
 use codex_protocol::ThreadId;
 use codex_protocol::approvals::GuardianAssessmentEvent;
 use codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
@@ -1293,6 +1296,34 @@ impl AppServerSession {
             .await
             .wrap_err("account/logout failed in TUI")?;
         Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub(crate) async fn logout_provider_route(&mut self, route: ProviderRoute) -> Result<()> {
+        let request_id = self.next_request_id();
+        let _: LogoutAccountResponse = self
+            .client
+            .request_typed(ClientRequest::LogoutAccount {
+                request_id,
+                params: Some(LogoutAccountParams { route }),
+            })
+            .await
+            .wrap_err("provider account/logout failed in TUI")?;
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub(crate) async fn read_provider_credentials(
+        &mut self,
+    ) -> Result<ProviderCredentialStatusListResponse> {
+        let request_id = self.next_request_id();
+        self.client
+            .request_typed(ClientRequest::ProviderCredentialStatusList {
+                request_id,
+                params: None,
+            })
+            .await
+            .wrap_err("account/providerCredentials/read failed in TUI")
     }
 
     pub(crate) async fn thread_unsubscribe(&mut self, thread_id: ThreadId) -> Result<()> {

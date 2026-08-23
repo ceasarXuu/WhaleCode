@@ -1747,6 +1747,26 @@
         },
         {
           "properties": {
+            "apiKey": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "deepseekApiKey"
+              ],
+              "title": "DeepseekApiKeyLoginAccountParamsType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "apiKey",
+            "type"
+          ],
+          "title": "DeepseekApiKeyLoginAccountParams",
+          "type": "object"
+        },
+        {
+          "properties": {
             "appBrand": {
               "anyOf": [
                 {
@@ -1861,6 +1881,17 @@
         "chatgpt"
       ],
       "type": "string"
+    },
+    "LogoutAccountParams": {
+      "properties": {
+        "route": {
+          "$ref": "#/definitions/ProviderRoute"
+        }
+      },
+      "required": [
+        "route"
+      ],
+      "type": "object"
     },
     "MapRuntimeMode": {
       "enum": [
@@ -2579,6 +2610,30 @@
       },
       "required": [
         "path"
+      ],
+      "type": "object"
+    },
+    "ProviderAccessMethod": {
+      "description": "Authentication path used for a provider route. This enum never carries credentials.",
+      "enum": [
+        "chatgpt",
+        "apiKey"
+      ],
+      "type": "string"
+    },
+    "ProviderRoute": {
+      "description": "Non-secret identity for selecting a model provider and its authentication path.",
+      "properties": {
+        "accessMethod": {
+          "$ref": "#/definitions/ProviderAccessMethod"
+        },
+        "modelProviderId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "accessMethod",
+        "modelProviderId"
       ],
       "type": "object"
     },
@@ -7243,7 +7298,14 @@
           "type": "string"
         },
         "params": {
-          "type": "null"
+          "anyOf": [
+            {
+              "$ref": "#/definitions/LogoutAccountParams"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -7713,6 +7775,29 @@
         "params"
       ],
       "title": "Account/readRequest",
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "account/providerCredentials/read"
+          ],
+          "title": "Account/providerCredentials/readRequestMethod",
+          "type": "string"
+        },
+        "params": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "id",
+        "method"
+      ],
+      "title": "Account/providerCredentials/readRequest",
       "type": "object"
     },
     {

@@ -55,6 +55,7 @@ use codex_app_server_protocol::JSONRPCRequest;
 use codex_app_server_protocol::JSONRPCResponse;
 use codex_app_server_protocol::ListMcpServerStatusParams;
 use codex_app_server_protocol::LoginAccountParams;
+use codex_app_server_protocol::LogoutAccountParams;
 use codex_app_server_protocol::MarketplaceAddParams;
 use codex_app_server_protocol::MarketplaceRemoveParams;
 use codex_app_server_protocol::MarketplaceUpgradeParams;
@@ -450,6 +451,11 @@ impl TestAppServer {
     ) -> anyhow::Result<i64> {
         let params = Some(serde_json::to_value(params)?);
         self.send_request("account/read", params).await
+    }
+
+    pub async fn send_provider_credential_status_list_request(&mut self) -> anyhow::Result<i64> {
+        self.send_request("account/providerCredentials/read", None)
+            .await
     }
 
     /// Send an `account/login/start` JSON-RPC request with ChatGPT auth tokens.
@@ -1380,6 +1386,14 @@ impl TestAppServer {
     /// Send an `account/logout` JSON-RPC request.
     pub async fn send_logout_account_request(&mut self) -> anyhow::Result<i64> {
         self.send_request("account/logout", /*params*/ None).await
+    }
+
+    pub async fn send_logout_provider_route_request(
+        &mut self,
+        params: LogoutAccountParams,
+    ) -> anyhow::Result<i64> {
+        self.send_request("account/logout", Some(serde_json::to_value(params)?))
+            .await
     }
 
     /// Send an `account/login/start` JSON-RPC request.

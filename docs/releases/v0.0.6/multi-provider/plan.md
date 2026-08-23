@@ -1,6 +1,6 @@
 # WhaleCode v0.0.6 多 Provider 工程实施计划
 
-- Status: phase-1-in-progress
+- Status: phase-1-verified
 - Product Authority: `../../../../prd/2026-08-23-v0.0.6-multi-provider.md#confirmed-product-decisions`
 - Applicable Decisions: PD1, PD2, PD3, PD4, PD5, PD6, PD7, PD8, PD9, PD10, PD11, PD12, PD13, PD14, PD15, PD16
 - Current-State Evidence: `./current-state-inventory.md`
@@ -85,7 +85,7 @@
 | W1 | 固定 route identity | 协议/类型 | `protocol/src/provider_route.rs`、app-server v2 thread/account schemas | `ProviderRoute`、route+model selection DTO | 新增非敏感、向后兼容的 route 类型并生成 schema fixture | 三条访问路由在 core/app-server/TUI 使用同一 identity | 消除 provider ID 与 auth mode 混淆 | Complexity：新增 1 个值类型和 schema 字段；Reach：协议消费者与 fixture | serde 测试已通过；route 被 W7 API 引用后生成并审核 app-server schema fixture | 类型已实现且测试；API/schema 集成安全停在 W7 前 | implemented |
 | W2 | 建立多槽凭据存储 | 安全/数据 | `login/src/auth/storage.rs`、`manager.rs`、storage tests | flat `AuthDotJson` credential slots | 按 D1 兼容扩展 `DEEPSEEK_API_KEY`，OpenAI/DeepSeek 登录执行读取—字段级合并—原子保存 | 三类凭据可共存且旧用户不丢登录 | 满足 PD9/PD15 并修复 DeepSeek 错位 | Complexity：新增 optional 字段；Reach：file/keyring/ephemeral、敏感数据生命周期 | 197 个 `codex-login` 测试全过，含旧 fixture、keyring 三槽 round-trip、refresh 保留 | optional 字段可被旧版本忽略；写入失败保持旧文件原子不变 | implemented |
 | W3 | 提供 route-bound auth view | 认证运行时 | `login/src/auth/manager.rs`、`model-provider` client construction | `AuthManager::auth_for_route` | 从共享存储按 `ProviderRoute` 选择 ChatGPT/OpenAI API/DeepSeek API，不改变 legacy cached auth | 并发 session 可分别解析三条认证路径 | 防止切换一个 session 污染其他 session | Complexity：增加 route 选择分支；Reach：后续 provider request auth、refresh、401 路径 | 三路 route selection 与 key 隔离测试通过；client construction 接线留给 transition | 保留现有 legacy `auth()`，未迁移调用方行为不变 | auth-view-implemented |
-| W4 | 精确登录登出与状态 | API/安全 | app-server protocol v2 account、`account_processor.rs`、TUI onboarding | login params、account status、logout target | 已提供 DeepSeek 字段级 login 与 route 精确 logout；后续给 account API/TUI 接入并返回三槽脱敏状态 | 存储层可独立录入和清除访问方式；UI 尚未接线 | 先闭合凭据生命周期原语 | Complexity：字段级 merge/clear；Reach：后续 CLI/TUI/app-server 客户端 | route logout isolation 与 legacy login/logout 全套测试通过 | legacy logout 保留；route 操作失败不改其他槽 | storage-implemented-api-pending |
+| W4 | 精确登录登出与状态 | API/安全 | app-server protocol v2 account、`account_processor.rs`、TUI onboarding | login params、account status、logout target | 新增 DeepSeek 独立 login、三槽脱敏状态读取与 route 精确 logout；修正 TUI DeepSeek onboarding 的环境变量和登录类型 | 三类凭据可独立录入、检测和清除，legacy logout-all 保持兼容 | 闭合凭据生命周期并避免 Key 错槽 | Complexity：字段级 merge/clear；Reach：CLI/TUI/app-server 客户端 | protocol 292/292、account 目标路径与 legacy login/logout、TUI onboarding 15/15、login 197/197 通过 | legacy logout 保留；route 操作失败不改其他槽 | implemented |
 | W5 | 隔离模型缓存 | 缓存/数据 | `models-manager/src/manager.rs`、cache types/tests | cache eligibility/path/key | cache entry 写入 optional route；route manager 使用独立安全文件名并严格匹配 route，旧无 identity cache 对 route manager 为 miss | 不同 Provider/访问方式不串模型目录 | 消除错误模型与 ETag 复用 | Complexity：cache schema/key 增加；Reach：启动/刷新/磁盘缓存，触发缓存敏感门禁 | `codex-models-manager` 54/54 通过，含 cross-route miss/refetch/store；三路 runtime manager 使用独立 cache；cache regression gate | legacy manager 继续读取旧 cache；新 route cache 可失效重建 | implemented |
 | W6 | 生成三组模型目录 | 模型目录 | `models-manager`、bundled presets、app-server model listing、TUI `model_catalog.rs` | route-scoped catalog result | 保留 legacy DeepSeek 视图，新增按 route 获取/合并模型并携带 availability/reason | app-server 总能返回三组，缺凭据项显示不可用而非消失；TUI 分组展示待 W14 接线 | 满足 PD14/PD16，且路由明确 | Complexity：catalog DTO/三路刷新；Reach：启动延迟、缓存、picker、模型默认值 | route 分流、三组聚合、缺凭据可见、默认模型、Bedrock provider 目录隔离测试通过；TUI 待接线 | 单路刷新失败只标记该组不可用，不污染当前 route | runtime-implemented-tui-pending |
 | W7 | 扩展原子 settings 协议 | 协议/控制面 | app-server `thread.rs`、`thread_processor.rs`、core protocol | `ThreadSettingsUpdateParams`、`ThreadSettingsOverrides` | 让 route+model 作为一个 selection 进入现有 settings submission | `/provider` 与跨组 `/model` 共享同一 core 操作 | 避免先切 provider 再补 model 的半状态 | Complexity：协议字段/映射分支；Reach：所有 settings clients/schema | request validation、legacy model-only、invalid combination tests | optional 新字段保持旧客户端兼容 | planned |
@@ -138,7 +138,7 @@
 
 #### 当前实施证据
 
-- 已完成范围：W2、W3 auth view、W4 storage primitives、W5 route-scoped cache、W6 grouped catalog core、三路 runtime manager registry 与兼容 app-server `groups` 响应；account API/TUI 数据接线尚未完成。
+- 已完成范围：W2–W6 与认证侧 W16。三路凭据、route-bound auth、精确 login/logout、脱敏状态、route-scoped cache、分组目录、runtime manager registry、app-server `groups` 响应和 DeepSeek onboarding 均已接线；TUI `/provider` 与分组 `/model` 仍按 W13/W14 留在 Phase 4。
 - `just test -p codex-login`：197/197 通过；全部为本地 fixture/mock，没有真实 Provider 请求或模型费用。
 - `just test -p codex-models-manager`：52/52 通过；另一 route 或旧无 route entry 不会命中新 route manager。
 - cache regression index gate：通过；surface `926188e1093dd019d07d8a8231c97592e3c3e5224c810c6481ef5e93043f6526`，Standard 与 TaskSpace 免费 final-wire 均可比较且无变化；未运行真实模型，发布级 live baseline 仍保持阻断。
@@ -147,6 +147,9 @@
 - W6 runtime/app-server：`ThreadManager` 持有 `openai/chatgpt`、`openai/api-key`、`deepseek/api-key` 三个 route-bound manager，认证、模型 endpoint 与磁盘 cache 都按 route 解析；`model/list` 在保留旧 `data`/cursor 的同时返回真实 `groups`。`codex-model-provider` 76/76、`codex-models-manager` 54/54、app-server model-list 5/5 通过；Bedrock 权威目录显式隔离于 Whale legacy DeepSeek 过滤。
 - W6 runtime cache regression index gate：通过；surface `311ebcae9d38fec7a3bae0d23a1ca279c00ffb3cc50c875241ca652b71ee24b8`，免费 final-wire 验证通过；未运行真实模型，发布级 live baseline 继续阻断。
 - 兼容行为：损坏的旧 auth 仍可被原生登录修复；有效旧记录执行字段级合并；OpenAI API 登录继续清除互斥的 Bedrock 激活状态，但保留 ChatGPT 与 DeepSeek 槽。
+- W4 API/TUI：app-server protocol 292/292、`codex-login` 197/197、TUI onboarding 15/15 通过；account 路径中 DeepSeek login→三槽脱敏 read→DeepSeek-only logout、legacy OpenAI login/logout 与 Bedrock 回退均通过。account 聚合回归 50/52 通过；剩余两个 Edu workspace-plan fixture 会在 app-server 启动时尝试未配置的 managed cloud bundle，属于测试隔离缺口，不影响本阶段认证路径，留待 W18 隔离回归统一修复。
+- W4 cache regression index gate：通过；surface 仍为 `311ebcae9d38fec7a3bae0d23a1ca279c00ffb3cc50c875241ca652b71ee24b8`，免费 final-wire 无变化；未运行真实模型。
+- Phase 1 Exit：verified。三槽共存、独立 login/logout、route-bound auth 隔离、三组 catalog、cache 隔离与 secret-free status 均有离线证据；全程未发起真实 Provider/模型请求。
 
 ### Phase 2：Core 原子 Provider Transition
 
@@ -217,7 +220,7 @@
 | Phase | Decision Surface | Implemented / Observed Semantics | Authority Coverage | Classification | Required Action |
 |---|---|---|---|---|---|
 | Phase 0 | route/auth/turn/history 可行性 | route identity 不含 secret；现有 flat auth record 支持 OpenAI 双槽存储/刷新；settings FIFO 保持 next-turn 边界；wire projection 基于副本 | PD3–PD6、PD8、PD11、PD15 | engineering-only | D1 仅修改后续工程设计；Phase 1 前请求计划审批 |
-| Phase 1 | 凭据与模型分组 | 待执行 | PD3–PD5、PD9、PD13、PD15、PD16 | pending | 阶段结束审计 |
+| Phase 1 | 凭据与模型分组 | 三条 route 的凭据可共存并精确读写/登出；状态仅暴露 configured 布尔值；目录和缓存按 route 隔离，缺凭据组保持可见；DeepSeek onboarding 不再写入 OpenAI 槽 | PD3–PD5、PD9、PD13、PD15、PD16 | conforming | 无新增产品决策；进入 Phase 2 rebase |
 | Phase 2 | 原子切换、prompt/tools/compact/replay | 待执行 | PD6–PD11 | pending | 阶段结束审计 |
 | Phase 3 | 历史与生命周期 | 待执行 | PD6、PD7、PD10、PD11 | pending | 阶段结束审计 |
 | Phase 4 | TUI 与命令可用性 | 待执行 | PD2、PD3、PD8、PD12、PD14、PD16 | pending | 阶段结束审计 |

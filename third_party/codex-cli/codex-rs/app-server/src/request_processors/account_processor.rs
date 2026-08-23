@@ -108,8 +108,9 @@ impl AccountRequestProcessor {
     pub(crate) async fn logout_account(
         &self,
         request_id: ConnectionRequestId,
+        params: Option<LogoutAccountParams>,
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
-        self.logout_v2(request_id).await.map(|()| None)
+        self.logout_v2(request_id, params).await.map(|()| None)
     }
 
     pub(crate) async fn cancel_login_account(
@@ -127,6 +128,13 @@ impl AccountRequestProcessor {
     ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
         self.get_account_response(params)
             .await
+            .map(|response| Some(response.into()))
+    }
+
+    pub(crate) fn provider_credential_status_list(
+        &self,
+    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
+        self.provider_credential_status_list_response()
             .map(|response| Some(response.into()))
     }
 
@@ -285,6 +293,20 @@ impl AccountRequestProcessor {
             LoginAccountParams::ApiKey { api_key } => {
                 self.login_api_key_v2(request_id, LoginApiKeyParams { api_key })
                     .await;
+            }
+            LoginAccountParams::DeepseekApiKey { api_key } => {
+                let result = login_with_deepseek_api_key(
+                    &self.config.codex_home,
+                    &api_key,
+                    self.config.cli_auth_credentials_store_mode,
+                    self.config.auth_keyring_backend_kind(),
+                )
+                .map_err(|err| internal_error(format!("failed to save DeepSeek API key: {err}")))
+                .map(|()| LoginAccountResponse::DeepseekApiKey {});
+                if result.is_ok() {
+                    self.auth_manager.reload().await;
+                }
+                self.outgoing.send_result(request_id, result).await;
             }
             LoginAccountParams::Chatgpt {
                 app_brand,
@@ -870,7 +892,10 @@ impl AccountRequestProcessor {
         }
     }
 
-    async fn logout_common(&self) -> std::result::Result<Option<AuthMode>, JSONRPCErrorError> {
+    async fn logout_common(
+        &self,
+        route: Option<&ProviderRoute>,
+    ) -> std::result::Result<Option<AuthMode>, JSONRPCErrorError> {
         if self.auth_manager.is_workload_identity_selected() {
             return Err(self.configured_auth_owned_by_host_error());
         }
@@ -879,7 +904,7 @@ impl AccountRequestProcessor {
             Some(CodexAuth::BedrockApiKey(_))
         );
         let config = self.load_latest_config().await;
-        if config.model_provider.is_amazon_bedrock() && !managed_bedrock_auth {
+        if route.is_none() && config.model_provider.is_amazon_bedrock() && !managed_bedrock_auth {
             return Err(invalid_request(
                 "cannot log out while Amazon Bedrock is using AWS-managed credentials; manage those credentials through AWS or switch model providers before logging out Whale authentication",
             ));
@@ -893,16 +918,22 @@ impl AccountRequestProcessor {
             }
         }
 
-        match self.auth_manager.logout_with_revoke().await {
-            Ok(_) => {}
-            Err(err) => {
-                return Err(internal_error(format!("logout failed: {err}")));
-            }
+        if let Some(route) = route {
+            logout_provider_route(
+                &self.config.codex_home,
+                route,
+                self.config.cli_auth_credentials_store_mode,
+                self.config.auth_keyring_backend_kind(),
+            )
+            .map_err(|err| internal_error(format!("provider logout failed: {err}")))?;
+            self.auth_manager.reload().await;
+        } else if let Err(err) = self.auth_manager.logout_with_revoke().await {
+            return Err(internal_error(format!("logout failed: {err}")));
         }
 
         self.config_manager.clear_cloud_config_bundle_loader();
 
-        if managed_bedrock_auth {
+        if route.is_none() && managed_bedrock_auth {
             clear_user_model_provider_if_bedrock(&self.config_manager).await?;
         }
 
@@ -922,8 +953,14 @@ impl AccountRequestProcessor {
             .map(auth_mode_to_api))
     }
 
-    async fn logout_v2(&self, request_id: ConnectionRequestId) -> Result<(), JSONRPCErrorError> {
-        let result = self.logout_common().await;
+    async fn logout_v2(
+        &self,
+        request_id: ConnectionRequestId,
+        params: Option<LogoutAccountParams>,
+    ) -> Result<(), JSONRPCErrorError> {
+        let result = self
+            .logout_common(params.as_ref().map(|params| &params.route))
+            .await;
         let account_updated =
             result
                 .as_ref()
@@ -1054,6 +1091,31 @@ impl AccountRequestProcessor {
         Ok(GetAccountResponse {
             account,
             requires_openai_auth: account_state.requires_openai_auth,
+        })
+    }
+
+    fn provider_credential_status_list_response(
+        &self,
+    ) -> Result<ProviderCredentialStatusListResponse, JSONRPCErrorError> {
+        let routes = [
+            ProviderRoute::new("openai", ProviderAccessMethod::Chatgpt),
+            ProviderRoute::new("openai", ProviderAccessMethod::ApiKey),
+            ProviderRoute::new("deepseek", ProviderAccessMethod::ApiKey),
+        ];
+        let provider_credentials = routes
+            .into_iter()
+            .map(|route| {
+                self.auth_manager
+                    .has_credentials_for_route(&route)
+                    .map(|configured| ProviderCredentialStatus { route, configured })
+                    .map_err(|err| {
+                        internal_error(format!("failed to read provider credentials: {err}"))
+                    })
+            })
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(ProviderCredentialStatusListResponse {
+            data: provider_credentials,
         })
     }
 

@@ -1515,9 +1515,9 @@ impl MessageProcessor {
             ClientRequest::BedrockDiscover { .. } | ClientRequest::BedrockSetup { .. } => Err(
                 crate::error_code::method_not_found("Amazon Bedrock setup is not implemented"),
             ),
-            ClientRequest::LogoutAccount { .. } => {
+            ClientRequest::LogoutAccount { params, .. } => {
                 self.account_processor
-                    .logout_account(request_id.clone())
+                    .logout_account(request_id.clone(), params)
                     .await
             }
             ClientRequest::CancelLoginAccount { params, .. } => {
@@ -1525,6 +1525,9 @@ impl MessageProcessor {
             }
             ClientRequest::GetAccount { params, .. } => {
                 self.account_processor.get_account(params).await
+            }
+            ClientRequest::ProviderCredentialStatusList { .. } => {
+                self.account_processor.provider_credential_status_list()
             }
             ClientRequest::GetAuthStatus { params, .. } => {
                 self.account_processor.get_auth_status(params).await
