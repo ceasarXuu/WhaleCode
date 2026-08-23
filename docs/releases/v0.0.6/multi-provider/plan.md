@@ -234,12 +234,13 @@
 #### Pre-Phase Plan Rebase Gate
 
 - Rebase scope: 全部实现、schema/fixture、缓存指纹、回归结果、v0.0.6 文档
-- Material plan delta: pending
-- Plan delta record: pending
-- User approval: pending-if-material
-- Gate status: pending
+- Material plan delta: none
+- Plan delta record: not-required
+- User approval: not-required
+- Gate status: ready
 
-- Entry: Phase 1–4 各自 evidence verified，无 provisional/conflict。
+- Entry: Phase 1–4 功能切片 evidence verified；隔离 TUI 全量基线已知为 3709/3755 通过、46 失败、6 跳过。
+- Rebase facts (2026-08-24): Phase 4 相关 model popup 陈旧快照已对齐并单测通过；剩余失败横跨 feedback、guardian、status、pets 等未属于 multi-provider 的模块。其中 `/ag` 失败可独立定位为既有 `Agent`/`Agents` 前缀选择冲突；ChatGPT rate-limit prefetch 失败来自测试使用 DeepSeek 默认 provider 却期待 `requires_openai_auth=true`。W18 不会为追求全绿扩张修复这些无关功能，也不会把失败误报为通过；它们若在最终矩阵中保持，发布状态仍为 blocked，并给出精确证据。
 - Work: W18；修复仅限已批准设计内缺陷，物质范围变化先记录 Plan Delta。
 - Exit evidence: 第 8 节必需门禁全部通过，PRD acceptance criteria 有逐项测试证据，工作区无本任务未提交修改。
 - Product Decision Delta: 汇总各阶段审计，不用实现结果反向扩展 Product Authority。
