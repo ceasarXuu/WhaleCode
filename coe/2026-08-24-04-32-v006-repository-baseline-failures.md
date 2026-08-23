@@ -34,6 +34,9 @@
   - H-006
   - H-007
   - H-008
+  - H-009
+  - H-010
+  - H-011
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -368,6 +371,78 @@
 - Conclusion: remote 与 sharing 是正交 opt-in；测试 helper 仍按旧的聚合默认编写，生产 feature 门禁无需改变。
 - Repair design readiness: implemented and verified
 - Next step: none for H-008
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-009: 外部配置导入断言仍使用上游品牌文本
+- Status: confirmed
+- Parent: P-001
+- Claim: attribution-only 导入测试期待 `Codex guidance`，但 Whale 已有的导入源归属文本是 `Whale guidance`，失败来自陈旧品牌断言。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 测试验证的是 source 字段仅用于归属而不改变主导入源，不应借此要求旧产品品牌。
+- Falsifiable predictions:
+  - If true: 只更新品牌预期即可恢复测试，导入来源和文件路径行为不变。
+  - If false: 更新品牌后仍有导入路由或内容错误。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-018
+- Conclusion: 定向测试仅更新品牌预期后通过，生产逻辑未修改。
+- Repair design readiness: implemented and verified
+- Next step: none for H-009
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-010: secondary session fixture 偶然依赖目录反解和文件 mtime
+- Status: confirmed
+- Parent: P-001
+- Claim: Cursor 会话端到端夹具未在记录顶层提供 `cwd` 和时间戳，导致临时目录名无法唯一反解时 session summary 被丢弃。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - Cursor session parser支持记录内 `cwd`/`timestamp_ms`；原夹具把时间写在用户文本标签中，并依赖 fallback cwd 才回退到文件 mtime。
+- Falsifiable predictions:
+  - If true: 补齐记录级 `cwd` 和 `timestamp_ms` 后，Sessions 与 Plugins 两项都会被检测并完成导入。
+  - If false: 补齐元数据后 Sessions 仍缺失。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-018
+- Conclusion: 补齐真实记录格式的必要元数据后，端到端检测和导入恢复。
+- Repair design readiness: implemented and verified
+- Next step: none for H-010
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-011: command/exec 测试误把宿主不可见等同于子进程权限错误
+- Status: confirmed
+- Parent: P-001
+- Claim: 隔离沙箱允许命令在临时文件系统视图中完成父路径写入，但不会把该写入暴露给宿主；原测试用 shell `!` 要求写入返回错误，误判了隔离合同。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 原失败中命令退出 1，但宿主父文件不存在；移除 `!` 后命令退出 0，宿主父文件仍不存在且工作目录子文件正常持久化。
+- Falsifiable predictions:
+  - If true: 直接执行两次写入时命令成功，同时只有 workspace root 内的子文件在宿主可见。
+  - If false: 父文件泄漏到宿主或子文件也不可见。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-018
+- Conclusion: 测试已改为直接验证持久化边界，而非假定沙箱后端必须返回权限错误。
+- Repair design readiness: implemented and verified
+- Next step: none for H-011
 - Blocker:
   - none
 - Close reason:
@@ -737,3 +812,24 @@
   ```
 - Interpretation: 14 个原全量失败已闭环，正交 feature 的正反向合同均保留。
 - Time: 2026-08-24 06:42 +0800
+
+## Evidence E-018: 三项 app-server 测试合同修正后通过
+- Related hypotheses:
+  - H-009
+  - H-010
+  - H-011
+- Direction: supports
+- Type: verification
+- Source: app-server 三项隔离定向 nextest
+- Prediction or plan link:
+  - H-009 至 H-011 的最小测试夹具修正预测。
+- Matched signal:
+  - attribution-only 用例保留导入行为并接受 Whale 品牌；secondary source 同时检测 Sessions 与 Plugins；command/exec 命令成功、子文件持久化且父文件不泄漏。
+- Correlation keys:
+  - nextest run `ed6bf35e-f7a4-413f-b38c-653c1fe36e90`
+- Raw content:
+  ```text
+  Summary [0.229s] 3 tests run: 3 passed, 1238 skipped
+  ```
+- Interpretation: 三项均为测试合同或夹具偏差，未发现需要新增产品决策的运行时缺口。
+- Time: 2026-08-24 05:17 +0800
