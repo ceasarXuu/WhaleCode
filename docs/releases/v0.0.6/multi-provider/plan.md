@@ -147,7 +147,7 @@
 - W6 runtime/app-server：`ThreadManager` 持有 `openai/chatgpt`、`openai/api-key`、`deepseek/api-key` 三个 route-bound manager，认证、模型 endpoint 与磁盘 cache 都按 route 解析；`model/list` 在保留旧 `data`/cursor 的同时返回真实 `groups`。`codex-model-provider` 76/76、`codex-models-manager` 54/54、app-server model-list 5/5 通过；Bedrock 权威目录显式隔离于 Whale legacy DeepSeek 过滤。
 - W6 runtime cache regression index gate：通过；surface `311ebcae9d38fec7a3bae0d23a1ca279c00ffb3cc50c875241ca652b71ee24b8`，免费 final-wire 验证通过；未运行真实模型，发布级 live baseline 继续阻断。
 - 兼容行为：损坏的旧 auth 仍可被原生登录修复；有效旧记录执行字段级合并；OpenAI API 登录继续清除互斥的 Bedrock 激活状态，但保留 ChatGPT 与 DeepSeek 槽。
-- W4 API/TUI：app-server protocol 292/292、`codex-login` 197/197、TUI onboarding 15/15 通过；account 路径中 DeepSeek login→三槽脱敏 read→DeepSeek-only logout、legacy OpenAI login/logout 与 Bedrock 回退均通过。account 聚合回归 50/52 通过；剩余两个 Edu workspace-plan fixture 会在 app-server 启动时尝试未配置的 managed cloud bundle，属于测试隔离缺口，不影响本阶段认证路径，留待 W18 隔离回归统一修复。
+- W4 API/TUI：app-server protocol 292/292、`codex-login` 197/197、TUI onboarding 15/15、account 聚合回归 52/52 通过；account 路径覆盖 DeepSeek login→三槽脱敏 read→DeepSeek-only logout、legacy OpenAI login/logout、Bedrock 回退与 Edu workspace plan。共享测试服务器补齐空 managed cloud-config bundle fixture，避免 workspace auth 回退到默认配置。
 - W4 cache regression index gate：通过；surface 仍为 `311ebcae9d38fec7a3bae0d23a1ca279c00ffb3cc50c875241ca652b71ee24b8`，免费 final-wire 无变化；未运行真实模型。
 - Phase 1 Exit：verified。三槽共存、独立 login/logout、route-bound auth 隔离、三组 catalog、cache 隔离与 secret-free status 均有离线证据；全程未发起真实 Provider/模型请求。
 

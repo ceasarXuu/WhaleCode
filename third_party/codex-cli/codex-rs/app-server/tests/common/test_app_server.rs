@@ -1979,6 +1979,11 @@ impl TestAppServerBuilder {
                     })))
                     .mount(&settings_server)
                     .await;
+                Mock::given(method("GET"))
+                    .and(path("/backend-api/wham/config/bundle"))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+                    .mount(&settings_server)
+                    .await;
                 std::fs::write(
                     &config_path,
                     format!(
