@@ -253,9 +253,22 @@ async fn thread_settings_update_while_turn_is_active_emits_notification() -> Res
     let first_response =
         responses::sse_response(create_final_assistant_message_sse_response("first done")?)
             .set_delay(Duration::from_secs(2));
-    let _requests = responses::mount_response_sequence(&server, vec![first_response]).await;
+    let requests = responses::mount_response_sequence(&server, vec![first_response]).await;
     let codex_home = TempDir::new()?;
     create_config_toml(codex_home.path(), &server.uri())?;
+    std::fs::write(
+        codex_home.path().join("auth.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "OPENAI_API_KEY": "openai-route-test-key"
+        }))?,
+    )?;
+    let route = ProviderRoute::new("openai", ProviderAccessMethod::ApiKey);
+    let model = all_model_presets()
+        .iter()
+        .find(|preset| preset.supported_in_api && !preset.model.starts_with("deepseek-"))
+        .context("bundled catalog should expose an OpenAI API model")?
+        .model
+        .clone();
 
     let mut mcp = TestAppServer::builder()
         .with_codex_home(codex_home.path())
@@ -273,7 +286,8 @@ async fn thread_settings_update_while_turn_is_active_emits_notification() -> Res
         &mut mcp,
         ThreadSettingsUpdateParams {
             thread_id: thread.id.clone(),
-            model: Some("mock-model-4".to_string()),
+            route: Some(route.clone()),
+            model: Some(model.clone()),
             ..Default::default()
         },
     )
@@ -281,13 +295,17 @@ async fn thread_settings_update_while_turn_is_active_emits_notification() -> Res
 
     let updated = read_thread_settings_updated(&mut mcp).await?;
     assert_eq!(updated.thread_id, thread.id);
-    assert_eq!(updated.thread_settings.model, "mock-model-4");
+    assert_eq!(updated.thread_settings.route, Some(route));
+    assert_eq!(updated.thread_settings.model, model);
 
     timeout(
         DEFAULT_TIMEOUT,
         mcp.read_stream_until_notification_message("turn/completed"),
     )
     .await??;
+    let requests = requests.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].body_json()["model"], "mock-model");
     Ok(())
 }
 
