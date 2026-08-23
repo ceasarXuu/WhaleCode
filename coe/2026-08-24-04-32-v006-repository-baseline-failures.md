@@ -2074,3 +2074,47 @@
   ```
 - Interpretation: TUI 的 46 项失败均为可证实的工程基线缺口；没有需要用户决定的新 provider 行为。
 - Time: 2026-08-24 07:42 +0800
+
+## Hypothesis H-036: executor skill 告警场景把被截断工具输出误当完整 JSON
+- Status: confirmed
+- Failure signature:
+  - 测试故意创建 200 个技能触发 context-budget warning；六 crate feature 图下 `skills.list` 的模型可见输出按大输出策略截断，测试仍对其执行完整 JSON 解析并在截断边界失败。
+- Prediction:
+  - 该大输出场景应验证截断文本仍包含选中 executor skill 与 authority；未触发大输出的场景继续严格解析 JSON。
+- Falsification:
+  - 模型可见截断文本缺少目标 skill/authority，或小输出场景不能保持严格 JSON 合同。
+- Minimal experiment:
+  - 只按 scenario 分开 list-output 断言并在六 crate feature 图定向运行。
+- User/product decision required: no
+
+## Hypothesis H-037: remote-control mock 将后台模型刷新误识别为 enroll
+- Status: confirmed
+- Failure signature:
+  - 连接型 mock 假定监听器首个 HTTP 请求必为 enroll；并发矩阵中后台 `/v1/models` 刷新先到，fixture 向错误请求返回 enrollment JSON，随后把真正 enroll HTTP 当作 WebSocket 握手。
+- Prediction:
+  - `read_enroll_request` 按 enroll path 过滤后，后台模型请求只能被丢弃，不再扰乱 WebSocket 建连顺序。
+- Falsification:
+  - 路径过滤后仍出现缺少 `Connection: upgrade`，或正常 enroll 无法完成。
+- Minimal experiment:
+  - 仅修正 mock 请求筛选并在六 crate feature 图定向运行。
+- User/product decision required: no
+
+## Evidence E-051: app-server 两项组合图失败已恢复
+- Related hypotheses:
+  - H-036
+  - H-037
+- Direction: supports
+- Type: verification
+- Source: 六 crate feature 图定向隔离 nextest
+- Prediction or plan link:
+  - H-036 的输出形态分层断言与 H-037 的 enroll path 筛选。
+- Matched signal:
+  - executor skill 大输出仍验证目标 skill/authority 和预算告警；remote-control 在后台刷新竞争下完成 WebSocket 初始化与 EOF shutdown；2/2 通过。
+- Correlation keys:
+  - nextest run `a522124c-f73e-4189-8872-ae4762aff48a`
+- Raw content:
+  ```text
+  2 tests run: 2 passed, 9300 skipped
+  ```
+- Interpretation: 两项均是组合并发/feature 图暴露的 fixture 假设，不涉及 provider 产品逻辑。
+- Time: 2026-08-24 07:53 +0800
