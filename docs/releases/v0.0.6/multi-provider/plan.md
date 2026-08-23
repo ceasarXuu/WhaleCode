@@ -99,7 +99,7 @@
 | W15 | 呈现 Provider-aware 命令能力 | TUI/runtime capability | `bottom_pane/slash_commands.rs`、slash dispatch | existing command flags + disabled reason | 只对现有事实证明受限的 `/usage` 保持可见并展示与 dispatch guard 相同的 ChatGPT 登录原因；不新增通用 capability 层 | 不支持命令可见、禁用且原因一致 | 提升可发现性并阻止错误执行 | Complexity：复用现有 flag；Reach：命令菜单、键入路径、文案测试 | popup disabled reason 与 bare/args 直接输入测试通过 | 无已证明 Provider 限制的命令维持现有行为；`/apps` 保留管理入口 | implemented |
 | W16 | 补齐脱敏与诊断 | observability/security | auth/provider errors、thread events、telemetry/status | route-safe fields、typed transition errors | 统一记录 route/stage/verdict，不记录 secret；为预检、排队、提交、投影、压缩失败提供 typed error | 用户和维护者能定位失败且凭据不泄露 | 降低支持与安全风险 | Complexity：错误枚举/字段；Reach：日志、rollout、status、telemetry | TUI secret masking、登录/刷新错误映射与既有 runtime 脱敏测试通过；发布扫描留 W18 | 日志字段可独立回退；错误不得包含底层 secret body | implemented-release-scan-pending |
 | W17 | 闭合生命周期语义 | 集成/恢复 | thread resume/fork/rollback、agent spawn、app-server thread tests | route restoration/inheritance | 让 resume/fork/rollback 恢复历史位置有效 route，subagent 继承创建时 route snapshot | 多 Provider session 在全部生命周期路径一致 | 防止只在主对话 happy path 生效 | Complexity：重建/继承分支；Reach：thread manager、agent control、rollout truncation | lifecycle matrix tests，含立即退出和 pending/aborted transition | 失败时拒绝恢复并给 typed error，不猜测凭据 | implemented |
-| W18 | 完成回归与交付证据 | 验证/文档 | targeted suites、isolated runner、本主题文档 | test matrix、evidence summary、release status | 运行分层离线回归、schema/fmt/clippy/cache gate并更新证据 | 可证明 PD1–PD16 的实现覆盖和剩余限制 | 提供可审查交付基线 | Complexity：无生产抽象；Reach：构建时间、测试维护、文档 | 见第 8 节；不运行未授权真实模型 | 任一 gate 失败停止发布；源码提交可按原子 commit 回退 | planned |
+| W18 | 完成回归与交付证据 | 验证/文档 | targeted suites、isolated runner、本主题文档 | test matrix、evidence summary、release status | 运行分层离线回归、schema/fmt/clippy/cache gate并更新证据 | 可证明 PD1–PD16 的实现覆盖和剩余限制 | 提供可审查交付基线 | Complexity：无生产抽象；Reach：构建时间、测试维护、文档 | 见第 8 节；不运行未授权真实模型 | 任一 gate 失败停止发布；源码提交可按原子 commit 回退 | blocked-by-repository-baseline |
 
 ## 6. Phases
 
@@ -245,6 +245,10 @@
 - Exit evidence: 第 8 节必需门禁全部通过，PRD acceptance criteria 有逐项测试证据，工作区无本任务未提交修改。
 - Product Decision Delta: 汇总各阶段审计，不用实现结果反向扩展 Product Authority。
 - Cross-unit side effects: 完整 vendor 回归耗时较长；使用隔离 runner，禁止宿主共享临时目录造成误判。
+- Current evidence (2026-08-24): 隔离命令 `python3 scripts/codex-upstream/run_isolated_tests.py -p codex-login -p codex-models-manager -p codex-protocol -p codex-core -p codex-app-server -p codex-tui` 执行 9284 项，8928 通过、356 失败，耗时 244.568s。分组为 login 197/197、models-manager 54/54、protocol 296/297、core 3485/3742、app-server 1187/1239、TUI 3709/3755。JUnit 本地证据为 `third_party/codex-cli/codex-rs/target/nextest/local/junit.xml`（build artifact，不提交）。
+- Relevant failure triage (2026-08-24): multi-provider 新增定向测试均通过；额外抽查 `model_switch_to_smaller_model_updates_token_context_window` 发现旧测试在 Whale 默认 DeepSeek manager 上注入 OpenAI 远程模型，因 route 目录过滤而失败；`read_default_provider_capabilities` 在实际返回 DeepSeek `namespace_tools=false`/`image_generation=false` 时仍期待 OpenAI 的 `true/true`。两者都是测试前提未显式选择 OpenAI route，不是当前 transition 或 capability 实现的反证；修复整个仓库基线超出本主题批准范围。
+- Static gates (2026-08-24): `cargo fmt --all -- --check` 通过。`just fmt-check` 因本机缺失 `dotslash` 且仓库已有 nightly `imports_granularity` 格式差异失败；`just clippy -p codex-tui` 在未触及的 `state/src/runtime/taskspace_action_settlements.rs` 被 `clippy::expect_used` 阻断。两项均如实保留为发布阻断，未修改无关源码绕过。
+- Phase 5 status: blocked。功能实现已原子提交且定向门禁通过，但 Completion Definition 要求的绝对全量回归、`just fmt-check` 与 clippy 未通过，v0.0.6 multi-provider 不能标记为 release-ready。
 
 ## 7. Product Decision Delta Log
 
@@ -255,7 +259,7 @@
 | Phase 2 | 原子切换、prompt/tools/compact/replay | session runtime registry、prepared snapshot、route-bound turn client、route rollout 字段、旧 route compact 与 revision/CAS 补偿已闭合；补偿只覆盖 provider/model 选择，不覆盖后续独立 settings | PD6–PD11 | conforming | D2、D3 已实施并通过门禁；Phase 2 verified |
 | Phase 3 | 历史与生命周期 | resume/rollback/普通 fork 从有效 rollout 重绑历史位置 route/model/prompt；subagent fork 保留 spawning-turn snapshot；目标 provider request 使用可逆 history clone 投影 | PD6、PD7、PD10、PD11 | conforming | D4 已实施并通过门禁；Phase 3 verified，进入 Phase 4 rebase |
 | Phase 4 | TUI 与命令可用性 | route-aware `/provider`、分组 `/model`、三类凭据恢复、catalog 刷新及真实受限命令原因已闭合 | PD2、PD3、PD4、PD5、PD8、PD12、PD14、PD16 | conforming | Phase 4 定向门禁通过；隔离 TUI 全量基线 46 个失败留 W18 分类，不影响本切片原子提交 |
-| Phase 5 | 整体验收 | 待执行 | PD1–PD16 | pending | 逐项链接测试证据 |
+| Phase 5 | 整体验收 | 受影响六 crate 隔离矩阵、fmt 与 clippy 已执行；功能定向证据通过，仓库基线门禁未通过 | PD1–PD16 | blocked | 不扩张修复无关基线；需单独批准基线修复范围后重跑 W18 |
 
 ## 8. Verification Strategy
 
