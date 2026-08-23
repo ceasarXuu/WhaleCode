@@ -43,6 +43,7 @@
   - H-015
   - H-016
   - H-017
+  - H-018
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -713,6 +714,49 @@
 - Conclusion: 通用 spec-plan fixture 必须显式选择支持其工具合同的 OpenAI provider；provider 专属用例继续自行覆盖。
 - Repair design readiness: implemented and verified
 - Next step: none for H-017
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-018: core OpenAI 能力单测未显式绑定 provider
+- Status: confirmed
+- Parent: P-001
+- Claim: tool router 的 namespace/dynamic extension 用例与 thread manager 的 OpenAI `/models` refresh 用例隐式继承默认 DeepSeek provider，分别导致工具能力过滤和零 catalog 请求。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - router 失败与 H-017 相同地缺少 namespace tools；thread manager 使用 ChatGPT auth 和 OpenAI mock endpoint，却只覆盖默认 provider 的 base URL。
+- Falsifiable predictions:
+  - If true: 四项 fixture 显式绑定 OpenAI provider 后全部恢复，无需修改 router 或 refresh 生产逻辑。
+  - If false: 仍出现空工具集合或零 `/models` 请求。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 测试协议和 provider 不一致。
+  - Signal: provider capabilities、mock request count、目标回归。
+  - Capture method: 只修改测试 provider 并运行四项定向 nextest。
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - OpenAI provider ID
+    - `/models`
+  - Differentiates from:
+    - router registry 丢失
+    - models manager refresh 策略错误
+  - Supports if:
+    - 四项全部通过。
+  - Refutes if:
+    - 原失败信号保持。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-034
+- Conclusion: provider-sensitive core 单测必须显式声明 OpenAI，默认 DeepSeek 的产品行为保持不变。
+- Repair design readiness: implemented and verified
+- Next step: none for H-018
 - Blocker:
   - none
 - Close reason:
@@ -1428,3 +1472,22 @@
   ```
 - Interpretation: 配置校验和 fail-closed 行为未改变，仅测试品牌文本落后。
 - Time: 2026-08-24 06:23 +0800
+
+## Evidence E-034: router 与 model refresh 的显式 OpenAI fixture 恢复
+- Related hypotheses:
+  - H-018
+- Direction: supports
+- Type: verification
+- Source: core 四项定向隔离 nextest
+- Prediction or plan link:
+  - H-018 的显式 provider 对照。
+- Matched signal:
+  - router namespace/dynamic extension 两项恢复；thread manager 的在线 refresh 与 injected manager cache policy 两项均产生预期请求。
+- Correlation keys:
+  - nextest run `754d2645-3d0c-4d9f-a3ea-18ba373083ff`
+- Raw content:
+  ```text
+  targeted provider fixtures: 4 passed
+  ```
+- Interpretation: 生产 router 和 refresh 策略无需修改，失败来自测试依赖旧全局 OpenAI 默认。
+- Time: 2026-08-24 06:25 +0800

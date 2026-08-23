@@ -2075,7 +2075,8 @@ async fn new_uses_active_provider_for_model_refresh() {
     config.cwd = config.codex_home.abs();
     std::fs::create_dir_all(&config.codex_home).expect("create codex home");
     config.model_catalog = None;
-    config.model_provider.base_url = Some(server.uri());
+    config.model_provider_id = OPENAI_PROVIDER_ID.to_string();
+    config.model_provider = ModelProviderInfo::create_openai_provider(Some(server.uri()));
 
     let auth_manager =
         AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
@@ -2117,7 +2118,8 @@ async fn injected_models_manager_controls_refresh_policy() {
     config.cwd = config.codex_home.abs();
     std::fs::create_dir_all(&config.codex_home).expect("create codex home");
     config.model_catalog = None;
-    config.model_provider.base_url = Some(server.uri());
+    config.model_provider_id = OPENAI_PROVIDER_ID.to_string();
+    config.model_provider = ModelProviderInfo::create_openai_provider(Some(server.uri()));
 
     let auth_manager =
         AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
