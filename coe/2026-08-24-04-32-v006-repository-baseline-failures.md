@@ -1777,3 +1777,34 @@
   ```
 - Interpretation: 这直接验证了 UI 设置在当前 turn 后持久化、由下一 idle turn 生效的产品语义，同时保持 provider transport 状态不跨 turn 泄漏。
 - Time: 2026-08-24 07:57 +0800
+
+## Hypothesis H-026: realtime 启动上下文测试仍匹配旧 Codex 标题
+- Status: confirmed
+- Failure signature:
+  - 三项请求都包含完整 `<startup_context>`、历史和 workspace 内容，仅 `Startup context from Codex.` 不存在。
+- Prediction:
+  - 将测试共享标题同步为生产 `Startup context from Whale.` 后，历史、fallback 与截断场景全部通过。
+- Falsification:
+  - 更新标题后仍缺少历史、workspace 或截断边界。
+- Minimal experiment:
+  - 修改一个测试常量并定向运行三项 realtime startup-context 测试。
+- User/product decision required: no
+
+## Evidence E-042: realtime 启动上下文品牌合同恢复
+- Related hypotheses:
+  - H-026
+- Direction: supports
+- Type: verification
+- Source: core realtime startup-context 定向隔离 nextest
+- Prediction or plan link:
+  - H-026 的共享标题预测。
+- Matched signal:
+  - thread history 注入、workspace fallback、20.5KB 截断且单次发送三个场景全部通过。
+- Correlation keys:
+  - nextest run `6f55adcd-ad6a-4072-8ef7-c8f6dc05ee13`
+- Raw content:
+  ```text
+  realtime startup context: 3 passed
+  ```
+- Interpretation: 上下文投影与截断生产逻辑正确，失败仅为品牌迁移后的测试常量漂移。
+- Time: 2026-08-24 08:01 +0800
