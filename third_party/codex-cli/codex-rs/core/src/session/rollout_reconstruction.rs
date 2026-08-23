@@ -2,8 +2,124 @@ use super::*;
 use crate::context::world_state::WorldStateSnapshot;
 use crate::context_manager::is_user_turn_boundary;
 use codex_history::ResponseItemEnvelope;
+use codex_protocol::ProviderRoute;
 use codex_protocol::protocol::SessionContextWindow;
 use uuid::Uuid;
+
+#[derive(Debug, Default)]
+pub(super) struct ProviderLifecycleSnapshot {
+    pub(super) active_selection: Option<(ProviderRoute, String)>,
+    pub(super) recent_models: HashMap<ProviderRoute, String>,
+}
+
+#[derive(Debug, Default)]
+struct ProviderReplaySegment {
+    turn_id: Option<String>,
+    counts_as_user_turn: bool,
+    completed_successfully: bool,
+    selection: Option<(ProviderRoute, String)>,
+}
+
+fn finalize_provider_segment(
+    segment: ProviderReplaySegment,
+    pending_rollback_turns: &mut usize,
+    snapshot: &mut ProviderLifecycleSnapshot,
+) {
+    if *pending_rollback_turns > 0 {
+        if segment.counts_as_user_turn {
+            *pending_rollback_turns -= 1;
+        }
+        return;
+    }
+    if !segment.counts_as_user_turn || !segment.completed_successfully {
+        return;
+    }
+    let Some((route, model)) = segment.selection else {
+        return;
+    };
+    if snapshot.active_selection.is_none() {
+        snapshot.active_selection = Some((route.clone(), model.clone()));
+    }
+    snapshot.recent_models.entry(route).or_insert(model);
+}
+
+/// Rebuild provider selection from completed, non-rolled-back user turns.
+///
+/// This deliberately ignores settings events that never reached a successful turn: a cold
+/// resume must not promote a UI-visible pending selection into the active runtime.
+pub(super) fn reconstruct_provider_lifecycle(
+    rollout_items: &[RolloutItem],
+) -> ProviderLifecycleSnapshot {
+    let mut snapshot = ProviderLifecycleSnapshot::default();
+    let mut pending_rollback_turns = 0usize;
+    let mut active_segment: Option<ProviderReplaySegment> = None;
+
+    for item in rollout_items.iter().rev() {
+        match item {
+            RolloutItem::EventMsg(EventMsg::ThreadRolledBack(rollback)) => {
+                pending_rollback_turns = pending_rollback_turns
+                    .saturating_add(usize::try_from(rollback.num_turns).unwrap_or(usize::MAX));
+            }
+            RolloutItem::EventMsg(EventMsg::TurnComplete(event)) => {
+                let segment = active_segment.get_or_insert_with(ProviderReplaySegment::default);
+                segment.turn_id.get_or_insert_with(|| event.turn_id.clone());
+                segment.completed_successfully = event.error.is_none();
+            }
+            RolloutItem::EventMsg(EventMsg::TurnAborted(event)) => {
+                let segment = active_segment.get_or_insert_with(ProviderReplaySegment::default);
+                if segment.turn_id.is_none() {
+                    segment.turn_id.clone_from(&event.turn_id);
+                }
+            }
+            RolloutItem::EventMsg(EventMsg::UserMessage(_)) => {
+                active_segment
+                    .get_or_insert_with(ProviderReplaySegment::default)
+                    .counts_as_user_turn = true;
+            }
+            RolloutItem::TurnContext(context) => {
+                let segment = active_segment.get_or_insert_with(ProviderReplaySegment::default);
+                if segment.turn_id.is_none() {
+                    segment.turn_id.clone_from(&context.turn_id);
+                }
+                if turn_ids_are_compatible(segment.turn_id.as_deref(), context.turn_id.as_deref())
+                    && let Some(route) = &context.route
+                {
+                    segment.selection = Some((route.clone(), context.model.clone()));
+                }
+            }
+            RolloutItem::EventMsg(EventMsg::TurnStarted(event)) => {
+                if active_segment.as_ref().is_some_and(|segment| {
+                    turn_ids_are_compatible(
+                        segment.turn_id.as_deref(),
+                        Some(event.turn_id.as_str()),
+                    )
+                }) && let Some(segment) = active_segment.take()
+                {
+                    finalize_provider_segment(segment, &mut pending_rollback_turns, &mut snapshot);
+                }
+            }
+            RolloutItem::ResponseItem(response_item) => {
+                let segment = active_segment.get_or_insert_with(ProviderReplaySegment::default);
+                segment.counts_as_user_turn |= is_user_turn_boundary(&response_item.item);
+            }
+            RolloutItem::InterAgentCommunication(_) => {
+                active_segment
+                    .get_or_insert_with(ProviderReplaySegment::default)
+                    .counts_as_user_turn = true;
+            }
+            RolloutItem::Compacted(_)
+            | RolloutItem::EventMsg(_)
+            | RolloutItem::SessionMeta(_)
+            | RolloutItem::WorldState(_)
+            | RolloutItem::SecurityRiskScore(_)
+            | RolloutItem::InterAgentCommunicationMetadata { .. } => {}
+        }
+    }
+    if let Some(segment) = active_segment {
+        finalize_provider_segment(segment, &mut pending_rollback_turns, &mut snapshot);
+    }
+    snapshot
+}
 
 // Return value of `Session::reconstruct_history_from_rollout`, bundling the rebuilt history with
 // the resume/fork hydration metadata derived from the same replay.

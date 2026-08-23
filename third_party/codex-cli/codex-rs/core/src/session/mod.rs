@@ -604,29 +604,99 @@ impl Session {
         };
 
         let mut config = Arc::new(config);
+        let restored_provider_lifecycle = rollout_reconstruction::reconstruct_provider_lifecycle(
+            conversation_history.get_rollout_items(),
+        );
+        let restoring_provider_selection = restored_provider_lifecycle.active_selection.is_some();
+        let restored_provider_selection = restored_provider_lifecycle.active_selection;
+        let restored_recent_provider_models = restored_provider_lifecycle.recent_models;
+        let (models_manager, initial_provider_route, initial_provider, restored_model) =
+            if let Some((route, model)) = restored_provider_selection {
+                let runtime = provider_runtime_registry.get(&route).ok_or_else(|| {
+                    CodexErr::InvalidRequest(format!(
+                        "cannot restore provider route `{}/{:?}` at stage `runtime`: unsupported route",
+                        route.model_provider_id, route.access_method
+                    ))
+                })?;
+                let has_credentials = auth_manager
+                    .auth_for_route(&route)
+                    .await
+                    .map_err(|_| {
+                        CodexErr::InvalidRequest(format!(
+                            "cannot restore provider route `{}/{:?}` at stage `credentials`: unreadable credential slot",
+                            route.model_provider_id, route.access_method
+                        ))
+                    })?
+                    .is_some();
+                if !has_credentials {
+                    return Err(CodexErr::InvalidRequest(format!(
+                        "cannot restore provider route `{}/{:?}` at stage `credentials`: credentials are not configured",
+                        route.model_provider_id, route.access_method
+                    )));
+                }
+                (
+                    Arc::clone(&runtime.models_manager),
+                    Some(route),
+                    Arc::clone(&runtime.provider),
+                    Some(model),
+                )
+            } else {
+                (
+                    Arc::clone(&models_manager),
+                    provider_runtime_registry.initial_route(
+                        &config.model_provider_id,
+                        &config.model_provider,
+                        &config.model_providers,
+                        auth_manager.as_ref(),
+                    ),
+                    create_model_provider(
+                        config.model_provider.clone(),
+                        Some(Arc::clone(&auth_manager)),
+                    ),
+                    None,
+                )
+            };
         let refresh_strategy = if session_source.is_non_root_agent() {
             codex_models_manager::manager::RefreshStrategy::Offline
         } else {
             codex_models_manager::manager::RefreshStrategy::OnlineIfUncached
         };
-        if config.model.is_none()
+        let listed_models = if restored_model.is_some()
+            || config.model.is_none()
             || !matches!(
                 refresh_strategy,
                 codex_models_manager::manager::RefreshStrategy::Offline
+            ) {
+            Some(
+                models_manager
+                    .list_models(refresh_strategy, config.http_client_factory())
+                    .await,
             )
-        {
-            let _ = models_manager
-                .list_models(refresh_strategy, config.http_client_factory())
-                .await;
-        }
-        let model = models_manager
-            .get_default_model(
-                &config.model,
-                allow_provider_model_fallback,
-                refresh_strategy,
-                config.http_client_factory(),
-            )
-            .await;
+        } else {
+            None
+        };
+        let model = if let Some(restored_model) = restored_model {
+            if !listed_models
+                .as_ref()
+                .is_some_and(|models| models.iter().any(|model| model.model == restored_model))
+            {
+                let route = initial_provider_route.as_ref().expect("restored route");
+                return Err(CodexErr::InvalidRequest(format!(
+                    "cannot restore provider route `{}/{:?}` at stage `model`: model `{restored_model}` is unavailable",
+                    route.model_provider_id, route.access_method
+                )));
+            }
+            restored_model
+        } else {
+            models_manager
+                .get_default_model(
+                    &config.model,
+                    allow_provider_model_fallback,
+                    refresh_strategy,
+                    config.http_client_factory(),
+                )
+                .await
+        };
         let trusted_guardian_reviewer =
             crate::guardian::is_guardian_reviewer_source(&session_source)
                 && !matches!(conversation_history, InitialHistory::Resumed(_));
@@ -688,10 +758,17 @@ impl Session {
         let history_mode = conversation_history.get_history_mode(
             requested_history_mode.unwrap_or_else(|| thread_store.default_history_mode()),
         );
+        let inherited_base_instructions = conversation_history.get_base_instructions();
         let base_instructions = config
             .base_instructions
             .clone()
-            .or_else(|| conversation_history.get_base_instructions().map(|s| s.text))
+            .or_else(|| {
+                inherited_base_instructions.and_then(|base| match base.provenance {
+                    Some(BaseInstructionsProvenance::Custom) => Some(base.text),
+                    _ if !restoring_provider_selection => Some(base.text),
+                    _ => None,
+                })
+            })
             .unwrap_or_else(|| model_info.get_model_instructions(config.personality));
 
         // Dynamic tools are defined at thread start and persisted in rollout session metadata.
@@ -718,18 +795,9 @@ impl Session {
         );
         let service_tier =
             get_service_tier(config.service_tier.clone(), fast_mode_enabled, &model_info);
-        let initial_provider_route = provider_runtime_registry.initial_route(
-            &config.model_provider_id,
-            &config.model_provider,
-            &config.model_providers,
-            auth_manager.as_ref(),
-        );
         let session_configuration = SessionConfiguration {
             route: initial_provider_route,
-            provider: create_model_provider(
-                config.model_provider.clone(),
-                Some(Arc::clone(&auth_manager)),
-            ),
+            provider: initial_provider,
             models_manager: Arc::clone(&models_manager),
             collaboration_mode,
             model_reasoning_summary: config.model_reasoning_summary,
@@ -783,6 +851,7 @@ impl Session {
                 auth_manager.clone(),
                 models_manager.clone(),
                 provider_runtime_registry,
+                restored_recent_provider_models,
                 model_info,
                 exec_policy,
                 tx_event.clone(),
@@ -1677,9 +1746,12 @@ impl Session {
         updates: &mut SessionSettingsUpdate,
         route: codex_protocol::ProviderRoute,
     ) -> ConstraintResult<()> {
-        let current = {
+        let (current, recent_model) = {
             let state = self.state.lock().await;
-            state.session_configuration.clone()
+            (
+                state.session_configuration.clone(),
+                state.recent_provider_model(&route).map(str::to_string),
+            )
         };
         let Some(runtime) = self.services.provider_runtime_registry.get(&route) else {
             return Err(provider_transition_error(
@@ -1697,10 +1769,6 @@ impl Session {
         if !configured {
             return Err(provider_transition_error(&route, "configured credentials"));
         }
-        let model = updates.collaboration_mode.as_ref().map_or_else(
-            || current.collaboration_mode.model(),
-            CollaborationMode::model,
-        );
         let catalog = runtime
             .models_manager
             .raw_model_catalog(
@@ -1711,6 +1779,17 @@ impl Session {
         let available_models = runtime
             .models_manager
             .build_available_models_for_route(catalog.models, &route);
+        let model = updates
+            .collaboration_mode
+            .as_ref()
+            .map(|mode| mode.model().to_string())
+            .or_else(|| {
+                (current.route.as_ref() == Some(&route))
+                    .then(|| current.collaboration_mode.model().to_string())
+            })
+            .or(recent_model)
+            .or_else(|| available_models.first().map(|preset| preset.model.clone()))
+            .ok_or_else(|| provider_transition_error(&route, "a non-empty model catalog"))?;
         if !available_models.iter().any(|preset| preset.model == model) {
             return Err(provider_transition_error(
                 &route,
@@ -1720,7 +1799,7 @@ impl Session {
         let model_info = runtime
             .models_manager
             .get_model_info(
-                model,
+                &model,
                 &current
                     .original_config_do_not_use
                     .to_models_manager_config(),
@@ -1732,6 +1811,13 @@ impl Session {
             .base_instructions
             .clone()
             .unwrap_or_else(|| model_info.get_model_instructions(personality));
+        if updates.collaboration_mode.is_none() && current.collaboration_mode.model() != model {
+            updates.collaboration_mode = Some(current.collaboration_mode.with_updates(
+                Some(model.clone()),
+                /*effort*/ None,
+                /*developer_instructions*/ None,
+            ));
+        }
         updates.prepared_provider_transition = Some(PreparedProviderTransition {
             route,
             provider: Arc::clone(&runtime.provider),
@@ -1748,6 +1834,14 @@ impl Session {
     ) {
         let mut state = self.state.lock().await;
         state.set_previous_turn_settings(previous_turn_settings);
+    }
+
+    pub(crate) async fn record_successful_provider_model(&self, turn_context: &TurnContext) {
+        let Some(route) = turn_context.route.clone() else {
+            return;
+        };
+        let mut state = self.state.lock().await;
+        state.record_successful_provider_model(route, turn_context.model_info.slug.clone());
     }
 
     pub(crate) async fn update_settings(

@@ -734,6 +734,7 @@ impl Session {
         auth_manager: Arc<AuthManager>,
         models_manager: SharedModelsManager,
         provider_runtime_registry: crate::provider_runtime::ProviderRuntimeRegistry,
+        restored_recent_provider_models: HashMap<ProviderRoute, String>,
         model_info: ModelInfo,
         exec_policy: Arc<ExecPolicyManager>,
         tx_event: Sender<Event>,
@@ -1307,6 +1308,7 @@ impl Session {
                 session_configuration.clone(),
                 initial_auto_compact_window_ids,
             );
+            state.replace_recent_provider_models(restored_recent_provider_models);
             if let Some(hydrated) = hydrated_action_map {
                 state.action_map_runtime = hydrated.runtime;
                 state.action_map_store_handle = Some(hydrated.handle);

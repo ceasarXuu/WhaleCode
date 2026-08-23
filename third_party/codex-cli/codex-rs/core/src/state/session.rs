@@ -44,6 +44,7 @@ pub(crate) struct SessionState {
     /// model/realtime handling on subsequent regular turns (including full-context
     /// reinjection after resume or `/compact`).
     previous_turn_settings: Option<PreviousTurnSettings>,
+    recent_provider_models: HashMap<codex_protocol::ProviderRoute, String>,
     pending_provider_transition: Option<PendingProviderTransition>,
     provider_transition_revision: u64,
     /// Runtime accounting state for the active auto-compaction window.
@@ -85,6 +86,7 @@ impl SessionState {
             mcp_dependency_prompted: HashSet::new(),
             additional_context: AdditionalContextStore::default(),
             previous_turn_settings: None,
+            recent_provider_models: HashMap::new(),
             pending_provider_transition: None,
             provider_transition_revision: 0,
             auto_compact_window: AutoCompactWindow::new_with_ids(auto_compact_window_ids),
@@ -127,6 +129,28 @@ impl SessionState {
         previous_turn_settings: Option<PreviousTurnSettings>,
     ) {
         self.previous_turn_settings = previous_turn_settings;
+    }
+
+    pub(crate) fn replace_recent_provider_models(
+        &mut self,
+        recent_provider_models: HashMap<codex_protocol::ProviderRoute, String>,
+    ) {
+        self.recent_provider_models = recent_provider_models;
+    }
+
+    pub(crate) fn recent_provider_model(
+        &self,
+        route: &codex_protocol::ProviderRoute,
+    ) -> Option<&str> {
+        self.recent_provider_models.get(route).map(String::as_str)
+    }
+
+    pub(crate) fn record_successful_provider_model(
+        &mut self,
+        route: codex_protocol::ProviderRoute,
+        model: String,
+    ) {
+        self.recent_provider_models.insert(route, model);
     }
 
     pub(crate) fn record_provider_selection_change(&mut self, previous: ProviderSelectionSnapshot) {

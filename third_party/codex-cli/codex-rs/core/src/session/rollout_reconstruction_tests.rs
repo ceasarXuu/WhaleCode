@@ -122,6 +122,47 @@ fn completed_user_turn_rollout(
 }
 
 #[tokio::test]
+async fn provider_lifecycle_uses_successful_non_rolled_back_turns() {
+    let (_session, turn_context) = make_session_and_context().await;
+    let openai_route =
+        codex_protocol::ProviderRoute::new("openai", codex_protocol::ProviderAccessMethod::Chatgpt);
+    let deepseek_route = codex_protocol::ProviderRoute::new(
+        "deepseek",
+        codex_protocol::ProviderAccessMethod::ApiKey,
+    );
+
+    let mut first = turn_context.to_turn_context_item();
+    first.turn_id = Some("first".to_string());
+    first.route = Some(openai_route.clone());
+    first.model = "openai-old".to_string();
+    let mut rolled_back = first.clone();
+    rolled_back.turn_id = Some("rolled-back".to_string());
+    rolled_back.route = Some(deepseek_route.clone());
+    rolled_back.model = "deepseek-rolled-back".to_string();
+    let mut latest = first.clone();
+    latest.turn_id = Some("latest".to_string());
+    latest.model = "openai-latest".to_string();
+
+    let mut rollout_items = completed_user_turn_rollout(first, Vec::new());
+    rollout_items.extend(completed_user_turn_rollout(rolled_back, Vec::new()));
+    rollout_items.push(RolloutItem::EventMsg(EventMsg::ThreadRolledBack(
+        codex_protocol::protocol::ThreadRolledBackEvent { num_turns: 1 },
+    )));
+    rollout_items.extend(completed_user_turn_rollout(latest, Vec::new()));
+
+    let snapshot = super::rollout_reconstruction::reconstruct_provider_lifecycle(&rollout_items);
+    assert_eq!(
+        snapshot.active_selection,
+        Some((openai_route.clone(), "openai-latest".to_string()))
+    );
+    assert_eq!(
+        snapshot.recent_models.get(&openai_route),
+        Some(&"openai-latest".to_string())
+    );
+    assert!(!snapshot.recent_models.contains_key(&deepseek_route));
+}
+
+#[tokio::test]
 async fn record_initial_history_reconstructs_typed_inter_agent_message() {
     let (session, _turn_context) = make_session_and_context().await;
     let communication = InterAgentCommunication::new(

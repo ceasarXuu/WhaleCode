@@ -249,6 +249,171 @@ async fn thread_id_generator_does_not_replace_resumed_thread_id() {
 }
 
 #[tokio::test]
+async fn cold_resume_rebinds_last_successful_provider_runtime() {
+    let temp_dir = tempdir().expect("tempdir");
+    let mut config = test_config().await;
+    config.codex_home = temp_dir.path().join("codex-home").abs();
+    config.cwd = config.codex_home.abs();
+    config.ephemeral = true;
+    config.cli_auth_credentials_store_mode = codex_login::AuthCredentialsStoreMode::File;
+    std::fs::create_dir_all(&config.codex_home).expect("create codex home");
+    codex_login::login_with_api_key(
+        config.codex_home.as_path(),
+        "openai-test-key",
+        codex_login::AuthCredentialsStoreMode::File,
+        codex_login::AuthKeyringBackendKind::default(),
+    )
+    .expect("save OpenAI test credential");
+    codex_login::login_with_deepseek_api_key(
+        config.codex_home.as_path(),
+        "deepseek-test-key",
+        codex_login::AuthCredentialsStoreMode::File,
+        codex_login::AuthKeyringBackendKind::default(),
+    )
+    .expect("save DeepSeek test credential");
+    let auth_manager = Arc::new(
+        AuthManager::new(
+            config.codex_home.to_path_buf(),
+            /*enable_codex_api_key_env*/ false,
+            codex_login::AuthCredentialsStoreMode::File,
+            /*forced_chatgpt_workspace_id*/ None,
+            /*chatgpt_base_url*/ None,
+            codex_login::AuthKeyringBackendKind::default(),
+            codex_login::test_support::transport_default_auth_route_config(),
+        )
+        .await,
+    );
+    let manager = ThreadManager::new(
+        &config,
+        Arc::clone(&auth_manager),
+        build_models_manager(&config, auth_manager),
+        crate::CodexAppsToolsCache::default(),
+        SessionSource::Exec,
+        Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
+        empty_extension_registry(),
+        Arc::new(crate::test_support::EmptyUserInstructionsProvider),
+        /*analytics_events_client*/ None,
+        thread_store_from_config(&config, /*state_db*/ None),
+        /*agent_graph_store*/ None,
+        TEST_INSTALLATION_ID.to_string(),
+        /*attestation_provider*/ None,
+        /*external_time_provider*/ None,
+    );
+
+    let (_fixture_session, fixture_turn) = make_session_and_context().await;
+    let openai_route =
+        codex_protocol::ProviderRoute::new("openai", codex_protocol::ProviderAccessMethod::ApiKey);
+    let deepseek_route = codex_protocol::ProviderRoute::new(
+        "deepseek",
+        codex_protocol::ProviderAccessMethod::ApiKey,
+    );
+    let completed_turn = |turn_id: &str, route: codex_protocol::ProviderRoute, model: &str| {
+        let mut turn_context = fixture_turn.to_turn_context_item();
+        turn_context.turn_id = Some(turn_id.to_string());
+        turn_context.route = Some(route);
+        turn_context.model = model.to_string();
+        vec![
+            codex_history::RolloutItem::EventMsg(EventMsg::TurnStarted(TurnStartedEvent {
+                turn_id: turn_id.to_string(),
+                trace_id: None,
+                started_at: None,
+                model_context_window: Some(1_000_000),
+                collaboration_mode_kind: codex_protocol::config_types::ModeKind::Default,
+            })),
+            codex_history::RolloutItem::EventMsg(EventMsg::UserMessage(UserMessageEvent {
+                client_id: None,
+                message: "restore provider".to_string(),
+                images: None,
+                local_images: Vec::new(),
+                text_elements: Vec::new(),
+                ..Default::default()
+            })),
+            codex_history::RolloutItem::TurnContext(turn_context),
+            codex_history::RolloutItem::EventMsg(EventMsg::TurnComplete(
+                codex_protocol::protocol::TurnCompleteEvent {
+                    turn_id: turn_id.to_string(),
+                    last_agent_message: None,
+                    error: None,
+                    started_at: None,
+                    completed_at: None,
+                    duration_ms: None,
+                    time_to_first_token_ms: None,
+                },
+            )),
+        ]
+    };
+    let mut history = completed_turn("openai-success", openai_route.clone(), "gpt-5.5");
+    history.insert(
+        0,
+        codex_history::RolloutItem::SessionMeta(SessionMetaLine {
+            meta: SessionMeta {
+                base_instructions: Some(codex_protocol::models::BaseInstructions {
+                    text: "stale-openai-model-instructions".to_string(),
+                    provenance: Some(codex_protocol::models::BaseInstructionsProvenance::Model {
+                        model: "gpt-5.5".to_string(),
+                    }),
+                }),
+                ..SessionMeta::default()
+            },
+            git: None,
+        }),
+    );
+    history.extend(completed_turn(
+        "deepseek-success",
+        deepseek_route.clone(),
+        "deepseek-v4-flash",
+    ));
+    let mut options = StartThreadOptions::new(config);
+    options.initial_history = InitialHistory::Resumed(ResumedHistory {
+        conversation_id: ThreadId::new(),
+        history: Arc::new(history),
+        rollout_path: None,
+    });
+
+    let resumed = manager
+        .start_thread(options)
+        .await
+        .expect("resume DeepSeek route");
+    let snapshot = resumed.thread.config_snapshot().await;
+    assert_eq!(snapshot.route, Some(deepseek_route.clone()));
+    assert_eq!(snapshot.model, "deepseek-v4-flash");
+    assert_eq!(snapshot.model_provider_id, "deepseek");
+    assert_ne!(
+        resumed.thread.session.get_base_instructions().await.text,
+        "stale-openai-model-instructions"
+    );
+    resumed
+        .thread
+        .session
+        .update_settings(SessionSettingsUpdate {
+            route: Some(openai_route.clone()),
+            ..Default::default()
+        })
+        .await
+        .expect("switch to recent OpenAI model");
+    let openai_snapshot = resumed.thread.config_snapshot().await;
+    assert_eq!(openai_snapshot.route, Some(openai_route));
+    assert_eq!(openai_snapshot.model, "gpt-5.5");
+    resumed
+        .thread
+        .session
+        .update_settings(SessionSettingsUpdate {
+            route: Some(deepseek_route.clone()),
+            ..Default::default()
+        })
+        .await
+        .expect("switch back to recent DeepSeek model");
+    let deepseek_snapshot = resumed.thread.config_snapshot().await;
+    assert_eq!(deepseek_snapshot.route, Some(deepseek_route));
+    assert_eq!(deepseek_snapshot.model, "deepseek-v4-flash");
+    resumed
+        .thread
+        .shutdown_and_wait()
+        .await
+        .expect("shut down resumed thread");
+}
+
+#[tokio::test]
 async fn child_session_inherits_client_mcp_extensions() {
     let temp_dir = tempdir().expect("tempdir");
     let mut config = test_config().await;

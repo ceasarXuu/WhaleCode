@@ -801,6 +801,10 @@ impl Session {
                 .time_to_first_token_ms()
                 .await;
             let error = turn_context.terminal_error.lock().await.clone();
+            if error.is_none() {
+                self.record_successful_provider_model(turn_context.as_ref())
+                    .await;
+            }
             self.emit_turn_stop_lifecycle(turn_context.extension_data.as_ref())
                 .await;
             EventMsg::TurnComplete(TurnCompleteEvent {
