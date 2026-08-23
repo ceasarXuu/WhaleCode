@@ -505,7 +505,7 @@ async fn provider_and_model_pickers_preserve_route_groups() {
             models: vec![openai_model.clone()],
         },
         ProviderModelGroup {
-            route: deepseek_route,
+            route: deepseek_route.clone(),
             display_name: "DeepSeek".to_string(),
             availability: ProviderModelAvailability::MissingCredentials,
             models: vec![deepseek_model],
@@ -526,17 +526,61 @@ async fn provider_and_model_pickers_preserve_route_groups() {
         AppEvent::SelectProviderModel { route, model: None, effort: None }
             if route == openai_route
     );
+    while rx.try_recv().is_ok() {}
+
+    chat.open_provider_popup();
+    chat.handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_matches!(
+        rx.try_recv().expect("provider credential recovery event"),
+        AppEvent::SelectProviderModel { route, model: None, effort: None }
+            if route == deepseek_route
+    );
+    while rx.try_recv().is_ok() {}
 
     chat.open_model_popup();
     let model_popup = render_bottom_popup(&chat, /*width*/ 90);
     assert!(model_popup.contains("OpenAI Subscription"));
     assert!(model_popup.contains("DeepSeek"));
     assert!(model_popup.contains("DeepSeek V4 Flash"));
+    assert!(model_popup.contains("select to configure"));
+    chat.handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_matches!(
         rx.try_recv().expect("routed reasoning popup event"),
         AppEvent::OpenReasoningPopup { route: Some(route), model }
-            if route == openai_route && model.model == "gpt-5.2"
+            if route == deepseek_route && model.model == "deepseek-v4-flash"
+    );
+}
+
+#[tokio::test]
+async fn provider_api_key_prompt_preserves_the_interrupted_selection() {
+    use codex_protocol::ProviderAccessMethod;
+    use codex_protocol::ProviderRoute;
+
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.2")).await;
+    let route = ProviderRoute::new("deepseek", ProviderAccessMethod::ApiKey);
+    let effort = Some(ReasoningEffortConfig::High);
+    chat.show_provider_api_key_prompt(
+        route.clone(),
+        Some("deepseek-v4-pro".to_string()),
+        effort.clone(),
+    );
+    chat.handle_paste("deepseek-secret".to_string());
+    assert!(!render_bottom_popup(&chat, /*width*/ 80).contains("deepseek-secret"));
+    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_matches!(
+        rx.try_recv().expect("provider API key submission"),
+        AppEvent::SubmitProviderApiKey {
+            route: submitted_route,
+            model: Some(model),
+            effort: submitted_effort,
+            api_key,
+        } if submitted_route == route
+            && model == "deepseek-v4-pro"
+            && submitted_effort == effort
+            && api_key == "deepseek-secret"
     );
 }
 

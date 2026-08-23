@@ -42,6 +42,8 @@ use codex_app_server_protocol::GetAccountParams;
 use codex_app_server_protocol::GetAccountRateLimitsResponse;
 use codex_app_server_protocol::GetAccountResponse;
 use codex_app_server_protocol::JSONRPCErrorError;
+use codex_app_server_protocol::LoginAccountParams;
+use codex_app_server_protocol::LoginAccountResponse;
 use codex_app_server_protocol::LogoutAccountParams;
 use codex_app_server_protocol::LogoutAccountResponse;
 use codex_app_server_protocol::MapRuntimeMode;
@@ -558,6 +560,47 @@ impl AppServerSession {
             })
             .await
             .map_err(|err| bootstrap_request_error("account/read failed during TUI bootstrap", err))
+    }
+
+    pub(crate) async fn login_account(
+        &mut self,
+        params: LoginAccountParams,
+    ) -> Result<LoginAccountResponse> {
+        let request_id = self.next_request_id();
+        self.client
+            .request_typed(ClientRequest::LoginAccount { request_id, params })
+            .await
+            .wrap_err("account/login/start failed")
+    }
+
+    pub(crate) async fn refresh_model_catalog(
+        &mut self,
+    ) -> Result<(Vec<ModelPreset>, Vec<ProviderModelGroup>)> {
+        let request_id = self.next_request_id();
+        let response = self
+            .client
+            .request_typed::<ModelListResponse>(ClientRequest::ModelList {
+                request_id,
+                params: ModelListParams {
+                    cursor: None,
+                    limit: None,
+                    include_hidden: Some(true),
+                },
+            })
+            .await
+            .wrap_err("model/list failed after provider login")?;
+        let groups = response
+            .groups
+            .into_iter()
+            .map(provider_model_group_from_api)
+            .collect();
+        let models = response
+            .data
+            .into_iter()
+            .map(model_preset_from_api_model)
+            .collect::<Vec<_>>();
+        self.available_models = models.clone();
+        Ok((models, groups))
     }
 
     pub(crate) async fn external_agent_config_detect(

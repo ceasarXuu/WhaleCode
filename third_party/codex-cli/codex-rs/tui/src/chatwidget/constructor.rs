@@ -120,6 +120,7 @@ impl ChatWidget {
             has_codex_backend_auth,
             model_catalog,
             current_provider_route: None,
+            pending_provider_selection: None,
             session_telemetry,
             session_header: SessionHeader::new(header_model),
             initial_user_message,

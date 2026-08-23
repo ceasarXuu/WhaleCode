@@ -566,6 +566,7 @@ pub(crate) struct ChatWidget {
     has_codex_backend_auth: bool,
     model_catalog: Arc<ModelCatalog>,
     current_provider_route: Option<ProviderRoute>,
+    pending_provider_selection: Option<PendingProviderSelection>,
     session_telemetry: SessionTelemetry,
     session_header: SessionHeader,
     initial_user_message: Option<UserMessage>,
@@ -781,6 +782,14 @@ pub(crate) struct ChatWidget {
     external_editor_state: ExternalEditorState,
     last_rendered_user_message_display: Option<UserMessageDisplay>,
     last_non_retry_error: Option<(String, String)>,
+}
+
+#[derive(Clone)]
+pub(crate) struct PendingProviderSelection {
+    pub(crate) route: ProviderRoute,
+    pub(crate) model: Option<String>,
+    pub(crate) effort: Option<ReasoningEffortConfig>,
+    pub(crate) login_id: Option<String>,
 }
 
 #[cfg_attr(not(test), allow(dead_code))]

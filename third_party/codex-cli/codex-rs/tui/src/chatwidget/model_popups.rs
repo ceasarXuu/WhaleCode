@@ -46,19 +46,32 @@ impl ChatWidget {
             .map(|group| {
                 let route = group.route.clone();
                 let disabled_reason = provider_unavailable_reason(&group.availability);
+                let can_recover = matches!(
+                    group.availability,
+                    codex_app_server_protocol::ProviderModelAvailability::MissingCredentials
+                );
                 SelectionItem {
                     name: group.display_name.clone(),
-                    description: disabled_reason.clone().or_else(|| {
-                        group
-                            .models
-                            .iter()
-                            .find(|model| model.is_default)
-                            .or_else(|| group.models.first())
-                            .map(|model| format!("Uses {}", model.display_name))
-                    }),
+                    description: disabled_reason
+                        .clone()
+                        .map(|reason| {
+                            if can_recover {
+                                format!("Unavailable: {reason}; select to configure")
+                            } else {
+                                reason
+                            }
+                        })
+                        .or_else(|| {
+                            group
+                                .models
+                                .iter()
+                                .find(|model| model.is_default)
+                                .or_else(|| group.models.first())
+                                .map(|model| format!("Uses {}", model.display_name))
+                        }),
                     is_current: current_route.as_ref() == Some(&group.route),
-                    is_disabled: disabled_reason.is_some(),
-                    disabled_reason,
+                    is_disabled: disabled_reason.is_some() && !can_recover,
+                    disabled_reason: if can_recover { None } else { disabled_reason },
                     actions: vec![Box::new(move |tx| {
                         tx.send(AppEvent::SelectProviderModel {
                             route: route.clone(),
@@ -101,15 +114,24 @@ impl ChatWidget {
                 let route = group.route.clone();
                 let preset_for_action = preset.clone();
                 let group_disabled = provider_unavailable_reason(&group.availability);
+                let can_recover = matches!(
+                    group.availability,
+                    codex_app_server_protocol::ProviderModelAvailability::MissingCredentials
+                );
                 items.push(SelectionItem {
                     name: format!("  {}", preset.display_name),
-                    description: (!preset.description.is_empty())
-                        .then_some(preset.description.clone()),
+                    description: if can_recover {
+                        group_disabled
+                            .clone()
+                            .map(|reason| format!("Unavailable: {reason}; select to configure"))
+                    } else {
+                        (!preset.description.is_empty()).then_some(preset.description.clone())
+                    },
                     is_current: current_route.as_ref() == Some(&group.route)
                         && current_model == preset.model,
                     is_default: preset.is_default,
-                    is_disabled: group_disabled.is_some(),
-                    disabled_reason: group_disabled,
+                    is_disabled: group_disabled.is_some() && !can_recover,
+                    disabled_reason: if can_recover { None } else { group_disabled },
                     actions: vec![Box::new(move |tx| {
                         tx.send(AppEvent::OpenReasoningPopup {
                             route: Some(route.clone()),
@@ -134,6 +156,35 @@ impl ChatWidget {
             search_placeholder: Some("Search all provider models".to_string()),
             ..Default::default()
         });
+    }
+
+    pub(crate) fn show_provider_api_key_prompt(
+        &mut self,
+        route: codex_protocol::ProviderRoute,
+        model: Option<String>,
+        effort: Option<ReasoningEffortConfig>,
+    ) {
+        let provider_name = if route.model_provider_id == "deepseek" {
+            "DeepSeek"
+        } else {
+            "OpenAI"
+        };
+        let tx = self.app_event_tx.clone();
+        let view = CustomPromptView::new_secret(
+            format!("{provider_name} API key"),
+            "Paste key and press Enter".to_string(),
+            Some("Stored in the provider-scoped credential store".to_string()),
+            Box::new(move |api_key| {
+                tx.send(AppEvent::SubmitProviderApiKey {
+                    route: route.clone(),
+                    model: model.clone(),
+                    effort: effort.clone(),
+                    api_key,
+                });
+            }),
+        );
+        self.bottom_pane.show_view(Box::new(view));
+        self.request_redraw();
     }
 
     fn model_menu_header(&self, title: &str, subtitle: &str) -> Box<dyn Renderable> {

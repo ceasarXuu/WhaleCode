@@ -894,6 +894,21 @@ pub(crate) enum AppEvent {
         effort: Option<ReasoningEffort>,
     },
 
+    /// Submit a provider-scoped API key, then retry the interrupted selection.
+    SubmitProviderApiKey {
+        route: ProviderRoute,
+        model: Option<String>,
+        effort: Option<ReasoningEffort>,
+        api_key: String,
+    },
+
+    /// Complete an OAuth provider login without exposing credentials to widget state.
+    ProviderLoginCompleted {
+        login_id: Option<String>,
+        success: bool,
+        error: Option<String>,
+    },
+
     /// Update the current personality in the running app and widget.
     UpdatePersonality(Personality),
 

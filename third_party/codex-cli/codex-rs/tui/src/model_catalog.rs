@@ -42,4 +42,14 @@ impl ModelCatalog {
     pub(crate) fn provider_groups(&self) -> &[ProviderModelGroup] {
         &self.provider_groups
     }
+
+    pub(crate) fn provider_availability(
+        &self,
+        route: &ProviderRoute,
+    ) -> Option<&ProviderModelAvailability> {
+        self.provider_groups
+            .iter()
+            .find(|group| &group.route == route)
+            .map(|group| &group.availability)
+    }
 }
