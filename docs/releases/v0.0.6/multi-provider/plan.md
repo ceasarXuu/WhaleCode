@@ -208,18 +208,21 @@
 - Rebase scope: Phase 1–3 最终 protocol/events/errors + W13–W15
 - Material plan delta: material（D5 proposal）
 - Plan delta record: D5
-- User approval: pending
-- Gate status: blocked-on-approval
+- User approval: user-approved-plan-direct: 2026-08-24（“批准，继续”）
+- Gate status: ready
 
 - Entry: app-server/core transition API integrated；三组 catalog 可用。
 - Rebase facts (2026-08-23): app-server `model/list` 已返回带 route/availability/reason 的三组 `groups`，但 TUI bootstrap 只保留扁平 `data`；现有 `ModelCatalog` 与 model/reasoning popup 只携带 `ModelPreset`，无法原子表达跨 route 选择。`UpdateModel` 会先改本地 canonical model，`PersistModelSelection` 会写全局配置，与 PD7/PD8 的 session-only 和 notification-authoritative 语义冲突。三类 `account/login/start` 协议均已存在，但运行中 TUI 尚无可复用的 provider 登录入口。
 - Rebased execution slices:
   1. Catalog contract：保留 `model/list.groups` 到 TUI route-aware catalog；legacy server 无 groups 时仅为当前 route 合成兼容组，不猜测其他 route。
   2. Routed selection：`/provider` 提交 route-only selection，由 core 选择 route 最近成功/默认模型；`/model` 的分组项与 reasoning 子弹窗始终携带 route+model，通过一次 settings update 提交。跨 route 不写全局配置，同 route 的既有 model-only 持久化行为保持兼容。
-  3. Pending authority：选择后只显示 pending route/model，不预先改 canonical UI state；只有匹配 active thread 的 `ThreadSettingsUpdated` 通知确认新状态，失败则清 pending 并保留旧 route/model。
-  4. Credential recovery：不可用组保持可见；选择后复用已有 ChatGPT/API Key/DeepSeek `account/login/start` 协议和 onboarding 输入组件，登录成功后刷新分组再允许 transition，不新建凭据格式。
-  5. Command availability：仅对已有 capability/auth 事实做不可用映射：订阅 usage 由当前 route/auth 决定，personality 和 service-tier 由 model metadata 决定；`/apps` 保留管理入口，工具暴露继续由 provider `namespace_tools` capability 决定。其他命令默认维持现有行为，不按 provider 名称硬编码禁用。弹窗禁用原因与直接输入 guard 共享同一结果。
-- Work: W13、W14、W15 和 UI 侧 W16。预计手写生产代码 1000–1400 行，建议 Phase 4 上限 1400 行；测试/schema/generated/docs 不计入。若达到上限仍无法闭合 catalog、pending 确认与 credential recovery，停止扩张并重新审批。
+  3. Next-turn indication：不复制 core 的 pending/CAS 状态机。settings 请求成功且旧 turn 仍在运行时，仅记录一个短生命周期“下一轮生效”提示；canonical route/model 继续只由匹配 active thread 的 `ThreadSettingsUpdated` 更新，请求失败保持旧状态。
+  4. Credential recovery：不整体搬用启动 onboarding 状态机；复用已有 ChatGPT/API Key/DeepSeek `account/login/start` 协议、浏览器 OAuth 流程和 secret 输入组件，登录成功后刷新分组再继续原选择，不新建凭据格式。
+  5. Command availability：不新增通用 Provider capability 框架。只扩展现有 command flags/dispatch guard，对已有 auth/model 事实可证明受限的命令显示禁用原因；`/apps` 保留管理入口，工具暴露继续由 provider `namespace_tools` capability 决定。其他命令维持现有行为。
+- Approved implementation split:
+  - Phase 4A（上限 500 行）：route-aware catalog、`/provider`、分组 `/model`、单一 routed selection event、settings 原子提交与下一轮提示。
+  - Phase 4B（上限 500 行）：三类凭据恢复、登录后 catalog 刷新、真实受限命令的可见禁用与直接输入 guard。
+- Work: W13、W14、W15 和 UI 侧 W16。Phase 4 手写生产代码总上限 1000 行，且每个切片上限 500 行；测试/schema/generated/docs 不计入。任一切片达到上限仍未闭环时停止扩张并重新审批。
 - Exit evidence: `/provider`、分组 `/model`、pending/取消/失败/登录、不支持命令交互 snapshots 全通过。
 - Product Decision Delta: 审计 PD2、PD3、PD8、PD12、PD14、PD16。
 - Cross-unit side effects: 跨 route `/model` 不写入无对应 provider 的全局 model；同 route 既有 reasoning 选择流程保持兼容。
@@ -295,7 +298,7 @@
 | D2 | Phase 2 | `PreparedProviderTransition` 直接在现有 session authority 内解析目标 provider/catalog | `Session` 只持有启动时的一套 `SharedModelProvider` 与 `SharedModelsManager`；Phase 1 的三路 manager registry 当前归 `ThreadManager`，而 runtime provider 的 auth 仍走 legacy active auth；仅扩展 settings 字段会产生 provider、manager 与 route 不一致 | 新增仅覆盖三条已确认 route 的窄 `ProviderRuntimeRegistry` 并注入 session services；新增 route-bound runtime provider factory；prepare 产出 provider + models manager + model metadata + prompt policy 的完整值，commit 不再执行 I/O | 模块边界扩大但产品行为不变；消除半切换和 legacy active-auth 串路风险；预计本阶段 900–1200 行手写生产代码，上限 1200 行 | user-approved-plan-direct: 2026-08-23 | accepted |
 | D3 | Phase 2 | settings 提交后立即替换稳定 session snapshot，下一 turn 的必要压缩沿用目标 route | 压缩必须使用旧 route/model 的窗口、hash 与 compact client；且 settings 可在压缩期间被再次更新，普通回滚会覆盖较新的用户选择 | provider/model 选择先进入带 revision 的 pending transition；下一 turn 用旧 route 完成必要压缩后 CAS finalize，失败则只补偿同 revision 的 provider/model/runtime/base prompt | 新增窄 pending 状态与补偿分支；避免用错 Provider 压缩，也避免旧失败撤销较新选择；Phase 2 手写生产代码上限调整为 1350 行 | user-approved-plan-direct: 2026-08-23 | accepted |
 | D4 | Phase 3 | 分开实现 route 最近模型、resume 恢复、rollback/fork 和历史投影 | route 已写入 turn/rollout，但 resume 只恢复 previous-turn metadata；独立内存 recent-model map 无法遵守 rollback/fork/replay；canonical history 也不能为某个 Provider 原地改写 | W10 与 W17 合并复用 reverse rollout 的有效段语义，派生最后成功 route 及 route→最近成功模型，再由 runtime registry 重绑完整 snapshot；W12 只在请求边界投影 canonical history clone；subagent 继承创建时 snapshot；错误保持 route/stage 脱敏信息 | 生命周期状态可重放且不新增全局旁路；历史切换可逆；Phase 3 按三个闭环切片实施，手写生产代码上限 1000 行 | user-approved-plan-direct: 2026-08-23（“批准，继续”） | accepted |
-| D5 | Phase 4 | 直接在现有扁平 `ModelCatalog` 和 `UpdateModel`/`PersistModelSelection` 上增加 `/provider` 与分组样式 | TUI bootstrap 丢弃 app-server 已返回的 route groups；model/reasoning 事件无 route；本地模型会在 server 确认前改变并无条件写全局配置；运行中无 provider 登录入口 | 保留 route-aware groups；用单一 routed selection 贯通 provider/model/reasoning；将 canonical state 交给 `ThreadSettingsUpdated` 确认并分离 pending display；跨 route 只写 session；复用现有三类 app-server login 协议；命令仅按已有 auth/model/provider capability 禁用 | 避免伪分组、半切换、全局污染和无事实依据的命令限制；预计 Phase 4 手写生产代码 1000–1400 行，上限 1400 行 | pending | proposed |
+| D5 | Phase 4 | 直接在现有扁平 `ModelCatalog` 和 `UpdateModel`/`PersistModelSelection` 上增加 `/provider` 与分组样式 | TUI bootstrap 丢弃 app-server 已返回的 route groups；model/reasoning 事件无 route；本地模型会在 server 确认前改变并无条件写全局配置；运行中无 provider 登录入口 | 保留 route-aware groups；新增仅供 provider-aware picker 使用的 routed selection event；canonical state 继续由 `ThreadSettingsUpdated` 确认，active turn 只增加短生命周期下一轮提示而不复制 core pending 状态机；跨 route 只写 session；登录只复用现有协议/OAuth/secret 输入；命令沿用现有 flags/guard | 避免伪分组、半切换、全局污染，同时删除长期 pending 镜像和通用 capability 框架；拆为两个各不超过 500 行的闭环，Phase 4 总上限 1000 行 | user-approved-plan-direct: 2026-08-24（“批准，继续”） | accepted |
 
 ## 11. Completion Definition
 
