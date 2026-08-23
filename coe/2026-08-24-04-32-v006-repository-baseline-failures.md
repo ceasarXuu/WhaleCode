@@ -1808,3 +1808,34 @@
   ```
 - Interpretation: 上下文投影与截断生产逻辑正确，失败仅为品牌迁移后的测试常量漂移。
 - Time: 2026-08-24 08:01 +0800
+
+## Hypothesis H-027: WebSocket turn-state 测试错误复用跨 turn 连接
+- Status: confirmed
+- Failure signature:
+  - 首个 turn 的 prewarm、初始请求和工具 follow-up 均完成，但下一 turn 没有可用的新连接，测试在 60 秒后超时。
+- Prediction:
+  - 保持同一 turn 内共享连接和 `x-codex-turn-state`，下一 turn 改用新的 provider-bound 连接后，状态应清空且 turn ID 改变。
+- Falsification:
+  - 新连接仍携带旧 turn-state，或同一 turn 的工具 follow-up 丢失状态。
+- Minimal experiment:
+  - 将多轮脚本拆成两个连接并运行完整 turn_state suite。
+- User/product decision required: no
+
+## Evidence E-043: turn-state 的 turn 内继承与跨 turn 清空恢复
+- Related hypotheses:
+  - H-027
+- Direction: supports
+- Type: verification
+- Source: core turn_state 完整定向隔离 nextest
+- Prediction or plan link:
+  - H-027 的连接边界预测。
+- Matched signal:
+  - 首请求无状态、同 turn follow-up 携带 `ts-1`、下一 turn 新连接恢复为空；同 turn 两次工具 follow-up 的状态稳定。
+- Correlation keys:
+  - nextest run `c2ddb459-5071-4995-ab6d-85afada6f01e`
+- Raw content:
+  ```text
+  turn-state contracts: 3 passed
+  ```
+- Interpretation: provider-bound transport 隔离与逻辑 turn-state 生命周期一致，不需要让 WebSocket 连接跨 turn 复用。
+- Time: 2026-08-24 08:05 +0800
