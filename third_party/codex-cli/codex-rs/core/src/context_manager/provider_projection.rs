@@ -13,10 +13,10 @@ use std::collections::HashSet;
 /// Projection owns its input, so filtering remains reversible when a later turn switches back.
 pub(crate) fn project_history_for_provider(
     items: Vec<ResponseItem>,
-    is_openai: bool,
+    preserves_opaque_history: bool,
     input_modalities: &[InputModality],
 ) -> Vec<ResponseItem> {
-    if is_openai {
+    if preserves_opaque_history {
         return items;
     }
 

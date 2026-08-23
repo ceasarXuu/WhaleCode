@@ -1143,9 +1143,13 @@ impl ModelClient {
     ) -> Result<ResponsesApiRequest> {
         let input = prompt.get_formatted_input_for_request(model_info.use_responses_lite);
         let is_openai = provider.info().is_openai();
+        // OpenAI and Bedrock both return opaque Responses API state that must be
+        // replayed to the same provider on later turns. Portable providers such
+        // as DeepSeek receive the sanitized projection instead.
+        let preserves_opaque_history = is_openai || provider.info().is_amazon_bedrock();
         let mut input = crate::context_manager::project_history_for_provider(
             input,
-            is_openai,
+            preserves_opaque_history,
             &model_info.input_modalities,
         );
         let (instructions, tools) = if model_info.use_responses_lite {

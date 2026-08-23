@@ -1839,3 +1839,47 @@
   ```
 - Interpretation: provider-bound transport 隔离与逻辑 turn-state 生命周期一致，不需要让 WebSocket 连接跨 turn 复用。
 - Time: 2026-08-24 08:05 +0800
+
+## Hypothesis H-028: 非 OpenAI 历史投影错误移除 Bedrock 自身的远程压缩状态
+- Status: confirmed
+- Failure signature:
+  - Bedrock 的 `/v1/responses/compact` 请求成功并返回 opaque compaction，但下一轮 Responses 请求缺少该 compaction item。
+- Prediction:
+  - 将 Bedrock 纳入可重放自身 opaque Responses 状态的目标后，手动与自动远程压缩都应保留返回的 encrypted compaction。
+- Falsification:
+  - 放行后压缩项仍缺失，或 DeepSeek 的非兼容历史投影不再清理 opaque 字段。
+- Minimal experiment:
+  - 仅扩展目标 provider 的 opaque-history 保留条件，并联跑两项 Bedrock 远程压缩合同。
+- User/product decision required: no
+
+## Hypothesis H-029: 多次本地压缩测试仍期待非 OpenAI 接收加密推理字段
+- Status: confirmed
+- Failure signature:
+  - 实际请求保留可读 reasoning summary，但按跨 provider 投影合同把 `encrypted_content` 清为 null；测试仍期待原始密文。
+- Prediction:
+  - 将测试期望同步为 portable provider 的清理结果后，多次自动压缩的七请求序列继续完整通过。
+- Falsification:
+  - 同步期望后 summary、工具调用或三次压缩序列发生变化。
+- Minimal experiment:
+  - 仅更新该测试的三处 opaque 字段期望并定向运行。
+- User/product decision required: no
+
+## Evidence E-044: provider 压缩历史投影合同恢复
+- Related hypotheses:
+  - H-028
+  - H-029
+- Direction: supports
+- Type: verification
+- Source: core compact/compact_remote 定向隔离 nextest
+- Prediction or plan link:
+  - H-028 的 Bedrock 自身状态重放与 H-029 的 portable provider 清理预测。
+- Matched signal:
+  - Bedrock 手动、自动远程压缩均把服务端 compaction 带入下一轮；非 OpenAI 本地多次压缩保留 summary 且不发送 encrypted reasoning。
+- Correlation keys:
+  - nextest run `3fba4266-58ad-46ba-afaf-dddd99ac7ccc`
+- Raw content:
+  ```text
+  compact contracts: 3 passed
+  ```
+- Interpretation: 失败来自目标 provider 能力分类过粗和陈旧测试期望，不涉及新增产品选择。
+- Time: 2026-08-24 08:28 +0800
