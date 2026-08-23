@@ -1,6 +1,6 @@
 # WhaleCode v0.0.6 多 Provider 工程实施计划
 
-- Status: phase-1-verified
+- Status: phase-2-blocked-on-plan-approval
 - Product Authority: `../../../../prd/2026-08-23-v0.0.6-multi-provider.md#confirmed-product-decisions`
 - Applicable Decisions: PD1, PD2, PD3, PD4, PD5, PD6, PD7, PD8, PD9, PD10, PD11, PD12, PD13, PD14, PD15, PD16
 - Current-State Evidence: `./current-state-inventory.md`
@@ -155,14 +155,20 @@
 
 #### Pre-Phase Plan Rebase Gate
 
-- Rebase scope: Phase 1 credential/catalog API + W7–W11、W16 剩余设计
-- Material plan delta: pending
-- Plan delta record: pending
-- User approval: pending-if-material
-- Gate status: pending
+- Rebase scope: Phase 1 已实现的三路 credential/catalog registry + 当前 settings FIFO、`SessionConfiguration`、`TurnContext`、compaction 实现 + W7–W11、W16
+- Material plan delta: material（D2）
+- Plan delta record: D2
+- User approval: pending
+- Gate status: blocked-on-plan-approval
 
 - Entry: route auth/catalog 可由 mock 稳定解析；V2 direction-supported。
 - Work: W7、W8、W9、W10、W11 和 transition 诊断。
+- Rebased execution slices:
+  1. W7 + W10 contract：把 `{route, model, effort}` 作为单一 selection 贯穿 app-server/core settings，并先持久化 optional route；legacy model-only 继续沿当前 route。
+  2. W8 runtime：在 session services 注入窄 `ProviderRuntimeRegistry`，每个 route 绑定 `ModelProviderInfo`、route-bound provider factory 与 Phase 1 models manager；prepare 阶段完成凭据/模型/provider 校验，commit 阶段只交换已构造 snapshot。
+  3. W9 surfaces：基于 prepared provider/model 重新解析 base instructions，工具继续由新 `TurnContext` 的 provider/model capability 生成，不新增常驻 mega-registry。
+  4. W11 compact：`PreviousTurnSettings` 增加 route；需要 pre-transition compact 时显式使用旧 turn snapshot，成功后才提交新 route。
+- Estimated handwritten production code: 900–1200 行；建议本阶段上限 1200 行，测试/schema/generated/docs 不计入。若达到上限仍不能闭合原子 transition，停止扩张并重新审批。
 - Exit evidence: active turn/queued input/tool loop/compact 下旧 turn 不变、下一 turn 完整切换；失败无半状态；rollout 可恢复。
 - Product Decision Delta: 审计 PD6–PD11；任何同 turn 热替换均为 `conflict`。
 - Cross-unit side effects: session snapshot 扩大、base prompt 前缀变化、compact 请求归属改变；必须一并验证缓存与费用 route 字段。
@@ -221,7 +227,7 @@
 |---|---|---|---|---|---|
 | Phase 0 | route/auth/turn/history 可行性 | route identity 不含 secret；现有 flat auth record 支持 OpenAI 双槽存储/刷新；settings FIFO 保持 next-turn 边界；wire projection 基于副本 | PD3–PD6、PD8、PD11、PD15 | engineering-only | D1 仅修改后续工程设计；Phase 1 前请求计划审批 |
 | Phase 1 | 凭据与模型分组 | 三条 route 的凭据可共存并精确读写/登出；状态仅暴露 configured 布尔值；目录和缓存按 route 隔离，缺凭据组保持可见；DeepSeek onboarding 不再写入 OpenAI 槽 | PD3–PD5、PD9、PD13、PD15、PD16 | conforming | 无新增产品决策；进入 Phase 2 rebase |
-| Phase 2 | 原子切换、prompt/tools/compact/replay | 待执行 | PD6–PD11 | pending | 阶段结束审计 |
+| Phase 2 | 原子切换、prompt/tools/compact/replay | 当前 session 只持有单一 provider/models manager，model update 仅改 `CollaborationMode`；要原子切 route，必须把 Phase 1 route catalog 提升为 session 可读的窄 runtime registry，并让 prepared snapshot 同时携带 provider/manager/prompt policy | PD6–PD11 | engineering-only material plan delta | 审批 D2 与本阶段 1200 行上限后实施 |
 | Phase 3 | 历史与生命周期 | 待执行 | PD6、PD7、PD10、PD11 | pending | 阶段结束审计 |
 | Phase 4 | TUI 与命令可用性 | 待执行 | PD2、PD3、PD8、PD12、PD14、PD16 | pending | 阶段结束审计 |
 | Phase 5 | 整体验收 | 待执行 | PD1–PD16 | pending | 逐项链接测试证据 |
@@ -267,6 +273,7 @@
 | ID | Before Phase | Previous Plan | Current Fact | Proposed Change | Impact | User Approval | Status |
 |---|---|---|---|---|---|---|---|
 | D1 | Phase 1 | 新建版本化 credential inventory，并把旧 `AuthDotJson` 迁移到新结构 | 现有 `AuthDotJson` 已能同时保存 ChatGPT tokens 与 OpenAI API key；file/keyring round-trip 可保留两者；`persist_tokens` 原位刷新并保留 API key | 保留现有 flat OpenAI 字段作为双槽权威，仅新增 optional `DEEPSEEK_API_KEY` 槽；登录/登出改为字段级 merge/clear，route-bound auth 显式选槽；不新增 inventory 版本或嵌套迁移层 | 减少 schema/migration/兼容分支和批量迁移风险；W2/W3/W4 目标、产品行为和验证矩阵不变 | approved-2026-08-23 | accepted |
+| D2 | Phase 2 | `PreparedProviderTransition` 直接在现有 session authority 内解析目标 provider/catalog | `Session` 只持有启动时的一套 `SharedModelProvider` 与 `SharedModelsManager`；Phase 1 的三路 manager registry 当前归 `ThreadManager`，而 runtime provider 的 auth 仍走 legacy active auth；仅扩展 settings 字段会产生 provider、manager 与 route 不一致 | 新增仅覆盖三条已确认 route 的窄 `ProviderRuntimeRegistry` 并注入 session services；新增 route-bound runtime provider factory；prepare 产出 provider + models manager + model metadata + prompt policy 的完整值，commit 不再执行 I/O | 模块边界扩大但产品行为不变；消除半切换和 legacy active-auth 串路风险；预计本阶段 900–1200 行手写生产代码 | pending | proposed |
 
 ## 11. Completion Definition
 
