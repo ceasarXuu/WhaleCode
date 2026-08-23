@@ -700,6 +700,7 @@ mod tests {
                 timestamp: "2026-07-24T00:00:01Z".to_string(),
                 ordinal: None,
                 item: RolloutItem::TurnContext(TurnContextItem {
+                    route: None,
                     turn_id: Some((*turn_id).to_string()),
                     cwd: AbsolutePathBuf::from_absolute_path(tempdir.path())
                         .expect("absolute feedback rollout directory"),

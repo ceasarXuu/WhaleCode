@@ -235,6 +235,21 @@ fn test_model_provider() -> SharedModelProvider {
     test_model_client(SessionSource::Cli).state.provider.clone()
 }
 
+#[test]
+fn turn_session_can_bind_a_different_provider_without_mutating_session_client() {
+    let client = test_model_client(SessionSource::Cli);
+    let target_provider = create_model_provider(
+        ModelProviderInfo::create_deepseek_provider(),
+        /*auth_manager*/ None,
+    );
+
+    let turn_session = client.new_session_for_provider(Arc::clone(&target_provider));
+
+    assert!(turn_session.provider.info().is_deepseek());
+    assert!(Arc::ptr_eq(&turn_session.provider, &target_provider));
+    assert!(!client.state.provider.info().is_deepseek());
+}
+
 fn test_responses_metadata_for_client(
     client: &ModelClient,
     turn_id: Option<&str>,
@@ -1102,7 +1117,7 @@ async fn websocket_handshake_includes_attestation_for_chatgpt_codex_responses() 
     );
 
     let headers = model_client
-        .build_websocket_headers(&responses_metadata)
+        .build_websocket_headers(&model_client.state.provider, &responses_metadata)
         .await;
 
     assert_eq!(

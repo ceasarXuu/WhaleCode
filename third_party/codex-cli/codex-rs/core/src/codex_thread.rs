@@ -11,6 +11,7 @@ use codex_extension_api::ThreadIdleCause;
 use codex_features::Feature;
 use codex_history::RolloutItem;
 use codex_otel::SessionTelemetry;
+use codex_protocol::ProviderRoute;
 use codex_protocol::ThreadId;
 use codex_protocol::config_types::ApprovalsReviewer;
 use codex_protocol::config_types::CollaborationMode;
@@ -71,6 +72,7 @@ static LIVE_THREADS: Gauge = Gauge::new("core.threads.live");
 
 #[derive(Clone, Debug)]
 pub struct ThreadConfigSnapshot {
+    pub route: Option<ProviderRoute>,
     pub model: String,
     pub model_provider_id: String,
     pub service_tier: Option<String>,
@@ -126,6 +128,7 @@ impl ThreadConfigSnapshot {
 /// Thread settings overrides that app-server validates before starting a turn.
 #[derive(Clone, Default)]
 pub struct CodexThreadSettingsOverrides {
+    pub route: Option<codex_protocol::ProviderRoute>,
     pub environments: Option<TurnEnvironmentSelections>,
     pub profile_workspace_roots: Option<Vec<AbsolutePathBuf>>,
     pub approval_policy: Option<AskForApproval>,
@@ -425,6 +428,7 @@ impl CodexThread {
         overrides: CodexThreadSettingsOverrides,
     ) -> SessionSettingsUpdate {
         let CodexThreadSettingsOverrides {
+            route,
             environments,
             profile_workspace_roots,
             approval_policy,
@@ -450,6 +454,7 @@ impl CodexThread {
         };
 
         SessionSettingsUpdate {
+            route,
             environments,
             profile_workspace_roots,
             approval_policy,

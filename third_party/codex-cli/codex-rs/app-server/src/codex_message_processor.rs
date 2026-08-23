@@ -11041,6 +11041,7 @@ mod tests {
             persist_extended_history: false,
         };
         let config_snapshot = ThreadConfigSnapshot {
+            route: None,
             model: "gpt-5".to_string(),
             model_provider_id: "openai".to_string(),
             service_tier: Some(codex_protocol::config_types::ServiceTier::Flex),

@@ -29,6 +29,7 @@ fn resume_history(
 ) -> InitialHistory {
     let turn_id = "resume-warning-seed-turn".to_string();
     let turn_ctx = TurnContextItem {
+        route: None,
         turn_id: Some(turn_id.clone()),
         cwd: config.cwd.clone(),
         workspace_roots: None,

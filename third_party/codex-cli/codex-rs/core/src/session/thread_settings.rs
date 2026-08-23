@@ -39,6 +39,7 @@ pub(super) async fn prepare_update(
     overrides: ThreadSettingsOverrides,
 ) -> SessionSettingsUpdate {
     let ThreadSettingsOverrides {
+        route,
         environments,
         profile_workspace_roots,
         approval_policy,
@@ -67,6 +68,7 @@ pub(super) async fn prepare_update(
         }
     };
     SessionSettingsUpdate {
+        route,
         environments,
         profile_workspace_roots,
         approval_policy,

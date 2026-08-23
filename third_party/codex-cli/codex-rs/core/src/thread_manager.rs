@@ -8,6 +8,7 @@ use crate::current_time::TimeProvider;
 use crate::environment_selection::TurnEnvironmentSnapshot;
 use crate::environment_selection::default_thread_environment_selections;
 use crate::mcp::McpManager;
+use crate::provider_runtime::ProviderRuntimeRegistry;
 use crate::rollout::truncation;
 use crate::session::ForkPersistence;
 use crate::session::GitEnrichmentPolicy;
@@ -42,16 +43,11 @@ use codex_login::CodexAuth;
 use codex_login::default_client::CODEX_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR;
 use codex_login::default_client::originator;
 use codex_model_provider::create_model_provider;
-use codex_model_provider::create_route_models_manager;
-use codex_model_provider_info::DEEPSEEK_PROVIDER_ID;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::OPENAI_PROVIDER_ID;
 use codex_models_manager::manager::ProviderModelsCatalog;
-use codex_models_manager::manager::ProviderModelsCatalogEntry;
 use codex_models_manager::manager::RefreshStrategy;
 use codex_models_manager::manager::SharedModelsManager;
-use codex_protocol::ProviderAccessMethod;
-use codex_protocol::ProviderRoute;
 use codex_protocol::ThreadId;
 use codex_protocol::config_types::CollaborationModeMask;
 use codex_protocol::error::CodexErr;
@@ -347,6 +343,7 @@ pub(crate) struct ThreadManagerState {
     auth_manager: Arc<AuthManager>,
     models_manager: SharedModelsManager,
     provider_models_catalog: ProviderModelsCatalog,
+    provider_runtime_registry: ProviderRuntimeRegistry,
     environment_manager: Arc<EnvironmentManager>,
     starting_mcp_runtimes: std::sync::Mutex<Vec<std::sync::Weak<AtomicBool>>>,
     skills_service: Arc<HostSkillsService>,
@@ -377,46 +374,14 @@ pub fn build_models_manager(
     )
 }
 
-fn build_provider_models_catalog(
+fn build_provider_registries(
     config: &Config,
     auth_manager: Arc<AuthManager>,
-) -> ProviderModelsCatalog {
-    let routes = [
-        (
-            ProviderRoute::new(OPENAI_PROVIDER_ID, ProviderAccessMethod::Chatgpt),
-            "OpenAI Subscription",
-        ),
-        (
-            ProviderRoute::new(OPENAI_PROVIDER_ID, ProviderAccessMethod::ApiKey),
-            "OpenAI API",
-        ),
-        (
-            ProviderRoute::new(DEEPSEEK_PROVIDER_ID, ProviderAccessMethod::ApiKey),
-            "DeepSeek API",
-        ),
-    ];
-    let entries = routes
-        .into_iter()
-        .filter_map(|(route, display_name)| {
-            let provider = config
-                .model_providers
-                .get(&route.model_provider_id)?
-                .clone();
-            let manager = create_route_models_manager(
-                provider,
-                Arc::clone(&auth_manager),
-                config.codex_home.to_path_buf(),
-                config.model_catalog.clone(),
-                route.clone(),
-            );
-            Some(ProviderModelsCatalogEntry {
-                route,
-                display_name: display_name.to_string(),
-                manager,
-            })
-        })
-        .collect();
-    ProviderModelsCatalog::new(entries, auth_manager)
+) -> (ProviderModelsCatalog, ProviderRuntimeRegistry) {
+    let runtime_registry = ProviderRuntimeRegistry::from_config(config, Arc::clone(&auth_manager));
+    let models_catalog =
+        ProviderModelsCatalog::new(runtime_registry.catalog_entries(), auth_manager);
+    (models_catalog, runtime_registry)
 }
 
 pub fn thread_store_from_config(
@@ -484,8 +449,8 @@ impl ThreadManager {
         external_time_provider: Option<Arc<dyn TimeProvider>>,
     ) -> Self {
         let codex_home = config.codex_home.clone();
-        let provider_models_catalog =
-            build_provider_models_catalog(config, Arc::clone(&auth_manager));
+        let (provider_models_catalog, provider_runtime_registry) =
+            build_provider_registries(config, Arc::clone(&auth_manager));
         let restriction_product = session_source.restriction_product();
         let (thread_created_tx, _) = broadcast::channel(THREAD_CREATED_CHANNEL_CAPACITY);
         let skills_service = Arc::new(HostSkillsService::new_with_restriction_product(
@@ -519,6 +484,7 @@ impl ThreadManager {
                 thread_id_generator: default_thread_id_generator(),
                 models_manager,
                 provider_models_catalog,
+                provider_runtime_registry,
                 environment_manager,
                 starting_mcp_runtimes: std::sync::Mutex::new(Vec::new()),
                 skills_service,
@@ -670,6 +636,7 @@ impl ThreadManager {
                     Vec::new(),
                     Arc::clone(&auth_manager),
                 ),
+                provider_runtime_registry: ProviderRuntimeRegistry::default(),
                 environment_manager,
                 starting_mcp_runtimes: std::sync::Mutex::new(Vec::new()),
                 skills_service,
@@ -1930,6 +1897,7 @@ impl ThreadManagerState {
             installation_id: self.installation_id.clone(),
             auth_manager,
             models_manager: Arc::clone(&self.models_manager),
+            provider_runtime_registry: self.provider_runtime_registry.clone(),
             environment_manager: Arc::clone(&self.environment_manager),
             skills_service: Arc::clone(&self.skills_service),
             plugins_manager: Arc::clone(&self.plugins_manager),

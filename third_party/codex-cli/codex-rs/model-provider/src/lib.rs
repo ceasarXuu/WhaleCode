@@ -28,4 +28,5 @@ pub use provider::ProviderUnauthorizedRecovery;
 pub use provider::RemoteCompactionSupport;
 pub use provider::SharedModelProvider;
 pub use provider::create_model_provider;
+pub use provider::create_route_model_provider;
 pub use provider::create_route_models_manager;

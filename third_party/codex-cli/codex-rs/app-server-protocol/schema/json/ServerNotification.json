@@ -3103,6 +3103,30 @@
       ],
       "type": "object"
     },
+    "ProviderAccessMethod": {
+      "description": "Authentication path used for a provider route. This enum never carries credentials.",
+      "enum": [
+        "chatgpt",
+        "apiKey"
+      ],
+      "type": "string"
+    },
+    "ProviderRoute": {
+      "description": "Non-secret identity for selecting a model provider and its authentication path.",
+      "properties": {
+        "accessMethod": {
+          "$ref": "#/definitions/ProviderAccessMethod"
+        },
+        "modelProviderId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "accessMethod",
+        "modelProviderId"
+      ],
+      "type": "object"
+    },
     "RateLimitReachedType": {
       "enum": [
         "rate_limit_reached",
@@ -5307,6 +5331,17 @@
               "type": "null"
             }
           ]
+        },
+        "route": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProviderRoute"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Active provider access route for subsequent turns, when route-aware selection is enabled."
         },
         "sandboxPolicy": {
           "$ref": "#/definitions/SandboxPolicy"

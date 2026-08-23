@@ -19,6 +19,8 @@ use codex_app_server_protocol::TurnStartParams;
 use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::UserInput as V2UserInput;
 use codex_core::test_support::all_model_presets;
+use codex_protocol::ProviderAccessMethod;
+use codex_protocol::ProviderRoute;
 use codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
 use core_test_support::responses;
 use pretty_assertions::assert_eq;
@@ -89,6 +91,88 @@ async fn thread_settings_update_emits_notification_and_updates_future_turns() ->
         }),
         "future turn did not use updated model/service tier: {request_bodies:#?}"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn thread_settings_update_commits_provider_route_with_model() -> Result<()> {
+    let server = create_mock_responses_server_sequence_unchecked(Vec::new()).await;
+    let codex_home = TempDir::new()?;
+    create_config_toml(codex_home.path(), &server.uri())?;
+    std::fs::write(
+        codex_home.path().join("auth.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "OPENAI_API_KEY": "route-test-key"
+        }))?,
+    )?;
+    let model = all_model_presets()
+        .iter()
+        .find(|preset| preset.supported_in_api && !preset.model.starts_with("deepseek-"))
+        .context("bundled catalog should expose an OpenAI API model")?
+        .model
+        .clone();
+    let route = ProviderRoute::new("openai", ProviderAccessMethod::ApiKey);
+
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
+        .await?;
+    let thread = start_thread(&mut mcp).await?.thread;
+
+    send_thread_settings_update(
+        &mut mcp,
+        ThreadSettingsUpdateParams {
+            thread_id: thread.id.clone(),
+            route: Some(route.clone()),
+            model: Some(model.clone()),
+            ..Default::default()
+        },
+    )
+    .await?;
+
+    let updated = read_thread_settings_updated(&mut mcp).await?;
+    assert_eq!(updated.thread_id, thread.id);
+    assert_eq!(updated.thread_settings.route, Some(route));
+    assert_eq!(updated.thread_settings.model, model);
+    assert_eq!(updated.thread_settings.model_provider, "openai");
+    assert!(received_response_bodies(&server).await?.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn thread_settings_update_rejects_route_without_credentials() -> Result<()> {
+    let server = create_mock_responses_server_sequence_unchecked(Vec::new()).await;
+    let codex_home = TempDir::new()?;
+    create_config_toml(codex_home.path(), &server.uri())?;
+    let model = all_model_presets()
+        .iter()
+        .find(|preset| preset.supported_in_api && !preset.model.starts_with("deepseek-"))
+        .context("bundled catalog should expose an OpenAI API model")?
+        .model
+        .clone();
+
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .with_env_overrides(&[("OPENAI_API_KEY", None)])
+        .build_initialized_with_timeout(DEFAULT_TIMEOUT)
+        .await?;
+    let thread = start_thread(&mut mcp).await?.thread;
+    let request_id = mcp
+        .send_thread_settings_update_request(ThreadSettingsUpdateParams {
+            thread_id: thread.id,
+            route: Some(ProviderRoute::new("openai", ProviderAccessMethod::ApiKey)),
+            model: Some(model),
+            ..Default::default()
+        })
+        .await?;
+
+    let error: JSONRPCError = timeout(
+        DEFAULT_TIMEOUT,
+        mcp.read_stream_until_error_message(RequestId::Integer(request_id)),
+    )
+    .await??;
+    assert!(error.error.message.contains("configured credentials"));
+    assert!(received_response_bodies(&server).await?.is_empty());
     Ok(())
 }
 

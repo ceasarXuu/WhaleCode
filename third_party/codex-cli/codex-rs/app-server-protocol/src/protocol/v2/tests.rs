@@ -4703,6 +4703,31 @@ fn thread_settings_update_params_preserve_explicit_null_service_tier() {
 }
 
 #[test]
+fn thread_settings_update_params_round_trip_provider_route() {
+    let params: ThreadSettingsUpdateParams = serde_json::from_value(json!({
+        "threadId": "thread_123",
+        "route": {
+            "modelProviderId": "deepseek",
+            "accessMethod": "apiKey"
+        },
+        "model": "deepseek-v4-flash"
+    }))
+    .expect("params should deserialize");
+
+    assert_eq!(
+        params.route,
+        Some(codex_protocol::ProviderRoute::new(
+            "deepseek",
+            codex_protocol::ProviderAccessMethod::ApiKey,
+        ))
+    );
+    assert_eq!(params.model.as_deref(), Some("deepseek-v4-flash"));
+    let serialized = serde_json::to_value(params).expect("params should serialize");
+    assert_eq!(serialized["route"]["modelProviderId"], "deepseek");
+    assert_eq!(serialized["route"]["accessMethod"], "apiKey");
+}
+
+#[test]
 fn thread_settings_update_params_preserve_field_level_experimental_gates() {
     let permissions = ThreadSettingsUpdateParams {
         thread_id: "thread_123".to_string(),

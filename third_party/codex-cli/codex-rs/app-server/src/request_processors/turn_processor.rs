@@ -132,6 +132,7 @@ struct ThreadSettingsBuildParams {
     approvals_reviewer: Option<codex_app_server_protocol::ApprovalsReviewer>,
     sandbox_policy: Option<codex_app_server_protocol::SandboxPolicy>,
     permissions: Option<String>,
+    route: Option<codex_protocol::ProviderRoute>,
     model: Option<String>,
     service_tier: Option<Option<String>>,
     effort: Option<ReasoningEffort>,
@@ -541,6 +542,7 @@ impl TurnRequestProcessor {
                     approvals_reviewer: params.approvals_reviewer,
                     sandbox_policy: params.sandbox_policy,
                     permissions: params.permissions,
+                    route: None,
                     model: params.model,
                     service_tier: params.service_tier,
                     effort: params.effort,
@@ -688,6 +690,7 @@ impl TurnRequestProcessor {
             approvals_reviewer,
             sandbox_policy,
             permissions,
+            route,
             model,
             service_tier,
             effort,
@@ -719,6 +722,7 @@ impl TurnRequestProcessor {
             || approvals_reviewer.is_some()
             || sandbox_policy.is_some()
             || permissions.is_some()
+            || route.is_some()
             || model.is_some()
             || service_tier.is_some()
             || effort.is_some()
@@ -779,6 +783,7 @@ impl TurnRequestProcessor {
         if has_any_overrides {
             thread
                 .preview_thread_settings_overrides(CodexThreadSettingsOverrides {
+                    route: route.clone(),
                     environments: environments.clone(),
                     approval_policy,
                     approvals_reviewer,
@@ -801,6 +806,7 @@ impl TurnRequestProcessor {
         }
 
         Ok(codex_protocol::protocol::ThreadSettingsOverrides {
+            route,
             environments,
             profile_workspace_roots,
             approval_policy,
@@ -843,6 +849,7 @@ impl TurnRequestProcessor {
                     approvals_reviewer: params.approvals_reviewer,
                     sandbox_policy: params.sandbox_policy,
                     permissions: params.permissions,
+                    route: params.route,
                     model: params.model,
                     service_tier: params.service_tier,
                     effort: params.effort,

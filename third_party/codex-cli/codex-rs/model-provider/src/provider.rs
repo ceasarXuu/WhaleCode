@@ -19,6 +19,7 @@ use codex_models_manager::cache::ModelsCache;
 use codex_models_manager::manager::OpenAiModelsManager;
 use codex_models_manager::manager::SharedModelsManager;
 use codex_models_manager::manager::StaticModelsManager;
+use codex_protocol::ProviderAccessMethod;
 use codex_protocol::ProviderRoute;
 use codex_protocol::account::ProviderAccount;
 use codex_protocol::error::CodexErr;
@@ -29,6 +30,7 @@ use crate::amazon_bedrock::AmazonBedrockModelProvider;
 use crate::auth::ProviderAuthScope;
 use crate::auth::ResolvedProviderAuth;
 use crate::auth::auth_manager_for_provider;
+use crate::auth::auth_provider_from_auth;
 use crate::auth::resolve_provider_auth;
 use crate::auth::resolve_provider_auth_for_scope;
 use crate::models_endpoint::OpenAiModelsEndpoint;
@@ -319,6 +321,22 @@ pub fn create_model_provider(
     }
 }
 
+/// Creates a runtime provider whose credential lookup is fixed to `route`.
+///
+/// Provider metadata remains shared between access methods, while every request resolves only
+/// the credential slot selected by the route.
+pub fn create_route_model_provider(
+    provider_info: ModelProviderInfo,
+    auth_manager: Arc<AuthManager>,
+    route: ProviderRoute,
+) -> SharedModelProvider {
+    Arc::new(ConfiguredModelProvider::new_for_route(
+        provider_info,
+        auth_manager,
+        route,
+    ))
+}
+
 /// Creates a route-bound model catalog manager with isolated auth and cache state.
 pub fn create_route_models_manager(
     provider_info: ModelProviderInfo,
@@ -351,6 +369,7 @@ pub fn create_route_models_manager(
 struct ConfiguredModelProvider {
     info: ModelProviderInfo,
     auth_manager: Option<Arc<AuthManager>>,
+    route: Option<ProviderRoute>,
 }
 
 impl ConfiguredModelProvider {
@@ -359,6 +378,20 @@ impl ConfiguredModelProvider {
         Self {
             info: provider_info,
             auth_manager,
+            route: None,
+        }
+    }
+
+    fn new_for_route(
+        provider_info: ModelProviderInfo,
+        auth_manager: Arc<AuthManager>,
+        route: ProviderRoute,
+    ) -> Self {
+        let auth_manager = auth_manager_for_provider(Some(auth_manager), &provider_info);
+        Self {
+            info: provider_info,
+            auth_manager,
+            route: Some(route),
         }
     }
 }
@@ -397,6 +430,13 @@ impl ModelProvider for ConfiguredModelProvider {
 
     fn approval_review_preferred_model(&self) -> &'static str {
         if self
+            .route
+            .as_ref()
+            .is_some_and(|route| route.access_method == ProviderAccessMethod::ApiKey)
+        {
+            return API_KEY_APPROVAL_REVIEW_PREFERRED_MODEL;
+        }
+        if self
             .auth_manager
             .as_ref()
             .and_then(|auth_manager| auth_manager.auth_cached())
@@ -413,6 +453,9 @@ impl ModelProvider for ConfiguredModelProvider {
     }
 
     fn supports_attestation(&self) -> bool {
+        if let Some(route) = &self.route {
+            return route.access_method == ProviderAccessMethod::Chatgpt;
+        }
         self.auth_manager
             .as_ref()
             .and_then(|auth_manager| auth_manager.auth_cached())
@@ -422,9 +465,48 @@ impl ModelProvider for ConfiguredModelProvider {
     fn auth(&self) -> ModelProviderFuture<'_, Option<CodexAuth>> {
         Box::pin(async move {
             match self.auth_manager.as_ref() {
-                Some(auth_manager) => auth_manager.auth().await,
+                Some(auth_manager) => match &self.route {
+                    Some(route) => auth_manager.auth_for_route(route).await.ok().flatten(),
+                    None => auth_manager.auth().await,
+                },
                 None => None,
             }
+        })
+    }
+
+    fn api_auth(
+        &self,
+    ) -> ModelProviderFuture<'_, codex_protocol::error::Result<SharedAuthProvider>> {
+        Box::pin(async move {
+            let auth = self.auth().await;
+            if self.route.is_some() {
+                return Ok(auth.as_ref().map_or_else(
+                    crate::auth::unauthenticated_auth_provider,
+                    auth_provider_from_auth,
+                ));
+            }
+            resolve_provider_auth(auth.as_ref(), self.info())
+        })
+    }
+
+    fn api_auth_for_scope(
+        &self,
+        scope: ProviderAuthScope,
+    ) -> ModelProviderFuture<'_, codex_protocol::error::Result<ResolvedProviderAuth>> {
+        Box::pin(async move {
+            let auth = self.auth().await;
+            if self
+                .route
+                .as_ref()
+                .is_some_and(|route| route.access_method == ProviderAccessMethod::ApiKey)
+            {
+                return Ok(ResolvedProviderAuth::new(auth.as_ref().map_or_else(
+                    crate::auth::unauthenticated_auth_provider,
+                    auth_provider_from_auth,
+                )));
+            }
+            resolve_provider_auth_for_scope(self.auth_manager(), auth.as_ref(), self.info(), scope)
+                .await
         })
     }
 
@@ -1246,6 +1328,45 @@ mod tests {
                 .models
                 .iter()
                 .any(|model| model.slug == "provider-model")
+        );
+    }
+
+    #[tokio::test]
+    async fn route_bound_deepseek_provider_uses_deepseek_credential_slot() {
+        let codex_home = test_codex_home();
+        let _ = std::fs::remove_dir_all(&codex_home);
+        std::fs::create_dir_all(&codex_home).expect("create auth fixture directory");
+        std::fs::write(
+            codex_home.join("auth.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "OPENAI_API_KEY": "openai-route-key",
+                "DEEPSEEK_API_KEY": "deepseek-route-key"
+            }))
+            .expect("serialize auth fixture"),
+        )
+        .expect("write auth fixture");
+        let auth_manager = AuthManager::shared(
+            codex_home,
+            /*enable_codex_api_key_env*/ false,
+            codex_login::AuthCredentialsStoreMode::File,
+            /*forced_chatgpt_workspace_id*/ None,
+            /*chatgpt_base_url*/ None,
+            codex_login::AuthKeyringBackendKind::default(),
+            codex_login::test_support::transport_default_auth_route_config(),
+        )
+        .await;
+        let provider = create_route_model_provider(
+            ModelProviderInfo::create_deepseek_provider(),
+            auth_manager,
+            ProviderRoute::new("deepseek", ProviderAccessMethod::ApiKey),
+        );
+
+        let auth = provider.api_auth().await.expect("resolve route auth");
+        let headers = auth.to_auth_headers();
+
+        assert_eq!(
+            headers.get(http::header::AUTHORIZATION),
+            Some(&HeaderValue::from_static("Bearer deepseek-route-key"))
         );
     }
 }

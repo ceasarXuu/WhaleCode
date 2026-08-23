@@ -19911,6 +19911,17 @@
             }
           ]
         },
+        "route": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProviderRoute"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Active provider access route for subsequent turns, when route-aware selection is enabled."
+        },
         "sandboxPolicy": {
           "$ref": "#/definitions/SandboxPolicy"
         },

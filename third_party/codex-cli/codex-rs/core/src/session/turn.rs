@@ -128,6 +128,7 @@ use futures::future::BoxFuture;
 use futures::prelude::*;
 use futures::stream::FuturesOrdered;
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::AbortOnDropHandle;
 use tracing::Instrument;
 use tracing::error;
 use tracing::field;
@@ -163,20 +164,37 @@ pub(crate) async fn run_turn(
     // Record results from hooks that finished after the previous turn before this turn's user prompt.
     drain_async_hook_results(&sess, &turn_context, /*before_user_prompt*/ true).await;
 
-    let mut client_session =
-        prewarmed_client_session.unwrap_or_else(|| sess.services.model_client.new_session());
+    let mut client_session = prewarmed_client_session.unwrap_or_else(|| {
+        sess.services
+            .model_client
+            .new_session_for_provider(Arc::clone(&turn_context.provider))
+    });
     // TODO(ccunningham): Pre-turn compaction runs before context updates and the
     // new user message are recorded. Estimate pending incoming items (context
     // diffs/full reinjection + user input) and trigger compaction preemptively
     // when they would push the thread over the compaction threshold.
-    if let Err(err) = run_pre_sampling_compact(
-        &sess,
-        &turn_context,
-        &mut client_session,
-        &cancellation_token,
-    )
-    .await
-    {
+    // Previous-model compaction captures a complete step context before the normal turn starts.
+    // Keep that independently deep async chain on a fresh task stack, while returning the client
+    // session so websocket/cache state remains scoped to this turn.
+    let pre_sampling_compact_task = AbortOnDropHandle::new(tokio::spawn({
+        let sess = Arc::clone(&sess);
+        let turn_context = Arc::clone(&turn_context);
+        let cancellation_token = cancellation_token.child_token();
+        async move {
+            let result = run_pre_sampling_compact(
+                &sess,
+                &turn_context,
+                &mut client_session,
+                &cancellation_token,
+            )
+            .await;
+            (client_session, result)
+        }
+    }));
+    let (client_session, pre_sampling_compact_result) = pre_sampling_compact_task
+        .await
+        .map_err(|err| CodexErr::Fatal(format!("pre-sampling compact task failed: {err}")))?;
+    if let Err(err) = pre_sampling_compact_result {
         if matches!(err.details(), CodexErrorDetails::TurnAborted) {
             run_hooks_and_record_inputs(&sess, &turn_context, &input, PersistContext::Standard)
                 .await;
@@ -191,6 +209,7 @@ pub(crate) async fn run_turn(
         error!("Failed to run pre-sampling compact");
         return Ok(None);
     }
+    let mut client_session = Some(client_session);
 
     let user_input = turn_user_input(&input);
     let (required_servers, mentioned_plugins) =
@@ -273,6 +292,7 @@ pub(crate) async fn run_turn(
     sess.merge_connector_selection(explicitly_enabled_connectors.clone())
         .await;
     sess.set_previous_turn_settings(Some(PreviousTurnSettings {
+        route: turn_context.route.clone(),
         model: turn_context.model_info.slug.clone(),
         comp_hash: turn_context.model_info.comp_hash.clone(),
         realtime_active: Some(turn_context.realtime_active),
@@ -383,17 +403,35 @@ pub(crate) async fn run_turn(
                 window_id,
                 CodexResponsesRequestKind::Turn,
             );
-            run_sampling_request(
-                Arc::clone(&sess),
-                Arc::clone(&step_context),
-                Arc::clone(&turn_context.extension_data),
-                Arc::clone(&turn_diff_tracker),
-                &mut client_session,
-                &responses_metadata,
-                sampling_request_input,
-                cancellation_token.child_token(),
-            )
-            .await
+            let mut sampling_client_session = client_session
+                .take()
+                .expect("turn client session must be available before sampling");
+            let sampling_task = AbortOnDropHandle::new(tokio::spawn({
+                let sess = Arc::clone(&sess);
+                let step_context = Arc::clone(&step_context);
+                let turn_store = Arc::clone(&turn_context.extension_data);
+                let turn_diff_tracker = Arc::clone(&turn_diff_tracker);
+                let cancellation_token = cancellation_token.child_token();
+                async move {
+                    let result = run_sampling_request(
+                        sess,
+                        step_context,
+                        turn_store,
+                        turn_diff_tracker,
+                        &mut sampling_client_session,
+                        &responses_metadata,
+                        sampling_request_input,
+                        cancellation_token,
+                    )
+                    .await;
+                    (sampling_client_session, result)
+                }
+            }));
+            let (returned_client_session, result) = sampling_task
+                .await
+                .map_err(|err| CodexErr::Fatal(format!("sampling request task failed: {err}")))?;
+            client_session = Some(returned_client_session);
+            result
         }
         .await;
         match sampling_request_result {
@@ -477,7 +515,9 @@ pub(crate) async fn run_turn(
                         &sess,
                         Arc::clone(&step_context),
                         /*fallback_step_context*/ None,
-                        &mut client_session,
+                        client_session
+                            .as_mut()
+                            .expect("turn client session must be restored after sampling"),
                         InitialContextInjection::BeforeLastUserMessage {
                             world_state: Arc::clone(&world_state),
                             step_context: Arc::clone(&step_context),
@@ -1091,33 +1131,81 @@ async fn maybe_run_previous_model_inline_compact(
     let Some(previous_turn_settings) = sess.previous_turn_settings().await else {
         return Ok(());
     };
+    maybe_run_previous_model_inline_compact_with_settings(
+        sess,
+        turn_context,
+        client_session,
+        cancellation_token,
+        previous_turn_settings,
+    )
+    .boxed()
+    .await
+}
+
+async fn maybe_run_previous_model_inline_compact_with_settings(
+    sess: &Arc<Session>,
+    turn_context: &Arc<TurnContext>,
+    client_session: &mut ModelClientSession,
+    cancellation_token: &CancellationToken,
+    previous_turn_settings: PreviousTurnSettings,
+) -> CodexResult<()> {
     let should_compact_for_comp_hash_change = comp_hash_changed(
         previous_turn_settings.comp_hash.as_deref(),
         turn_context.model_info.comp_hash.as_deref(),
     );
     let previous_model = previous_turn_settings.model;
-    let previous_model_turn_context = Arc::new(
-        turn_context
-            .with_model(previous_model.clone(), &sess.services.models_manager)
-            .await,
-    );
+    let previous_runtime = previous_turn_settings
+        .route
+        .as_ref()
+        .and_then(|route| sess.services.provider_runtime_registry.get(route));
+    let route_changed = previous_turn_settings.route != turn_context.route;
+    let previous_model_turn_context =
+        Arc::new(match (previous_turn_settings.route, previous_runtime) {
+            (Some(route), Some(runtime)) => {
+                turn_context
+                    .with_provider_model(
+                        route,
+                        Arc::clone(&runtime.provider),
+                        previous_model.clone(),
+                        &runtime.models_manager,
+                    )
+                    .await
+            }
+            _ => {
+                turn_context
+                    .with_model(previous_model.clone(), &sess.services.models_manager)
+                    .await
+            }
+        });
+    let mut previous_provider_client_session = route_changed.then(|| {
+        sess.services
+            .model_client
+            .new_session_for_provider(Arc::clone(&previous_model_turn_context.provider))
+    });
+    let compact_client_session = previous_provider_client_session
+        .as_mut()
+        .unwrap_or(client_session);
 
     if should_compact_for_comp_hash_change {
         let step_context = sess
             .capture_step_context(Arc::clone(&previous_model_turn_context), cancellation_token)
             .await?;
-        let fallback_step_context = capture_current_model_fallback_step_context(
-            sess,
-            turn_context,
-            previous_model.as_str(),
-            cancellation_token,
-        )
-        .await?;
+        let fallback_step_context = if route_changed {
+            None
+        } else {
+            capture_current_model_fallback_step_context(
+                sess,
+                turn_context,
+                previous_model.as_str(),
+                cancellation_token,
+            )
+            .await?
+        };
         run_auto_compact(
             sess,
             step_context,
             fallback_step_context,
-            client_session,
+            compact_client_session,
             InitialContextInjection::DoNotInject,
             CompactionReason::CompHashChanged,
             CompactionPhase::PreTurn,
@@ -1154,18 +1242,22 @@ async fn maybe_run_previous_model_inline_compact(
         let step_context = sess
             .capture_step_context(Arc::clone(&previous_model_turn_context), cancellation_token)
             .await?;
-        let fallback_step_context = capture_current_model_fallback_step_context(
-            sess,
-            turn_context,
-            previous_model.as_str(),
-            cancellation_token,
-        )
-        .await?;
+        let fallback_step_context = if route_changed {
+            None
+        } else {
+            capture_current_model_fallback_step_context(
+                sess,
+                turn_context,
+                previous_model.as_str(),
+                cancellation_token,
+            )
+            .await?
+        };
         run_auto_compact(
             sess,
             step_context,
             fallback_step_context,
-            client_session,
+            compact_client_session,
             InitialContextInjection::DoNotInject,
             CompactionReason::ModelDownshift,
             CompactionPhase::PreTurn,
