@@ -1967,3 +1967,34 @@
   ```
 - Interpretation: 新 prompt/tools/model catalog final-wire 在 DeepSeek 最小真实矩阵中保持高缓存命中和业务正确性；基线晋升由证据链完成，不是手工绕过快照。
 - Time: 2026-08-24 07:23 +0800
+
+## Hypothesis H-032: cache 快照受 Cargo feature unification 改变 JSON 对象顺序
+- Status: confirmed
+- Failure signature:
+  - 相同两项 final-wire 测试在 core-only 图中通过，在同时选择 app-server/TUI 的六 crate 图中仅出现对象键顺序差异；完整请求字段和值不变。
+- Prediction:
+  - cache evidence 渲染时显式排序对象键，并仅规范化已知的 JSON 元数据头与工具 description 内 fenced JSON 后，两种 feature 图应共享同一快照。
+- Falsification:
+  - 六 crate 图仍出现非顺序差异，或规范化改变自然语言/普通字符串负载。
+- Minimal experiment:
+  - 在六 crate 选择图中只运行两项 cache final-wire 测试；规范化范围限制为外层对象、`x-codex-turn-metadata` 和 `description` fenced JSON。
+- User/product decision required: no
+
+## Evidence E-048: 六 crate 图的 cache 快照顺序已稳定
+- Related hypotheses:
+  - H-032
+- Direction: supports
+- Type: verification
+- Source: 六 crate feature 图定向隔离 nextest
+- Prediction or plan link:
+  - H-032 的显式、字段受限 JSON 规范化预测。
+- Matched signal:
+  - `taskspace_production_tool_wire` 与 `standard_request_pair_preserves_the_complete_prefix` 在六 crate 选择图中 2/2 通过，未修改已接受的 wire 快照，也未产生新的真实 provider 请求。
+- Correlation keys:
+  - nextest run `00a33fde-6a84-4b60-89f5-d7373f04d8f9`
+- Raw content:
+  ```text
+  2 tests run: 2 passed, 9300 skipped
+  ```
+- Interpretation: 失败是测试证据序列化随依赖特性图漂移的工程缺口，不是 provider 产品行为或缓存回归。
+- Time: 2026-08-24 07:33 +0800
