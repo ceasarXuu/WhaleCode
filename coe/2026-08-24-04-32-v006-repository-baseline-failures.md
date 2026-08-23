@@ -124,6 +124,7 @@
 - Related evidence:
   - E-001
   - E-032
+  - E-033
   - E-004
   - E-007
   - E-008
@@ -1408,3 +1409,22 @@
   ```
 - Interpretation: 两项均为可直接映射到现行产品合同的测试漂移，不需要修改提示生成或模型目录生产逻辑；H-004 的其余 TUI 范围仍需独立验证。
 - Time: 2026-08-24 06:21 +0800
+
+## Evidence E-033: core 配置诊断文本已完成 Whale 品牌同步
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: verification
+- Source: core config 六项定向 nextest
+- Prediction or plan link:
+  - H-004 的品牌断言漂移预测。
+- Matched signal:
+  - 未识别 filesystem special path、空 profile 与受管 sandbox fallback 的生产诊断均已使用 Whale，测试仍期待 Codex；只同步断言后全部通过。
+- Correlation keys:
+  - nextest run `6221a600-d037-4abd-a7e6-ae3506452cc9`
+- Raw content:
+  ```text
+  core config diagnostics: 6 passed
+  ```
+- Interpretation: 配置校验和 fail-closed 行为未改变，仅测试品牌文本落后。
+- Time: 2026-08-24 06:23 +0800
