@@ -1376,10 +1376,12 @@ async fn spawned_full_history_v2_child_uses_model_precedence_without_dropping_co
             1
         );
     }
-    assert!(!child_developer_messages.iter().any(|message| {
-        message.contains(&format!("{INHERITED_MODEL} root role."))
-            || message.contains(&format!("{INHERITED_MODEL} subagent role."))
-    }));
+    if expected_model != INHERITED_MODEL {
+        assert!(!child_developer_messages.iter().any(|message| {
+            message.contains(&format!("{INHERITED_MODEL} root role."))
+                || message.contains(&format!("{INHERITED_MODEL} subagent role."))
+        }));
+    }
     if matches!(
         selection,
         FullHistoryV2ModelSelection::MultiAgentModeInstructions

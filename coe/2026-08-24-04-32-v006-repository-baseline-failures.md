@@ -1715,3 +1715,34 @@
   ```
 - Interpretation: 三项均为 v0.0.6 品牌迁移后的测试漂移，没有修改生产错误处理或安全边界。
 - Time: 2026-08-24 07:27 +0800
+
+## Hypothesis H-024: multi-agent provider fixture 与同名模型角色断言自相矛盾
+- Status: confirmed
+- Failure signature:
+  - cold resume 测试期待 OpenAI provider，却隐式继承 v0.0.6 默认 DeepSeek provider；full-history 显式 override 使用与继承模型相同的 slug，却同时要求该模型的 subagent role 存在和不存在。
+- Prediction:
+  - 将 OpenAI 场景显式绑定 `model_provider_id=openai`，并仅在目标模型不同于继承模型时断言旧 role 消失，可恢复整个相关参数化测试组。
+- Falsification:
+  - 修正夹具后 cold resume 丢失 provider/role，或其他 full-history 模型优先级场景回归。
+- Minimal experiment:
+  - 修改两处测试夹具，定向运行 cold resume 与完整 full-history 参数化组。
+- User/product decision required: no
+
+## Evidence E-040: multi-agent provider 与 role precedence 测试恢复
+- Related hypotheses:
+  - H-024
+- Direction: supports
+- Type: verification
+- Source: core multi-agent 定向隔离 nextest
+- Prediction or plan link:
+  - H-024 的显式 provider 和同名模型断言预测。
+- Matched signal:
+  - cold root resume 保持 OpenAI provider、角色模型和 follow-up；full-history 的显式 override、默认模型、world-state、时间提醒及 mode transition 共六个场景全部通过。
+- Correlation keys:
+  - nextest run `ca4cb531-2317-4bc2-b540-2b480b805d4c`
+- Raw content:
+  ```text
+  multi-agent provider/role contracts: 7 passed
+  ```
+- Interpretation: 修复只消除测试对全局默认 provider 的依赖和逻辑矛盾，未改变生产角色权限或模型优先级。
+- Time: 2026-08-24 07:35 +0800

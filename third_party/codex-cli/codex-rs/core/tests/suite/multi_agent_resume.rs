@@ -134,6 +134,7 @@ fn configure_multi_agent_v2_with_role(
     config: &mut codex_core::config::Config,
     model_provider_base_url: &str,
 ) {
+    config.model_provider_id = ROLE_MODEL_PROVIDER_ID.to_string();
     config
         .features
         .enable(Feature::Collab)
