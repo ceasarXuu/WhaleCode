@@ -112,10 +112,11 @@
   - E-001
   - E-004
   - E-007
+  - E-008
 - Evidence gate: satisfied
 - Conclusion: Code Mode 与 MCP 代表失败分别缺少 `codex-code-mode-host` 和 `test_stdio_server`；前者当前还受 rusty_v8 上游缺失预构建资产阻断。
-- Repair design readiness: ready for runner helper build; code-mode host dependency remains externally blocked
-- Next step: 让隔离 runner 显式构建并暴露可构建 helper；将 code-mode host 404 作为独立上游依赖阻断，不混入产品回归。
+- Repair design readiness: MCP helper repair implemented and verified; code-mode host dependency remains externally blocked
+- Next step: 将 code-mode host 404 作为独立上游依赖阻断，不混入产品回归；继续盘点其他失败簇。
 - Blocker:
   - none
 - Close reason:
@@ -362,3 +363,23 @@
   ```
 - Interpretation: H-002 已满足证据门禁。Code Mode 不是 provider 行为回归；当前 host 构建还命中 OpenAI Codex 上游已报告的 rusty_v8 sandbox asset 404，不能用修改业务断言掩盖。
 - Time: 2026-08-24 05:13 +0800
+
+## Evidence E-008: 隔离 runner 预构建 MCP helper 后代表测试通过
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: verification
+- Source: `scripts/codex-upstream/run_isolated_tests.py` 与定向隔离 nextest
+- Prediction or plan link:
+  - H-002 的补齐 helper 后原失败恢复预测。
+- Matched signal:
+  - runner 在包含 `codex-core` 的选择范围内先构建 `test_stdio_server`；脚本单测 7/7 通过，原 MCP 代表测试在隔离环境中通过。
+- Correlation keys:
+  - nextest run `e35e1c48-ffaa-458c-b87f-afae89e06110`
+- Raw content:
+  ```text
+  Ran 7 tests ... OK
+  PASS suite::mcp_refresh_cleanup::refresh_keeps_superseded_mcp_server_alive_for_in_flight_calls
+  ```
+- Interpretation: MCP helper 缺失的 runner 工程缺口已修复；Code Mode host 仍需等待或绕开上游 rusty_v8 资产问题。
+- Time: 2026-08-24 05:25 +0800

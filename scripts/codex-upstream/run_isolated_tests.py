@@ -64,6 +64,23 @@ def _command(arguments: list[str]) -> list[str]:
     return ["cargo", "nextest", "run", "--no-fail-fast", *arguments]
 
 
+def _selected_packages(arguments: list[str]) -> set[str]:
+    packages: set[str] = set()
+    for index, argument in enumerate(arguments):
+        if argument in {"-p", "--package"} and index + 1 < len(arguments):
+            packages.add(arguments[index + 1])
+        elif argument.startswith("--package="):
+            packages.add(argument.partition("=")[2])
+    return packages
+
+
+def _runtime_helper_commands(arguments: list[str]) -> list[list[str]]:
+    packages = _selected_packages(arguments)
+    if packages and "codex-core" not in packages:
+        return []
+    return [["cargo", "build", "-p", "codex-rmcp-client", "--bin", "test_stdio_server"]]
+
+
 def main(arguments: list[str] | None = None) -> int:
     test_arguments = sys.argv[1:] if arguments is None else arguments
     if not test_arguments:
@@ -81,6 +98,18 @@ def main(arguments: list[str] | None = None) -> int:
         ) as runtime:
             runtime_root = Path(runtime)
             environment = _isolated_environment(runtime_root)
+            for helper_command in _runtime_helper_commands(test_arguments):
+                helper = subprocess.run(
+                    helper_command,
+                    cwd=codex_root,
+                    env=environment,
+                    check=False,
+                    preexec_fn=(
+                        _set_reproducible_child_umask if os.name == "posix" else None
+                    ),
+                )
+                if helper.returncode != 0:
+                    return helper.returncode
             completed = subprocess.run(
                 _command(test_arguments),
                 cwd=codex_root,

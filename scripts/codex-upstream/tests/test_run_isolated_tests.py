@@ -43,6 +43,20 @@ class RunIsolatedTestsTests(unittest.TestCase):
             ],
         )
 
+    def test_core_scope_builds_stdio_runtime_helper(self) -> None:
+        self.assertEqual(
+            run_isolated_tests._runtime_helper_commands(["-p", "codex-core"]),
+            [["cargo", "build", "-p", "codex-rmcp-client", "--bin", "test_stdio_server"]],
+        )
+
+    def test_non_core_scope_skips_stdio_runtime_helper(self) -> None:
+        self.assertEqual(
+            run_isolated_tests._runtime_helper_commands(
+                ["--package=codex-login", "--package", "codex-protocol"]
+            ),
+            [],
+        )
+
     def test_runtime_base_rejects_contaminated_ancestor(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             contaminated = Path(root) / "contaminated"
