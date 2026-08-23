@@ -123,6 +123,7 @@
     - none
 - Related evidence:
   - E-001
+  - E-032
   - E-004
   - E-007
   - E-008
@@ -1388,3 +1389,22 @@
   ```
 - Interpretation: 生产工具规划能力门禁正确；测试不能依赖全局默认 provider。
 - Time: 2026-08-24 06:19 +0800
+
+## Evidence E-032: core 两项文本断言落后于已生效产品合同
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: verification
+- Source: core skills 与 subagent notification 定向 nextest
+- Prediction or plan link:
+  - H-004 的品牌/模型目录文本漂移预测。
+- Matched signal:
+  - skill budget 警告的生产文本已使用 Whale 品牌；DeepSeek Flash 当前支持 effort 为 none/low/high/max。只同步两处测试期望后用例通过。
+- Correlation keys:
+  - nextest run `6b623944-351a-4052-b548-d02a2e0f4acc`
+- Raw content:
+  ```text
+  targeted core text contracts: 2 passed
+  ```
+- Interpretation: 两项均为可直接映射到现行产品合同的测试漂移，不需要修改提示生成或模型目录生产逻辑；H-004 的其余 TUI 范围仍需独立验证。
+- Time: 2026-08-24 06:21 +0800

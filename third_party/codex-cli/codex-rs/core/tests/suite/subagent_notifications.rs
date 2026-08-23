@@ -2370,7 +2370,7 @@ async fn spawn_agent_rejects_reasoning_effort_unsupported_by_role_model() -> Res
     assert_eq!(
         output.as_deref(),
         Some(
-            "Reasoning effort `ultra` is not supported for model `deepseek-v4-flash`. Supported reasoning efforts: standard, high, max"
+            "Reasoning effort `ultra` is not supported for model `deepseek-v4-flash`. Supported reasoning efforts: none, low, high, max"
         )
     );
     Ok(())
