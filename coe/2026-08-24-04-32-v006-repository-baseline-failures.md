@@ -1,7 +1,7 @@
 # Problem P-001: v0.0.6 多 Provider 发布被仓库基线失败阻断
 - Status: investigating
 - Created: 2026-08-24 04:32 +0800
-- Updated: 2026-08-24 06:02 +0800
+- Updated: 2026-08-24 06:12 +0800
 - Objective: 在不改写已确认产品逻辑的前提下，找到并修复阻断 v0.0.6 multi-provider 发布门禁的仓库基线根因。
 - Symptoms:
   - 受影响六 crate 的隔离 nextest 矩阵执行 9284 项，8928 通过、356 失败。
@@ -31,6 +31,7 @@
   - H-003
   - H-004
   - H-005
+  - H-006
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -242,6 +243,47 @@
 - Conclusion: 显式 OpenAI fixture 将原 15 个 Guardian 单测失败中的 12 个直接恢复；补齐两个手工 fixture 后，错误传播测试恢复，剩余两项仅为品牌快照。
 - Repair design readiness: implemented and verified
 - Next step: none for H-005
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-006: app-server 默认 capability 用例仍断言上游 OpenAI 默认值
+- Status: confirmed
+- Parent: P-001
+- Claim: `read_default_provider_capabilities` 未显式配置 provider，却仍期待 OpenAI 能力；Whale 的已确认默认 provider 是 DeepSeek，因此测试预期过期。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 配置层已有 `defaults_to_deepseek_flash_responses_provider` 合同，provider 层已有 DeepSeek capability 合同。
+- Falsifiable predictions:
+  - If true: endpoint 实际返回 DeepSeek 的 false/false/true；显式配置 OpenAI 时仍返回 true/true/true。
+  - If false: endpoint 返回值不随配置 provider 改变，或 DeepSeek 返回值与 provider 单测不一致。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: endpoint 正确读取当前 provider，只有默认用例预期陈旧。
+  - Signal: 默认与显式 OpenAI 两个 endpoint 对照测试。
+  - Capture method: 保留默认路径并新增显式 OpenAI 覆盖。
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - provider ID
+  - Differentiates from:
+    - H-003
+  - Supports if:
+    - 默认返回 DeepSeek 能力，显式 OpenAI 返回 OpenAI 能力。
+  - Refutes if:
+    - 两个配置返回相同或错误能力。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-012
+- Conclusion: 原用例的默认前提已被 Whale 默认 DeepSeek 配置取代；生产 endpoint 与 provider capability 实现一致。
+- Repair design readiness: implemented and verified
+- Next step: none for H-006
 - Blocker:
   - none
 - Close reason:
@@ -490,3 +532,42 @@
   ```
 - Interpretation: Guardian 单测失败簇已由 fixture 与预期基线修复闭环，未修改生产运行时。
 - Time: 2026-08-24 06:05 +0800
+
+## Evidence E-012: capability endpoint 默认返回 DeepSeek 合同值
+- Related hypotheses:
+  - H-006
+- Direction: supports
+- Type: reproduction
+- Source: app-server 隔离定向 nextest、core config contract、model-provider unit contract
+- Prediction or plan link:
+  - H-006 的默认用例前提过期预测。
+- Matched signal:
+  - 默认 endpoint 连续两次稳定返回 namespace=false、image=false、web=true；core 明确断言默认 `model_provider_id=deepseek`；provider 单测断言相同 capability。
+- Correlation keys:
+  - nextest run `0c670d26-97b8-4587-a47a-4f1b34c7d424`
+- Raw content:
+  ```text
+  actual default: namespace_tools=false, image_generation=false, web_search=true
+  config default: model_provider_id="deepseek", model="deepseek-v4-flash"
+  ```
+- Interpretation: 这是单一陈旧测试前提，不是 provider runtime 回归；修复需同时保留显式 OpenAI endpoint 覆盖。
+- Time: 2026-08-24 06:12 +0800
+
+## Evidence E-013: DeepSeek 默认与显式 OpenAI capability endpoint 均通过
+- Related hypotheses:
+  - H-006
+- Direction: supports
+- Type: verification
+- Source: app-server capability 文件隔离 nextest
+- Prediction or plan link:
+  - H-006 的 endpoint 应随显式 provider 正确返回能力预测。
+- Matched signal:
+  - 默认 DeepSeek、显式 OpenAI、Bedrock 与 Bedrock Runtime 四项全部通过。
+- Correlation keys:
+  - nextest run `3fca70c9-5d92-43d7-a149-7642f49d93f1`
+- Raw content:
+  ```text
+  Summary [0.217s] 4 tests run: 4 passed, 1237 skipped
+  ```
+- Interpretation: 更新后的测试同时覆盖 Whale 默认值和 OpenAI 支持，避免以弱化断言换取通过。
+- Time: 2026-08-24 06:15 +0800
