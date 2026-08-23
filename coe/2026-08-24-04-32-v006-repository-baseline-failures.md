@@ -1883,3 +1883,47 @@
   ```
 - Interpretation: 失败来自目标 provider 能力分类过粗和陈旧测试期望，不涉及新增产品选择。
 - Time: 2026-08-24 08:28 +0800
+
+## Hypothesis H-030: MCP OAuth 代理测试受桌面 originator 环境污染
+- Status: confirmed
+- Failure signature:
+  - 测试子进程没有发出任何代理请求，也没有持久化 skill MCP OAuth；宿主环境设置了 `CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop`，而安装路径仅对一方 originator 开启。
+- Prediction:
+  - 子进程移除宿主 originator override、回落到测试默认 `codex_cli_rs` 后，应完成 OAuth discovery/registration，并保留 skill 级 callback port。
+- Falsification:
+  - 环境隔离后仍无代理请求，或持久化结果继续缺少 OAuth 配置。
+- Minimal experiment:
+  - 只在该子进程 fixture 中移除 originator override 并定向运行。
+- User/product decision required: no
+
+## Hypothesis H-031: idle async-hook 测试的第二轮 hook 被已消费 release 文件意外放行
+- Status: confirmed
+- Failure signature:
+  - 增加一条诊断 SSE 后测试稳定产生 3 个请求：上一轮 hook 上下文进入第二轮，第二轮新启动的同一 hook 又立即完成并触发第三次采样。
+- Prediction:
+  - 让一次性 gate 在首次 hook 通过后消费 release 文件，第二轮 hook 将保持异步，不再污染“上一轮结果在下一轮注入”的合同。
+- Falsification:
+  - 消费 gate 后仍出现第三次请求，或上一轮上下文未进入第二次请求。
+- Minimal experiment:
+  - 修正测试 gate 的一次性语义并定向运行。
+- User/product decision required: no
+
+## Evidence E-045: MCP OAuth 与 idle async-hook 测试隔离恢复
+- Related hypotheses:
+  - H-030
+  - H-031
+- Direction: supports
+- Type: verification
+- Source: core MCP proxy/hooks 定向隔离 nextest
+- Prediction or plan link:
+  - H-030 的 originator 隔离与 H-031 的一次性 gate 预测。
+- Matched signal:
+  - skill MCP OAuth 使用代理并持久化 callback port；上一轮 async hook 的 warning/context 在第二轮交付且仅产生两次模型请求。
+- Correlation keys:
+  - nextest run `5a5baf51-828b-47e8-b876-18a423430aad`
+- Raw content:
+  ```text
+  MCP proxy / async hook contracts: 2 passed
+  ```
+- Interpretation: 两项均为测试环境和 fixture 隔离缺口，生产产品逻辑无需变更。
+- Time: 2026-08-24 08:41 +0800
