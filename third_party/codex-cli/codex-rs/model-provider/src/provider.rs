@@ -19,6 +19,7 @@ use codex_models_manager::cache::ModelsCache;
 use codex_models_manager::manager::OpenAiModelsManager;
 use codex_models_manager::manager::SharedModelsManager;
 use codex_models_manager::manager::StaticModelsManager;
+use codex_protocol::ProviderRoute;
 use codex_protocol::account::ProviderAccount;
 use codex_protocol::error::CodexErr;
 use codex_protocol::openai_models::ModelsResponse;
@@ -315,6 +316,33 @@ pub fn create_model_provider(
         Arc::new(AmazonBedrockModelProvider::new(provider_info, auth_manager))
     } else {
         Arc::new(ConfiguredModelProvider::new(provider_info, auth_manager))
+    }
+}
+
+/// Creates a route-bound model catalog manager with isolated auth and cache state.
+pub fn create_route_models_manager(
+    provider_info: ModelProviderInfo,
+    auth_manager: Arc<AuthManager>,
+    codex_home: PathBuf,
+    config_model_catalog: Option<ModelsResponse>,
+    route: ProviderRoute,
+) -> SharedModelsManager {
+    let auth_manager = auth_manager_for_provider(Some(auth_manager), &provider_info);
+    match config_model_catalog {
+        Some(model_catalog) => Arc::new(StaticModelsManager::new(auth_manager, model_catalog)),
+        None => {
+            let endpoint = Arc::new(OpenAiModelsEndpoint::new_for_route(
+                provider_info,
+                auth_manager.clone(),
+                route.clone(),
+            ));
+            Arc::new(OpenAiModelsManager::new_for_route(
+                codex_home,
+                route,
+                endpoint,
+                auth_manager,
+            ))
+        }
     }
 }
 

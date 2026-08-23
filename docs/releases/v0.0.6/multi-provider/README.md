@@ -29,4 +29,4 @@ OpenAI 官方与当前源码均确认 API key 可直接登录使用。产品规�
 
 Phase 0 已完成非敏感 route identity、OpenAI 双凭据存储/刷新可行性、active-turn next-turn 边界和 wire-copy 历史投影方向验证。证据表明现有 `AuthDotJson` 已可承载 OpenAI 双槽。D1 已获用户批准：保留现有 flat 字段，仅新增 DeepSeek 独立槽并把登录/登出改为字段级操作；Phase 1 已进入实施。
 
-Phase 1 已完成认证基础、route-scoped 模型缓存、分组目录核心合同及 app-server 兼容响应合同：三槽凭据可在 file/keyring 中共存，`AuthManager` 可按 route 分别解析 OpenAI 订阅、OpenAI API 和 DeepSeek API，DeepSeek 提供独立登录入口，route logout 只清除目标槽；不同 route 的模型目录缓存不会互相命中。模型管理器现可聚合独立 route 数据源，按 OpenAI 订阅、OpenAI API、DeepSeek API 有序返回目录，缺凭据的组仍保留模型并给出不可用原因。`model/list` 保留旧 `data` 并新增 route-scoped `groups`；三路 runtime manager registry、account/TUI 接线仍在后续批次。
+Phase 1 已完成认证基础、route-scoped 模型缓存、分组目录核心合同及 app-server 运行时接线：三槽凭据可在 file/keyring 中共存，`AuthManager` 可按 route 分别解析 OpenAI 订阅、OpenAI API 和 DeepSeek API，DeepSeek 提供独立登录入口，route logout 只清除目标槽；不同 route 的模型目录缓存不会互相命中。`ThreadManager` 现持有三路独立模型管理器，`model/list` 保留旧 `data` 并按 OpenAI 订阅、OpenAI API、DeepSeek API 有序返回真实 `groups`，缺凭据的组仍保留模型并给出不可用原因；account API/TUI 接线仍在后续批次。

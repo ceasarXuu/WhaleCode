@@ -129,6 +129,11 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
     /// Return the auth manager used for picker filtering.
     fn auth_manager(&self) -> Option<&AuthManager>;
 
+    /// Whether this manager participates in Whale's legacy DeepSeek-only picker view.
+    fn restrict_to_whale_models(&self) -> bool {
+        true
+    }
+
     /// Build picker-ready presets from the active catalog snapshot.
     fn build_available_models(&self, mut remote_models: Vec<ModelInfo>) -> Vec<ModelPreset> {
         remote_models.sort_by_key(|model| model.priority);
@@ -138,7 +143,9 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
             .auth_manager()
             .is_some_and(AuthManager::current_auth_uses_codex_backend);
         presets = ModelPreset::filter_by_auth(presets, uses_codex_backend);
-        retain_whale_models_for_listing(&mut presets);
+        if self.restrict_to_whale_models() {
+            retain_whale_models_for_listing(&mut presets);
+        }
 
         ModelPreset::mark_default_by_picker_visibility(&mut presets);
         mark_whale_default_model(&mut presets);
@@ -311,6 +318,7 @@ pub struct OpenAiModelsManager {
 pub struct StaticModelsManager {
     remote_models: Vec<ModelInfo>,
     auth_manager: Option<Arc<AuthManager>>,
+    restrict_to_whale_models: bool,
 }
 
 impl OpenAiModelsManager {
@@ -433,6 +441,19 @@ impl StaticModelsManager {
         Self {
             remote_models: model_catalog.models,
             auth_manager,
+            restrict_to_whale_models: true,
+        }
+    }
+
+    /// Construct a static manager whose provider-owned catalog is shown without Whale filtering.
+    pub fn new_unfiltered(
+        auth_manager: Option<Arc<AuthManager>>,
+        model_catalog: ModelsResponse,
+    ) -> Self {
+        Self {
+            remote_models: model_catalog.models,
+            auth_manager,
+            restrict_to_whale_models: false,
         }
     }
 }
@@ -663,6 +684,10 @@ impl OpenAiModelsManager {
 }
 
 impl ModelsManager for StaticModelsManager {
+    fn restrict_to_whale_models(&self) -> bool {
+        self.restrict_to_whale_models
+    }
+
     fn get_default_model<'a>(
         &'a self,
         model: &'a Option<String>,
