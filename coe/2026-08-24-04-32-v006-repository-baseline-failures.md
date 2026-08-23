@@ -1653,3 +1653,34 @@
   ```
 - Interpretation: 这是测试夹具与 v0.0.6 生产模型过滤策略耦合造成的工程缺口，修复未放宽实际产品的模型展示范围。
 - Time: 2026-08-24 07:08 +0800
+
+## Hypothesis H-022: Azure wire 测试构造了缺少结果的 local-shell 历史
+- Status: confirmed
+- Failure signature:
+  - 上下文正规化因 `local-shell-call-id` 没有配对输出而 fail-fast；补齐输出后旧断言仍期待 Azure 不支持的 standalone web-search item。
+- Prediction:
+  - 为 local-shell call 补齐标准 `FunctionCallOutput`，并按 Azure provider 能力断言 web-search 被过滤后，请求仍保持 `store=false` 且其余前缀 ID 不变。
+- Falsification:
+  - 合法配对后仍在正规化阶段失败，或受支持 item 的 ID 被重写/丢失。
+- Minimal experiment:
+  - 只修正该测试 prompt 与 wire 断言，运行单项 client 测试。
+- User/product decision required: no
+
+## Evidence E-038: Azure 历史配对与能力过滤合同恢复
+- Related hypotheses:
+  - H-022
+- Direction: supports
+- Type: verification
+- Source: core Azure Responses 定向 nextest
+- Prediction or plan link:
+  - H-022 的合法历史与 provider 能力预测。
+- Matched signal:
+  - local-shell call/output 成对发送；standalone web-search 未进入 Azure wire；reasoning、message、function、local-shell、custom tool 的受支持 ID 均保持前缀。
+- Correlation keys:
+  - nextest run `0fd2d726-2211-455f-8952-6446348426e2`
+- Raw content:
+  ```text
+  azure responses wire contract: 1 passed
+  ```
+- Interpretation: 失败来自陈旧测试历史与能力断言，不需要放宽 Azure provider 或上下文正规化的安全校验。
+- Time: 2026-08-24 07:16 +0800
