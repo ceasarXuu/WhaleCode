@@ -558,8 +558,13 @@ impl ModelProvider for ConfiguredModelProvider {
         codex_home: PathBuf,
         config_model_catalog: Option<ModelsResponse>,
     ) -> SharedModelsManager {
+        let restrict_to_whale_models = self.info.is_deepseek();
         match config_model_catalog {
-            Some(model_catalog) => Arc::new(StaticModelsManager::new(
+            Some(model_catalog) if restrict_to_whale_models => Arc::new(StaticModelsManager::new(
+                self.auth_manager.clone(),
+                model_catalog,
+            )),
+            Some(model_catalog) => Arc::new(StaticModelsManager::new_unfiltered(
                 self.auth_manager.clone(),
                 model_catalog,
             )),
@@ -568,11 +573,10 @@ impl ModelProvider for ConfiguredModelProvider {
                     self.info.clone(),
                     self.auth_manager.clone(),
                 ));
-                Arc::new(OpenAiModelsManager::new(
-                    codex_home,
-                    endpoint,
-                    self.auth_manager.clone(),
-                ))
+                Arc::new(
+                    OpenAiModelsManager::new(codex_home, endpoint, self.auth_manager.clone())
+                        .with_whale_filter(restrict_to_whale_models),
+                )
             }
         }
     }
@@ -581,8 +585,13 @@ impl ModelProvider for ConfiguredModelProvider {
         &self,
         config_model_catalog: Option<ModelsResponse>,
     ) -> SharedModelsManager {
+        let restrict_to_whale_models = self.info.is_deepseek();
         match config_model_catalog {
-            Some(model_catalog) => Arc::new(StaticModelsManager::new(
+            Some(model_catalog) if restrict_to_whale_models => Arc::new(StaticModelsManager::new(
+                self.auth_manager.clone(),
+                model_catalog,
+            )),
+            Some(model_catalog) => Arc::new(StaticModelsManager::new_unfiltered(
                 self.auth_manager.clone(),
                 model_catalog,
             )),
@@ -591,10 +600,10 @@ impl ModelProvider for ConfiguredModelProvider {
                     self.info.clone(),
                     self.auth_manager.clone(),
                 ));
-                Arc::new(OpenAiModelsManager::new_without_cache(
-                    endpoint,
-                    self.auth_manager.clone(),
-                ))
+                Arc::new(
+                    OpenAiModelsManager::new_without_cache(endpoint, self.auth_manager.clone())
+                        .with_whale_filter(restrict_to_whale_models),
+                )
             }
         }
     }
@@ -604,8 +613,13 @@ impl ModelProvider for ConfiguredModelProvider {
         config_model_catalog: Option<ModelsResponse>,
         cache: Arc<dyn ModelsCache>,
     ) -> SharedModelsManager {
+        let restrict_to_whale_models = self.info.is_deepseek();
         match config_model_catalog {
-            Some(model_catalog) => Arc::new(StaticModelsManager::new(
+            Some(model_catalog) if restrict_to_whale_models => Arc::new(StaticModelsManager::new(
+                self.auth_manager.clone(),
+                model_catalog,
+            )),
+            Some(model_catalog) => Arc::new(StaticModelsManager::new_unfiltered(
                 self.auth_manager.clone(),
                 model_catalog,
             )),
@@ -614,11 +628,10 @@ impl ModelProvider for ConfiguredModelProvider {
                     self.info.clone(),
                     self.auth_manager.clone(),
                 ));
-                Arc::new(OpenAiModelsManager::new_with_cache(
-                    cache,
-                    endpoint,
-                    self.auth_manager.clone(),
-                ))
+                Arc::new(
+                    OpenAiModelsManager::new_with_cache(cache, endpoint, self.auth_manager.clone())
+                        .with_whale_filter(restrict_to_whale_models),
+                )
             }
         }
     }
@@ -1328,6 +1341,51 @@ mod tests {
                 .models
                 .iter()
                 .any(|model| model.slug == "provider-model")
+        );
+    }
+
+    #[tokio::test]
+    async fn legacy_models_manager_filters_only_deepseek_provider_catalogs() {
+        let catalog = ModelsResponse {
+            models: vec![remote_model("gpt-test"), remote_model("deepseek-test")],
+        };
+        let openai = create_model_provider(
+            ModelProviderInfo::create_openai_provider(/*base_url*/ None),
+            /*auth_manager*/ None,
+        );
+        let deepseek = create_model_provider(
+            ModelProviderInfo::create_deepseek_provider(),
+            /*auth_manager*/ None,
+        );
+
+        let openai_models = openai
+            .models_manager(test_codex_home(), Some(catalog.clone()))
+            .list_models(
+                RefreshStrategy::Offline,
+                HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+            )
+            .await;
+        let deepseek_models = deepseek
+            .models_manager(test_codex_home(), Some(catalog))
+            .list_models(
+                RefreshStrategy::Offline,
+                HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+            )
+            .await;
+
+        assert_eq!(
+            openai_models
+                .iter()
+                .map(|model| model.model.as_str())
+                .collect::<Vec<_>>(),
+            vec!["gpt-test", "deepseek-test"]
+        );
+        assert_eq!(
+            deepseek_models
+                .iter()
+                .map(|model| model.model.as_str())
+                .collect::<Vec<_>>(),
+            vec!["deepseek-test"]
         );
     }
 

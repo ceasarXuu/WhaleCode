@@ -131,7 +131,7 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
 
     /// Whether this manager participates in Whale's legacy DeepSeek-only picker view.
     fn restrict_to_whale_models(&self) -> bool {
-        true
+        false
     }
 
     /// Build picker-ready presets from the active catalog snapshot.
@@ -311,6 +311,7 @@ pub struct OpenAiModelsManager {
     cache_route: Option<ProviderRoute>,
     endpoint_client: SharedModelsEndpointClient,
     auth_manager: Option<Arc<AuthManager>>,
+    restrict_to_whale_models: bool,
 }
 
 /// Static model manager backed by an authoritative in-process catalog.
@@ -337,6 +338,7 @@ impl OpenAiModelsManager {
             endpoint_client,
             auth_manager,
             /*cache_route*/ None,
+            /*restrict_to_whale_models*/ true,
         )
     }
 
@@ -374,6 +376,7 @@ impl OpenAiModelsManager {
             endpoint_client,
             auth_manager,
             Some(route),
+            /*restrict_to_whale_models*/ true,
         )
     }
 
@@ -387,6 +390,7 @@ impl OpenAiModelsManager {
             endpoint_client,
             auth_manager,
             /*cache_route*/ None,
+            /*restrict_to_whale_models*/ true,
         )
     }
 
@@ -404,7 +408,14 @@ impl OpenAiModelsManager {
             endpoint_client,
             auth_manager,
             /*cache_route*/ None,
+            /*restrict_to_whale_models*/ true,
         )
+    }
+
+    /// Set whether route-less callers retain Whale's legacy DeepSeek-only catalog view.
+    pub fn with_whale_filter(mut self, restrict_to_whale_models: bool) -> Self {
+        self.restrict_to_whale_models = restrict_to_whale_models;
+        self
     }
 
     #[cfg(test)]
@@ -414,7 +425,13 @@ impl OpenAiModelsManager {
         endpoint_client: Arc<dyn ModelsEndpointClient>,
         auth_manager: Option<Arc<AuthManager>>,
     ) -> Self {
-        Self::new_with_optional_cache(Some(cache), endpoint_client, auth_manager, Some(route))
+        Self::new_with_optional_cache(
+            Some(cache),
+            endpoint_client,
+            auth_manager,
+            Some(route),
+            /*restrict_to_whale_models*/ true,
+        )
     }
 
     fn new_with_optional_cache(
@@ -422,6 +439,7 @@ impl OpenAiModelsManager {
         endpoint_client: Arc<dyn ModelsEndpointClient>,
         auth_manager: Option<Arc<AuthManager>>,
         cache_route: Option<ProviderRoute>,
+        restrict_to_whale_models: bool,
     ) -> Self {
         let remote_models = load_remote_models_from_file().unwrap_or_default();
         Self {
@@ -431,6 +449,7 @@ impl OpenAiModelsManager {
             cache_route,
             endpoint_client,
             auth_manager,
+            restrict_to_whale_models,
         }
     }
 }
@@ -459,6 +478,9 @@ impl StaticModelsManager {
 }
 
 impl ModelsManager for OpenAiModelsManager {
+    fn restrict_to_whale_models(&self) -> bool {
+        self.restrict_to_whale_models
+    }
     fn raw_model_catalog(
         &self,
         refresh_strategy: RefreshStrategy,
