@@ -1,7 +1,7 @@
 # Problem P-001: v0.0.6 多 Provider 发布被仓库基线失败阻断
 - Status: investigating
 - Created: 2026-08-24 04:32 +0800
-- Updated: 2026-08-24 06:27 +0800
+- Updated: 2026-08-24 06:38 +0800
 - Objective: 在不改写已确认产品逻辑的前提下，找到并修复阻断 v0.0.6 multi-provider 发布门禁的仓库基线根因。
 - Symptoms:
   - 受影响六 crate 的隔离 nextest 矩阵执行 9284 项，8928 通过、356 失败。
@@ -33,6 +33,7 @@
   - H-005
   - H-006
   - H-007
+  - H-008
 - Resolution basis:
   - not satisfied
 - Close reason:
@@ -326,6 +327,47 @@
 - Conclusion: 分享簇已证明失败发生在测试配置门禁；推荐路径还要求 `remote_plugin`，首轮只启用 `recommended_plugins` 的对照仍进入 legacy 模式，进一步确认完整依赖必须由 fixture 声明。
 - Repair design readiness: implemented and verified
 - Next step: none for H-007
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-008: plugin-list remote catalog fixture 未声明正交 feature 组合
+- Status: confirmed
+- Parent: P-001
+- Claim: 14 个 plugin-list 失败由测试 helper/直写配置只启用 `plugins`，却分别期待 remote catalog、sharing catalog 或二者组合引起。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - feature registry 将 `remote_plugin` 与 `plugin_sharing` 独立默认关闭；失败表现为 remote marketplace 为空、请求未发生或错误走入 legacy vertical endpoint。
+- Falsifiable predictions:
+  - If true: 给每类正向 fixture 声明其最小 feature 组合后，完整 plugin-list 模块恢复；显式 remote disabled 用例仍只请求 sharing 所需 scope。
+  - If false: 补齐 feature 后仍出现相同的空 catalog/零请求信号。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: catalog 生产逻辑未执行是 feature 组合不完整，而非远端映射损坏。
+  - Signal: 原全量 JUnit、fixture config、request processor feature gate、完整模块复验。
+  - Capture method: 修共享 helper 与四个名称明确的 remote-enabled 直写配置，运行 plugin-list 模块。
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - feature combination and marketplace kind
+  - Differentiates from:
+    - H-002
+  - Supports if:
+    - catalog、cache、startup refresh 与显式 kind 用例同时恢复。
+  - Refutes if:
+    - 原请求计数与 marketplace 断言保持失败。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-016
+- Conclusion: remote 与 sharing 是正交 opt-in；测试 helper 仍按旧的聚合默认编写，生产 feature 门禁无需改变。
+- Repair design readiness: implemented and verified
+- Next step: none for H-008
 - Blocker:
   - none
 - Close reason:
@@ -656,3 +698,42 @@
   ```
 - Interpretation: 12 个原全量失败已闭环；产品默认关闭与不可用错误行为保持不变。
 - Time: 2026-08-24 06:31 +0800
+
+## Evidence E-016: plugin-list 失败与缺失 feature 组合一一对应
+- Related hypotheses:
+  - H-008
+- Direction: supports
+- Type: diagnostic
+- Source: app-server 全量 JUnit、plugin-list fixtures 与 request processor gates
+- Prediction or plan link:
+  - H-008 的未进入 remote/sharing 路径预测。
+- Matched signal:
+  - 14 项失败中 remote marketplace 用例均未显式启用 `remote_plugin`；shared-with-me 用例未启用 `plugin_sharing`；startup cache 用例等待从未启动的 remote 请求直至超时。
+- Correlation keys:
+  - nextest run `809e6bfc-92e6-4b2f-9e1b-6d5d1e0fe660`
+- Raw content:
+  ```text
+  plugin_list failures=14
+  representative signals: expected remote marketplace; actual plugin count=0; deadline elapsed waiting for /ps/plugins/list
+  ```
+- Interpretation: 失败共享 fixture 前提，且与 plugin share 已验证的独立 feature 行为一致。
+- Time: 2026-08-24 06:38 +0800
+
+## Evidence E-017: plugin-list 完整模块恢复
+- Related hypotheses:
+  - H-008
+- Direction: supports
+- Type: verification
+- Source: app-server plugin-list 隔离 nextest
+- Prediction or plan link:
+  - H-008 的各 feature 组合应同时恢复预测。
+- Matched signal:
+  - remote enabled/disabled、sharing enabled/disabled、cache TTL、startup refresh、force refetch 与 vertical kind 共 48 项全部通过。
+- Correlation keys:
+  - nextest run `786b6239-03cb-4d4d-a94c-e82e2be2564c`
+- Raw content:
+  ```text
+  Summary [4.546s] 48 tests run: 48 passed, 1193 skipped
+  ```
+- Interpretation: 14 个原全量失败已闭环，正交 feature 的正反向合同均保留。
+- Time: 2026-08-24 06:42 +0800
