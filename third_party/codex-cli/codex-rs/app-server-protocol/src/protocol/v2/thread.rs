@@ -289,7 +289,6 @@ pub struct ThreadSettingsUpdateResponse {}
 #[ts(export_to = "v2/")]
 pub struct ThreadSettings {
     /// Active provider access route for subsequent turns, when route-aware selection is enabled.
-    #[ts(optional = nullable)]
     pub route: Option<ProviderRoute>,
     pub cwd: AbsolutePathBuf,
     pub approval_policy: AskForApproval,

@@ -22,6 +22,9 @@ max-threads = 1
 [test-groups.app_server_integration_local]
 max-threads = 4
 
+[test-groups.app_server_login_port]
+max-threads = 1
+
 [test-groups.core_apply_patch_cli_integration]
 max-threads = 1
 
@@ -49,6 +52,13 @@ test-group = 'app_server_protocol_codegen'
 # Keep the library unit tests parallel.
 filter = 'package(codex-app-server) & kind(test)'
 test-group = 'app_server_integration'
+
+[[profile.local.overrides]]
+# These browser-login tests bind the same fixed OAuth callback port. Nextest runs
+# each integration test in a separate process, so #[serial] alone cannot prevent
+# one login server from cancelling another across processes.
+filter = 'package(codex-app-server) & kind(test) & (test(login_account_chatgpt_start_can_be_cancelled) | test(login_account_chatgpt_uses_debug_oauth_overrides) | test(login_account_chatgpt_redirects_to_hosted_success_page) | test(set_auth_token_cancels_active_chatgpt_login) | test(login_account_chatgpt_includes_forced_workspace_query_param) | test(login_account_chatgpt_includes_forced_workspace_allowlist_query_param))'
+test-group = 'app_server_login_port'
 
 [[profile.local.overrides]]
 # Use up to four app-server subprocesses locally. The global nextest pool still

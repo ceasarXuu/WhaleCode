@@ -2242,3 +2242,69 @@
   ```
 - Interpretation: zsh 路径本身已在完整受控矩阵闭合；最后一项是测试进程固定端口调度波动，不构成 OpenAI 订阅登录回归证据。
 - Time: 2026-08-24 08:27 +0800
+
+## Hypothesis H-041: OAuth 固定端口测试需要跨进程 nextest 调度隔离
+- Status: confirmed
+- Failure signature:
+  - 六个 ChatGPT 登录集成测试共享固定 callback 端口 `1455`；Rust `#[serial(login_port)]` 只能约束单一测试进程，而 nextest 将集成测试分进程运行。
+- Prediction:
+  - 将这六项放入 `max-threads = 1` 的 nextest test group 后，完整四线程矩阵与定向组均应通过，无需修改 OAuth 生产逻辑。
+- Falsification:
+  - test group 生效后仍出现 callback 连接拒绝，或 OAuth 行为断言失败。
+- Minimal experiment:
+  - 用 `cargo nextest show-config` 验证精确归组，随后运行定向组和完整受控矩阵。
+- User/product decision required: no
+
+## Evidence E-056: OAuth 组隔离与完整受控矩阵均通过
+- Related hypotheses:
+  - H-039
+  - H-040
+  - H-041
+- Direction: supports
+- Type: fix-validation
+- Source: nextest 分组配置检查、定向组与六 crate 完整隔离矩阵
+- Prediction or plan link:
+  - H-041 的跨进程固定端口隔离预测。
+- Matched signal:
+  - 配置检查仅匹配六项固定 callback 端口测试；定向组 6/6，通过后完整四线程矩阵 9286/9286、16 跳过。
+- Correlation keys:
+  - targeted run `30b2baee-8883-44fa-a136-4ab39d9ab531`
+  - controlled full run `69b70a36-85fc-4885-8f6c-1f2adeb1a313`
+- Raw content:
+  ```text
+  6 tests run: 6 passed
+  9286 tests run: 9286 passed, 16 skipped
+  ```
+- Interpretation: 最后一项矩阵波动由 nextest 跨进程调度消除，未改变 OpenAI 原生登录行为。
+- Time: 2026-08-24 08:48 +0800
+
+## Hypothesis H-042: app-server protocol 门禁失败由响应 TS 可选标记与过期 experimental 预计算包共同造成
+- Status: confirmed
+- Failure signature:
+  - `generated_ts_optional_nullable_fields_only_in_params` 仅报告 `v2/ThreadSettings.ts` 的 `route?: ProviderRoute | null`；`experimental_precomputed_exports_match_generated` 报告预计算导出与当前生成结果不一致。
+- Prediction:
+  - 响应字段移除 `#[ts(optional = nullable)]` 后应生成必有但可为 null 的 `route`；用官方生成器同步 stable/experimental 压缩包后，完整协议测试应全绿。
+- Falsification:
+  - offender 清单包含其他 provider 字段，生成出现额外可读 API 漂移，或完整协议测试仍失败。
+- Minimal experiment:
+  - 单独运行 offender 测试，审查官方生成器产生的可读 diff，再运行 `just test -p codex-app-server-protocol`。
+- User/product decision required: no
+
+## Evidence E-057: provider schema 与预计算导出门禁恢复
+- Related hypotheses:
+  - H-042
+- Direction: supports
+- Type: fix-validation
+- Source: app-server protocol 定向诊断、官方 schema 生成器与完整协议测试
+- Prediction or plan link:
+  - H-042 的响应字段 wire-shape 与预计算同步预测。
+- Matched signal:
+  - offender 清单只有 `ThreadSettings.route`；可读生成差异只有 `route?: ProviderRoute | null` 变为 `route: ProviderRoute | null`；完整协议测试 293/293 通过、1 跳过。
+- Correlation keys:
+  - nextest run `e99aaab6-573e-4826-a6f5-cecddf397f45`
+- Raw content:
+  ```text
+  293 tests run: 293 passed, 1 skipped
+  ```
+- Interpretation: 两项失败均是协议生成/契约工程缺口，不要求新增产品决策。
+- Time: 2026-08-24 09:02 +0800
