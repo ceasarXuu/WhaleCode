@@ -298,9 +298,9 @@
 - Time: 2026-08-25 01:44
 
 # Problem P-002: OpenAI subscription login succeeds but the pending provider switch fails
-- Status: implementing
+- Status: fixed
 - Created: 2026-08-25 06:00
-- Updated: 2026-08-25 06:20
+- Updated: 2026-08-25 06:27
 - Objective: Complete a TUI switch from DeepSeek to an authenticated OpenAI subscription without a false DeepSeek environment error or a rejected thread-settings update.
 - Symptoms:
   - OpenAI subscription tokens are persisted and native login status reports ChatGPT.
@@ -318,6 +318,11 @@
   - H-003
   - H-004
   - H-005
+- Current conclusion: Fixed. The target route/model/collaboration mode now transition atomically, and every built-in startup client retains its selected credential route.
+- Resolution basis:
+  - H-003 through H-005 confirmed by E-009 through E-012 and fixed by E-013.
+- Close reason:
+  - not closed
 
 ## Hypothesis H-003: TUI carries the previous provider model into the route transition
 - Status: confirmed
@@ -425,3 +430,22 @@
   - `cold_resume_rebinds_last_successful_provider_runtime` and the TUI provider-route tests remain green.
 - Interpretation: Carrying the selected route through the model-client boundary removes the last environment-only fallback without changing the public upstream constructor or unrelated callers.
 - Time: 2026-08-25 06:20
+
+## Evidence E-013: Installed OpenAI subscription switch completes without provider-auth errors
+- Related hypotheses:
+  - H-003
+  - H-004
+  - H-005
+- Direction: supports
+- Type: fix-validation
+- Source: fresh workspace-installed app-server at commit `798a9d960`; initialize, `model/list`, `thread/start`, and `thread/settings/update`
+- Matched signal:
+  - OpenAI Subscription is available and returns the native ChatGPT model catalog.
+  - OpenAI API is visibly `missingCredentials`; DeepSeek API is available.
+  - A DeepSeek thread starts without `Missing environment variable: DEEPSEEK_API_KEY`.
+  - Updating the same thread to `openai/chatgpt + gpt-5.6-sol` succeeds, and the emitted collaboration mode also contains `gpt-5.6-sol`.
+- Correlation keys:
+  - workspace id `whalecode-alpha-48d2219088`
+  - installed binary SHA-256 `635adb29b4f63dd507c525c10c6cc012672b64ff7e54c9cb26fb111026a39116`
+- Interpretation: The original post-login failure is absent across catalog, startup auth prewarm, and next-turn provider transition paths. No model turn was sent.
+- Time: 2026-08-25 06:27
