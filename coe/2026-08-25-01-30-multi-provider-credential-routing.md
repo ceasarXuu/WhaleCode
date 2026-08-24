@@ -465,3 +465,111 @@
   - No provider, authentication, model, or settings error occurs in the new process through the observed switch.
 - Interpretation: The user's UI operation successfully registered the OpenAI subscription route for the next turn. No post-switch turn exists yet, so actual inference routing remains unobserved rather than failed.
 - Time: 2026-08-25 07:39
+
+# Problem P-003: OpenAI model footer shows an unresolved or incorrect reasoning default
+- Status: diagnosed
+- Created: 2026-08-25 07:45
+- Updated: 2026-08-25 07:52
+- Objective: Make the active OpenAI model footer show the effective reasoning effort supplied by authoritative model metadata.
+- Symptoms:
+  - After switching to OpenAI Subscription, the composer footer shows `gpt-5.6-sol default`.
+  - Earlier runtime catalog evidence reported `low` as the model default, while official OpenAI documentation specifies `medium`.
+- Expected behavior:
+  - The catalog should preserve the authoritative default reasoning effort.
+  - The footer should display the effective value rather than the unresolved sentinel `default`.
+- Actual behavior:
+  - The visible footer does not expose the effective reasoning effort, and available evidence suggests the local model metadata may also disagree with OpenAI.
+- Impact:
+  - Users cannot tell which reasoning effort the next OpenAI turn will use.
+- Related hypotheses:
+  - H-006
+  - H-007
+- Current conclusion: The footer exposes an unresolved sentinel even though the runtime resolves the next request to the bundled Codex product default, currently `low` for GPT-5.6 Sol.
+
+## Hypothesis H-006: Whale's fallback catalog duplicates and misstates OpenAI model metadata
+- Status: confirmed
+- Parent: P-003
+- Claim: When the ChatGPT models endpoint returns no models, Whale falls back to a locally maintained catalog whose `gpt-5.6-sol` default reasoning effort is `low` instead of the official `medium`.
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - none
+- Falsifiable predictions:
+  - Repository or runtime cache data contains an independently defined `gpt-5.6-sol` entry with default effort `low`.
+- Diagnostic evidence plan:
+  - Compare the official model page, runtime models response/cache, and repository catalog source.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-015
+  - E-016
+- Conclusion: Confirmed with qualification. Whale carries the Codex upstream bundled catalog rather than a new multi-provider catalog; its Codex product default is `low`, which intentionally overrides the API omission default of `medium`.
+- Repair design readiness: ready
+
+## Hypothesis H-007: Composer footer renders the unresolved Default sentinel
+- Status: confirmed
+- Parent: P-003
+- Claim: Provider switching leaves session effort unset, and the footer formats that state as `default` without resolving it through the selected model's metadata.
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - none
+- Falsifiable predictions:
+  - The accepted settings update contains `effort=None`, while footer rendering maps that value directly to `default` instead of the catalog default.
+- Diagnostic evidence plan:
+  - Trace the accepted runtime settings and the TUI footer formatting/model metadata lookup.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-014
+  - E-017
+  - E-018
+- Conclusion: Confirmed. Provider selection submits no effort, the footer renders that as `default`, and request construction later resolves the same state to the catalog's `low`.
+- Repair design readiness: ready
+
+## Evidence E-015: Official GPT-5.6 Sol default reasoning effort is medium
+- Related hypotheses:
+  - H-006
+- Direction: supports
+- Type: external-authority
+- Source: official OpenAI GPT-5.6 Sol model documentation, fetched 2026-08-25
+- Matched signal:
+  - The model page lists `none`, `low`, `medium (default)`, `high`, `xhigh`, and `max`.
+- Interpretation: Any Whale metadata that declares `low` as the model default is inconsistent with current official OpenAI documentation.
+- Time: 2026-08-25 07:45
+
+## Evidence E-016: The low default comes from the vendored Codex bundled catalog
+- Related hypotheses:
+  - H-006
+- Direction: supports
+- Type: provenance
+- Source: `models-manager/models.json`, manager fallback logic, vendor provenance, and git history
+- Matched signal:
+  - `gpt-5.6-sol.default_reasoning_level` is `low` in the bundled catalog imported by the Codex 0.147 substrate sync.
+  - The current vendor contract identifies the tree as an OpenAI Codex upstream substrate, now based on rust-v0.149.0.
+  - The authenticated ChatGPT models response cached zero models, so `apply_remote_models` retained the bundled catalog.
+- Interpretation: This is a locally versioned upstream Codex product catalog, not a second catalog introduced for multi-provider. Its `low` value is an explicit Codex client override of the API's omission default.
+- Time: 2026-08-25 07:51
+
+## Evidence E-017: Provider switching leaves effort unresolved and the footer prints the sentinel
+- Related hypotheses:
+  - H-007
+- Direction: supports
+- Type: runtime-and-code-path
+- Source: user-operated settings log and TUI provider/footer code
+- Matched signal:
+  - The accepted switch contains `effort=None` and collaboration `reasoning_effort=None`.
+  - `effective_reasoning_effort` therefore returns `None`.
+  - `status_line_reasoning_effort_label` maps `None` directly to the literal `default`.
+- Interpretation: The footer reports storage state rather than the effective reasoning effort.
+- Time: 2026-08-25 07:51
+
+## Evidence E-018: Request construction resolves the same state to low
+- Related hypotheses:
+  - H-007
+- Direction: supports
+- Type: code-path
+- Source: core request construction and bundled GPT-5.6 Sol metadata
+- Matched signal:
+  - `ModelClient::build_reasoning` uses the explicit effort or falls back to `model_info.default_reasoning_level`.
+  - For bundled GPT-5.6 Sol metadata that fallback is `low`.
+- Interpretation: The visible `default` label and actual next-request effort disagree; actual runtime behavior is `low`.
+- Time: 2026-08-25 07:52
