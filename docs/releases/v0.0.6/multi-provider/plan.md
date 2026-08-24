@@ -251,7 +251,7 @@
 - Phase 5 status: blocked。Provider 功能、协议/schema、格式门禁与完整受控矩阵均已闭合；剩余为既有 TaskSpace Clippy 债务和 cache policy revalidation。v0.0.6 multi-provider 仍不能标记为 release-ready。
 - Core baseline repair evidence (2026-08-24): 在逐项证据修复后，第二次完整 core 隔离回归 `4ce4aa74-8ece-40e1-bf0a-10cd8d8dc543` 为 3741/3743 通过，唯一两项失败是受保护的 Standard/TaskSpace final-wire 快照。用户批准的 `deepseek-v4-flash` Standard + map-request 最小真实回归 `WAR-20260824-072043-CACHE-REGRESSION-9306DB50` 以 14 请求、139785 input、115456 cached input、3544 output、0.03372612 CNY 完成；两臂业务成功且 request 2+ 命中率分别为 95.7606%/87.0019%。证据晋升后两项快照定向 2/2 通过，staged cache gate 以 surface `4a15b25ca426b61703a212e1c40283dbecc1b06dd0e06600784c83a675c5e053` 通过。Phase 5 仍等待其余受影响 crate 与静态门禁基于当前 HEAD 的重新盘点，不提前标记 release-ready。
 - Integration repair evidence (2026-08-24): 六 crate 中间回归 `6fb4733d-9f74-40fb-9f18-7f3103b486ad` 已从早期 356 项失败降至 50 项；修复后完整矩阵 `f5bc2806-2420-4a5d-9299-2d6dc048695c` 为 9286/9286 通过、16 跳过。补齐 DotSlash 后，高并发矩阵 `a53970d1-aa94-49a2-9e3b-4dbff0fa1898` 的 17 项 zsh-fork 超时在 `--test-threads=4` 矩阵 `6be1e952-4322-499f-8816-eee72e6d0ddf` 中全部消失；该矩阵为 9285/9286，唯一失败是固定 OAuth callback 端口瞬时拒绝连接，同一测试在 `bdb92b91-5cee-4914-bee1-24affd2660d6` 单线程隔离复验 1/1 通过。剩余是测试调度/固定端口竞态，而非 provider 行为失败；cache evidence 渲染政策稳定化仍需新的真实缓存资格运行。
-- Final offline evidence (2026-08-24): 六项共享 OAuth callback 端口的集成测试已放入 nextest 单线程 test group；定向组 `30b2baee-8883-44fa-a136-4ab39d9ab531` 为 6/6，完整四线程矩阵 `69b70a36-85fc-4885-8f6c-1f2adeb1a313` 为 9286/9286、16 跳过。`ThreadSettings.route` 的 TypeScript 响应合同修正为必有 nullable 字段，并用官方生成器同步 stable/experimental 预计算导出；app-server protocol `e99aaab6-573e-4826-a6f5-cecddf397f45` 为 293/293、1 跳过。v0.0.6 全量新增 diff 的高置信凭据扫描与 `git diff --check` 均通过。
+- Final offline evidence (2026-08-24): 六项共享 OAuth callback 端口的集成测试已放入 nextest 单线程 test group；定向组 `30b2baee-8883-44fa-a136-4ab39d9ab531` 为 6/6。`ThreadSettings.route` 的 TypeScript 响应合同修正为必有 nullable 字段，并用官方生成器同步 stable/experimental 预计算导出；app-server protocol `e99aaab6-573e-4826-a6f5-cecddf397f45` 为 293/293、1 跳过。最终 HEAD `7f5686bde` 的完整四线程矩阵 `df3ba0a6-c753-43e2-9d27-f4d8ffb272b0` 为 9286/9286、16 跳过。v0.0.6 全量新增 diff 的高置信凭据扫描与 `git diff --check` 均通过。
 
 ## 7. Product Decision Delta Log
 
@@ -311,7 +311,7 @@
 | 13 | 重启/resume 恢复最后成功 route/model | `cold_resume_rebinds_last_successful_provider_runtime`；`provider_lifecycle_uses_successful_non_rolled_back_turns` | pass |
 | 14 | rollout 可逐 turn 还原 Provider 且不含凭据 | `provider_lifecycle_uses_successful_non_rolled_back_turns`；`serializes_without_auth_material`；全量新增 diff 高置信凭据扫描 | pass |
 
-矩阵级兜底证据：六个受影响 crate 的完整隔离矩阵 `69b70a36-85fc-4885-8f6c-1f2adeb1a313` 为 9286/9286，通过；app-server protocol `e99aaab6-573e-4826-a6f5-cecddf397f45` 为 293/293，通过。
+矩阵级兜底证据：最终 HEAD 的六个受影响 crate 完整隔离矩阵 `df3ba0a6-c753-43e2-9d27-f4d8ffb272b0` 为 9286/9286，通过；app-server protocol `e99aaab6-573e-4826-a6f5-cecddf397f45` 为 293/293，通过。
 
 ## 9. Safe Delivery And Commit Boundaries
 

@@ -2308,3 +2308,38 @@
   ```
 - Interpretation: 两项失败均是协议生成/契约工程缺口，不要求新增产品决策。
 - Time: 2026-08-24 09:02 +0800
+
+## Hypothesis H-043: 最终 schema 与 nextest 调度提交保持六 crate 完整基线
+- Status: confirmed
+- Failure signature:
+  - 上一轮六 crate 9286/9286 证据早于最终 `ThreadSettings.route` TypeScript 合同与预计算导出修复，不能单独证明最新 HEAD 的完整 feature graph。
+- Prediction:
+  - 当前 `7f5686bde` 在 DotSlash 已启用、`--test-threads=4` 的隔离 runner 中仍应 9286/9286 通过，16 跳过。
+- Falsification:
+  - 任一 crate 出现编译、schema、OAuth、zsh-fork 或 provider 行为失败。
+- Minimal experiment:
+  - 对 login、models-manager、protocol、core、app-server、tui 运行一次当前 HEAD 的完整受控隔离矩阵。
+- User/product decision required: no
+
+## Evidence E-058: 最终 HEAD 六 crate 完整受控矩阵通过
+- Related hypotheses:
+  - H-039
+  - H-041
+  - H-042
+  - H-043
+- Direction: supports
+- Type: fix-validation
+- Source: 当前 `7f5686bde` 的六 crate 完整隔离 nextest
+- Prediction or plan link:
+  - H-043 的最终 feature graph 预测。
+- Matched signal:
+  - DotSlash 已启用、`--test-threads=4`、零重试条件下，login、models-manager、protocol、core、app-server、tui 合计 9286/9286 通过，16 跳过。
+- Correlation keys:
+  - nextest run `df3ba0a6-c753-43e2-9d27-f4d8ffb272b0`
+  - code HEAD `7f5686bde4dc61d821bca4103116e5468ad3a697`
+- Raw content:
+  ```text
+  Summary [500.562s] 9286 tests run: 9286 passed, 16 skipped
+  ```
+- Interpretation: 最终 schema 与调度提交已由当前 HEAD 的完整矩阵直接覆盖，不再依赖跨提交推断。
+- Time: 2026-08-24 09:23 +0800
