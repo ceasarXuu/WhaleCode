@@ -1,7 +1,7 @@
 # Problem P-001: Multi-provider credentials are persisted but misreported or not consumed
-- Status: open
+- Status: fixed
 - Created: 2026-08-25 01:30
-- Updated: 2026-08-25 01:43
+- Updated: 2026-08-25 01:44
 - Objective: Ensure DeepSeek API and OpenAI ChatGPT subscription credentials are reported and consumed through their selected provider routes in Whale v0.0.6.
 - Symptoms:
   - A DeepSeek API key saved from the provider UI is reported configured, but DeepSeek model refresh says `DEEPSEEK_API_KEY` is missing.
@@ -29,12 +29,12 @@
   - A focused test reproduces each original failure before repair and passes after repair.
   - A fresh installed process reports the three credential slots consistently and no longer emits the DeepSeek missing-env error for the stored key.
   - ChatGPT status is not positive without ChatGPT token material, while native ChatGPT login behavior remains intact.
-- Current conclusion: H-002 is repaired in focused and subsystem tests. Runtime fix validation against the installed workspace remains pending.
+- Current conclusion: Fixed. Provider-only DeepSeek credentials no longer activate native ChatGPT auth, while route-bound DeepSeek discovery remains available.
 - Related hypotheses:
   - H-001
   - H-002
 - Resolution basis:
-  - not satisfied
+  - H-002 confirmed by E-003 through E-006 and fixed by E-007 and E-008.
 - Close reason:
   - not closed
 
@@ -117,6 +117,7 @@
   - E-005
   - E-006
   - E-007
+  - E-008
 - Conclusion: confirmed; Whale's new provider-only field violates the native Codex invariant that a stored auth record with no other active marker is a legacy ChatGPT record.
 - Repair design readiness: ready
 - Next step: Gate native active-auth loading on native auth material while leaving route storage lookup unchanged.
@@ -271,3 +272,27 @@
   ```
 - Interpretation: The repair is narrow at the native-auth loading boundary and preserves native ChatGPT, OpenAI API, DeepSeek route, storage, refresh, and logout behaviors covered by the subsystem suite.
 - Time: 2026-08-25 01:43
+
+## Evidence E-008: Installed workspace reproducer no longer shows either provider symptom
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: fix-validation
+- Source: attested workspace Whale 0.0.6 at commit `70bb91272`; `login status`, app-server initialize, `account/providerCredentials/read`, and `model/list`
+- Prediction or plan link:
+  - P-001 original runtime symptoms must disappear with the same stored credentials
+- Matched signal:
+  - Legacy status is not logged in; DeepSeek remains configured and available; both OpenAI routes are missing credentials; model list succeeds without DeepSeek missing-env or ChatGPT catalog 401 errors.
+- Correlation keys:
+  - workspace id `whalecode-alpha-48d2219088`
+  - installed binary SHA-256 `a01eebc2660c50f829cbf29fc8786ca99d3af0a43ff85fca97cd2237dd090263`
+- Raw content:
+  ```text
+  whale login status: Not logged in
+  openai/chatgpt: configured=false, availability=missingCredentials
+  openai/apiKey: configured=false, availability=missingCredentials
+  deepseek/apiKey: configured=true, availability=available
+  model/list: success
+  ```
+- Interpretation: The original credential misclassification and its downstream model-refresh failures are absent in a fresh installed process. The remaining featured-plugin 401 is a separate unauthenticated plugin-prewarm request.
+- Time: 2026-08-25 01:44
