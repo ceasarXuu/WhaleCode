@@ -2208,3 +2208,37 @@
   ```
 - Interpretation: DotSlash 补齐提高了实际覆盖；新失败是隔离 runner 高并发资源/时限基线，不是 multi-provider 回归。
 - Time: 2026-08-24 08:14 +0800
+
+## Hypothesis H-040: 受控矩阵唯一 OAuth 失败是固定 callback 端口竞态
+- Status: confirmed
+- Failure signature:
+  - `login_account_chatgpt_redirects_to_hosted_success_page` 已收到含 `localhost:1455` redirect URI 的成功登录启动响应，随后首个 callback HTTP 连接立即收到 `Connection refused`；没有 OAuth state、token exchange 或 hosted redirect 断言失败。
+- Prediction:
+  - 同一测试在单线程隔离环境应通过；无需修改 OpenAI 登录产品路径。
+- Falsification:
+  - 单线程仍拒绝连接，或连接成功后出现 redirect/token/notification 合同失败。
+- Minimal experiment:
+  - 保持当前实现，使用隔离 runner 单独运行该测试并禁止 retry。
+- User/product decision required: no
+
+## Evidence E-055: 4 线程矩阵消除 zsh 超时且 OAuth 单测复验通过
+- Related hypotheses:
+  - H-039
+  - H-040
+- Direction: supports
+- Type: verification
+- Source: 当前 HEAD 六 crate 受控并发矩阵与 OAuth 单测
+- Prediction or plan link:
+  - H-039 的资源调度预测与 H-040 的固定端口竞态预测。
+- Matched signal:
+  - `--test-threads=4` 后 17 项 zsh-fork 全部通过，矩阵仅剩 OAuth callback 连接拒绝；该 OAuth 测试随后单线程 1/1 通过。
+- Correlation keys:
+  - controlled full run `6be1e952-4322-499f-8816-eee72e6d0ddf`
+  - targeted run `bdb92b91-5cee-4914-bee1-24affd2660d6`
+- Raw content:
+  ```text
+  9286 tests run: 9285 passed, 1 failed, 16 skipped
+  1 test run: 1 passed, 1240 skipped
+  ```
+- Interpretation: zsh 路径本身已在完整受控矩阵闭合；最后一项是测试进程固定端口调度波动，不构成 OpenAI 订阅登录回归证据。
+- Time: 2026-08-24 08:27 +0800
