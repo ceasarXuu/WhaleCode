@@ -43,11 +43,15 @@ use codex_login::CodexAuth;
 use codex_login::default_client::CODEX_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR;
 use codex_login::default_client::originator;
 use codex_model_provider::create_model_provider;
+use codex_model_provider::create_route_models_manager;
+use codex_model_provider_info::DEEPSEEK_PROVIDER_ID;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::OPENAI_PROVIDER_ID;
 use codex_models_manager::manager::ProviderModelsCatalog;
 use codex_models_manager::manager::RefreshStrategy;
 use codex_models_manager::manager::SharedModelsManager;
+use codex_protocol::ProviderAccessMethod;
+use codex_protocol::ProviderRoute;
 use codex_protocol::ThreadId;
 use codex_protocol::config_types::CollaborationModeMask;
 use codex_protocol::error::CodexErr;
@@ -367,6 +371,29 @@ pub fn build_models_manager(
     config: &Config,
     auth_manager: Arc<AuthManager>,
 ) -> SharedModelsManager {
+    let access_method = match config.model_provider_id.as_str() {
+        OPENAI_PROVIDER_ID
+            if matches!(
+                auth_manager.auth_cached(),
+                Some(CodexAuth::Chatgpt(_) | CodexAuth::ChatgptAuthTokens(_))
+            ) =>
+        {
+            Some(ProviderAccessMethod::Chatgpt)
+        }
+        OPENAI_PROVIDER_ID | DEEPSEEK_PROVIDER_ID => Some(ProviderAccessMethod::ApiKey),
+        _ => None,
+    };
+    if config.model_providers.get(&config.model_provider_id) == Some(&config.model_provider)
+        && let Some(access_method) = access_method
+    {
+        return create_route_models_manager(
+            config.model_provider.clone(),
+            auth_manager,
+            config.codex_home.to_path_buf(),
+            config.model_catalog.clone(),
+            ProviderRoute::new(config.model_provider_id.clone(), access_method),
+        );
+    }
     let provider = create_model_provider(config.model_provider.clone(), Some(auth_manager));
     provider.models_manager(
         config.codex_home.to_path_buf(),

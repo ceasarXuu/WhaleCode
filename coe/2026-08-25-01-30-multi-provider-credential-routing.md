@@ -296,3 +296,99 @@
   ```
 - Interpretation: The original credential misclassification and its downstream model-refresh failures are absent in a fresh installed process. The remaining featured-plugin 401 is a separate unauthenticated plugin-prewarm request.
 - Time: 2026-08-25 01:44
+
+# Problem P-002: OpenAI subscription login succeeds but the pending provider switch fails
+- Status: implementing
+- Created: 2026-08-25 06:00
+- Updated: 2026-08-25 06:08
+- Objective: Complete a TUI switch from DeepSeek to an authenticated OpenAI subscription without a false DeepSeek environment error or a rejected thread-settings update.
+- Symptoms:
+  - OpenAI subscription tokens are persisted and native login status reports ChatGPT.
+  - The post-login model refresh logs a missing `DEEPSEEK_API_KEY` environment variable even though the DeepSeek provider slot is stored.
+  - The TUI reports `thread/settings/update failed` immediately after login.
+- Expected behavior:
+  - Built-in provider runtimes resolve their selected credential slot.
+  - A provider switch submits a target route, target model, and collaboration mode that agree.
+- Actual behavior:
+  - The compatibility model manager and initial session provider remain route-less.
+  - The TUI sends the target OpenAI route/model together with the previous DeepSeek collaboration-mode model.
+- Impact:
+  - The browser login itself succeeds, but the user cannot complete the OpenAI subscription switch.
+- Related hypotheses:
+  - H-003
+  - H-004
+
+## Hypothesis H-003: TUI carries the previous provider model into the route transition
+- Status: confirmed
+- Parent: P-002
+- Claim: `sync_active_thread_provider_model_setting` sends the current collaboration mode unchanged, so core validation prefers its DeepSeek model over the selected OpenAI model and rejects the route.
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - none
+- Falsifiable predictions:
+  - The same OpenAI route update succeeds when its collaboration-mode model is OpenAI and fails when that field remains DeepSeek.
+- Diagnostic evidence plan:
+  - Signal: paired JSON-RPC `thread/settings/update` probes against the same authenticated empty thread.
+  - Differentiates from: invalid ChatGPT tokens, unavailable OpenAI model, or failed credential persistence.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-009
+  - E-010
+- Conclusion: confirmed; the contradictory TUI payload exactly reproduces the user's post-login error.
+- Repair design readiness: ready
+- Next step: Resolve a route default when needed and derive the submitted collaboration mode from the target model/effort.
+
+## Hypothesis H-004: Built-in default managers bypass route credential storage
+- Status: confirmed
+- Parent: P-002
+- Claim: `build_models_manager` and the initial session provider use route-less constructors, so DeepSeek falls back to its environment-only auth path even when its provider slot is stored.
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - none
+- Falsifiable predictions:
+  - Fresh app-server initialization and thread start emit the missing-environment error before any model turn, while route credential status remains configured.
+- Diagnostic evidence plan:
+  - Signal: fresh-process logs plus constructor call-chain inspection.
+  - Differentiates from: stale TUI process, invalid DeepSeek key, or failed remote authentication.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-011
+- Conclusion: confirmed; both compatibility discovery and initial session startup are constructed without the built-in route.
+- Repair design readiness: ready
+- Next step: Use route-bound managers/providers for built-in initial routes while preserving custom-provider construction.
+
+## Evidence E-009: OpenAI credentials and native login are valid
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: runtime-state
+- Source: redacted workspace `auth.json` shape and `whale login status`
+- Matched signal:
+  - `auth_mode=chatgpt`; access token, refresh token, and account ID present; status is `Logged in using ChatGPT`.
+- Interpretation: Browser callback and credential persistence completed successfully.
+- Time: 2026-08-25 05:57
+
+## Evidence E-010: Only the contradictory TUI settings payload fails
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: reproduction
+- Source: fresh installed app-server using the same workspace credentials and an empty DeepSeek thread
+- Matched signal:
+  - `openai/chatgpt + gpt-5.4` succeeds.
+  - The same route/model plus `collaborationMode.model=deepseek-v4-flash` returns `a model available on that route`.
+- Interpretation: The error is a stale cross-provider model snapshot, not an OpenAI authentication failure.
+- Time: 2026-08-25 06:03
+
+## Evidence E-011: Fresh startup repeats environment-only DeepSeek lookup
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: reproduction
+- Source: two fresh installed app-server processes
+- Matched signal:
+  - Initialization and thread start emit `Missing environment variable: DEEPSEEK_API_KEY` while the stored DeepSeek route remains configured.
+- Interpretation: A route-less built-in manager/provider is still active outside the grouped catalog path.
+- Time: 2026-08-25 06:03

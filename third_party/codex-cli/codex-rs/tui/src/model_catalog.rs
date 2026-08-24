@@ -52,4 +52,16 @@ impl ModelCatalog {
             .find(|group| &group.route == route)
             .map(|group| &group.availability)
     }
+
+    pub(crate) fn default_model_for_route(&self, route: &ProviderRoute) -> Option<&ModelPreset> {
+        let models = &self
+            .provider_groups
+            .iter()
+            .find(|group| &group.route == route)?
+            .models;
+        models
+            .iter()
+            .find(|model| model.is_default)
+            .or_else(|| models.first())
+    }
 }

@@ -22,6 +22,11 @@ impl App {
         model: Option<String>,
         effort: Option<ReasoningEffort>,
     ) {
+        let model = model.or_else(|| {
+            self.model_catalog
+                .default_model_for_route(&route)
+                .map(|model| model.model.clone())
+        });
         if matches!(
             self.model_catalog.provider_availability(&route),
             Some(ProviderModelAvailability::MissingCredentials)

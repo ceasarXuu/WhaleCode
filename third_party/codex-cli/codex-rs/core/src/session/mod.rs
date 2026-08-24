@@ -649,17 +649,29 @@ impl Session {
                     Some(model),
                 )
             } else {
+                let initial_route = provider_runtime_registry.initial_route(
+                    &config.model_provider_id,
+                    &config.model_provider,
+                    &config.model_providers,
+                    auth_manager.as_ref(),
+                );
+                let initial_runtime = initial_route
+                    .as_ref()
+                    .and_then(|route| provider_runtime_registry.get(route));
                 (
-                    Arc::clone(&models_manager),
-                    provider_runtime_registry.initial_route(
-                        &config.model_provider_id,
-                        &config.model_provider,
-                        &config.model_providers,
-                        auth_manager.as_ref(),
+                    initial_runtime.map_or_else(
+                        || Arc::clone(&models_manager),
+                        |runtime| Arc::clone(&runtime.models_manager),
                     ),
-                    create_model_provider(
-                        config.model_provider.clone(),
-                        Some(Arc::clone(&auth_manager)),
+                    initial_route,
+                    initial_runtime.map_or_else(
+                        || {
+                            create_model_provider(
+                                config.model_provider.clone(),
+                                Some(Arc::clone(&auth_manager)),
+                            )
+                        },
+                        |runtime| Arc::clone(&runtime.provider),
                     ),
                     None,
                 )
