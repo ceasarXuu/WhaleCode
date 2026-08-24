@@ -449,3 +449,19 @@
   - installed binary SHA-256 `635adb29b4f63dd507c525c10c6cc012672b64ff7e54c9cb26fb111026a39116`
 - Interpretation: The original post-login failure is absent across catalog, startup auth prewarm, and next-turn provider transition paths. No model turn was sent.
 - Time: 2026-08-25 06:27
+
+## Evidence E-014: User-operated TUI registers the OpenAI subscription route successfully
+- Related hypotheses:
+  - H-003
+  - H-004
+  - H-005
+- Direction: supports
+- Type: user-feedback
+- Source: workspace runtime logs from the user-operated Whale process started at 2026-08-25 07:37:46 CST
+- Matched signal:
+  - OpenAI model discovery returns HTTP 200 with `auth_mode="Chatgpt"` and an attached authorization header.
+  - Request 5 submits `openai/chatgpt + gpt-5.6-sol`, with the collaboration-mode model also set to `gpt-5.6-sol`.
+  - Core accepts the submission and emits `thread/settings/updated` for thread `01a03623-3757-7f32-ad30-278df460f75d`.
+  - No provider, authentication, model, or settings error occurs in the new process through the observed switch.
+- Interpretation: The user's UI operation successfully registered the OpenAI subscription route for the next turn. No post-switch turn exists yet, so actual inference routing remains unobserved rather than failed.
+- Time: 2026-08-25 07:39
