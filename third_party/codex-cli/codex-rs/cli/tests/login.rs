@@ -85,6 +85,27 @@ fn login_status_reports_auth_storage_errors() -> Result<()> {
 }
 
 #[test]
+fn login_status_does_not_treat_deepseek_only_credentials_as_chatgpt() -> Result<()> {
+    let codex_home = TempDir::new()?;
+    write_file_auth_config(codex_home.path())?;
+    std::fs::write(
+        codex_home.path().join("auth.json"),
+        serde_json::to_vec(&json!({
+            "OPENAI_API_KEY": null,
+            "DEEPSEEK_API_KEY": "deepseek-key"
+        }))?,
+    )?;
+
+    codex_command(codex_home.path())?
+        .args(["login", "status"])
+        .assert()
+        .failure()
+        .stderr(contains("Not logged in"));
+
+    Ok(())
+}
+
+#[test]
 fn login_status_validates_configured_workload_identity() -> Result<()> {
     let codex_home = TempDir::new()?;
     write_file_auth_config(codex_home.path())?;

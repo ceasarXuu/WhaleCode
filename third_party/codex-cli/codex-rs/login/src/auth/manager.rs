@@ -1543,6 +1543,7 @@ async fn load_auth(
         AuthKeyringBackendKind::default(),
     );
     if let Some(auth_dot_json) = ephemeral_storage.load()?
+        && auth_dot_json.has_native_auth_material()
         && auth_mode_is_allowed(allowed_login_methods, auth_dot_json.resolved_mode())
     {
         if let Some(agent_identity) = auth_dot_json.agent_identity.as_ref() {
@@ -1603,6 +1604,9 @@ async fn load_auth(
         Some(auth) => auth,
         None => return Ok(None),
     };
+    if !auth_dot_json.has_native_auth_material() {
+        return Ok(None);
+    }
     if !auth_mode_is_allowed(allowed_login_methods, auth_dot_json.resolved_mode()) {
         return Ok(None);
     }
@@ -1794,13 +1798,22 @@ fn refresh_token_endpoint() -> String {
 }
 
 impl AuthDotJson {
-    fn has_auth_material(&self) -> bool {
-        self.openai_api_key.is_some()
-            || self.deepseek_api_key.is_some()
+    /// Whether this record contains auth material understood by native Codex account loading.
+    ///
+    /// Provider-only slots remain available through `AuthManager::auth_for_route`, but must not
+    /// activate Codex's legacy fallback that interprets an otherwise unclassified record as
+    /// ChatGPT auth.
+    fn has_native_auth_material(&self) -> bool {
+        self.auth_mode.is_some()
+            || self.openai_api_key.is_some()
             || self.tokens.is_some()
             || self.agent_identity.is_some()
             || self.personal_access_token.is_some()
             || self.bedrock_api_key.is_some()
+    }
+
+    fn has_auth_material(&self) -> bool {
+        self.has_native_auth_material() || self.deepseek_api_key.is_some()
     }
 
     fn from_external_access_token(

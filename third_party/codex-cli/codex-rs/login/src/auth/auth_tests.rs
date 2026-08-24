@@ -229,6 +229,48 @@ async fn provider_routes_select_and_clear_isolated_api_keys() -> std::io::Result
 
 #[tokio::test]
 #[serial(codex_auth_env)]
+async fn deepseek_only_credentials_do_not_create_legacy_chatgpt_auth() -> std::io::Result<()> {
+    let dir = tempdir().unwrap();
+    let _openai_env = EnvVarGuard::remove(OPENAI_API_KEY_ENV_VAR);
+    let _deepseek_env = EnvVarGuard::remove(DEEPSEEK_API_KEY_ENV_VAR);
+    login_with_deepseek_api_key(
+        dir.path(),
+        "deepseek-key",
+        AuthCredentialsStoreMode::File,
+        AuthKeyringBackendKind::default(),
+    )?;
+
+    let manager = AuthManager::new(
+        dir.path().to_path_buf(),
+        /*enable_codex_api_key_env*/ false,
+        AuthCredentialsStoreMode::File,
+        /*forced_chatgpt_workspace_id*/ None,
+        /*chatgpt_base_url*/ None,
+        AuthKeyringBackendKind::default(),
+        crate::test_support::transport_default_auth_route_config(),
+    )
+    .await;
+
+    assert!(
+        manager.auth().await.is_none(),
+        "a provider-only DeepSeek credential must not become legacy ChatGPT auth"
+    );
+    assert_eq!(
+        manager
+            .auth_for_route(&ProviderRoute::new(
+                "deepseek",
+                ProviderAccessMethod::ApiKey,
+            ))
+            .await?
+            .and_then(|auth| auth.api_key().map(str::to_string))
+            .as_deref(),
+        Some("deepseek-key")
+    );
+    Ok(())
+}
+
+#[tokio::test]
+#[serial(codex_auth_env)]
 async fn login_with_access_token_writes_agent_identity_jwt() {
     let dir = tempdir().unwrap();
     let auth_path = dir.path().join("auth.json");
