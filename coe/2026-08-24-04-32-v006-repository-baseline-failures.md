@@ -2343,3 +2343,36 @@
   ```
 - Interpretation: 最终 schema 与调度提交已由当前 HEAD 的完整矩阵直接覆盖，不再依赖跨提交推断。
 - Time: 2026-08-24 09:23 +0800
+
+## Hypothesis H-044: 当前 accepted cache baseline 无需因非语义 surface 漂移重新付费资格化
+- Status: confirmed
+- Failure signature:
+  - 先前把 surface hash 从 `4a15b25c...` 变为 `c93a1f6c...` 解释为必须重新执行 live 双臂资格运行，但尚未用最新干净 HEAD 的 `--require-live-baseline --request-revalidation` 合同验证该解释。
+- Prediction:
+  - 若漂移不改变已接受的 final-wire manifest，官方门禁应确认 accepted evidence 有效、免费 final-wire unchanged，并不给出 revalidation request；付费提案生成器应拒绝 pass 报告。
+- Falsification:
+  - 门禁阻断、accepted manifest 失配、免费 final-wire changed，或生成器允许从 pass 报告创建真实运行提案。
+- Minimal experiment:
+  - 在干净 HEAD 生成 require-live revalidation gate report，并将该报告输入官方预算提案生成器。
+- User/product decision required: no
+
+## Evidence E-059: live baseline 有效且付费提案被合同拒绝
+- Related hypotheses:
+  - H-044
+- Direction: supports
+- Type: diagnostic and release verification
+- Source: 官方 cache gate 与预算提案生成器
+- Prediction or plan link:
+  - H-044 的 manifest、免费 final-wire 与 proposal-trigger 预测。
+- Matched signal:
+  - 门禁 `status=pass`、`accepted_baseline_validation.valid=true`、`manifest_matches_current=true`、8 项免费验证通过、`discovery_state=unchanged`、`revalidation_requested=false`；提案生成器返回 `cache gate report is not blocked`，没有启动 runner、没有创建账本记录、没有 API 请求或费用。
+- Correlation keys:
+  - gate report `benchmarks/cache-regression/gate-reports/2026-08-24-v006-multi-provider-policy-revalidation.json`
+  - surface `c93a1f6c9d691896f5e9f3aa63fd71c67b4c24cacf0b1b05aec73cfe0a1e6778`
+- Raw content:
+  ```text
+  cache regression gate: PASS c93a1f6c...（免费 final-wire 验证通过）
+  cache gate report is not blocked
+  ```
+- Interpretation: 已批准预算无需消费；此前把非语义 surface 漂移列为 live 阻塞属于错误门禁解释。
+- Time: 2026-08-24 09:37 +0800

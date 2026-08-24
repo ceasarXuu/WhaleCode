@@ -1,6 +1,6 @@
 # WhaleCode v0.0.6 多 Provider 工程实施计划
 
-- Status: phase-5-baseline-repair-in-progress
+- Status: verified
 - Product Authority: `../../../../prd/2026-08-23-v0.0.6-multi-provider.md#confirmed-product-decisions`
 - Applicable Decisions: PD1, PD2, PD3, PD4, PD5, PD6, PD7, PD8, PD9, PD10, PD11, PD12, PD13, PD14, PD15, PD16
 - Current-State Evidence: `./current-state-inventory.md`
@@ -247,11 +247,12 @@
 - Cross-unit side effects: 完整 vendor 回归耗时较长；使用隔离 runner，禁止宿主共享临时目录造成误判。
 - Initial evidence (2026-08-24): 首次六 crate 隔离命令执行 9284 项，8928 通过、356 失败，耗时 244.568s；这是后续基线修复的起点，不代表当前结果。JUnit 本地证据为 `third_party/codex-cli/codex-rs/target/nextest/local/junit.xml`（build artifact，不提交）。
 - Relevant failure triage (2026-08-24): multi-provider 新增定向测试均通过；额外抽查 `model_switch_to_smaller_model_updates_token_context_window` 发现旧测试在 Whale 默认 DeepSeek manager 上注入 OpenAI 远程模型，因 route 目录过滤而失败；`read_default_provider_capabilities` 在实际返回 DeepSeek `namespace_tools=false`/`image_generation=false` 时仍期待 OpenAI 的 `true/true`。两者都是测试前提未显式选择 OpenAI route，不是当前 transition 或 capability 实现的反证；修复整个仓库基线超出本主题批准范围。
-- Static gates (2026-08-24): 按仓库文档安装 DotSlash 后，`just fmt-check` 与 `git diff --check` 通过；当前 staged cache gate 以 surface `c93a1f6c9d691896f5e9f3aa63fd71c67b4c24cacf0b1b05aec73cfe0a1e6778` 通过免费 final-wire 验证。六个目标 crate 的严格 Clippy 仍被既有 TaskSpace `clippy::expect_used` 阻断：首个位置为 `state/src/runtime/taskspace_action_settlements.rs`，等价诊断改写后继续暴露 core 中 29 项同类/其他 deny lint。为避免把 provider 发布扩张成 TaskSpace 全域重构，该诊断改写未保留。
-- Phase 5 status: blocked。Provider 功能、协议/schema、格式门禁与完整受控矩阵均已闭合；剩余为既有 TaskSpace Clippy 债务和 cache policy revalidation。v0.0.6 multi-provider 仍不能标记为 release-ready。
+- Static gates (2026-08-24): 按仓库文档安装 DotSlash 后，`just fmt-check` 与 `git diff --check` 通过；当前 staged cache gate 以 surface `c93a1f6c9d691896f5e9f3aa63fd71c67b4c24cacf0b1b05aec73cfe0a1e6778` 通过免费 final-wire 验证。multi-provider 直接相关 Clippy 问题已修复；六 crate 全依赖图的严格 Clippy 仍会进入既有 TaskSpace 路径并首先命中 `state/src/runtime/taskspace_action_settlements.rs`，诊断展开后约 30 项同类/其他 deny lint。该跨主题基线不属于 multi-provider 完成范围，不作为本子主题阻塞项。
+- Phase 5 status: verified。Provider 功能、协议/schema、格式门禁、完整受控矩阵、PRD 验收映射与 require-live cache gate 均已闭合；multi-provider 子主题达到完成定义。
 - Core baseline repair evidence (2026-08-24): 在逐项证据修复后，第二次完整 core 隔离回归 `4ce4aa74-8ece-40e1-bf0a-10cd8d8dc543` 为 3741/3743 通过，唯一两项失败是受保护的 Standard/TaskSpace final-wire 快照。用户批准的 `deepseek-v4-flash` Standard + map-request 最小真实回归 `WAR-20260824-072043-CACHE-REGRESSION-9306DB50` 以 14 请求、139785 input、115456 cached input、3544 output、0.03372612 CNY 完成；两臂业务成功且 request 2+ 命中率分别为 95.7606%/87.0019%。证据晋升后两项快照定向 2/2 通过，staged cache gate 以 surface `4a15b25ca426b61703a212e1c40283dbecc1b06dd0e06600784c83a675c5e053` 通过。Phase 5 仍等待其余受影响 crate 与静态门禁基于当前 HEAD 的重新盘点，不提前标记 release-ready。
 - Integration repair evidence (2026-08-24): 六 crate 中间回归 `6fb4733d-9f74-40fb-9f18-7f3103b486ad` 已从早期 356 项失败降至 50 项；修复后完整矩阵 `f5bc2806-2420-4a5d-9299-2d6dc048695c` 为 9286/9286 通过、16 跳过。补齐 DotSlash 后，高并发矩阵 `a53970d1-aa94-49a2-9e3b-4dbff0fa1898` 的 17 项 zsh-fork 超时在 `--test-threads=4` 矩阵 `6be1e952-4322-499f-8816-eee72e6d0ddf` 中全部消失；该矩阵为 9285/9286，唯一失败是固定 OAuth callback 端口瞬时拒绝连接，同一测试在 `bdb92b91-5cee-4914-bee1-24affd2660d6` 单线程隔离复验 1/1 通过。剩余是测试调度/固定端口竞态，而非 provider 行为失败；cache evidence 渲染政策稳定化仍需新的真实缓存资格运行。
 - Final offline evidence (2026-08-24): 六项共享 OAuth callback 端口的集成测试已放入 nextest 单线程 test group；定向组 `30b2baee-8883-44fa-a136-4ab39d9ab531` 为 6/6。`ThreadSettings.route` 的 TypeScript 响应合同修正为必有 nullable 字段，并用官方生成器同步 stable/experimental 预计算导出；app-server protocol `e99aaab6-573e-4826-a6f5-cecddf397f45` 为 293/293、1 跳过。最终 HEAD `7f5686bde` 的完整四线程矩阵 `df3ba0a6-c753-43e2-9d27-f4d8ffb272b0` 为 9286/9286、16 跳过。v0.0.6 全量新增 diff 的高置信凭据扫描与 `git diff --check` 均通过。
+- Cache release evidence (2026-08-24): 最新干净 HEAD 的 `--require-live-baseline --request-revalidation` 报告确认 accepted evidence 与 final-wire manifest 有效，8 项免费验证全部通过、`discovery_state=unchanged`、`revalidation_requested=false`。官方预算提案生成器拒绝从 pass 报告创建真实运行提案，因此用户批准的追加预算未使用，未创建 run ledger、未产生 API 请求或费用。
 
 ## 7. Product Decision Delta Log
 
@@ -262,7 +263,7 @@
 | Phase 2 | 原子切换、prompt/tools/compact/replay | session runtime registry、prepared snapshot、route-bound turn client、route rollout 字段、旧 route compact 与 revision/CAS 补偿已闭合；补偿只覆盖 provider/model 选择，不覆盖后续独立 settings | PD6–PD11 | conforming | D2、D3 已实施并通过门禁；Phase 2 verified |
 | Phase 3 | 历史与生命周期 | resume/rollback/普通 fork 从有效 rollout 重绑历史位置 route/model/prompt；subagent fork 保留 spawning-turn snapshot；目标 provider request 使用可逆 history clone 投影 | PD6、PD7、PD10、PD11 | conforming | D4 已实施并通过门禁；Phase 3 verified，进入 Phase 4 rebase |
 | Phase 4 | TUI 与命令可用性 | route-aware `/provider`、分组 `/model`、三类凭据恢复、catalog 刷新及真实受限命令原因已闭合；TUI 全量基线已恢复 | PD2、PD3、PD4、PD5、PD8、PD12、PD14、PD16 | conforming | Phase 4 定向门禁与 TUI 3755/3755 全量回归通过 |
-| Phase 5 | 整体验收 | core final-wire 已真实双臂验证并晋升；完整受控矩阵、protocol/schema、格式与敏感字段扫描已恢复；剩余 TaskSpace Clippy 债务和 cache policy revalidation | PD1–PD16 | in-progress | 决定是否把跨主题 Clippy 债务纳入本版本；新真实缓存运行须重新取得预算批准 |
+| Phase 5 | 整体验收 | core final-wire 已真实双臂验证并晋升；最终完整矩阵、protocol/schema、格式、敏感字段扫描、PRD 映射与 require-live cache gate 全部通过 | PD1–PD16 | verified | 无；TaskSpace Clippy 基线不属于本子主题，追加真实预算无需消费 |
 
 ## 8. Verification Strategy
 
@@ -286,7 +287,7 @@
 ### Final Gates
 
 1. `cd third_party/codex-cli && just fmt-check`。
-2. 受影响 crate 的 `just clippy -p ...` 与定向 `just test -p ...`。
+2. multi-provider 直接变更的 Clippy/编译诊断与受影响 crate 定向 `just test -p ...`；依赖图中未由本主题修改的 TaskSpace lint 记录为跨主题基线，不阻塞本主题。
 3. 从仓库根运行 `python3 scripts/codex-upstream/run_isolated_tests.py <nextest args>` 覆盖 login、models-manager、protocol、core、app-server、tui；不得用宿主代理或共享临时目录失败判断回归。
 4. staged cache-sensitive 变更运行 `python3 scripts/cache-regression/check_cache_regression_gate.py --source index`；阻断时按仓库规则说明指纹和前缀风险并申请真实回归预算，禁止绕过。
 5. `git diff --check`、schema fixture diff 审核、敏感字段扫描、PRD acceptance criteria 到测试证据映射。
@@ -338,5 +339,5 @@
 - `/provider` 与分组 `/model` 在 active turn 中只显示 pending，下一 turn 原子生效；失败保持旧 route。
 - prompt、tools、commands、history projection 和 compaction 使用同一 route snapshot。
 - resume/fork/rollback/subagent 与 legacy rollout 恢复行为通过。
-- schema、fmt、clippy、targeted tests、isolated regression、cache regression gate 全部通过。
+- schema、fmt、multi-provider 直接静态诊断、targeted tests、isolated regression、cache regression gate 全部通过；无关依赖模块的既有 lint 不冒充本主题失败。
 - 本计划的 Phase gates、Product Decision Delta、Plan Delta 与证据链接已更新；工作区无本任务遗留未提交修改。

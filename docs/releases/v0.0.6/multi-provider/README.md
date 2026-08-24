@@ -1,6 +1,6 @@
 # v0.0.6 子主题：多 Provider 支持
 
-- 状态：Phase 1–4 已验证；Phase 5 基线修复与发布验收进行中
+- 状态：Phase 0–5 已验证；multi-provider 子主题完成
 - 产品权威：[多 Provider 切换 PRD](../../../../prd/2026-08-23-v0.0.6-multi-provider.md)
 - 代码盘点：[当前实现与差距清单](current-state-inventory.md)
 - 工程计划：[多 Provider 工程实施计划](plan.md)
@@ -29,4 +29,4 @@ OpenAI 官方与当前源码均确认 API key 可直接登录使用。产品规�
 
 Phase 0–4 已完成：三槽凭据、route-scoped 模型目录、原子 next-turn 切换、prompt/tools/commands/compact/history 投影、resume/fork/replay，以及 TUI `/provider`、按 Provider 分组的 `/model` 和缺凭据恢复均已实现并通过定向验证。
 
-Phase 5 正在收口发布门禁。DeepSeek Standard + map-request 已完成最小真实缓存验证并晋升 final-wire 基线；core、protocol fixture、TUI 与测试调度缺口均已逐项修复。安装 DotSlash 后，六项共享 OAuth callback 端口的测试已由 nextest 跨进程串行化；当前六 crate 受控完整矩阵为 9286/9286，app-server protocol 为 293/293，`just fmt-check`、schema 生成一致性、`git diff --check` 与高置信凭据扫描均通过。PRD 14 项验收行为已建立逐项证据映射。尚需决定是否把既有 TaskSpace 严格 Clippy 债务扩入本版本，并为 cache evidence 渲染政策变更取得新的最小真实缓存资格运行预算；当前不标记 release-ready。
+Phase 5 已完成 multi-provider 子主题收口。DeepSeek Standard + map-request 已完成最小真实缓存验证并晋升 final-wire 基线；core、protocol fixture、TUI 与测试调度缺口均已逐项修复。安装 DotSlash 后，六项共享 OAuth callback 端口的测试已由 nextest 跨进程串行化；最终 HEAD 的六 crate 受控完整矩阵为 9286/9286，app-server protocol 为 293/293，`just fmt-check`、schema 生成一致性、`git diff --check` 与高置信凭据扫描均通过。PRD 14 项验收行为已建立逐项证据映射。最新 require-live cache gate 确认 accepted manifest 有效、免费 final-wire unchanged，且不要求重新真实资格化；用户批准的追加预算未使用。TaskSpace 既有 Clippy 债务不属于 multi-provider 子主题，不作为本主题阻塞项。
