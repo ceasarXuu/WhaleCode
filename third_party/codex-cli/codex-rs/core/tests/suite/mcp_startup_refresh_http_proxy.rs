@@ -237,9 +237,7 @@ async fn skill_mcp_dependency_oauth_uses_configured_http_client() -> Result<()> 
 
         let mut command = Command::new(std::env::current_exe()?);
         command.arg("--exact").arg(SKILL_TEST_NAME);
-        command.env_remove(
-            codex_login::default_client::CODEX_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR,
-        );
+        command.env_remove(codex_login::default_client::CODEX_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR);
         for &key in codex_network_proxy::PROXY_ENV_KEYS {
             command.env_remove(key);
         }

@@ -364,10 +364,8 @@ impl OpenAiModelsManager {
                 }
             })
             .collect();
-        let cache_path = codex_home.join(format!(
-            "models_cache.{}-{access_method}.json",
-            provider_key
-        ));
+        let cache_path =
+            codex_home.join(format!("models_cache.{provider_key}-{access_method}.json"));
         Self::new_with_optional_cache(
             Some(Arc::new(FileModelsCache::new(
                 cache_path,

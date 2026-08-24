@@ -139,7 +139,11 @@ async fn websocket_turn_state_persists_within_turn_and_resets_after() -> Result<
     test.submit_turn("start another turn").await?;
 
     assert_eq!(server.handshakes().len(), 2);
-    let requests = server.connections().into_iter().flatten().collect::<Vec<_>>();
+    let requests = server
+        .connections()
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
     assert_eq!(requests.len(), 4);
     let bodies = requests
         .iter()

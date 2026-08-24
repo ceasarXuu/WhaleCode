@@ -98,7 +98,7 @@ pub(crate) async fn handle_message_string_tool(
             turn.config
                 .model_providers
                 .get(&snapshot.model_provider_id)
-                .is_some_and(|provider| provider.is_openai())
+                .is_some_and(codex_model_provider_info::ModelProviderInfo::is_openai)
         });
     let author = turn
         .session_source

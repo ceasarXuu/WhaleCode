@@ -3109,10 +3109,7 @@ async fn azure_responses_request_does_not_store_and_preserves_prefixed_item_ids(
         body["input"][3]["call_id"].as_str(),
         Some("function-call-id")
     );
-    assert_eq!(
-        body["input"][4]["id"].as_str(),
-        Some("lsh_local-shell-id")
-    );
+    assert_eq!(body["input"][4]["id"].as_str(), Some("lsh_local-shell-id"));
     assert_eq!(
         body["input"][5]["call_id"].as_str(),
         Some("local-shell-call-id")

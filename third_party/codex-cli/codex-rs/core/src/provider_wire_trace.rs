@@ -286,7 +286,7 @@ impl ProviderWireTrace {
             "provider Chat wire shape recorded"
         );
         state.previous = Some(WireRequestShape {
-            request_id: request_id.clone(),
+            request_id,
             tools_hash,
             tool_choice_kind: tool_choice_kind.to_string(),
             tool_choice_name: tool_choice_name.map(str::to_string),

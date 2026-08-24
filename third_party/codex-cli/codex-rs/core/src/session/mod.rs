@@ -688,7 +688,11 @@ impl Session {
                 .as_ref()
                 .is_some_and(|models| models.iter().any(|model| model.model == restored_model))
             {
-                let route = initial_provider_route.as_ref().expect("restored route");
+                let Some(route) = initial_provider_route.as_ref() else {
+                    return Err(CodexErr::InvalidRequest(format!(
+                        "cannot restore model `{restored_model}` without a provider route"
+                    )));
+                };
                 return Err(CodexErr::InvalidRequest(format!(
                     "cannot restore provider route `{}/{:?}` at stage `model`: model `{restored_model}` is unavailable",
                     route.model_provider_id, route.access_method
