@@ -29,4 +29,4 @@ OpenAI 官方与当前源码均确认 API key 可直接登录使用。产品规�
 
 Phase 0–4 已完成：三槽凭据、route-scoped 模型目录、原子 next-turn 切换、prompt/tools/commands/compact/history 投影、resume/fork/replay，以及 TUI `/provider`、按 Provider 分组的 `/model` 和缺凭据恢复均已实现并通过定向验证。
 
-Phase 5 正在收口发布门禁。DeepSeek Standard + map-request 已完成最小真实缓存验证并晋升 final-wire 基线；core 关键缺口、六 crate feature-graph 快照顺序、protocol fixture 与 TUI 历史失败均已逐项修复。六 crate 在未启用可选 zsh-fork 运行时的矩阵为 9286/9286，通过仓库标准 `just fmt-check`；安装 DotSlash 后，高并发矩阵的 17 项 zsh-fork 超时在受控 4 线程矩阵中全部消失，当前为 9285/9286，唯一失败是固定 OAuth callback 端口的瞬时 `Connection refused`，同一测试单线程隔离复验 1/1 通过。尚需处理测试调度基线、既有 TaskSpace 严格 Clippy 债务，并为 cache evidence 渲染政策变更取得新的最小真实缓存资格运行预算，当前不标记 release-ready。
+Phase 5 正在收口发布门禁。DeepSeek Standard + map-request 已完成最小真实缓存验证并晋升 final-wire 基线；core、protocol fixture、TUI 与测试调度缺口均已逐项修复。安装 DotSlash 后，六项共享 OAuth callback 端口的测试已由 nextest 跨进程串行化；当前六 crate 受控完整矩阵为 9286/9286，app-server protocol 为 293/293，`just fmt-check`、schema 生成一致性、`git diff --check` 与高置信凭据扫描均通过。PRD 14 项验收行为已建立逐项证据映射。尚需决定是否把既有 TaskSpace 严格 Clippy 债务扩入本版本，并为 cache evidence 渲染政策变更取得新的最小真实缓存资格运行预算；当前不标记 release-ready。

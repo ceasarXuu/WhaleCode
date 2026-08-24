@@ -248,9 +248,10 @@
 - Initial evidence (2026-08-24): 首次六 crate 隔离命令执行 9284 项，8928 通过、356 失败，耗时 244.568s；这是后续基线修复的起点，不代表当前结果。JUnit 本地证据为 `third_party/codex-cli/codex-rs/target/nextest/local/junit.xml`（build artifact，不提交）。
 - Relevant failure triage (2026-08-24): multi-provider 新增定向测试均通过；额外抽查 `model_switch_to_smaller_model_updates_token_context_window` 发现旧测试在 Whale 默认 DeepSeek manager 上注入 OpenAI 远程模型，因 route 目录过滤而失败；`read_default_provider_capabilities` 在实际返回 DeepSeek `namespace_tools=false`/`image_generation=false` 时仍期待 OpenAI 的 `true/true`。两者都是测试前提未显式选择 OpenAI route，不是当前 transition 或 capability 实现的反证；修复整个仓库基线超出本主题批准范围。
 - Static gates (2026-08-24): 按仓库文档安装 DotSlash 后，`just fmt-check` 与 `git diff --check` 通过；当前 staged cache gate 以 surface `c93a1f6c9d691896f5e9f3aa63fd71c67b4c24cacf0b1b05aec73cfe0a1e6778` 通过免费 final-wire 验证。六个目标 crate 的严格 Clippy 仍被既有 TaskSpace `clippy::expect_used` 阻断：首个位置为 `state/src/runtime/taskspace_action_settlements.rs`，等价诊断改写后继续暴露 core 中 29 项同类/其他 deny lint。为避免把 provider 发布扩张成 TaskSpace 全域重构，该诊断改写未保留。
-- Phase 5 status: blocked。Provider 功能、定向门禁、格式门禁及非 zsh 高并发矩阵均已闭合；剩余为 zsh-fork 高并发调度、既有 TaskSpace Clippy 债务和 cache policy revalidation。v0.0.6 multi-provider 仍不能标记为 release-ready。
+- Phase 5 status: blocked。Provider 功能、协议/schema、格式门禁与完整受控矩阵均已闭合；剩余为既有 TaskSpace Clippy 债务和 cache policy revalidation。v0.0.6 multi-provider 仍不能标记为 release-ready。
 - Core baseline repair evidence (2026-08-24): 在逐项证据修复后，第二次完整 core 隔离回归 `4ce4aa74-8ece-40e1-bf0a-10cd8d8dc543` 为 3741/3743 通过，唯一两项失败是受保护的 Standard/TaskSpace final-wire 快照。用户批准的 `deepseek-v4-flash` Standard + map-request 最小真实回归 `WAR-20260824-072043-CACHE-REGRESSION-9306DB50` 以 14 请求、139785 input、115456 cached input、3544 output、0.03372612 CNY 完成；两臂业务成功且 request 2+ 命中率分别为 95.7606%/87.0019%。证据晋升后两项快照定向 2/2 通过，staged cache gate 以 surface `4a15b25ca426b61703a212e1c40283dbecc1b06dd0e06600784c83a675c5e053` 通过。Phase 5 仍等待其余受影响 crate 与静态门禁基于当前 HEAD 的重新盘点，不提前标记 release-ready。
 - Integration repair evidence (2026-08-24): 六 crate 中间回归 `6fb4733d-9f74-40fb-9f18-7f3103b486ad` 已从早期 356 项失败降至 50 项；修复后完整矩阵 `f5bc2806-2420-4a5d-9299-2d6dc048695c` 为 9286/9286 通过、16 跳过。补齐 DotSlash 后，高并发矩阵 `a53970d1-aa94-49a2-9e3b-4dbff0fa1898` 的 17 项 zsh-fork 超时在 `--test-threads=4` 矩阵 `6be1e952-4322-499f-8816-eee72e6d0ddf` 中全部消失；该矩阵为 9285/9286，唯一失败是固定 OAuth callback 端口瞬时拒绝连接，同一测试在 `bdb92b91-5cee-4914-bee1-24affd2660d6` 单线程隔离复验 1/1 通过。剩余是测试调度/固定端口竞态，而非 provider 行为失败；cache evidence 渲染政策稳定化仍需新的真实缓存资格运行。
+- Final offline evidence (2026-08-24): 六项共享 OAuth callback 端口的集成测试已放入 nextest 单线程 test group；定向组 `30b2baee-8883-44fa-a136-4ab39d9ab531` 为 6/6，完整四线程矩阵 `69b70a36-85fc-4885-8f6c-1f2adeb1a313` 为 9286/9286、16 跳过。`ThreadSettings.route` 的 TypeScript 响应合同修正为必有 nullable 字段，并用官方生成器同步 stable/experimental 预计算导出；app-server protocol `e99aaab6-573e-4826-a6f5-cecddf397f45` 为 293/293、1 跳过。v0.0.6 全量新增 diff 的高置信凭据扫描与 `git diff --check` 均通过。
 
 ## 7. Product Decision Delta Log
 
@@ -261,7 +262,7 @@
 | Phase 2 | 原子切换、prompt/tools/compact/replay | session runtime registry、prepared snapshot、route-bound turn client、route rollout 字段、旧 route compact 与 revision/CAS 补偿已闭合；补偿只覆盖 provider/model 选择，不覆盖后续独立 settings | PD6–PD11 | conforming | D2、D3 已实施并通过门禁；Phase 2 verified |
 | Phase 3 | 历史与生命周期 | resume/rollback/普通 fork 从有效 rollout 重绑历史位置 route/model/prompt；subagent fork 保留 spawning-turn snapshot；目标 provider request 使用可逆 history clone 投影 | PD6、PD7、PD10、PD11 | conforming | D4 已实施并通过门禁；Phase 3 verified，进入 Phase 4 rebase |
 | Phase 4 | TUI 与命令可用性 | route-aware `/provider`、分组 `/model`、三类凭据恢复、catalog 刷新及真实受限命令原因已闭合；TUI 全量基线已恢复 | PD2、PD3、PD4、PD5、PD8、PD12、PD14、PD16 | conforming | Phase 4 定向门禁与 TUI 3755/3755 全量回归通过 |
-| Phase 5 | 整体验收 | core final-wire 已真实双臂验证并晋升；provider 相关回归与格式门禁已恢复；剩余 zsh-fork 并发调度、TaskSpace Clippy 债务和 cache policy revalidation | PD1–PD16 | in-progress | 保持最小范围处理工程门禁；新真实缓存运行须重新取得预算批准 |
+| Phase 5 | 整体验收 | core final-wire 已真实双臂验证并晋升；完整受控矩阵、protocol/schema、格式与敏感字段扫描已恢复；剩余 TaskSpace Clippy 债务和 cache policy revalidation | PD1–PD16 | in-progress | 决定是否把跨主题 Clippy 债务纳入本版本；新真实缓存运行须重新取得预算批准 |
 
 ## 8. Verification Strategy
 
@@ -290,6 +291,27 @@
 4. staged cache-sensitive 变更运行 `python3 scripts/cache-regression/check_cache_regression_gate.py --source index`；阻断时按仓库规则说明指纹和前缀风险并申请真实回归预算，禁止绕过。
 5. `git diff --check`、schema fixture diff 审核、敏感字段扫描、PRD acceptance criteria 到测试证据映射。
 6. 默认不发起真实模型请求。若 mock/fixture 无法证明 Provider 实际接受性，另行申请最多 3 sample 或专项预算并先登记全局 ledger；未授权不得运行。
+
+### PRD Acceptance Evidence Matrix
+
+| # | PRD 验收行为 | 自动化/离线证据 | 结果 |
+|---:|---|---|---|
+| 1 | `/provider` 展示三路选择；active turn 选择仅影响下一 turn | `provider_and_model_pickers_preserve_route_groups`；`pending_provider_transition_finalize_and_return_to_stable_are_revision_safe` | pass |
+| 2 | OpenAI 订阅复用原生登录且可取消 | app-server OAuth 六项固定端口组 6/6；完整矩阵中的 login suite | pass |
+| 3 | OpenAI API 复用原生 API Key 且不泄漏 | `login_with_api_key_preserves_coexisting_credentials`；全量新增 diff 高置信凭据扫描 | pass |
+| 4 | DeepSeek Key 输入、脱敏且不进入历史/日志 | `provider_api_key_prompt_preserves_the_interrupted_selection`；`secret_prompt_masks_credential_but_submits_original_value`；`deepseek_login_reports_redacted_provider_credentials_and_route_logout_isolated` | pass |
+| 5 | Provider/model/prompt/tools/commands/compact 来自同一目标快照 | `thread_settings_update_commits_provider_route_with_model`；`turn_session_can_bind_a_different_provider_without_mutating_session_client`；`tool_messages_use_the_target_provider_representation`；cache final-wire 双臂证据 | pass |
+| 6 | route 最近成功模型优先，否则默认模型 | `provider_lifecycle_uses_successful_non_rolled_back_turns`；`cold_resume_rebinds_last_successful_provider_runtime` | pass |
+| 7 | `/model` 跨 Provider 分组并可直接选择 | `provider_and_model_pickers_preserve_route_groups`；`provider_catalog_keeps_missing_credential_groups_visible` | pass |
+| 8 | 同名 OpenAI 模型由分组明确访问/计费路径 | `distinguishes_openai_auth_paths`；`build_available_models_for_route_splits_provider_catalogs` | pass |
+| 9 | OpenAI 订阅/API 双槽独立保留和登出 | `login_with_api_key_preserves_coexisting_credentials`；`provider_routes_select_and_clear_isolated_api_keys`；`secrets_keyring_round_trips_coexisting_provider_credentials` | pass |
+| 10 | 不支持命令可见、带原因且拒绝执行 | `usage_command_remains_discoverable_when_account_token_activity_is_disabled`；`usage_is_visible_with_the_same_disabled_reason_as_dispatch` | pass |
+| 11 | canonical 历史保留，目标 wire 过滤不兼容 item | `openai_projection_preserves_private_history_for_switch_back`；`hosted_items_and_opaque_compaction_are_removed`；`non_openai_projection_removes_opaque_fields_without_mutating_source` | pass |
+| 12 | 预检/提交失败保留原 Provider | `thread_settings_update_rejects_route_without_credentials`；`pending_provider_transition_rejects_stale_abort_and_restores_stable_selection`；`pre_sampling_compact_failure_restores_pending_model_selection` | pass |
+| 13 | 重启/resume 恢复最后成功 route/model | `cold_resume_rebinds_last_successful_provider_runtime`；`provider_lifecycle_uses_successful_non_rolled_back_turns` | pass |
+| 14 | rollout 可逐 turn 还原 Provider 且不含凭据 | `provider_lifecycle_uses_successful_non_rolled_back_turns`；`serializes_without_auth_material`；全量新增 diff 高置信凭据扫描 | pass |
+
+矩阵级兜底证据：六个受影响 crate 的完整隔离矩阵 `69b70a36-85fc-4885-8f6c-1f2adeb1a313` 为 9286/9286，通过；app-server protocol `e99aaab6-573e-4826-a6f5-cecddf397f45` 为 293/293，通过。
 
 ## 9. Safe Delivery And Commit Boundaries
 
