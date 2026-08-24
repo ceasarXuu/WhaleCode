@@ -2118,3 +2118,93 @@
   ```
 - Interpretation: 两项均是组合并发/feature 图暴露的 fixture 假设，不涉及 provider 产品逻辑。
 - Time: 2026-08-24 07:53 +0800
+
+## Evidence E-052: 六 crate 功能矩阵恢复为 9286/9286
+- Related hypotheses:
+  - H-032
+  - H-033
+  - H-034
+  - H-035
+  - H-036
+  - H-037
+- Direction: supports
+- Type: verification
+- Source: 六 crate 完整隔离 nextest
+- Prediction or plan link:
+  - 已确认的 cache/protocol/TUI/app-server fixture 修复应消除全部已分类失败。
+- Matched signal:
+  - login、models-manager、protocol、core、app-server、TUI 合计 9286/9286 通过，16 跳过。
+- Correlation keys:
+  - nextest run `f5bc2806-2420-4a5d-9299-2d6dc048695c`
+- Raw content:
+  ```text
+  9286 tests run: 9286 passed (2 slow), 16 skipped
+  ```
+- Interpretation: 已分类的 356 项集成失败全部收敛，没有遗漏的 provider 产品行为分歧。
+- Time: 2026-08-24 07:57 +0800
+
+## Hypothesis H-038: 严格 Clippy 被既有 TaskSpace deny-lint 债务阻断
+- Status: confirmed
+- Failure signature:
+  - 六个目标 crate 的 Clippy 首先在 `codex-state` 的 TaskSpace settlement `expect()` 停止；等价消除该点后又在 core TaskSpace 路径暴露 29 项 deny lint。
+- Prediction:
+  - 修正 multi-provider 自身的格式参数、冗余 clone/closure 与 route panic 后，Clippy 仍会被与 provider 无关的 TaskSpace 全域 lint 阻断。
+- Falsification:
+  - provider 直接相关 lint 修正后六 crate Clippy 全绿，或剩余错误落在 provider route/auth/catalog 实现。
+- Minimal experiment:
+  - 先修复 models-manager 和 provider 直接相关 lint；临时等价改写首个 state expect 以观察完整后续错误，再撤回无助于本主题闭环的旁路改写。
+- User/product decision required: no
+
+## Evidence E-053: 格式门禁闭合而 Clippy 阻断确认属于跨主题基线
+- Related hypotheses:
+  - H-038
+- Direction: supports
+- Type: static verification
+- Source: `just fmt-check` 与六 crate `just clippy`
+- Prediction or plan link:
+  - H-038 的 provider lint 可局部闭合、TaskSpace lint 仍独立阻断预测。
+- Matched signal:
+  - 安装仓库文档规定的 DotSlash 后 `just fmt-check` 通过；provider 直接相关 lint 已消除；Clippy 剩余首个失败恢复为既有 `taskspace_action_settlements.rs`。
+- Correlation keys:
+  - code commit `04affb19b`
+  - cache surface `c93a1f6c9d691896f5e9f3aa63fd71c67b4c24cacf0b1b05aec73cfe0a1e6778`
+- Raw content:
+  ```text
+  error: used expect() on an Option value
+    --> state/src/runtime/taskspace_action_settlements.rs:35:52
+  ```
+- Interpretation: Clippy 仍是工程发布门禁，但将其修复纳入 multi-provider 会扩大为无关 TaskSpace 重构。
+- Time: 2026-08-24 08:02 +0800
+
+## Hypothesis H-039: DotSlash 启用后的 zsh-fork 失败是高并发资源超时
+- Status: confirmed
+- Failure signature:
+  - 安装 DotSlash 后完整矩阵仅有 17 项 zsh-fork 测试在统一 60 秒时限超时，覆盖 approvals、cyber policy、plugins、skills、unified exec 与 app-server；无断言失败或 provider 路径失败。
+- Prediction:
+  - 预取 zsh 资源并将 zsh-fork 集合单线程隔离运行时，同一行为集合应全部通过。
+- Falsification:
+  - 单线程仍超时或出现审批/沙箱行为断言失败。
+- Minimal experiment:
+  - 对 core/app-server 的 `zsh_fork` 测试集合使用隔离 runner 与 `--test-threads=1`，不修改生产代码或测试超时。
+- User/product decision required: no
+
+## Evidence E-054: zsh-fork 27/27 单线程通过
+- Related hypotheses:
+  - H-039
+- Direction: supports
+- Type: verification
+- Source: DotSlash 启用后的完整矩阵与 zsh-fork 单线程隔离复验
+- Prediction or plan link:
+  - H-039 的并发调度预测。
+- Matched signal:
+  - 当前 HEAD 完整矩阵 9269/9286 通过，17 项均为 zsh-fork 60 秒超时；随后 zsh-fork 集合 27/27 单线程通过。
+- Correlation keys:
+  - full run `a53970d1-aa94-49a2-9e3b-4dbff0fa1898`
+  - serial run `cc7c16b3-67af-4fee-8e77-02bdc411b5af`
+- Raw content:
+  ```text
+  9286 tests run: 9269 passed, 17 timed out, 16 skipped
+  27 tests run: 27 passed, 4966 skipped
+  ```
+- Interpretation: DotSlash 补齐提高了实际覆盖；新失败是隔离 runner 高并发资源/时限基线，不是 multi-provider 回归。
+- Time: 2026-08-24 08:14 +0800
