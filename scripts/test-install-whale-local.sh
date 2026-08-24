@@ -7,6 +7,7 @@ trap 'rm -rf "$temp_root"' EXIT
 
 fake_home="$temp_root/home"
 fake_whale="$temp_root/whale"
+fake_code_mode_host="$temp_root/codex-code-mode-host"
 mkdir -p "$fake_home/.whale/bin"
 printf '%s\n' 'legacy-sentinel' >"$fake_home/.whale/bin/sentinel"
 cat >"$fake_whale" <<'EOF'
@@ -14,6 +15,7 @@ cat >"$fake_whale" <<'EOF'
 printf '%s\n' 'whale 0.1.0'
 EOF
 chmod +x "$fake_whale"
+cp "$fake_whale" "$fake_code_mode_host"
 
 prepare_repo() {
   local destination="$1"
@@ -65,6 +67,8 @@ bin_b="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["context"]["res
 test "$bin_a" != "$bin_b"
 test -x "$bin_a/whale"
 test -x "$bin_b/whale"
+test -x "$bin_a/codex-code-mode-host"
+test -x "$bin_b/codex-code-mode-host"
 test -f "$bin_a/whale.build-attestation.json"
 test -f "$bin_b/whale.build-attestation.json"
 test "$(cat "$fake_home/.whale/bin/sentinel")" = "legacy-sentinel"
@@ -74,6 +78,7 @@ HOME="$fake_home" XDG_STATE_HOME="$fake_home/state" XDG_DATA_HOME="$fake_home/da
   "$repo_a/scripts/install-whale-local.sh" --scope user --binary-path "$fake_whale" \
   --install-dir "$user_install" >/dev/null
 test -x "$user_install/whale"
+test -x "$user_install/codex-code-mode-host"
 test -f "$user_install/whale.build-attestation.json"
 
 repo_c="$temp_root/repo-c"

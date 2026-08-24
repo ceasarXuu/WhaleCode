@@ -573,3 +573,100 @@
   - For bundled GPT-5.6 Sol metadata that fallback is `low`.
 - Interpretation: The visible `default` label and actual next-request effort disagree; actual runtime behavior is `low`.
 - Time: 2026-08-25 07:52
+
+# Problem P-004: OpenAI subscription turns are rejected as an obsolete Codex client
+- Status: diagnosed
+- Created: 2026-08-25 08:02
+- Updated: 2026-08-25 08:08
+- Objective: Complete a real OpenAI subscription turn from the installed Whale v0.0.6 client.
+- Symptoms:
+  - A `gpt-5.6-sol low` turn containing `hi` receives HTTP 400 saying the model requires a newer Codex version.
+  - The same installed process warns that `codex-code-mode-host` is missing.
+- Expected behavior:
+  - Whale keeps its own v0.0.6 product identity while speaking the OpenAI Codex protocol at the version of its vendored upstream substrate.
+  - Workspace installation includes the enabled Code Mode host.
+- Actual behavior:
+  - OpenAI protocol requests advertise Whale's unrelated product version `0.0.6` even though the vendored Codex substrate is `0.149.0`.
+  - The installer copies optional helpers but omits `codex-code-mode-host` entirely.
+- Impact:
+  - OpenAI subscription inference is unusable for current models, remote model discovery falls back to bundled data, and Code Mode fails closed.
+- Related hypotheses:
+  - H-008
+  - H-009
+- Current conclusion: The product release version was incorrectly reused as an upstream protocol-compatibility version, and the enabled Code Mode executable was omitted from packaging.
+
+## Hypothesis H-008: Whale product version is incorrectly used as the OpenAI Codex client version
+- Status: confirmed
+- Parent: P-004
+- Claim: The workspace version bump to `0.0.6` changed both the models `client_version` and request `User-Agent` below the minimum accepted for `gpt-5.6-sol`, despite Whale containing the Codex 0.149.0 substrate.
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - none
+- Falsifiable predictions:
+  - The failed turn advertises a version derived from `CARGO_PKG_VERSION`, while local upstream provenance and model metadata require a materially newer Codex compatibility version.
+- Diagnostic evidence plan:
+  - Trace the models-query and default-header constructors; compare their version source with the vendored upstream provenance and model minimum.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-019
+  - E-020
+- Conclusion: Confirmed. Both protocol surfaces derive from Whale's workspace package version instead of the vendored Codex compatibility version.
+- Repair design readiness: ready
+
+## Hypothesis H-009: Workspace installation omits the enabled Code Mode host
+- Status: confirmed
+- Parent: P-004
+- Claim: The build contains a `codex-code-mode-host` package, but `install-whale-local.sh` never copies that executable into the workspace binary directory.
+- Layer: contributing
+- Factor relation: part_of
+- Depends on:
+  - none
+- Falsifiable predictions:
+  - The host exists as a workspace binary target but is absent from the installer's helper manifest and installed directory.
+- Diagnostic evidence plan:
+  - Compare Cargo workspace members, installer helper list, and the installed binary directory.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-019
+  - E-021
+- Conclusion: Confirmed. The installer helper list omits the host, so an enabled feature can only fail closed after launch.
+- Repair design readiness: ready
+
+## Evidence E-019: User's real OpenAI turn reproduces both failures
+- Related hypotheses:
+  - H-008
+  - H-009
+- Direction: supports
+- Type: reproduction
+- Source: user-operated installed Whale v0.0.6 TUI and runtime trace for thread `01a03623-3757-7f32-ad30-278df460f75d`
+- Matched signal:
+  - The `hi` turn uses `openai/chatgpt`, `gpt-5.6-sol`, and `low`, then receives HTTP 400 requiring a newer Codex client.
+  - Startup cannot find `codex-code-mode-host` in the workspace binary directory.
+- Interpretation: Provider selection succeeds, but the first actual inference fails at OpenAI's client-version gate before a model response.
+- Time: 2026-08-25 07:40
+
+## Evidence E-020: OpenAI compatibility surfaces derive from the Whale package version
+- Related hypotheses:
+  - H-008
+- Direction: supports
+- Type: code-and-provenance
+- Source: `login/src/auth/default_client.rs`, `models-manager/src/lib.rs`, `models-manager/models.json`, and `third_party/codex-cli/UPSTREAM.md`
+- Matched signal:
+  - `User-Agent` and models `client_version` both use `CARGO_PKG_VERSION`, currently `0.0.6`.
+  - The selected model declares minimum client version `0.144.0`.
+  - The local Codex substrate is `rust-v0.149.0`.
+- Interpretation: Whale's product version and its OpenAI Codex protocol compatibility are distinct version domains and must not share one value.
+- Time: 2026-08-25 08:08
+
+## Evidence E-021: Code Mode binary exists in Cargo but not in the install manifest
+- Related hypotheses:
+  - H-009
+- Direction: supports
+- Type: packaging-inspection
+- Source: Cargo workspace, `code-mode-host/Cargo.toml`, and `scripts/install-whale-local.sh`
+- Matched signal:
+  - `codex-code-mode-host` is a workspace binary and upstream qualification builds it.
+  - The local installer helper array does not include it and silently skips absent helpers.
+- Interpretation: The warning is a deterministic packaging defect rather than a runtime provider failure.
+- Time: 2026-08-25 08:08

@@ -38,6 +38,11 @@ use crate::outbound_proxy::AuthRouteConfig;
 /// Parenthesis will be added by Whale. This should only specify what goes inside of the parenthesis.
 pub static USER_AGENT_SUFFIX: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 pub const DEFAULT_ORIGINATOR: &str = "codex_cli_rs";
+/// Version of the vendored Codex substrate spoken to OpenAI services.
+///
+/// Whale's product version has its own release line and must not be used for
+/// OpenAI's minimum-Codex-version gates.
+pub const OPENAI_CODEX_COMPATIBILITY_VERSION: &str = "0.149.0";
 pub const CODEX_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR: &str = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
 pub const RESIDENCY_HEADER_NAME: &str = "x-openai-internal-codex-residency";
 
@@ -162,7 +167,7 @@ pub fn is_first_party_chat_originator(originator_value: &str) -> bool {
 }
 
 pub fn get_codex_user_agent() -> String {
-    let build_version = env!("CARGO_PKG_VERSION");
+    let build_version = OPENAI_CODEX_COMPATIBILITY_VERSION;
     let os_info = os_info::get();
     let originator = originator();
     let prefix = format!(

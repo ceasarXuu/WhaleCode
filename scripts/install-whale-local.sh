@@ -190,11 +190,22 @@ source_path="$(resolve_existing_file)"
 source_dir="$(dirname "$source_path")"
 destination="$install_dir/whale"
 
+required_helper_binaries=(
+  codex-code-mode-host
+)
+for helper in "${required_helper_binaries[@]}"; do
+  if [ ! -f "$source_dir/$helper" ]; then
+    echo "Cannot find required Whale helper next to the main binary: $source_dir/$helper" >&2
+    exit 1
+  fi
+done
+
 mkdir -p "$install_dir"
 cp "$source_path" "$destination"
 chmod +x "$destination"
 
 helper_binaries=(
+  "${required_helper_binaries[@]}"
   whale-app-server
   whale-app-server-test-client
   whale-cloud-tasks
