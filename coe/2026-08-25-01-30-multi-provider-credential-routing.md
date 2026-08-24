@@ -300,7 +300,7 @@
 # Problem P-002: OpenAI subscription login succeeds but the pending provider switch fails
 - Status: implementing
 - Created: 2026-08-25 06:00
-- Updated: 2026-08-25 06:08
+- Updated: 2026-08-25 06:20
 - Objective: Complete a TUI switch from DeepSeek to an authenticated OpenAI subscription without a false DeepSeek environment error or a rejected thread-settings update.
 - Symptoms:
   - OpenAI subscription tokens are persisted and native login status reports ChatGPT.
@@ -317,6 +317,7 @@
 - Related hypotheses:
   - H-003
   - H-004
+  - H-005
 
 ## Hypothesis H-003: TUI carries the previous provider model into the route transition
 - Status: confirmed
@@ -359,6 +360,26 @@
 - Repair design readiness: ready
 - Next step: Use route-bound managers/providers for built-in initial routes while preserving custom-provider construction.
 
+## Hypothesis H-005: ModelClient reconstructs and loses the session provider route
+- Status: confirmed
+- Parent: P-002
+- Claim: Even after session configuration resolves a route-bound provider, `ModelClient::new` reconstructs it from provider metadata and the auth manager without carrying the route, restoring legacy environment lookup during auth prewarm.
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - H-004
+- Falsifiable predictions:
+  - Route-bound session construction still emits the DeepSeek missing-environment warning until the route reaches the `ModelClient` provider constructor.
+- Diagnostic evidence plan:
+  - Signal: installed startup log plus a focused `ModelClient::prewarm_auth` test using a stored DeepSeek credential with environment auth disabled.
+  - Differentiates from: model catalog refresh, TUI settings payload, or invalid stored credentials.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-012
+- Conclusion: confirmed; the route was present in `SessionConfiguration` but discarded at the final model-client construction boundary.
+- Repair design readiness: ready
+- Next step: Preserve the upstream-compatible constructor and add a crate-private route-aware constructor used only by the session path.
+
 ## Evidence E-009: OpenAI credentials and native login are valid
 - Related hypotheses:
   - H-003
@@ -392,3 +413,15 @@
   - Initialization and thread start emit `Missing environment variable: DEEPSEEK_API_KEY` while the stored DeepSeek route remains configured.
 - Interpretation: A route-less built-in manager/provider is still active outside the grouped catalog path.
 - Time: 2026-08-25 06:03
+
+## Evidence E-012: Route-aware ModelClient prewarm resolves stored provider credentials
+- Related hypotheses:
+  - H-005
+- Direction: supports
+- Type: fix-validation
+- Source: focused core unit test and constructor call-chain inspection
+- Matched signal:
+  - `route_bound_model_client_prewarms_with_stored_deepseek_credentials` passes with environment auth disabled.
+  - `cold_resume_rebinds_last_successful_provider_runtime` and the TUI provider-route tests remain green.
+- Interpretation: Carrying the selected route through the model-client boundary removes the last environment-only fallback without changing the public upstream constructor or unrelated callers.
+- Time: 2026-08-25 06:20

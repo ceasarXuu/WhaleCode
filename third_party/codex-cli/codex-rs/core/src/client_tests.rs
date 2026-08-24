@@ -39,6 +39,8 @@ use codex_model_provider_info::WireApi;
 use codex_model_provider_info::create_oss_provider_with_base_url;
 use codex_models_manager::manager::SharedModelsManager;
 use codex_otel::SessionTelemetry;
+use codex_protocol::ProviderAccessMethod;
+use codex_protocol::ProviderRoute;
 use codex_protocol::ThreadId;
 use codex_protocol::auth::AuthMode;
 use codex_protocol::error::CodexErr;
@@ -248,6 +250,49 @@ fn turn_session_can_bind_a_different_provider_without_mutating_session_client() 
     assert!(turn_session.provider.info().is_deepseek());
     assert!(Arc::ptr_eq(&turn_session.provider, &target_provider));
     assert!(!client.state.provider.info().is_deepseek());
+}
+
+#[tokio::test]
+async fn route_bound_model_client_prewarms_with_stored_deepseek_credentials() {
+    let codex_home = TempDir::new().expect("create temporary Codex home");
+    codex_login::login_with_deepseek_api_key(
+        codex_home.path(),
+        "stored-deepseek-key",
+        AuthCredentialsStoreMode::File,
+        AuthKeyringBackendKind::default(),
+    )
+    .expect("save DeepSeek credential");
+    let auth_manager = AuthManager::shared(
+        codex_home.path().to_path_buf(),
+        /*enable_codex_api_key_env*/ false,
+        AuthCredentialsStoreMode::File,
+        /*forced_chatgpt_workspace_id*/ None,
+        /*chatgpt_base_url*/ None,
+        AuthKeyringBackendKind::default(),
+        codex_login::test_support::transport_default_auth_route_config(),
+    )
+    .await;
+    let client = ModelClient::new_with_provider_route(
+        Some(auth_manager),
+        Some(ProviderRoute::new("deepseek", ProviderAccessMethod::ApiKey)),
+        AgentIdentityAuthPolicy::JwtOnly,
+        ThreadId::new(),
+        ModelProviderInfo::create_deepseek_provider(),
+        SessionSource::Cli,
+        "test_originator".to_string(),
+        /*model_verbosity*/ None,
+        /*enable_request_compression*/ false,
+        /*include_timing_metrics*/ false,
+        /*beta_features_header*/ None,
+        /*concurrent_reasoning_summaries_enabled*/ false,
+        /*attestation_provider*/ None,
+        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
+    );
+
+    client
+        .prewarm_auth()
+        .await
+        .expect("route-bound client should resolve the stored credential");
 }
 
 fn test_responses_metadata_for_client(

@@ -640,6 +640,41 @@ impl ModelClient {
         auth_manager: Option<Arc<AuthManager>>,
         agent_identity_policy: AgentIdentityAuthPolicy,
         thread_id: ThreadId,
+        provider_info: ModelProviderInfo,
+        session_source: SessionSource,
+        originator: String,
+        model_verbosity: Option<VerbosityConfig>,
+        enable_request_compression: bool,
+        include_timing_metrics: bool,
+        beta_features_header: Option<String>,
+        concurrent_reasoning_summaries_enabled: bool,
+        attestation_provider: Option<Arc<dyn AttestationProvider>>,
+        http_client_factory: HttpClientFactory,
+    ) -> Self {
+        Self::new_with_provider_route(
+            auth_manager,
+            None,
+            agent_identity_policy,
+            thread_id,
+            provider_info,
+            session_source,
+            originator,
+            model_verbosity,
+            enable_request_compression,
+            include_timing_metrics,
+            beta_features_header,
+            concurrent_reasoning_summaries_enabled,
+            attestation_provider,
+            http_client_factory,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_with_provider_route(
+        auth_manager: Option<Arc<AuthManager>>,
+        provider_route: Option<codex_protocol::ProviderRoute>,
+        agent_identity_policy: AgentIdentityAuthPolicy,
+        thread_id: ThreadId,
         mut provider_info: ModelProviderInfo,
         session_source: SessionSource,
         originator: String,
@@ -656,7 +691,14 @@ impl ModelClient {
             &mut provider_info,
             provider_request_hard_limit.as_ref(),
         );
-        let model_provider = create_model_provider(provider_info, auth_manager);
+        let model_provider = match (provider_route, auth_manager) {
+            (Some(route), Some(auth_manager)) => codex_model_provider::create_route_model_provider(
+                provider_info,
+                auth_manager,
+                route,
+            ),
+            (_, auth_manager) => create_model_provider(provider_info, auth_manager),
+        };
         let codex_api_key_env_enabled = model_provider
             .auth_manager()
             .as_ref()
