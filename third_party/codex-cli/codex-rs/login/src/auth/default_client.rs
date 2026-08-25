@@ -42,7 +42,7 @@ pub const DEFAULT_ORIGINATOR: &str = "codex_cli_rs";
 ///
 /// Whale's product version has its own release line and must not be used for
 /// OpenAI's minimum-Codex-version gates.
-pub const OPENAI_CODEX_COMPATIBILITY_VERSION: &str = "0.149.0";
+pub const OPENAI_CODEX_COMPATIBILITY_VERSION: &str = "0.149.1";
 pub const CODEX_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR: &str = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
 pub const RESIDENCY_HEADER_NAME: &str = "x-openai-internal-codex-residency";
 

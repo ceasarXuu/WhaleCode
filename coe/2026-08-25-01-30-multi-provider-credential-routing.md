@@ -577,7 +577,7 @@
 # Problem P-004: OpenAI subscription turns are rejected as an obsolete Codex client
 - Status: investigating
 - Created: 2026-08-25 08:02
-- Updated: 2026-08-25 08:01
+- Updated: 2026-08-25 08:07
 - Objective: Complete a real OpenAI subscription turn from the installed Whale v0.0.6 client.
 - Symptoms:
   - A `gpt-5.6-sol low` turn containing `hi` receives HTTP 400 saying the model requires a newer Codex version.
@@ -594,7 +594,8 @@
   - H-008
   - H-009
   - H-010
-- Current conclusion: The product release version was incorrectly reused on three OpenAI-visible surfaces: models query, base User-Agent, and the app-server client suffix. Fixing only the first two restored remote discovery but did not satisfy inference because the suffix still exposed `0.0.6`.
+  - H-011
+- Current conclusion: Whale must separate its product version from OpenAI compatibility on all three client surfaces and advertise the current stable Codex patch `0.149.1`. Aligning every surface to the older substrate value `0.149.0` still fails the live inference gate.
 
 ## Hypothesis H-008: Whale product version is incorrectly used as the OpenAI Codex client version
 - Status: confirmed
@@ -673,7 +674,7 @@
 - Time: 2026-08-25 08:08
 
 ## Hypothesis H-010: Embedded app-server initialization reintroduces `0.0.6` in the request identity suffix
-- Status: confirmed
+- Status: refuted
 - Parent: P-004
 - Claim: TUI and exec initialize their embedded app-server client with Whale's product version, causing `initialize_processor` to append `client-name; 0.0.6` to the otherwise corrected Codex User-Agent; OpenAI's inference version gate still observes that stale version.
 - Layer: root-cause
@@ -687,8 +688,8 @@
 - Evidence gate: satisfied
 - Related evidence:
   - E-022
-- Conclusion: Confirmed. The first E2E matched all three predictions and TUI/exec both source the suffix version from `CARGO_PKG_VERSION`.
-- Repair design readiness: ready
+- Conclusion: Refuted as the remaining inference root cause. TUI/exec did expose the wrong product version, but a second E2E with both base and suffix set to `0.149.0` received the same 400.
+- Repair design readiness: not applicable
 
 ## Evidence E-022: First post-repair E2E isolates the remaining client suffix
 - Related hypotheses:
@@ -703,5 +704,51 @@
   - Route switching to `openai/chatgpt + gpt-5.6-sol low` succeeded.
   - The only `hi` request still received the obsolete-client HTTP 400 and was not retried.
   - No missing Code Mode host warning occurred.
-- Interpretation: Base User-Agent, models discovery, route switching, and host packaging are repaired; the remaining version signal is the app-server client suffix populated by TUI/exec.
+- Interpretation: Base User-Agent, models discovery, route switching, and host packaging are repaired. This run suggested the suffix as the next differentiator, but E-023 later refuted it as the complete cause.
 - Time: 2026-08-25 07:56
+
+## Hypothesis H-011: OpenAI's live inference gate requires the newly published stable patch `0.149.1`
+- Status: confirmed
+- Parent: P-004
+- Claim: OpenAI began requiring the current stable Codex patch `0.149.1` for `gpt-5.6-sol`; advertising the older `0.149.0` substrate version is rejected even though model discovery succeeds.
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - H-008
+- Falsifiable predictions:
+  - Current official distribution metadata identifies `0.149.1` as latest, an aligned `0.149.0` client still fails, and the patch diff contains no required Responses wire change that Whale lacks.
+- Diagnostic evidence plan:
+  - Compare official npm/version metadata and the official `rust-v0.149.0...rust-v0.149.1` source diff; run one final Whale E2E advertising `0.149.1`.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-023
+  - E-024
+- Conclusion: Confirmed by current official release metadata and the negative aligned-0.149.0 E2E; final positive validation remains required after repair.
+- Repair design readiness: ready
+
+## Evidence E-023: Aligning both User-Agent version positions to `0.149.0` still fails
+- Related hypotheses:
+  - H-010
+  - H-011
+- Direction: refutes H-010; supports H-011
+- Type: live-differential
+- Source: installed binary at commit `8a869dc6f`, ledger record `WAR-20260825-080230-OPENAI-SUBSCRIPTION-HI-E2E-R2`
+- Matched signal:
+  - Initialize returned `Codex Desktop/0.149.0 ... (codex-tui; 0.149.0)`.
+  - Route switching to `openai/chatgpt + gpt-5.6-sol low` succeeded.
+  - The single `hi` request received the same obsolete-client HTTP 400 and was not retried.
+- Interpretation: The stale `0.0.6` suffix is not sufficient to explain the gate; `0.149.0` itself is below the live accepted stable patch.
+- Time: 2026-08-25 08:03
+
+## Evidence E-024: Official stable Codex advanced to `0.149.1` without Responses wire changes
+- Related hypotheses:
+  - H-011
+- Direction: supports
+- Type: external-authority-and-source-diff
+- Source: official `@openai/codex` npm metadata and GitHub comparison `rust-v0.149.0...rust-v0.149.1`, fetched 2026-08-25
+- Matched signal:
+  - npm reports `0.149.1` as latest, published about three hours earlier.
+  - An official issue reports successful use of `gpt-5.6-sol` on Codex `0.149.1`.
+  - The five-commit patch diff changes exec thread classification, image compaction, and memory metadata, but no Responses request endpoint or client-version transport.
+- Interpretation: Advertising `0.149.1` is a patch-level compatibility declaration for the existing substrate, not an unsupported protocol claim or a reason to import unrelated upstream changes.
+- Time: 2026-08-25 08:07

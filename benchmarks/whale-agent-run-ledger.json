@@ -1,6 +1,6 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-25T07:56:32+08:00",
+  "updated_at": "2026-08-25T08:03:07+08:00",
   "entries": [
     {
       "record_id": "WAR-20260824-072043-CACHE-REGRESSION-9306DB50",
@@ -12190,6 +12190,77 @@
         "turn_id": "01a03634-4080-7d10-8627-d07486683c7a",
         "stop_reason": "first_request_rejected_by_openai_codex_version_gate",
         "outcome": "Route switch succeeded and Code Mode host started without a missing-host warning, but the single hi request received HTTP 400 stating that gpt-5.6-sol requires a newer Codex client. No retry was attempted."
+      }
+    },
+    {
+      "record_id": "WAR-20260825-080230-OPENAI-SUBSCRIPTION-HI-E2E-R2",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-25T08:03:04+08:00",
+      "ended_at": "2026-08-25T08:03:07+08:00",
+      "elapsed_calendar_seconds": 2.356,
+      "aggregate_agent_wall_time_ms": 2356,
+      "reason": "Verify the corrected embedded app-server client suffix by completing one OpenAI ChatGPT subscription turn with gpt-5.6-sol.",
+      "authorization": {
+        "required": false,
+        "status": "not_required",
+        "id": null,
+        "reference": "用户于 2026-08-25 明确要求由开发者自行切换到 OpenAI 模型并发送一条 hi 做 E2E 验收。",
+        "budget_summary": {
+          "maximum_sample_runs": 1,
+          "maximum_api_requests": 2,
+          "input_tokens": 100000,
+          "output_tokens": 2000,
+          "elapsed_seconds": 120
+        },
+        "note": "根因修复后的独立 E2E 记录；只发送 hi，零自动重试。"
+      },
+      "execution": {
+        "provider": "openai-chatgpt",
+        "model": "gpt-5.6-sol",
+        "batch_count": 1,
+        "sample_ids": [
+          "provider-switch-hi"
+        ],
+        "arm_ids": [
+          "openai-subscription-client-suffix-fixed"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "unavailable",
+        "currency": "USD",
+        "amount": null,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": null,
+        "formula": null,
+        "note": "The subscription request failed with HTTP 400 before provider usage telemetry was emitted."
+      },
+      "evidence": {
+        "subject_commit": "8a869dc6f",
+        "workspace_id": "whalecode-alpha-48d2219088",
+        "whale_binary_sha256": "644fab493dfcd90560f85ea5cc4346789b9711d256c865d5d40d6e188984ba41",
+        "route": "openai/chatgpt",
+        "reasoning_effort": "low",
+        "prompt": "hi",
+        "observed_user_agent": "Codex Desktop/0.149.0 (Ubuntu 24.4.0; x86_64) dumb (codex-tui; 0.149.0)",
+        "thread_id": "01a03638-dbc3-7bf2-b57c-d74a3de918e6",
+        "stop_conditions": "Stop after the first completed turn or any provider/model/authentication error; zero automatic retries.",
+        "usage_evidence_status": "unavailable",
+        "turn_id": "01a0363a-4754-7530-919d-cb098f6cebf2",
+        "stop_reason": "first_request_rejected_despite_aligned_base_and_suffix_versions",
+        "outcome": "The installed binary advertised Codex 0.149.0 in both the base User-Agent and codex-tui suffix, and route switching succeeded, but the only hi request received the same obsolete-client HTTP 400. No retry was attempted."
       }
     }
   ]
