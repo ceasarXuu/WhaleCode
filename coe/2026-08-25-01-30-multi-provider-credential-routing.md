@@ -577,7 +577,7 @@
 # Problem P-004: OpenAI subscription turns are rejected as an obsolete Codex client
 - Status: investigating
 - Created: 2026-08-25 08:02
-- Updated: 2026-08-25 09:07
+- Updated: 2026-08-25 09:31
 - Objective: Complete a real OpenAI subscription turn from the installed Whale v0.0.6 client.
 - Symptoms:
   - A `gpt-5.6-sol low` turn containing `hi` receives HTTP 400 saying the model requires a newer Codex version.
@@ -596,7 +596,8 @@
   - H-010
   - H-011
   - H-012
-- Current conclusion: Version alignment, Code Mode packaging, and parent-originator isolation are repaired. Local app-server validation proves the installed identity is now `codex-tui/0.149.1`; final OpenAI inference remains unverified because the first approved validation driver omitted the required `route` object and therefore sent its sole request to DeepSeek.
+  - H-013
+- Current conclusion: Route switching, Code Mode packaging, and parent-originator isolation are repaired and independently verified. A schema-correct OpenAI request proves stable Codex `0.149.1` remains below the live `gpt-5.6-sol` subscription gate. The current official prerelease is `0.150.0-alpha.8`; source comparison shows no missing root Responses request contract, so Whale can advance only its centralized compatibility identity to that prerelease without importing unrelated upstream changes.
 
 ## Hypothesis H-008: Whale product version is incorrectly used as the OpenAI Codex client version
 - Status: confirmed
@@ -817,3 +818,53 @@
   - The one request was stopped without retry and produced no token usage or Code Mode host warning.
 - Interpretation: This run validates installed identity and packaging only. It neither supports nor refutes successful OpenAI inference or provider switching because no OpenAI route was committed. The next validation must use the schema-authoritative `route` object and observe `thread/settings/updated` before starting the turn.
 - Time: 2026-08-25 09:07
+
+## Hypothesis H-013: `gpt-5.6-sol` subscription access is gated on the current `0.150.0` prerelease line
+- Status: confirmed
+- Parent: P-004
+- Claim: OpenAI's ChatGPT subscription inference gate has advanced beyond stable Codex `0.149.1` to the currently published `0.150.0-alpha.8` client line, while the public model catalog is visible to older clients.
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - H-008
+- Falsifiable predictions:
+  - A schema-correct OpenAI ChatGPT route with exact stable `0.149.1` identity still receives the newer-client 400.
+  - Official distribution metadata exposes a newer `0.150.0` prerelease for every supported platform.
+  - Comparing official `0.149.1` and `0.150.0-alpha.8` shows no new mandatory root Responses authentication or request-header contract absent from Whale.
+- Diagnostic evidence plan:
+  - Validate the committed route notification before one live request, inspect official current release tags, and compare the two official source archives on login/default-client and core request construction.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-028
+  - E-029
+- Conclusion: Confirmed sufficiently for repair. Stable `0.149.1` is rejected on a proven OpenAI route, the official `0.150.0-alpha.8` client exists, and request-path comparison permits a compatibility-identity-only update.
+- Repair design readiness: ready
+
+## Evidence E-028: Schema-correct OpenAI E2E rejects stable `0.149.1`
+- Related hypotheses:
+  - H-011
+  - H-012
+  - H-013
+- Direction: refutes version/originator-only sufficiency; supports H-013
+- Type: live-fix-validation
+- Source: installed binary at code commit `572bd051e`, ledger record `WAR-20260825-092520-OPENAI-SUBSCRIPTION-HI-E2E-R5`
+- Matched signal:
+  - Initialize returned `codex-tui/0.149.1 ... (codex-tui; 0.149.1)`.
+  - `thread/settings/updated` authoritatively committed `openai/chatgpt`, `modelProvider=openai`, `gpt-5.6-sol`, and `low` before inference.
+  - The sole `hi` request reached the OpenAI subscription route and received HTTP 400 requiring a newer Codex client.
+  - No retry, token usage, or missing Code Mode host warning occurred.
+- Interpretation: Provider switching is working and the inherited Desktop identity is gone. The remaining rejection is specifically the live minimum-version gate above stable `0.149.1`.
+- Time: 2026-08-25 09:27
+
+## Evidence E-029: Official `0.150.0-alpha.8` advances identity without a new root Responses contract
+- Related hypotheses:
+  - H-013
+- Direction: supports
+- Type: official-release-and-source-diff
+- Source: current official `@openai/codex` distribution tags and official source archives `rust-v0.149.1` / `rust-v0.150.0-alpha.8`, inspected 2026-08-25
+- Matched signal:
+  - Stable remains `0.149.1`; the current cross-platform alpha tag is `0.150.0-alpha.8`.
+  - Default-client identity construction is unchanged apart from the package version.
+  - Core changes do not add a mandatory root Responses authentication header or alter the root HTTP request endpoint; relevant changes concern parent-thread metadata, realtime sideband helpers, and internal item handling.
+- Interpretation: Advancing Whale's single OpenAI compatibility identity to the official alpha is smaller and more accurate than importing unrelated alpha changes or changing Whale's `0.0.6` product version.
+- Time: 2026-08-25 09:31
