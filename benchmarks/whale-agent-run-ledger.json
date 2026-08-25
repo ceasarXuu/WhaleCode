@@ -1,6 +1,6 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-24T07:21:46+08:00",
+  "updated_at": "2026-08-25T07:56:32+08:00",
   "entries": [
     {
       "record_id": "WAR-20260824-072043-CACHE-REGRESSION-9306DB50",
@@ -12120,6 +12120,76 @@
         "stop_conditions": "零自动重试；业务或 Map 硬失败、usage/证据缺失、36 requests、600K input、30K output、CNY 1.00 或 15 分钟任一先到即停止。",
         "stop_reason": "any_side_failure_after_pair_001_multi_outer_exec_fatal",
         "outcome": "PlanOnly selected exactly three TaskSpace executions and zero Standard executions. Two preflight attempts stopped before Provider use. The first real TaskSpace run made two Provider requests; response 2 contained two sibling taskspace_exec calls. Runtime rejected the response before client Tool side effects but escalated reconciliation to Fatal, so the Agent received no per-call rejection output. The runner stopped immediately and did not start the remaining two repeats."
+      }
+    },
+    {
+      "record_id": "WAR-20260825-075400-OPENAI-SUBSCRIPTION-HI-E2E",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-25T07:56:29+08:00",
+      "ended_at": "2026-08-25T07:56:32+08:00",
+      "elapsed_calendar_seconds": 2.779,
+      "aggregate_agent_wall_time_ms": 2779,
+      "reason": "Verify that the installed Whale v0.0.6 can switch to the OpenAI ChatGPT subscription route and complete one gpt-5.6-sol turn after separating Whale product identity from Codex protocol compatibility.",
+      "authorization": {
+        "required": false,
+        "status": "not_required",
+        "id": null,
+        "reference": "用户于 2026-08-25 明确要求由开发者自行切换到 OpenAI 模型并发送一条 hi 做 E2E 验收。",
+        "budget_summary": {
+          "maximum_sample_runs": 1,
+          "maximum_api_requests": 2,
+          "input_tokens": 100000,
+          "output_tokens": 2000,
+          "elapsed_seconds": 120
+        },
+        "note": "单个 OpenAI Subscription E2E sample；只发送 hi，零自动重试。"
+      },
+      "execution": {
+        "provider": "openai-chatgpt",
+        "model": "gpt-5.6-sol",
+        "batch_count": 1,
+        "sample_ids": [
+          "provider-switch-hi"
+        ],
+        "arm_ids": [
+          "openai-subscription"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "unavailable",
+        "currency": "USD",
+        "amount": null,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": null,
+        "formula": null,
+        "note": "The subscription request failed with HTTP 400 before provider usage telemetry was emitted."
+      },
+      "evidence": {
+        "subject_commit": "19bc4ebc0fedc70cb5ad183913fac6795d6719b2",
+        "workspace_id": "whalecode-alpha-48d2219088",
+        "whale_binary_sha256": "693cc2ac7253767a953d037e506bb64b6f25846de4c3a8f4b0f3b22f3c48b3dd",
+        "route": "openai/chatgpt",
+        "reasoning_effort": "low",
+        "prompt": "hi",
+        "stop_conditions": "Stop after the first completed turn or any provider/model/authentication error; zero automatic retries.",
+        "usage_evidence_status": "unavailable",
+        "thread_id": "01a03633-2fb5-70c0-9674-30e230170dbc",
+        "turn_id": "01a03634-4080-7d10-8627-d07486683c7a",
+        "stop_reason": "first_request_rejected_by_openai_codex_version_gate",
+        "outcome": "Route switch succeeded and Code Mode host started without a missing-host warning, but the single hi request received HTTP 400 stating that gpt-5.6-sol requires a newer Codex client. No retry was attempted."
       }
     }
   ]

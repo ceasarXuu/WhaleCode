@@ -575,9 +575,9 @@
 - Time: 2026-08-25 07:52
 
 # Problem P-004: OpenAI subscription turns are rejected as an obsolete Codex client
-- Status: diagnosed
+- Status: investigating
 - Created: 2026-08-25 08:02
-- Updated: 2026-08-25 08:08
+- Updated: 2026-08-25 08:01
 - Objective: Complete a real OpenAI subscription turn from the installed Whale v0.0.6 client.
 - Symptoms:
   - A `gpt-5.6-sol low` turn containing `hi` receives HTTP 400 saying the model requires a newer Codex version.
@@ -593,7 +593,8 @@
 - Related hypotheses:
   - H-008
   - H-009
-- Current conclusion: The product release version was incorrectly reused as an upstream protocol-compatibility version, and the enabled Code Mode executable was omitted from packaging.
+  - H-010
+- Current conclusion: The product release version was incorrectly reused on three OpenAI-visible surfaces: models query, base User-Agent, and the app-server client suffix. Fixing only the first two restored remote discovery but did not satisfy inference because the suffix still exposed `0.0.6`.
 
 ## Hypothesis H-008: Whale product version is incorrectly used as the OpenAI Codex client version
 - Status: confirmed
@@ -670,3 +671,37 @@
   - The local installer helper array does not include it and silently skips absent helpers.
 - Interpretation: The warning is a deterministic packaging defect rather than a runtime provider failure.
 - Time: 2026-08-25 08:08
+
+## Hypothesis H-010: Embedded app-server initialization reintroduces `0.0.6` in the request identity suffix
+- Status: confirmed
+- Parent: P-004
+- Claim: TUI and exec initialize their embedded app-server client with Whale's product version, causing `initialize_processor` to append `client-name; 0.0.6` to the otherwise corrected Codex User-Agent; OpenAI's inference version gate still observes that stale version.
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - H-008
+- Falsifiable predictions:
+  - After the first repair, initialize reports a base version of `0.149.0` but retains a `0.0.6` client suffix, model discovery succeeds, and inference still receives the obsolete-client 400.
+- Diagnostic evidence plan:
+  - Capture initialize identity and a single real turn after the first repair; trace construction of the suffix back to TUI/exec `client_version`.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-022
+- Conclusion: Confirmed. The first E2E matched all three predictions and TUI/exec both source the suffix version from `CARGO_PKG_VERSION`.
+- Repair design readiness: ready
+
+## Evidence E-022: First post-repair E2E isolates the remaining client suffix
+- Related hypotheses:
+  - H-008
+  - H-010
+- Direction: supports
+- Type: live-fix-validation
+- Source: installed binary at commit `19bc4ebc0`, ledger record `WAR-20260825-075400-OPENAI-SUBSCRIPTION-HI-E2E`
+- Matched signal:
+  - Initialize returned `Codex Desktop/0.149.0 ... (whale-e2e; 0.0.6)`.
+  - Authenticated models discovery returned the full OpenAI Subscription catalog and cached it under client version `0.149.0`.
+  - Route switching to `openai/chatgpt + gpt-5.6-sol low` succeeded.
+  - The only `hi` request still received the obsolete-client HTTP 400 and was not retried.
+  - No missing Code Mode host warning occurred.
+- Interpretation: Base User-Agent, models discovery, route switching, and host packaging are repaired; the remaining version signal is the app-server client suffix populated by TUI/exec.
+- Time: 2026-08-25 07:56
