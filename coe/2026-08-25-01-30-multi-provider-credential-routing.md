@@ -577,7 +577,7 @@
 # Problem P-004: OpenAI subscription turns are rejected as an obsolete Codex client
 - Status: investigating
 - Created: 2026-08-25 08:02
-- Updated: 2026-08-25 08:07
+- Updated: 2026-08-25 08:12
 - Objective: Complete a real OpenAI subscription turn from the installed Whale v0.0.6 client.
 - Symptoms:
   - A `gpt-5.6-sol low` turn containing `hi` receives HTTP 400 saying the model requires a newer Codex version.
@@ -595,7 +595,8 @@
   - H-009
   - H-010
   - H-011
-- Current conclusion: Whale must separate its product version from OpenAI compatibility on all three client surfaces and advertise the current stable Codex patch `0.149.1`. Aligning every surface to the older substrate value `0.149.0` still fails the live inference gate.
+  - H-012
+- Current conclusion: Version alignment and Code Mode packaging are necessary but insufficient. The remaining deterministic mismatch is an inherited `CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop`: it makes standalone Whale advertise `Codex Desktop/0.149.1`, while the official CLI identity is `codex_cli_rs/0.149.1`. Whale must discard this parent-app-only value before its runtime starts.
 
 ## Hypothesis H-008: Whale product version is incorrectly used as the OpenAI Codex client version
 - Status: confirmed
@@ -708,7 +709,7 @@
 - Time: 2026-08-25 07:56
 
 ## Hypothesis H-011: OpenAI's live inference gate requires the newly published stable patch `0.149.1`
-- Status: confirmed
+- Status: refuted
 - Parent: P-004
 - Claim: OpenAI began requiring the current stable Codex patch `0.149.1` for `gpt-5.6-sol`; advertising the older `0.149.0` substrate version is rejected even though model discovery succeeds.
 - Layer: root-cause
@@ -723,8 +724,8 @@
 - Related evidence:
   - E-023
   - E-024
-- Conclusion: Confirmed by current official release metadata and the negative aligned-0.149.0 E2E; final positive validation remains required after repair.
-- Repair design readiness: ready
+- Conclusion: Refuted as the complete remaining cause. A live request advertising `0.149.1` in both User-Agent version positions still received the same 400.
+- Repair design readiness: not applicable
 
 ## Evidence E-023: Aligning both User-Agent version positions to `0.149.0` still fails
 - Related hypotheses:
@@ -752,3 +753,52 @@
   - The five-commit patch diff changes exec thread classification, image compaction, and memory metadata, but no Responses request endpoint or client-version transport.
 - Interpretation: Advertising `0.149.1` is a patch-level compatibility declaration for the existing substrate, not an unsupported protocol claim or a reason to import unrelated upstream changes.
 - Time: 2026-08-25 08:07
+
+## Hypothesis H-012: Whale inherits Codex Desktop's private originator and is classified as the wrong client product
+- Status: confirmed
+- Parent: P-004
+- Claim: When Whale is launched from a Codex Desktop terminal, the private `CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop` environment variable wins over Whale's app-server client identity, so OpenAI sees a Desktop client rather than the compatible CLI substrate.
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - H-008
+- Falsifiable predictions:
+  - The failed `0.149.1` process environment contains the Desktop override and its User-Agent begins with `Codex Desktop/`.
+  - Official Codex `0.149.1` source produces `codex_cli_rs/0.149.1` without that private parent override.
+  - Removing only the inherited Desktop value before runtime initialization restores Whale's own `codex-tui`/`codex_exec` originator selection without changing custom explicit overrides.
+- Diagnostic evidence plan:
+  - Inspect the failed process environment, compare the official `rust-v0.149.1` default-client source, and exercise app-server initialization under the inherited variable without making a provider request.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-025
+  - E-026
+- Conclusion: Confirmed as a concrete request-identity defect. The version gate receives a product/version pairing that Whale must not inherit from its parent application.
+- Repair design readiness: ready
+
+## Evidence E-025: Current-version E2E exposes the inherited Desktop identity
+- Related hypotheses:
+  - H-011
+  - H-012
+- Direction: refutes H-011; supports H-012
+- Type: live-differential-and-source-comparison
+- Source: installed binary at commit `a0da5ade2`, ledger record `WAR-20260825-080909-OPENAI-SUBSCRIPTION-HI-E2E-R3`, and official `rust-v0.149.1` `login/src/auth/default_client.rs`
+- Matched signal:
+  - Initialize returned `Codex Desktop/0.149.1 ... (codex-tui; 0.149.1)` and the process environment contained `CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop`.
+  - Route switching to `openai/chatgpt + gpt-5.6-sol low` succeeded, but the only `hi` request received the same obsolete-client HTTP 400.
+  - Official standalone Codex `0.149.1` constructs its default identity as `codex_cli_rs/0.149.1`; the private environment override takes precedence over app-server `clientInfo` in the shared upstream helper.
+  - No missing Code Mode host warning occurred.
+- Interpretation: The live request disproves version-only repair and identifies a parent-process environment leak that changes the client product classification. The smallest safe repair is to clear exactly the `Codex Desktop` inherited value at Whale process entry, before threads start; arbitrary custom overrides remain intact.
+- Time: 2026-08-25 08:12
+
+## Evidence E-026: Repaired Whale restores its own app-server identity without a provider request
+- Related hypotheses:
+  - H-012
+- Direction: supports
+- Type: local-fix-validation
+- Source: rebuilt `target/debug/whale` app-server initialized under `CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop`
+- Matched signal:
+  - Before the repair, initialize returned `Codex Desktop/0.149.1 ... (codex-tui; 0.149.1)` under the inherited environment.
+  - After the repair, the same command and initialize payload returned `codex-tui/0.149.1 ... (codex-tui; 0.149.1)`.
+  - The targeted guard test confirms that only the exact parent value `Codex Desktop` is selected for cleanup; `codex_cli_rs` and arbitrary custom values are preserved.
+- Interpretation: The repair removes the identified identity leak without broad environment sanitization. A final live OpenAI turn is still required to close P-004.
+- Time: 2026-08-25 08:15
