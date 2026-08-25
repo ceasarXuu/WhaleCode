@@ -1,6 +1,6 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-25T08:12:19+08:00",
+  "updated_at": "2026-08-25T09:06:19+08:00",
   "entries": [
     {
       "record_id": "WAR-20260824-072043-CACHE-REGRESSION-9306DB50",
@@ -12332,6 +12332,80 @@
         "turn_id": "01a03640-4f4e-7ef2-8888-f6b7ebaac05a",
         "stop_reason": "first_request_rejected_despite_current_stable_version_identity",
         "outcome": "The installed binary advertised Codex 0.149.1 in both User-Agent version positions and route switching succeeded, but the only hi request received the same obsolete-client HTTP 400. The process inherited CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop, so its identity remained Codex Desktop/0.149.1 instead of the official CLI originator codex_cli_rs/0.149.1. No retry was attempted and no missing Code Mode host warning occurred."
+      }
+    },
+    {
+      "record_id": "WAR-20260825-090337-OPENAI-SUBSCRIPTION-HI-E2E-R4",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-25T09:03:37+08:00",
+      "ended_at": "2026-08-25T09:05:40+08:00",
+      "elapsed_calendar_seconds": 123.0,
+      "aggregate_agent_wall_time_ms": 1733,
+      "reason": "Final live validation that Whale clears the inherited Codex Desktop originator and completes one OpenAI ChatGPT subscription turn with gpt-5.6-sol.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "USER-APPROVAL-20260825-OPENAI-SUBSCRIPTION-HI-R4",
+        "reference": "用户于 2026-08-25 09:02 在获知模型、规模、请求/token/费用/耗时上限、停止条件与零重试范围后明确回复‘批准’。",
+        "budget_summary": {
+          "maximum_sample_runs": 1,
+          "maximum_api_requests": 2,
+          "input_tokens": 100000,
+          "output_tokens": 2000,
+          "cost_usd": 0.0,
+          "elapsed_seconds": 120
+        },
+        "note": "专项追加的单个 OpenAI Subscription E2E sample；只发送 hi，零自动重试。"
+      },
+      "execution": {
+        "provider": "openai-chatgpt",
+        "model": "gpt-5.6-sol",
+        "batch_count": 1,
+        "sample_ids": [
+          "provider-switch-hi"
+        ],
+        "arm_ids": [
+          "openai-subscription-originator-isolated"
+        ],
+        "actual_provider": "deepseek-api-key",
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "settled",
+        "currency": "USD",
+        "amount": 0.0,
+        "actual_billed_amount": 0.0,
+        "components": null,
+        "pricing_snapshot": "ChatGPT subscription route; no API-key metered charge planned.",
+        "formula": null,
+        "note": "The request was misrouted to DeepSeek and rejected by its model-name validation before usage telemetry; no billable token usage was reported."
+      },
+      "evidence": {
+        "subject_commit": "572bd051e67e2e7a6cf539e9f6b696a526dc3070",
+        "workspace_id": "whalecode-alpha-48d2219088",
+        "whale_binary_sha256": "4c31e1e5e14fd445f4aaed353646e382fabafe1325176c004bd87939dc4a9786",
+        "route": "openai/chatgpt",
+        "reasoning_effort": "low",
+        "prompt": "hi",
+        "expected_user_agent": "codex-tui/0.149.1 (Ubuntu 24.4.0; x86_64) dumb (codex-tui; 0.149.1)",
+        "observed_user_agent": "codex-tui/0.149.1 (Ubuntu 24.4.0; x86_64) dumb (codex-tui; 0.149.1)",
+        "thread_id": "01a03673-5b27-78e1-bfde-fc3334a426f5",
+        "stop_conditions": "Stop after the first completed turn or any provider/model/authentication error; zero automatic retries.",
+        "usage_evidence_status": "complete_zero",
+        "turn_id": "01a03673-938d-7c10-a089-34c20f911b27",
+        "stop_reason": "invalid_e2e_driver_omitted_provider_route_object",
+        "outcome": "The installed client identity was correctly isolated as codex-tui/0.149.1, but the E2E driver incorrectly sent obsolete unknown fields modelProvider/authMode instead of route={modelProviderId:openai,accessMethod:chatgpt}. Unknown fields were ignored, leaving the thread on DeepSeek; the only hi request was therefore rejected by DeepSeek's model-name validation. This is invalid harness evidence, not a provider-switch product failure. The run stopped immediately with no retry and no Code Mode host warning."
       }
     }
   ]

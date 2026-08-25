@@ -577,7 +577,7 @@
 # Problem P-004: OpenAI subscription turns are rejected as an obsolete Codex client
 - Status: investigating
 - Created: 2026-08-25 08:02
-- Updated: 2026-08-25 08:12
+- Updated: 2026-08-25 09:07
 - Objective: Complete a real OpenAI subscription turn from the installed Whale v0.0.6 client.
 - Symptoms:
   - A `gpt-5.6-sol low` turn containing `hi` receives HTTP 400 saying the model requires a newer Codex version.
@@ -596,7 +596,7 @@
   - H-010
   - H-011
   - H-012
-- Current conclusion: Version alignment and Code Mode packaging are necessary but insufficient. The remaining deterministic mismatch is an inherited `CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop`: it makes standalone Whale advertise `Codex Desktop/0.149.1`, while the official CLI identity is `codex_cli_rs/0.149.1`. Whale must discard this parent-app-only value before its runtime starts.
+- Current conclusion: Version alignment, Code Mode packaging, and parent-originator isolation are repaired. Local app-server validation proves the installed identity is now `codex-tui/0.149.1`; final OpenAI inference remains unverified because the first approved validation driver omitted the required `route` object and therefore sent its sole request to DeepSeek.
 
 ## Hypothesis H-008: Whale product version is incorrectly used as the OpenAI Codex client version
 - Status: confirmed
@@ -772,6 +772,7 @@
 - Related evidence:
   - E-025
   - E-026
+  - E-027
 - Conclusion: Confirmed as a concrete request-identity defect. The version gate receives a product/version pairing that Whale must not inherit from its parent application.
 - Repair design readiness: ready
 
@@ -802,3 +803,17 @@
   - The targeted guard test confirms that only the exact parent value `Codex Desktop` is selected for cleanup; `codex_cli_rs` and arbitrary custom values are preserved.
 - Interpretation: The repair removes the identified identity leak without broad environment sanitization. A final live OpenAI turn is still required to close P-004.
 - Time: 2026-08-25 08:15
+
+## Evidence E-027: First approved final validation is invalid because the driver omitted `route`
+- Related hypotheses:
+  - H-012
+- Direction: inconclusive
+- Type: invalid-harness
+- Source: installed binary at commit `572bd051e`, ledger record `WAR-20260825-090337-OPENAI-SUBSCRIPTION-HI-E2E-R4`, and `ThreadSettingsUpdateParams` protocol schema
+- Matched signal:
+  - Initialize returned the repaired identity `codex-tui/0.149.1 ... (codex-tui; 0.149.1)`.
+  - The driver sent obsolete unknown fields `modelProvider` and `authMode`; the protocol requires `route: { modelProviderId, accessMethod }`.
+  - Unknown fields were ignored, the thread remained on DeepSeek, and DeepSeek rejected `gpt-5.6-sol` against its model allowlist.
+  - The one request was stopped without retry and produced no token usage or Code Mode host warning.
+- Interpretation: This run validates installed identity and packaging only. It neither supports nor refutes successful OpenAI inference or provider switching because no OpenAI route was committed. The next validation must use the schema-authoritative `route` object and observe `thread/settings/updated` before starting the turn.
+- Time: 2026-08-25 09:07
