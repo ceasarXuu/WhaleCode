@@ -577,7 +577,7 @@
 # Problem P-004: OpenAI subscription turns are rejected as an obsolete Codex client
 - Status: investigating
 - Created: 2026-08-25 08:02
-- Updated: 2026-08-25 09:31
+- Updated: 2026-08-26 05:05
 - Objective: Complete a real OpenAI subscription turn from the installed Whale v0.0.6 client.
 - Symptoms:
   - A `gpt-5.6-sol low` turn containing `hi` receives HTTP 400 saying the model requires a newer Codex version.
@@ -586,7 +586,7 @@
   - Whale keeps its own v0.0.6 product identity while speaking the OpenAI Codex protocol at the version of its vendored upstream substrate.
   - Workspace installation includes the enabled Code Mode host.
 - Actual behavior:
-  - OpenAI protocol requests advertise Whale's unrelated product version `0.0.6` even though the vendored Codex substrate is `0.149.0`.
+  - OpenAI model discovery and User-Agent were separated from Whale's product version, but the OpenAI provider's inference-only `version` HTTP header still advertises `0.0.6`.
   - The installer copies optional helpers but omits `codex-code-mode-host` entirely.
 - Impact:
   - OpenAI subscription inference is unusable for current models, remote model discovery falls back to bundled data, and Code Mode fails closed.
@@ -597,7 +597,8 @@
   - H-011
   - H-012
   - H-013
-- Current conclusion: Route switching, Code Mode packaging, and parent-originator isolation are repaired and independently verified. A schema-correct OpenAI request proves stable Codex `0.149.1` remains below the live `gpt-5.6-sol` subscription gate. The current official prerelease is `0.150.0-alpha.8`; source comparison shows no missing root Responses request contract, so Whale can advance only its centralized compatibility identity to that prerelease without importing unrelated upstream changes.
+  - H-014
+- Current conclusion: The prerelease-gate conclusion is refuted. Authentication remains valid for old clients, and official Codex `0.149.1` completes `gpt-5.6-sol` with the same subscription. Whale still constructs the OpenAI provider's inference `version` header from its product package version `0.0.6`; this uncorrected third compatibility surface explains why model discovery succeeds while inference reports an obsolete client. The minimal repair is to keep stable compatibility `0.149.1`, make that single value drive User-Agent, models `client_version`, and the OpenAI `version` header, and remove the unsupported `0.150` claim.
 
 ## Hypothesis H-008: Whale product version is incorrectly used as the OpenAI Codex client version
 - Status: confirmed
@@ -756,7 +757,7 @@
 - Time: 2026-08-25 08:07
 
 ## Hypothesis H-012: Whale inherits Codex Desktop's private originator and is classified as the wrong client product
-- Status: confirmed
+- Status: refuted
 - Parent: P-004
 - Claim: When Whale is launched from a Codex Desktop terminal, the private `CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop` environment variable wins over Whale's app-server client identity, so OpenAI sees a Desktop client rather than the compatible CLI substrate.
 - Layer: root-cause
@@ -774,8 +775,8 @@
   - E-025
   - E-026
   - E-027
-- Conclusion: Confirmed as a concrete request-identity defect. The version gate receives a product/version pairing that Whale must not inherit from its parent application.
-- Repair design readiness: ready
+- Conclusion: Refuted as the inference root cause. Official standalone Codex `0.149.1` preserves the same inherited `Codex Desktop` originator and completes the target model successfully, while Whale previously failed with that originator. Clearing the parent originator is therefore not justified by this failure and diverges from native behavior.
+- Repair design readiness: not applicable
 
 ## Evidence E-025: Current-version E2E exposes the inherited Desktop identity
 - Related hypotheses:
@@ -820,7 +821,7 @@
 - Time: 2026-08-25 09:07
 
 ## Hypothesis H-013: `gpt-5.6-sol` subscription access is gated on the current `0.150.0` prerelease line
-- Status: confirmed
+- Status: refuted
 - Parent: P-004
 - Claim: OpenAI's ChatGPT subscription inference gate has advanced beyond stable Codex `0.149.1` to the currently published `0.150.0-alpha.8` client line, while the public model catalog is visible to older clients.
 - Layer: root-cause
@@ -837,8 +838,8 @@
 - Related evidence:
   - E-028
   - E-029
-- Conclusion: Confirmed sufficiently for repair. Stable `0.149.1` is rejected on a proven OpenAI route, the official `0.150.0-alpha.8` client exists, and request-path comparison permits a compatibility-identity-only update.
-- Repair design readiness: ready
+- Conclusion: Refuted. The model catalog returned for `0.149.1` is identical to the prerelease catalog, and official Codex `0.149.1` completes `gpt-5.6-sol` with the current subscription. Whale's failure is caused by a remaining `version: 0.0.6` inference header, not a prerelease requirement.
+- Repair design readiness: not applicable
 
 ## Evidence E-028: Schema-correct OpenAI E2E rejects stable `0.149.1`
 - Related hypotheses:
@@ -868,3 +869,67 @@
   - Core changes do not add a mandatory root Responses authentication header or alter the root HTTP request endpoint; relevant changes concern parent-thread metadata, realtime sideband helpers, and internal item handling.
 - Interpretation: Advancing Whale's single OpenAI compatibility identity to the official alpha is smaller and more accurate than importing unrelated alpha changes or changing Whale's `0.0.6` product version.
 - Time: 2026-08-25 09:31
+
+## Hypothesis H-014: The OpenAI provider still sends Whale `0.0.6` in the inference `version` header
+- Status: confirmed
+- Parent: P-004
+- Claim: The compatibility repair covered User-Agent and models `client_version` but missed `ModelProviderInfo::create_openai_provider`, which independently builds a `version` HTTP header from Whale's `CARGO_PKG_VERSION`; inference therefore still identifies as Codex `0.0.6` and receives the generic upgrade error.
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - H-008
+- Falsifiable predictions:
+  - Old client identities continue to authenticate while `/models` filters their compatible catalog.
+  - Official Codex `0.149.1` succeeds with the same subscription and target model.
+  - Whale source shows a remaining inference header derived from package `0.0.6`, while official `0.149.1` derives the same header from `0.149.1`.
+- Diagnostic evidence plan:
+  - Differentially probe `/models` with the same stored ChatGPT credential and several client versions without inference.
+  - Execute one official `0.149.1` target-model turn and compare the provider header constructor against Whale.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-030
+  - E-031
+  - E-032
+- Conclusion: Confirmed. Authentication, catalog compatibility, and native `0.149.1` inference all work. Whale's OpenAI provider alone retains `version: 0.0.6`, exactly isolating the stale inference identity omitted by the earlier repair.
+- Repair design readiness: ready
+
+## Evidence E-030: Old clients authenticate and receive version-filtered model catalogs
+- Related hypotheses:
+  - H-013
+  - H-014
+- Direction: refutes H-013; supports H-014
+- Type: authenticated-non-inference-differential
+- Source: direct ChatGPT `/models` probes using the same stored subscription credential, captured under `/tmp/whale-model-catalog-probe.2AgIpn`
+- Matched signal:
+  - `client_version=0.0.6` returns HTTP 200 with zero compatible models rather than an authentication failure.
+  - `0.149.0`, `0.149.1`, and `0.150.0-alpha.9` each return the same nine-model catalog, the same ETag, and `gpt-5.6-sol`.
+- Interpretation: Login validity and model compatibility are separate contracts. The prerelease catalog provides no capability unavailable to stable `0.149.1`.
+- Time: 2026-08-26 04:45
+
+## Evidence E-031: Official Codex `0.149.1` completes the target subscription turn
+- Related hypotheses:
+  - H-012
+  - H-013
+  - H-014
+- Direction: refutes H-012 and H-013; supports H-014
+- Type: native-runtime-differential
+- Source: official `@openai/codex@0.149.1` executed with the current ChatGPT subscription and `gpt-5.6-sol`
+- Matched signal:
+  - The official client completed `hi` successfully and reported normal token usage.
+  - Its inherited request identity remained `originator: Codex Desktop` and `Codex Desktop/0.149.1`.
+- Interpretation: Neither stable `0.149.1` nor the inherited Desktop originator prevents subscription inference. Whale differs elsewhere in its provider request construction.
+- Time: 2026-08-26 04:57
+
+## Evidence E-032: Whale's OpenAI inference header remains bound to its product package version
+- Related hypotheses:
+  - H-008
+  - H-014
+- Direction: supports
+- Type: source-and-provenance
+- Source: Whale and official `rust-v0.149.1` `model-provider-info/src/lib.rs`, plus Whale `login/src/auth/default_client.rs` and `models-manager/src/lib.rs`
+- Matched signal:
+  - `create_openai_provider` inserts `version = env!("CARGO_PKG_VERSION")`; in Whale that value is `0.0.6`, while in official Codex it is `0.149.1`.
+  - Whale's User-Agent and models query now use a separate compatibility constant, so this inference-only header escaped the earlier fix.
+  - The header exists unchanged in official source, establishing that it is part of the native OpenAI request contract rather than Whale-specific metadata.
+- Interpretation: The stale `version` header is the single remaining version-domain leak and directly explains the split between successful catalog discovery and rejected inference.
+- Time: 2026-08-26 05:04
