@@ -12563,11 +12563,11 @@
     {
       "record_id": "WAR-20260827-054109-OPENAI-SUBSCRIPTION-TUI-SWITCH-R7",
       "record_type": "run_batch",
-      "status": "planned",
+      "status": "completed",
       "started_at": "2026-08-27T05:41:09+08:00",
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "ended_at": "2026-08-27T05:44:15+08:00",
+      "elapsed_calendar_seconds": 186,
+      "aggregate_agent_wall_time_ms": 6163,
       "reason": "Validate the installed H-017 repair through the actual TUI /model cross-provider selection path and one OpenAI ChatGPT subscription hi turn.",
       "authorization": {
         "required": true,
@@ -12596,25 +12596,27 @@
         ],
         "repeats_per_arm_per_sample": 1,
         "planned_sample_runs": 1,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "planned"
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "provider hard limit was 1; the rollout contains one completed sampling response and no retry"
       },
       "tokens": {
-        "input": 0,
+        "input": 14415,
         "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "uncached_input": 14415,
+        "output": 17
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "completed",
         "currency": "USD",
         "amount": 0.0,
-        "actual_billed_amount": null,
-        "components": null,
+        "actual_billed_amount": 0.0,
+        "components": {
+          "chatgpt_subscription_turns": 1
+        },
         "pricing_snapshot": "ChatGPT subscription route; no API-key metered charge planned.",
         "formula": null,
-        "note": "Stop before inference unless the TUI commits openai/chatgpt + gpt-5.6-sol; one provider request maximum."
+        "note": "The accepted OpenAI ChatGPT subscription turn has no API-key metered charge."
       },
       "evidence": {
         "subject_code_commit": "6c458a0a1818247b3b731def8ade35be8c0d07cc",
@@ -12624,7 +12626,16 @@
         "reasoning_effort": "low",
         "prompt": "hi",
         "stop_conditions": "Stop before inference if route notification is not openai/chatgpt + gpt-5.6-sol; stop after the first completed turn or any error; zero retries.",
-        "usage_evidence_status": "planned"
+        "usage_evidence_status": "settled from the completed rollout token_count event",
+        "thread_id": "01a04006-1dff-75e0-884a-ab0eae6c4b21",
+        "turn_id": "01a04007-cf6d-7eb2-b933-7bf863b22814",
+        "rollout_path": "/home/zhangxu/.local/state/whalecode/workspaces/whalecode-alpha-48d2219088/home/sessions/2026/08/27/rollout-2026-08-27T05-42-17-01a04006-1dff-75e0-884a-ab0eae6c4b21.jsonl",
+        "route_notification_log_id": 1788,
+        "provider_request_log_ids": [1828, 1829],
+        "completion_log_id": 1867,
+        "response": "Hi! What would you like to work on in WhaleCode?",
+        "stop_reason": "turn_completed",
+        "outcome": "The installed Whale TUI started from the DeepSeek default, switched through /model to openai/chatgpt + gpt-5.6-sol low, committed the atomic route before inference, sent one request, and completed without the DeepSeek model allowlist error."
       }
     }
   ]

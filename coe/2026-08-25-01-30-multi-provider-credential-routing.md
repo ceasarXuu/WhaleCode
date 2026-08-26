@@ -968,7 +968,7 @@
 - Time: 2026-08-26 21:44
 
 # Problem P-005: Cross-provider `/model` selection dispatches the new model through the previous provider
-- Status: repaired-locally
+- Status: fixed
 - Symptom: After selecting `gpt-5.6-sol` from the grouped `/model` picker and sending `hi`, Whale rejects the turn with the DeepSeek model allowlist error: the supported models are `deepseek-v4-pro`, `deepseek-v4-flash`, and `deepseek-v4-flash-vision-exp`, but the request model is `gpt-5.6-sol`.
 - Expected behavior: Selecting an OpenAI model from `/model` atomically stages both its OpenAI provider route and model for the next turn.
 - Actual behavior: The selected OpenAI model is visible, but the next turn is validated or dispatched as DeepSeek.
@@ -984,7 +984,7 @@
   - H-015
   - H-016
   - H-017
-- Current conclusion: H-017 is repaired and locally validated. Routed provider/model selections remain in thread/session settings and no longer emit provider-independent global model persistence. Installed TUI live validation is still required before marking fixed.
+- Current conclusion: H-017 is fixed and validated through the installed TUI. Routed provider/model selections remain in thread/session settings, no longer emit provider-independent global model persistence, and a real `/model` switch from the DeepSeek startup default to OpenAI Subscription completed a `gpt-5.6-sol` turn through `openai/chatgpt`.
 
 ## Hypothesis H-015: The `/model` picker drops the selected model's provider route
 - Status: refuted
@@ -1103,3 +1103,18 @@
   - `cargo build -p codex-cli --bin whale` succeeds. Existing unrelated vendor warnings remain unchanged.
 - Interpretation: The repair closes the confirmed partial-persistence mechanism without adding a new config layer, fallback, or provider special case. The final gate is one installed TUI cross-provider live turn.
 - Time: 2026-08-27 06:35
+
+## Evidence E-039: Installed TUI cross-provider switch completes through OpenAI Subscription
+- Related hypotheses:
+  - H-017
+- Direction: confirms repair
+- Type: installed-live-tui-validation
+- Source: run ledger `WAR-20260827-054109-OPENAI-SUBSCRIPTION-TUI-SWITCH-R7`; workspace SQLite logs IDs 1788, 1828, 1829, 1865, and 1867; rollout `01a04006-1dff-75e0-884a-ab0eae6c4b21`
+- Matched signal:
+  - The newly installed binary starts a fresh TUI with the unpolluted `deepseek-v4-flash` default.
+  - Selecting the first model under the OpenAI Subscription group commits one `ThreadSettingsOverrides` value containing `openai/chatgpt`, `gpt-5.6-sol`, and `low` before inference.
+  - The request trace records `provider=OpenAI`, `auth_mode=Chatgpt`, and `model=gpt-5.6-sol`; no DeepSeek model allowlist error occurs.
+  - Exactly one provider request completes and returns `Hi! What would you like to work on in WhaleCode?`.
+  - The completed rollout reports 14,415 input tokens, 0 cached input tokens, 17 output tokens, 6,163 ms wall time, and no retry.
+- Interpretation: The original failure path is closed end to end. The TUI keeps route, model, and effort coherent for the next turn while leaving new-session defaults unchanged.
+- Time: 2026-08-27 05:44
