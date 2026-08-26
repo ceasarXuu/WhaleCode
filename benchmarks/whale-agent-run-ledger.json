@@ -12637,6 +12637,72 @@
         "stop_reason": "turn_completed",
         "outcome": "The installed Whale TUI started from the DeepSeek default, switched through /model to openai/chatgpt + gpt-5.6-sol low, committed the atomic route before inference, sent one request, and completed without the DeepSeek model allowlist error."
       }
+    },
+    {
+      "record_id": "WAR-20260827-060206-OPENAI-CROSS-SESSION-EQUIVALENT-E2E-R8",
+      "record_type": "run_batch",
+      "status": "planned",
+      "started_at": "2026-08-27T06:02:06+08:00",
+      "ended_at": null,
+      "elapsed_calendar_seconds": null,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "Run the exact cross-session black-box reproduction for H-017: switch provider, reselect a model on the same route, restart, verify clean defaults, then perform one OpenAI subscription turn.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "USER-APPROVAL-20260827-EQUIVALENT-E2E-R8",
+        "reference": "用户明确要求：执行等效E2E。",
+        "budget_summary": {
+          "maximum_sample_runs": 1,
+          "maximum_api_requests": 1,
+          "input_tokens": 100000,
+          "output_tokens": 2000,
+          "cost_usd": 0.0,
+          "elapsed_seconds": 300
+        },
+        "note": "两个真实 TUI 进程构成一个跨 session sample；第一进程零推理，第二进程仅发送一次 hi，零自动重试。"
+      },
+      "execution": {
+        "provider": "openai-chatgpt",
+        "model": "gpt-5.6-sol",
+        "batch_count": 1,
+        "sample_ids": [
+          "provider-model-reselect-restart-hi"
+        ],
+        "arm_ids": [
+          "session-scope-persistence-boundary"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 0,
+        "api_requests": 0,
+        "api_requests_evidence_status": "planned"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "planned",
+        "currency": "USD",
+        "amount": 0.0,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": "ChatGPT subscription route; no API-key metered charge planned.",
+        "formula": null,
+        "note": "Stop before inference unless the restarted session and the subsequent OpenAI route are both authoritative in runtime logs."
+      },
+      "evidence": {
+        "subject_code_commit": "6c458a0a1818247b3b731def8ade35be8c0d07cc",
+        "workspace_id": "whalecode-alpha-48d2219088",
+        "whale_binary_sha256": "4971b7294edfe8c7962d8ac1373e0ecc095c779948f0b421c8d0406f44800207",
+        "phase_a": "/provider OpenAI Subscription -> /model gpt-5.6-sol low -> exit",
+        "phase_b": "restart -> verify deepseek/api_key + deepseek-v4-flash -> switch OpenAI Subscription -> hi",
+        "stop_conditions": "Stop before inference on any persisted global OpenAI model, mismatched provider/model pair, or missing openai/chatgpt route; stop after the first completed turn or any error; zero retries.",
+        "usage_evidence_status": "planned"
+      }
     }
   ]
 }

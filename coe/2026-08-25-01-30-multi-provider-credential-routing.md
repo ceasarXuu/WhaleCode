@@ -968,7 +968,7 @@
 - Time: 2026-08-26 21:44
 
 # Problem P-005: Cross-provider `/model` selection dispatches the new model through the previous provider
-- Status: fixed
+- Status: repaired-locally
 - Symptom: After selecting `gpt-5.6-sol` from the grouped `/model` picker and sending `hi`, Whale rejects the turn with the DeepSeek model allowlist error: the supported models are `deepseek-v4-pro`, `deepseek-v4-flash`, and `deepseek-v4-flash-vision-exp`, but the request model is `gpt-5.6-sol`.
 - Expected behavior: Selecting an OpenAI model from `/model` atomically stages both its OpenAI provider route and model for the next turn.
 - Actual behavior: The selected OpenAI model is visible, but the next turn is validated or dispatched as DeepSeek.
@@ -984,7 +984,7 @@
   - H-015
   - H-016
   - H-017
-- Current conclusion: H-017 is fixed and validated through the installed TUI. Routed provider/model selections remain in thread/session settings, no longer emit provider-independent global model persistence, and a real `/model` switch from the DeepSeek startup default to OpenAI Subscription completed a `gpt-5.6-sol` turn through `openai/chatgpt`.
+- Current conclusion: H-017 is repaired and has passed a single-session installed TUI turn, but the exact provider-switch, same-route model-reselection, process-restart sequence remains under validation in run R8. Do not mark fixed until that equivalent cross-session black-box path passes.
 
 ## Hypothesis H-015: The `/model` picker drops the selected model's provider route
 - Status: refuted
