@@ -575,9 +575,9 @@
 - Time: 2026-08-25 07:52
 
 # Problem P-004: OpenAI subscription turns are rejected as an obsolete Codex client
-- Status: investigating
+- Status: fixed
 - Created: 2026-08-25 08:02
-- Updated: 2026-08-26 05:05
+- Updated: 2026-08-26 21:44
 - Objective: Complete a real OpenAI subscription turn from the installed Whale v0.0.6 client.
 - Symptoms:
   - A `gpt-5.6-sol low` turn containing `hi` receives HTTP 400 saying the model requires a newer Codex version.
@@ -598,7 +598,11 @@
   - H-012
   - H-013
   - H-014
-- Current conclusion: The prerelease-gate conclusion is refuted. Authentication remains valid for old clients, and official Codex `0.149.1` completes `gpt-5.6-sol` with the same subscription. Whale still constructs the OpenAI provider's inference `version` header from its product package version `0.0.6`; this uncorrected third compatibility surface explains why model discovery succeeds while inference reports an obsolete client. The minimal repair is to keep stable compatibility `0.149.1`, make that single value drive User-Agent, models `client_version`, and the OpenAI `version` header, and remove the unsupported `0.150` claim.
+- Current conclusion: Fixed. Whale retains product version `0.0.6` while all OpenAI protocol compatibility surfaces use stable Codex `0.149.1`; native originator inheritance is restored. The installed binary completed a schema-correct `openai/chatgpt + gpt-5.6-sol low` turn with exactly one provider request and no error.
+- Resolution basis:
+  - H-014 confirmed by E-030 through E-032, repaired by E-033, and live-validated by E-034.
+- Close reason:
+  - The original installed-client reproduction now completes successfully within the approved one-request budget.
 
 ## Hypothesis H-008: Whale product version is incorrectly used as the OpenAI Codex client version
 - Status: confirmed
@@ -948,3 +952,17 @@
   - The broader `codex-exec` integration-test binary remains blocked by the pre-existing unrelated `AuthDotJson` fixture missing `deepseek_api_key` in `exec/tests/suite/apply_patch.rs`.
 - Interpretation: The repair compiles and prevents the three version surfaces from drifting. The original live subscription symptom still requires the approved single-sample installed-binary validation before P-004 can be marked fixed.
 - Time: 2026-08-26 05:13
+
+## Evidence E-034: Installed Whale completes the OpenAI subscription turn with one request
+- Related hypotheses:
+  - H-014
+- Direction: supports
+- Type: live-fix-validation
+- Source: installed binary at code commit `9a8ff88f9`, ledger record `WAR-20260826-214015-OPENAI-SUBSCRIPTION-HI-E2E-R6`, provider trace `/tmp/whale-r6-provider-wire-20260826-214015.jsonl`
+- Matched signal:
+  - Initialize reports native inherited identity `Codex Desktop/0.149.1 ... (codex-tui; 0.149.1)` from the installed Whale `0.0.6` binary.
+  - `thread/settings/updated` authoritatively commits `openai/chatgpt`, `modelProvider=openai`, `gpt-5.6-sol`, and `low` before inference.
+  - The `hi` turn completes without error and returns `Hi! What can I help you with today?`.
+  - Provider hard-limit state records exactly one request; wire trace records one logical websocket request and terminal `response_completed` with 10,319 input and 14 output tokens.
+- Interpretation: The original obsolete-client failure is absent under the same installed-client reproduction. Stable `0.149.1` is sufficient once the inference `version` header is aligned, proving the repair closes P-004 without a prerelease identity.
+- Time: 2026-08-26 21:44
