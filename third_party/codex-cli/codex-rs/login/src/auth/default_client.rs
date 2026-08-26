@@ -11,6 +11,7 @@ use codex_http_client::HttpClientBuilder;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
 pub use codex_http_client::RequestBuilder as CodexRequestBuilder;
+pub use codex_model_provider_info::OPENAI_CODEX_COMPATIBILITY_VERSION;
 use codex_terminal_detection::user_agent;
 use http::HeaderMap;
 use http::HeaderValue;
@@ -38,11 +39,6 @@ use crate::outbound_proxy::AuthRouteConfig;
 /// Parenthesis will be added by Whale. This should only specify what goes inside of the parenthesis.
 pub static USER_AGENT_SUFFIX: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 pub const DEFAULT_ORIGINATOR: &str = "codex_cli_rs";
-/// Version of the vendored Codex substrate spoken to OpenAI services.
-///
-/// Whale's product version has its own release line and must not be used for
-/// OpenAI's minimum-Codex-version gates.
-pub const OPENAI_CODEX_COMPATIBILITY_VERSION: &str = "0.150.0-alpha.8";
 pub const CODEX_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR: &str = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
 pub const RESIDENCY_HEADER_NAME: &str = "x-openai-internal-codex-residency";
 

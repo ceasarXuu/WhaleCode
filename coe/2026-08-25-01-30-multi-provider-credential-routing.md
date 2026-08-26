@@ -933,3 +933,18 @@
   - The header exists unchanged in official source, establishing that it is part of the native OpenAI request contract rather than Whale-specific metadata.
 - Interpretation: The stale `version` header is the single remaining version-domain leak and directly explains the split between successful catalog discovery and rejected inference.
 - Time: 2026-08-26 05:04
+
+## Evidence E-033: Repair unifies all OpenAI compatibility surfaces on stable `0.149.1`
+- Related hypotheses:
+  - H-014
+- Direction: supports
+- Type: local-fix-validation
+- Source: focused unit tests, cache regression gate, and Whale binary build on 2026-08-26
+- Matched signal:
+  - `OPENAI_CODEX_COMPATIBILITY_VERSION` now belongs to model-provider metadata and is fixed at stable `0.149.1`.
+  - The OpenAI provider `version` header, default User-Agent, models `client_version`, TUI initialization, and exec initialization all consume that single constant.
+  - The non-native startup hook that removed inherited `Codex Desktop` originator was deleted.
+  - Provider-header, default-client, and models-version focused tests pass; cache regression gate fingerprint `bacc832c563f53d1e90e7651d4bd6a663c0416688c4b0f359f520c05761c5799` passes; `cargo build -p codex-cli --bin whale` succeeds.
+  - The broader `codex-exec` integration-test binary remains blocked by the pre-existing unrelated `AuthDotJson` fixture missing `deepseek_api_key` in `exec/tests/suite/apply_patch.rs`.
+- Interpretation: The repair compiles and prevents the three version surfaces from drifting. The original live subscription symptom still requires the approved single-sample installed-binary validation before P-004 can be marked fixed.
+- Time: 2026-08-26 05:13

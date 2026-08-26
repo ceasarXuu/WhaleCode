@@ -28,3 +28,13 @@ pub fn bundled_models_response()
 pub fn client_version_to_whole() -> String {
     codex_login::default_client::OPENAI_CODEX_COMPATIBILITY_VERSION.to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::client_version_to_whole;
+
+    #[test]
+    fn models_client_uses_stable_codex_compatibility_version() {
+        assert_eq!(client_version_to_whole(), "0.149.1");
+    }
+}

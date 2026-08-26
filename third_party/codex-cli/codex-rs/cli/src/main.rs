@@ -1056,27 +1056,11 @@ fn stage_str(stage: Stage) -> &'static str {
 }
 
 fn main() -> anyhow::Result<()> {
-    clear_inherited_codex_desktop_originator();
     let remote_control_disabled = codex_app_server::take_remote_control_disabled_env();
     arg0_dispatch_or_else(move |arg0_paths: Arg0DispatchPaths| async move {
         cli_main(arg0_paths, remote_control_disabled).await?;
         Ok(())
     })
-}
-
-fn clear_inherited_codex_desktop_originator() {
-    let variable = codex_login::default_client::CODEX_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR;
-    if !std::env::var(variable).is_ok_and(|value| is_parent_codex_desktop_originator(&value)) {
-        return;
-    }
-
-    // SAFETY: this runs at the first instruction of `main`, before the async
-    // runtime or any worker thread is created.
-    unsafe { std::env::remove_var(variable) };
-}
-
-fn is_parent_codex_desktop_originator(value: &str) -> bool {
-    value == "Codex Desktop"
 }
 
 async fn cli_main(
@@ -3082,13 +3066,6 @@ mod tests {
     use codex_protocol::ThreadId;
     use codex_tui::TokenUsage;
     use pretty_assertions::assert_eq;
-
-    #[test]
-    fn only_parent_codex_desktop_originator_is_cleared() {
-        assert!(is_parent_codex_desktop_originator("Codex Desktop"));
-        assert!(!is_parent_codex_desktop_originator("codex_cli_rs"));
-        assert!(!is_parent_codex_desktop_originator("custom-client"));
-    }
 
     #[test]
     fn interactive_tui_future_stays_bounded() {
