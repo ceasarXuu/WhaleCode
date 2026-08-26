@@ -19,8 +19,22 @@ impl ChatWidget {
             return;
         }
 
-        let groups = self.model_catalog.provider_groups().to_vec();
-        if !groups.is_empty() {
+        let has_provider_groups = !self.model_catalog.provider_groups().is_empty();
+        let groups = self
+            .model_catalog
+            .provider_groups()
+            .iter()
+            .filter(|group| {
+                !(group.route.model_provider_id == "openai"
+                    && group.route.access_method == codex_protocol::ProviderAccessMethod::ApiKey
+                    && matches!(
+                        group.availability,
+                        codex_app_server_protocol::ProviderModelAvailability::MissingCredentials
+                    ))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if has_provider_groups {
             self.open_provider_models_popup(groups);
             return;
         }
