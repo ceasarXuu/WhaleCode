@@ -968,7 +968,7 @@
 - Time: 2026-08-26 21:44
 
 # Problem P-005: Cross-provider `/model` selection dispatches the new model through the previous provider
-- Status: repaired-locally
+- Status: fixed
 - Symptom: After selecting `gpt-5.6-sol` from the grouped `/model` picker and sending `hi`, Whale rejects the turn with the DeepSeek model allowlist error: the supported models are `deepseek-v4-pro`, `deepseek-v4-flash`, and `deepseek-v4-flash-vision-exp`, but the request model is `gpt-5.6-sol`.
 - Expected behavior: Selecting an OpenAI model from `/model` atomically stages both its OpenAI provider route and model for the next turn.
 - Actual behavior: The selected OpenAI model is visible, but the next turn is validated or dispatched as DeepSeek.
@@ -980,11 +980,13 @@
   - A focused TUI test proves cross-provider model selection emits and commits the model's matching route for the next turn.
   - A local non-billable integration path proves the turn configuration cannot pair `deepseek` with `gpt-5.6-sol`.
   - One user-authorized installed-binary live turn succeeds after selecting the OpenAI model through `/model`.
+  - One installed-binary black-box run proves `/provider` followed by same-route `/model` selection does not contaminate a restarted session's provider/model defaults.
 - Active hypotheses:
   - H-015
   - H-016
   - H-017
-- Current conclusion: H-017 is repaired and has passed a single-session installed TUI turn, but the exact provider-switch, same-route model-reselection, process-restart sequence remains under validation in run R8. Do not mark fixed until that equivalent cross-session black-box path passes.
+- Current conclusion: H-017 is fixed. The exact installed-TUI sequence `/provider` OpenAI Subscription → same-route `/model` selection → exit → restart preserves the DeepSeek startup default, and a subsequent OpenAI Subscription `hi` turn completes through ChatGPT without the DeepSeek model allowlist error.
+- Resolution basis: H-017; E-038, E-039, and E-040.
 
 ## Hypothesis H-015: The `/model` picker drops the selected model's provider route
 - Status: refuted
@@ -1116,5 +1118,21 @@
   - The request trace records `provider=OpenAI`, `auth_mode=Chatgpt`, and `model=gpt-5.6-sol`; no DeepSeek model allowlist error occurs.
   - Exactly one provider request completes and returns `Hi! What would you like to work on in WhaleCode?`.
   - The completed rollout reports 14,415 input tokens, 0 cached input tokens, 17 output tokens, 6,163 ms wall time, and no retry.
-- Interpretation: The original failure path is closed end to end. The TUI keeps route, model, and effort coherent for the next turn while leaving new-session defaults unchanged.
+- Interpretation: The immediate single-session switch path works, but this evidence alone does not prove the same-route persistence and restart boundary; E-040 supplies that missing equivalent cross-session validation.
 - Time: 2026-08-27 05:44
+
+## Evidence E-040: Equivalent cross-session installed TUI reproduction passes
+- Related hypotheses:
+  - H-017
+- Direction: confirms repair and closes P-005
+- Type: equivalent-cross-session-black-box-validation
+- Source: run ledger `WAR-20260827-060206-OPENAI-CROSS-SESSION-EQUIVALENT-E2E-R8`; workspace SQLite logs IDs 1970, 1990, 2047, 2097, 2117, 2160, 2161, and 2189; Phase B rollout `01a0401a-a88f-7230-a49a-02372ad8ae3c`
+- Matched signal:
+  - Phase A starts at `deepseek-v4-flash`, switches through `/provider` to `openai/chatgpt`, then uses `/model` to select `gpt-5.6-sol low` while OpenAI is already the current session route—the exact old persistence trigger.
+  - Phase A exits with zero inference submissions; both before and after exit, global `config.toml` has no `model`, `model_reasoning_effort`, or `model_provider` fields.
+  - Phase B starts a new process. Startup log ID 2047 authoritatively records `model=deepseek-v4-flash` and `route=deepseek/api_key`, proving no cross-session provider/model mismatch.
+  - Phase B repeats `/provider` and same-route `/model`; logs 2097 and 2117 atomically record `openai/chatgpt`, `gpt-5.6-sol`, and `low` before inference.
+  - The sole provider request records `provider=OpenAI` and `auth_mode=Chatgpt`, completes without retry, and returns `你好！想一起做点什么？`; the DeepSeek model allowlist error is absent.
+  - The completed rollout records 14,415 input tokens, including 3,840 cached and 10,575 uncached, 12 output tokens, and 5,488 ms wall time.
+- Interpretation: The repair survives the exact history-dependent boundary that the earlier app-server smoke and single-session TUI run skipped. Session-only route/model choices no longer contaminate new-session defaults, and the subsequent OpenAI turn uses the selected provider.
+- Time: 2026-08-27 06:06

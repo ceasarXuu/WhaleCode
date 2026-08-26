@@ -12641,11 +12641,11 @@
     {
       "record_id": "WAR-20260827-060206-OPENAI-CROSS-SESSION-EQUIVALENT-E2E-R8",
       "record_type": "run_batch",
-      "status": "planned",
+      "status": "completed",
       "started_at": "2026-08-27T06:02:06+08:00",
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "ended_at": "2026-08-27T06:06:08+08:00",
+      "elapsed_calendar_seconds": 242,
+      "aggregate_agent_wall_time_ms": 5488,
       "reason": "Run the exact cross-session black-box reproduction for H-017: switch provider, reselect a model on the same route, restart, verify clean defaults, then perform one OpenAI subscription turn.",
       "authorization": {
         "required": true,
@@ -12674,25 +12674,27 @@
         ],
         "repeats_per_arm_per_sample": 1,
         "planned_sample_runs": 1,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "planned"
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "the provider hard limit was 1; Phase A had zero TurnInput submissions and Phase B contains one completed sampling response with no retry"
       },
       "tokens": {
-        "input": 0,
-        "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "input": 14415,
+        "cached_input": 3840,
+        "uncached_input": 10575,
+        "output": 12
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "completed",
         "currency": "USD",
         "amount": 0.0,
-        "actual_billed_amount": null,
-        "components": null,
+        "actual_billed_amount": 0.0,
+        "components": {
+          "chatgpt_subscription_turns": 1
+        },
         "pricing_snapshot": "ChatGPT subscription route; no API-key metered charge planned.",
         "formula": null,
-        "note": "Stop before inference unless the restarted session and the subsequent OpenAI route are both authoritative in runtime logs."
+        "note": "The accepted OpenAI ChatGPT subscription turn has no API-key metered charge."
       },
       "evidence": {
         "subject_code_commit": "6c458a0a1818247b3b731def8ade35be8c0d07cc",
@@ -12701,7 +12703,24 @@
         "phase_a": "/provider OpenAI Subscription -> /model gpt-5.6-sol low -> exit",
         "phase_b": "restart -> verify deepseek/api_key + deepseek-v4-flash -> switch OpenAI Subscription -> hi",
         "stop_conditions": "Stop before inference on any persisted global OpenAI model, mismatched provider/model pair, or missing openai/chatgpt route; stop after the first completed turn or any error; zero retries.",
-        "usage_evidence_status": "planned"
+        "usage_evidence_status": "settled from the completed Phase B rollout token_count event",
+        "phase_a_thread_id": "01a04019-5c36-7df2-996c-ffa51c38169f",
+        "phase_a_provider_switch_log_id": 1970,
+        "phase_a_same_route_model_selection_log_id": 1990,
+        "phase_a_inference_submissions": 0,
+        "global_config_after_phase_a": "no model, model_reasoning_effort, or model_provider fields",
+        "phase_b_thread_id": "01a0401a-a88f-7230-a49a-02372ad8ae3c",
+        "phase_b_startup_log_id": 2047,
+        "phase_b_startup_route": "deepseek/api_key + deepseek-v4-flash",
+        "phase_b_provider_switch_log_id": 2097,
+        "phase_b_same_route_model_selection_log_id": 2117,
+        "phase_b_turn_id": "01a0401b-de2a-7c40-b44f-b40902575ead",
+        "phase_b_provider_request_log_ids": [2160, 2161],
+        "phase_b_completion_log_id": 2189,
+        "rollout_path": "/home/zhangxu/.local/state/whalecode/workspaces/whalecode-alpha-48d2219088/home/sessions/2026/08/27/rollout-2026-08-27T06-04-44-01a0401a-a88f-7230-a49a-02372ad8ae3c.jsonl",
+        "response": "你好！想一起做点什么？",
+        "stop_reason": "turn_completed",
+        "outcome": "The exact cross-session black-box sequence passed: same-route OpenAI model reselection did not pollute global defaults, restart initialized deepseek/api_key + deepseek-v4-flash, a new OpenAI Subscription switch committed openai/chatgpt + gpt-5.6-sol low, and one hi turn completed without the DeepSeek model allowlist error."
       }
     }
   ]
