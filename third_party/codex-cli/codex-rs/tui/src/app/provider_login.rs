@@ -37,19 +37,10 @@ impl App {
         }
 
         let was_running = self.chat_widget.is_task_running();
-        let persisted_selection = if self.chat_widget.current_provider_route() == Some(&route) {
-            model.clone().map(|model| (model, effort.clone()))
-        } else {
-            None
-        };
         let route_label = format!("{} ({:?})", route.model_provider_id, route.access_method);
         let updated = self
             .sync_active_thread_provider_model_setting(app_server, route, model, effort)
             .await;
-        if let Some((model, effort)) = persisted_selection.filter(|_| updated) {
-            self.app_event_tx
-                .send(AppEvent::PersistModelSelection { model, effort });
-        }
         if updated && was_running {
             self.chat_widget.add_info_message(
                 format!("Provider {route_label} will apply from the next turn."),

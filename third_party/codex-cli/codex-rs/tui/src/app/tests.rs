@@ -8207,6 +8207,51 @@ async fn inactive_thread_settings_notification_updates_cached_collaboration_mode
     );
 }
 
+#[test]
+fn routed_model_selection_does_not_persist_new_session_defaults() -> Result<()> {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .thread_stack_size(8 * 1024 * 1024)
+        .enable_all()
+        .build()?;
+
+    runtime.block_on(async {
+        let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
+        let mut app_server =
+            crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref())
+                .await
+                .expect("embedded app server");
+        let started = app_server
+            .start_thread(app.chat_widget.config_ref())
+            .await
+            .expect("thread/start should succeed");
+        let route = codex_protocol::ProviderRoute::new(
+            app.config.model_provider_id.clone(),
+            codex_protocol::ProviderAccessMethod::ApiKey,
+        );
+        let model = started.session.model.clone();
+        app.enqueue_primary_thread_session(started.session, started.turns)
+            .await
+            .expect("primary thread should be registered");
+        while app_event_rx.try_recv().is_ok() {}
+
+        app.select_provider_model(
+            &mut app_server,
+            route,
+            Some(model),
+            Some(ReasoningEffortConfig::Low),
+        )
+        .await;
+
+        assert!(
+            std::iter::from_fn(|| app_event_rx.try_recv().ok())
+                .all(|event| !matches!(event, AppEvent::PersistModelSelection { .. })),
+            "provider-routed selections are session-scoped and must not change new-session defaults"
+        );
+    });
+    Ok(())
+}
+
 #[tokio::test]
 async fn clear_only_ui_reset_preserves_chat_session_state() {
     let mut app = make_test_app().await;

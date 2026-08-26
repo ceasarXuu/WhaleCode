@@ -966,3 +966,140 @@
   - Provider hard-limit state records exactly one request; wire trace records one logical websocket request and terminal `response_completed` with 10,319 input and 14 output tokens.
 - Interpretation: The original obsolete-client failure is absent under the same installed-client reproduction. Stable `0.149.1` is sufficient once the inference `version` header is aligned, proving the repair closes P-004 without a prerelease identity.
 - Time: 2026-08-26 21:44
+
+# Problem P-005: Cross-provider `/model` selection dispatches the new model through the previous provider
+- Status: repaired-locally
+- Symptom: After selecting `gpt-5.6-sol` from the grouped `/model` picker and sending `hi`, Whale rejects the turn with the DeepSeek model allowlist error: the supported models are `deepseek-v4-pro`, `deepseek-v4-flash`, and `deepseek-v4-flash-vision-exp`, but the request model is `gpt-5.6-sol`.
+- Expected behavior: Selecting an OpenAI model from `/model` atomically stages both its OpenAI provider route and model for the next turn.
+- Actual behavior: The selected OpenAI model is visible, but the next turn is validated or dispatched as DeepSeek.
+- Impact: The product requirement that `/model` directly switches across provider groups is unusable when the selected model belongs to a different provider.
+- Known facts:
+  - E-034 proves the installed app-server can complete the same OpenAI subscription turn when `route` and `model` are explicitly updated together.
+  - No Whale TUI process remained alive when the report was inspected; the installed binary hash matched the previously validated build.
+- Fix criteria:
+  - A focused TUI test proves cross-provider model selection emits and commits the model's matching route for the next turn.
+  - A local non-billable integration path proves the turn configuration cannot pair `deepseek` with `gpt-5.6-sol`.
+  - One user-authorized installed-binary live turn succeeds after selecting the OpenAI model through `/model`.
+- Active hypotheses:
+  - H-015
+  - H-016
+  - H-017
+- Current conclusion: H-017 is repaired and locally validated. Routed provider/model selections remain in thread/session settings and no longer emit provider-independent global model persistence. Installed TUI live validation is still required before marking fixed.
+
+## Hypothesis H-015: The `/model` picker drops the selected model's provider route
+- Status: refuted
+- Parent: P-005
+- Claim: The grouped catalog retains a `ProviderRoute`, but the model-row selection callback emits only model/effort update events; the active thread therefore keeps its previous DeepSeek route and combines it with `gpt-5.6-sol` on the next turn.
+- Layer: root-cause
+- Factor relation: causes
+- Falsifiable predictions:
+  - The cross-provider model-row callback does not emit `SelectProviderModel` or another route-bearing update.
+  - The next-turn settings path accepts the model-only event while retaining the existing thread route.
+  - A focused event test selecting an OpenAI model while the active route is DeepSeek observes model events without an OpenAI route event.
+- Diagnostic evidence plan:
+  - Trace the callback from grouped `/model` rows through `AppEvent` handling to `thread/settings/update` and record the exact fields carried.
+  - Run or add a diagnostic-only focused test that inspects emitted events without contacting a provider.
+- Evidence gate: pending
+- Related evidence:
+  - E-036
+- Conclusion: Refuted. The grouped model row carries its route into `OpenReasoningPopup`, and every normal reasoning-selection branch with a route emits `SelectProviderModel`; the route loss occurs later across the session/global persistence boundary.
+- Repair design readiness: not applicable
+
+## Hypothesis H-016: The reported turn used stale executable or persisted session state rather than the current picker path
+- Status: refuted
+- Parent: P-005
+- Claim: A previously running binary or stale persisted session state prevented the current atomic route-switch implementation from taking effect.
+- Layer: environment-alternative
+- Factor relation: alternative_to H-015
+- Falsifiable predictions:
+  - A live Whale process resolves to a pre-repair executable hash, or recent runtime records show a route already changed to OpenAI before the rejected turn.
+  - If neither is present and the source callback drops route, this hypothesis is downgraded or refuted.
+- Diagnostic evidence plan:
+  - Compare all live Whale executable targets and hashes with the installed validated binary.
+  - Query recent redacted workspace logs/session records for the rejected turn's model and provider route.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-035
+- Conclusion: Refuted as an executable-staleness cause. No old process remained, the installed hash matched the validated build, and the latest process created the mismatched session directly from current persisted defaults.
+- Repair design readiness: not applicable
+
+## Hypothesis H-017: A session-only provider route can persist its model into the global default
+- Status: confirmed
+- Parent: P-005
+- Claim: A cross-provider selection correctly updates the active thread route without changing the global provider, but once that route becomes current, a later model or effort selection on the same route satisfies `current_provider_route() == route` and emits `PersistModelSelection`; this writes `model` and `model_reasoning_effort` to global config without the session-only provider route, so the next new session starts with the default DeepSeek provider and the persisted OpenAI model.
+- Layer: root-cause
+- Factor relation: supersedes H-015
+- Falsifiable predictions:
+  - The current picker preserves route through `SelectProviderModel`, refuting H-015's original callback-loss mechanism.
+  - `select_provider_model` permits global model persistence based on the mutable current session route rather than the immutable global/default provider.
+  - A new session built from the resulting config starts as `deepseek/api_key + gpt-5.6-sol` before any picker interaction.
+- Diagnostic evidence plan:
+  - Correlate the latest runtime startup and turn records with the redacted config fields and the persistence predicate in `select_provider_model`.
+  - Exercise the persistence decision with a focused zero-network test that distinguishes the configured default provider from the active session route.
+- Evidence gate: satisfied
+- Related evidence:
+  - E-035
+  - E-036
+  - E-037
+- Conclusion: Confirmed. A routed selection is correctly committed to the active thread, but a later same-route selection emits the native global model persistence event. Because PD7 forbids persisting the session-only route globally, the resulting `config.toml` retains DeepSeek as the startup provider while overriding its model with `gpt-5.6-sol`.
+- Repair design readiness: ready
+
+## Evidence E-035: The latest process starts in the invalid provider/model pair before user input
+- Related hypotheses:
+  - H-016
+  - H-017
+- Direction: refutes H-016; supports H-017
+- Type: runtime-state-and-log-correlation
+- Source: workspace SQLite logs IDs 1605, 1652, and 1684 from 2026-08-27; installed binary/process inspection; redacted workspace `config.toml`
+- Matched signal:
+  - Session initialization records `model=gpt-5.6-sol` with `route=deepseek/api_key` before the turn.
+  - The only subsequent user action is `hi`; its turn settings carry `route: None` and inherit the invalid session pair.
+  - The turn reaches DeepSeek and returns its exact supported-model allowlist error.
+  - No stale Whale process remains; the installed executable hash is `4cdb6cb09a61dfd3f5422a5cf1840a190b3727269a70b3e277f786b004e07015`.
+  - The redacted config contains `model = "gpt-5.6-sol"` and `model_reasoning_effort = "low"`, but no global provider override; Whale therefore retains its DeepSeek default.
+- Interpretation: This failure is deterministic startup state produced by partial global persistence, not a network, credential, OpenAI compatibility, or old-process problem.
+- Time: 2026-08-27 05:27
+
+## Evidence E-036: Routed selection preserves thread route but conditionally persists only model and effort globally
+- Related hypotheses:
+  - H-015
+  - H-017
+- Direction: refutes H-015; supports H-017
+- Type: source-path-causal-trace
+- Source: `tui/src/chatwidget/model_popups.rs`, `tui/src/app/provider_login.rs`, `tui/src/app/thread_settings.rs`, and `tui/src/app/config_persistence.rs`
+- Matched signal:
+  - The grouped model picker carries `ProviderRoute` through reasoning selection and emits `SelectProviderModel`.
+  - `sync_active_thread_provider_model_setting` atomically sends route, model, effort, and matching collaboration mode to the active thread.
+  - `select_provider_model` additionally emits `PersistModelSelection` whenever the selected route is already the current session route.
+  - That persistence event writes only global `model` and `model_reasoning_effort`; it does not and, under PD7, must not persist the session provider route.
+- Interpretation: The first route transition is session-correct, but any later selection on that route can leak a route-scoped model into provider-independent global defaults.
+- Time: 2026-08-27 06:10
+
+## Evidence E-037: Product and upstream config contracts require avoiding partial global persistence
+- Related hypotheses:
+  - H-017
+- Direction: supports
+- Type: product-authority-and-official-config-contract
+- Source: PRD PD7/PD10/PD14/PD16; official OpenAI Codex configuration reference; official DeepSeek Responses API reference, inspected 2026-08-27
+- Matched signal:
+  - PD7 requires provider switches to persist within the current session and forbids modifying new-session global defaults.
+  - PD10 scopes the last successful model to each access method in the current session.
+  - Official Codex config defines `model` and `model_provider` as distinct global keys, so persisting only `model` is not an atomic provider selection.
+  - DeepSeek validates the request model against its own supported identifiers, explaining the deterministic rejection without requiring any fallback.
+- Interpretation: The minimal contract-preserving repair is to keep routed model selections entirely in thread/session settings and stop emitting native global model persistence for them.
+- Time: 2026-08-27 06:15
+
+## Evidence E-038: Routed selections no longer mutate new-session model defaults
+- Related hypotheses:
+  - H-017
+- Direction: supports repair
+- Type: local-fix-validation
+- Source: focused TUI app-server tests, existing provider picker/settings tests, cache regression gate, and debug Whale build on 2026-08-27
+- Matched signal:
+  - `select_provider_model` now performs only the existing atomic thread settings update; the conditional `PersistModelSelection` emission and its mutable-current-route predicate are removed.
+  - `routed_model_selection_does_not_persist_new_session_defaults` starts an embedded thread, performs a routed model selection, and proves no global persistence event is emitted.
+  - Existing grouped picker route, provider collaboration-model replacement, and route-only settings-update tests pass.
+  - Formatting/diff checks pass; cache regression index gate passes with fingerprint `bacc832c563f53d1e90e7651d4bd6a663c0416688c4b0f359f520c05761c5799`.
+  - `cargo build -p codex-cli --bin whale` succeeds. Existing unrelated vendor warnings remain unchanged.
+- Interpretation: The repair closes the confirmed partial-persistence mechanism without adding a new config layer, fallback, or provider special case. The final gate is one installed TUI cross-provider live turn.
+- Time: 2026-08-27 06:35
