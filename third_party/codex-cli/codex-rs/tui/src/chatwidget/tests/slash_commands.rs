@@ -492,6 +492,11 @@ async fn provider_and_model_pickers_preserve_route_groups() {
     let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.2")).await;
     chat.thread_id = Some(ThreadId::new());
     let openai_model = get_available_model(&chat, "gpt-5.2");
+    let mut hidden_openai_model = openai_model.clone();
+    hidden_openai_model.model = "codex-auto-review".to_string();
+    hidden_openai_model.display_name = "Codex Auto Review".to_string();
+    hidden_openai_model.show_in_picker = false;
+    hidden_openai_model.is_default = false;
     let mut deepseek_model = openai_model.clone();
     deepseek_model.model = "deepseek-v4-flash".to_string();
     deepseek_model.display_name = "DeepSeek V4 Flash".to_string();
@@ -503,7 +508,7 @@ async fn provider_and_model_pickers_preserve_route_groups() {
             route: openai_route.clone(),
             display_name: "OpenAI Subscription".to_string(),
             availability: ProviderModelAvailability::Available,
-            models: vec![openai_model.clone()],
+            models: vec![hidden_openai_model, openai_model.clone()],
         },
         ProviderModelGroup {
             route: openai_api_route.clone(),
@@ -522,6 +527,13 @@ async fn provider_and_model_pickers_preserve_route_groups() {
         vec![openai_model.clone()],
         groups.clone(),
     ));
+    assert!(
+        chat.model_catalog
+            .provider_groups()
+            .iter()
+            .flat_map(|group| &group.models)
+            .all(|model| model.show_in_picker)
+    );
 
     chat.open_provider_popup();
     let provider_popup = render_bottom_popup(&chat, /*width*/ 90);
@@ -564,6 +576,7 @@ async fn provider_and_model_pickers_preserve_route_groups() {
         .expect("OpenAI Subscription heading");
     let subscription_model = model_popup.find("GPT-5.2").expect("subscription model row");
     assert!(subscription_heading < subscription_model);
+    assert!(!model_popup.contains("Codex Auto Review"));
     assert!(!model_popup.contains("OpenAI API"));
     assert!(model_popup.contains("DeepSeek"));
     assert!(model_popup.contains("DeepSeek V4 Flash"));

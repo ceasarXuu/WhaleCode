@@ -27,8 +27,11 @@ impl ModelCatalog {
 
     pub(crate) fn with_provider_groups(
         models: Vec<ModelPreset>,
-        provider_groups: Vec<ProviderModelGroup>,
+        mut provider_groups: Vec<ProviderModelGroup>,
     ) -> Self {
+        for group in &mut provider_groups {
+            group.models.retain(|model| model.show_in_picker);
+        }
         Self {
             models,
             provider_groups,
