@@ -38,9 +38,42 @@ impl App {
 
         let was_running = self.chat_widget.is_task_running();
         let route_label = format!("{} ({:?})", route.model_provider_id, route.access_method);
-        let updated = self
-            .sync_active_thread_provider_model_setting(app_server, route, model, effort)
-            .await;
+        let Some(updated) = self
+            .sync_active_thread_provider_model_setting(
+                app_server,
+                route.clone(),
+                model.clone(),
+                effort.clone(),
+            )
+            .await
+        else {
+            return;
+        };
+        match crate::config_update::write_config_batch(
+            app_server.request_handle(),
+            crate::config_update::build_provider_model_selection_edits(
+                &route,
+                model.as_deref(),
+                effort.as_ref(),
+            ),
+        )
+        .await
+        {
+            Ok(_) => tracing::info!(
+                provider = %route.model_provider_id,
+                access_method = ?route.access_method,
+                model = ?model,
+                effort = ?effort,
+                "persisted provider model selection as new-session default"
+            ),
+            Err(err) => {
+                tracing::error!(error = %err, "failed to persist provider model selection");
+                self.chat_widget.add_error_message(format!(
+                    "Model changed for this session, but its new-session default could not be saved: {}",
+                    crate::config_update::format_config_error(&err)
+                ));
+            }
+        }
         if updated && was_running {
             self.chat_widget.add_info_message(
                 format!("Provider {route_label} will apply from the next turn."),

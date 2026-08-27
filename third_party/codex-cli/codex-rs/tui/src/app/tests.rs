@@ -8208,7 +8208,7 @@ async fn inactive_thread_settings_notification_updates_cached_collaboration_mode
 }
 
 #[test]
-fn routed_model_selection_does_not_persist_new_session_defaults() -> Result<()> {
+fn routed_model_selection_persists_complete_new_session_default() -> Result<()> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(1)
         .thread_stack_size(8 * 1024 * 1024)
@@ -8217,12 +8217,27 @@ fn routed_model_selection_does_not_persist_new_session_defaults() -> Result<()> 
 
     runtime.block_on(async {
         let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
-        let mut app_server =
-            crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref())
-                .await
-                .expect("embedded app server");
+        let codex_home = tempdir()?;
+        app.config.codex_home = codex_home.path().to_path_buf().abs();
+        app.config.cli_auth_credentials_store_mode =
+            codex_config::types::AuthCredentialsStoreMode::File;
+        codex_login::login_with_deepseek_api_key(
+            app.config.codex_home.as_path(),
+            "test-deepseek-key",
+            codex_config::types::AuthCredentialsStoreMode::File,
+            codex_login::AuthKeyringBackendKind::default(),
+        )?;
+        let config_toml_path = codex_home.path().join("config.toml").abs();
+        std::fs::write(config_toml_path.as_path(), "")?;
+        app.config.config_layer_stack = app
+            .config
+            .config_layer_stack
+            .with_user_config(&config_toml_path, TomlValue::Table(Default::default()))?;
+        let mut app_server = crate::start_embedded_app_server_for_picker(&app.config)
+            .await
+            .expect("embedded app server");
         let started = app_server
-            .start_thread(app.chat_widget.config_ref())
+            .start_thread(&app.config)
             .await
             .expect("thread/start should succeed");
         let route = codex_protocol::ProviderRoute::new(
@@ -8230,25 +8245,72 @@ fn routed_model_selection_does_not_persist_new_session_defaults() -> Result<()> 
             codex_protocol::ProviderAccessMethod::ApiKey,
         );
         let model = started.session.model.clone();
+        let thread_id = started.session.thread_id;
         app.enqueue_primary_thread_session(started.session, started.turns)
             .await
             .expect("primary thread should be registered");
+        app.active_thread_id = Some(thread_id);
         while app_event_rx.try_recv().is_ok() {}
 
         app.select_provider_model(
             &mut app_server,
-            route,
-            Some(model),
+            route.clone(),
+            Some(model.clone()),
             Some(ReasoningEffortConfig::Low),
         )
         .await;
 
+        let persisted = std::fs::read_to_string(config_toml_path.as_path())?;
+        let persisted = toml::from_str::<TomlValue>(&persisted)?;
+        assert_eq!(
+            persisted.get("model_provider").and_then(TomlValue::as_str),
+            Some(route.model_provider_id.as_str()),
+            "persisted config: {persisted:#?}"
+        );
+        assert_eq!(
+            persisted
+                .get("model_provider_access_method")
+                .and_then(TomlValue::as_str),
+            Some("apiKey"),
+            "persisted config: {persisted:#?}"
+        );
+        assert_eq!(
+            persisted.get("model").and_then(TomlValue::as_str),
+            Some(model.as_str()),
+            "persisted config: {persisted:#?}"
+        );
+        assert_eq!(
+            persisted
+                .get("model_reasoning_effort")
+                .and_then(TomlValue::as_str),
+            Some("low"),
+            "persisted config: {persisted:#?}"
+        );
+        app.refresh_in_memory_config_from_disk().await?;
+        let fresh_session_config = app.fresh_session_config();
+        assert_eq!(
+            (
+                fresh_session_config.model_provider_id.as_str(),
+                fresh_session_config.model_provider_access_method,
+                fresh_session_config.model.as_deref(),
+                fresh_session_config.model_reasoning_effort,
+            ),
+            (
+                route.model_provider_id.as_str(),
+                Some(route.access_method),
+                Some(model.as_str()),
+                Some(ReasoningEffortConfig::Low),
+            ),
+            "same-process new sessions should reload the persisted selection"
+        );
         assert!(
             std::iter::from_fn(|| app_event_rx.try_recv().ok())
                 .all(|event| !matches!(event, AppEvent::PersistModelSelection { .. })),
-            "provider-routed selections are session-scoped and must not change new-session defaults"
+            "routed selections persist through their route-aware config batch"
         );
-    });
+        app_server.shutdown().await?;
+        Ok::<(), color_eyre::Report>(())
+    })?;
     Ok(())
 }
 

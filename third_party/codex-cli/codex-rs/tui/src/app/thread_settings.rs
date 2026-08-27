@@ -27,27 +27,32 @@ impl App {
         route: ProviderRoute,
         model: Option<String>,
         effort: Option<codex_protocol::openai_models::ReasoningEffort>,
-    ) -> bool {
+    ) -> Option<bool> {
         let Some(thread_id) = self.active_thread_id else {
-            return false;
+            return None;
         };
         let collaboration_mode = provider_selection_collaboration_mode(
             self.chat_widget.effective_collaboration_mode(),
             model.clone(),
             effort.clone(),
         );
-        self.send_thread_settings_update(
-            app_server,
-            ThreadSettingsUpdateParams {
-                thread_id: thread_id.to_string(),
-                route: Some(route),
-                model,
-                effort,
-                collaboration_mode: Some(collaboration_mode),
-                ..ThreadSettingsUpdateParams::default()
-            },
-        )
-        .await
+        let params = ThreadSettingsUpdateParams {
+            thread_id: thread_id.to_string(),
+            route: Some(route),
+            model,
+            effort,
+            collaboration_mode: Some(collaboration_mode),
+            ..ThreadSettingsUpdateParams::default()
+        };
+        match app_server.thread_settings_update(params).await {
+            Ok(settings_updated) => Some(settings_updated),
+            Err(err) => {
+                tracing::warn!("failed to update app-server provider/model settings: {err}");
+                self.chat_widget
+                    .add_error_message(format!("Failed to update provider/model settings: {err}"));
+                None
+            }
+        }
     }
 
     pub(super) async fn sync_active_thread_model_setting(

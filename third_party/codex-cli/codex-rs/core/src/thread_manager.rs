@@ -371,18 +371,21 @@ pub fn build_models_manager(
     config: &Config,
     auth_manager: Arc<AuthManager>,
 ) -> SharedModelsManager {
-    let access_method = match config.model_provider_id.as_str() {
-        OPENAI_PROVIDER_ID
-            if matches!(
-                auth_manager.auth_cached(),
-                Some(CodexAuth::Chatgpt(_) | CodexAuth::ChatgptAuthTokens(_))
-            ) =>
-        {
-            Some(ProviderAccessMethod::Chatgpt)
-        }
-        OPENAI_PROVIDER_ID | DEEPSEEK_PROVIDER_ID => Some(ProviderAccessMethod::ApiKey),
-        _ => None,
-    };
+    let access_method =
+        config
+            .model_provider_access_method
+            .or_else(|| match config.model_provider_id.as_str() {
+                OPENAI_PROVIDER_ID
+                    if matches!(
+                        auth_manager.auth_cached(),
+                        Some(CodexAuth::Chatgpt(_) | CodexAuth::ChatgptAuthTokens(_))
+                    ) =>
+                {
+                    Some(ProviderAccessMethod::Chatgpt)
+                }
+                OPENAI_PROVIDER_ID | DEEPSEEK_PROVIDER_ID => Some(ProviderAccessMethod::ApiKey),
+                _ => None,
+            });
     if config.model_providers.get(&config.model_provider_id) == Some(&config.model_provider)
         && let Some(access_method) = access_method
     {

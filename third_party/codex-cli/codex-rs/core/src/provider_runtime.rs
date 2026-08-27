@@ -73,6 +73,7 @@ impl ProviderRuntimeRegistry {
     pub(crate) fn initial_route(
         &self,
         model_provider_id: &str,
+        configured_access_method: Option<ProviderAccessMethod>,
         configured_provider: &codex_model_provider_info::ModelProviderInfo,
         model_providers: &HashMap<String, codex_model_provider_info::ModelProviderInfo>,
         auth_manager: &AuthManager,
@@ -82,17 +83,20 @@ impl ProviderRuntimeRegistry {
         if model_providers.get(model_provider_id) != Some(configured_provider) {
             return None;
         }
-        let access_method = match model_provider_id {
-            OPENAI_PROVIDER_ID
-                if matches!(
-                    auth_manager.auth_cached(),
-                    Some(CodexAuth::Chatgpt(_) | CodexAuth::ChatgptAuthTokens(_))
-                ) =>
-            {
-                ProviderAccessMethod::Chatgpt
-            }
-            OPENAI_PROVIDER_ID | DEEPSEEK_PROVIDER_ID => ProviderAccessMethod::ApiKey,
-            _ => return None,
+        let access_method = match configured_access_method {
+            Some(access_method) => access_method,
+            None => match model_provider_id {
+                OPENAI_PROVIDER_ID
+                    if matches!(
+                        auth_manager.auth_cached(),
+                        Some(CodexAuth::Chatgpt(_) | CodexAuth::ChatgptAuthTokens(_))
+                    ) =>
+                {
+                    ProviderAccessMethod::Chatgpt
+                }
+                OPENAI_PROVIDER_ID | DEEPSEEK_PROVIDER_ID => ProviderAccessMethod::ApiKey,
+                _ => return None,
+            },
         };
         let route = ProviderRoute::new(model_provider_id, access_method);
         self.entries.contains_key(&route).then_some(route)
@@ -122,3 +126,7 @@ impl ProviderRuntimeRegistry {
         .collect()
     }
 }
+
+#[cfg(test)]
+#[path = "provider_runtime_tests.rs"]
+mod tests;

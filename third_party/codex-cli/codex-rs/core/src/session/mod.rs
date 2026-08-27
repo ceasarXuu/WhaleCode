@@ -651,6 +651,7 @@ impl Session {
             } else {
                 let initial_route = provider_runtime_registry.initial_route(
                     &config.model_provider_id,
+                    config.model_provider_access_method,
                     &config.model_provider,
                     &config.model_providers,
                     auth_manager.as_ref(),

@@ -6496,6 +6496,33 @@ async fn defaults_to_deepseek_flash_responses_provider() -> std::io::Result<()> 
 }
 
 #[tokio::test]
+async fn loads_explicit_provider_access_method_for_new_sessions() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    let config = Config::load_from_base_config_with_overrides(
+        ConfigToml {
+            model: Some("gpt-5.6-sol".to_string()),
+            model_provider: Some("openai".to_string()),
+            model_provider_access_method: Some(ProviderAccessMethod::Chatgpt),
+            model_reasoning_effort: Some(ReasoningEffort::Medium),
+            ..ConfigToml::default()
+        },
+        ConfigOverrides::default(),
+        codex_home.abs(),
+    )
+    .await?;
+
+    assert_eq!(config.model_provider_id, "openai");
+    assert_eq!(
+        config.model_provider_access_method,
+        Some(ProviderAccessMethod::Chatgpt)
+    );
+    assert_eq!(config.model.as_deref(), Some("gpt-5.6-sol"));
+    assert_eq!(config.model_reasoning_effort, Some(ReasoningEffort::Medium));
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn config_honors_explicit_file_oauth_store_mode() -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
     let cfg = ConfigToml {

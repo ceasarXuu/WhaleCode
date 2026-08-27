@@ -29,6 +29,21 @@ fn trusted_project_edit_targets_project_trust_level() {
     );
 }
 
+#[test]
+fn provider_model_selection_extends_native_model_edits_atomically() {
+    let route = ProviderRoute::new("openai", codex_protocol::ProviderAccessMethod::Chatgpt);
+
+    assert_eq!(
+        build_provider_model_selection_edits(&route, Some("gpt-5.6-sol"), Some("medium")),
+        vec![
+            replace_config_value("model_provider", serde_json::json!("openai")),
+            replace_config_value("model_provider_access_method", serde_json::json!("chatgpt")),
+            replace_config_value("model", serde_json::json!("gpt-5.6-sol")),
+            replace_config_value("model_reasoning_effort", serde_json::json!("medium")),
+        ]
+    );
+}
+
 #[tokio::test]
 async fn remote_project_trust_guards_thread_start_and_preserves_repository_decisions() -> Result<()>
 {

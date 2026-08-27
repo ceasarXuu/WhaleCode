@@ -20,6 +20,7 @@ use codex_app_server_protocol::SkillsConfigWriteResponse;
 use codex_config::loader::project_trust_key;
 use codex_exec_server::LOCAL_ENVIRONMENT_ID;
 use codex_features::FEATURES;
+use codex_protocol::ProviderRoute;
 use codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
 use codex_protocol::config_types::TrustLevel;
 use codex_utils_absolute_path::AbsolutePathBuf;
@@ -86,6 +87,28 @@ pub(crate) fn build_model_selection_edits(
         replace_config_value("model", serde_json::json!(model)),
         effort_edit,
     ]
+}
+
+pub(crate) fn build_provider_model_selection_edits(
+    route: &ProviderRoute,
+    model: Option<&str>,
+    effort: Option<impl ToString>,
+) -> Vec<ConfigEdit> {
+    let mut edits = vec![
+        replace_config_value("model_provider", serde_json::json!(route.model_provider_id)),
+        replace_config_value(
+            "model_provider_access_method",
+            serde_json::json!(route.access_method),
+        ),
+    ];
+    match model {
+        Some(model) => edits.extend(build_model_selection_edits(model, effort)),
+        None => {
+            edits.push(clear_config_value("model"));
+            edits.push(clear_config_value("model_reasoning_effort"));
+        }
+    }
+    edits
 }
 
 pub(crate) fn build_service_tier_selection_edits(service_tier: Option<&str>) -> Vec<ConfigEdit> {
