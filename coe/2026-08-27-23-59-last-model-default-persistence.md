@@ -1,7 +1,7 @@
 # Problem P-001: Routed model selection is not the default for new sessions
 - Status: resolved
 - Created: 2026-08-27 23:59
-- Updated: 2026-08-28
+- Updated: 2026-08-28 00:54
 - Objective: Make a successful `/model` selection update the current session and become the exact default route, model, and effort for later new sessions by reusing Codex-native persistence contracts.
 - Symptoms:
   - A routed model selection updates the active thread but a new session returns to the previous configured provider/model.
@@ -22,7 +22,7 @@
   - The new-session default persists provider/model/effort through the native config update path.
   - OpenAI route selection persists the non-secret access method without mutating or duplicating credential material.
   - Focused tests cover the atomic route/model edit, active-thread no-op selection, config reload, and new-session route restoration; the existing provider catalog/login tests continue to cover the three credential routes and dual-credential visibility.
-- Current conclusion: H-001 and H-002 jointly explained the behavior. The repair extends the Codex-native atomic model config batch with the existing non-secret `ProviderAccessMethod`; it does not create another default store or mutate credential state. Current-thread updates and same-process/new-process session defaults now share one successful selection.
+- Current conclusion: H-001 and H-002 jointly explained the behavior. The repair extends the Codex-native atomic model config batch with the existing non-secret `ProviderAccessMethod`; it does not create another default store or mutate credential state. Current-thread updates and same-process/new-process session defaults now share one successful selection. Installed-binary E2E passed after rebuilding the CLI from the subject source; an earlier negative `/new` result was traced to a pre-change binary copied by the installer, not to the repaired source path.
 - Related hypotheses:
   - H-001
   - H-002
@@ -173,3 +173,35 @@
 - Matched signal: Two core tests and two TUI tests pass under the repository's isolated Codex test runner.
 - Interpretation: The repaired persistence and restoration path is stable outside host credential and temporary-socket state.
 - Time: 2026-08-28
+
+## Evidence E-010: Installed Whale uses the selected OpenAI Subscription route
+- Related hypotheses:
+  - H-001
+  - H-002
+- Direction: supports resolution
+- Type: installed-binary E2E
+- Source: `benchmarks/provider-e2e/results/WAR-20260828-004242-MODEL-PERSISTENCE-E2E-R1.json`
+- Matched signal: The `hi` turn ran with route `openai/chatgpt`, model `gpt-5.6-sol`, effort `medium`, returned a normal model response, and recorded 14,524 input plus 13 output tokens.
+- Interpretation: Current-session routing reaches OpenAI Subscription rather than the previously selected DeepSeek endpoint.
+- Time: 2026-08-28 00:46
+
+## Evidence E-011: Config batch, `/new`, and cold start preserve the complete selection
+- Related hypotheses:
+  - H-001
+  - H-002
+- Direction: supports resolution
+- Type: installed-binary E2E
+- Source: `benchmarks/provider-e2e/results/WAR-20260828-004242-MODEL-PERSISTENCE-E2E-R1.json`
+- Matched signal: The installed binary emitted `config/batchWrite`, persisted all four route/model keys, then displayed `gpt-5.6-sol medium` in both a `/new` session and a separately launched Whale process.
+- Interpretation: The last successful model selection is the default across both same-process and new-process sessions.
+- Time: 2026-08-28 00:52
+
+## Evidence E-012: The first installed-binary mismatch was a stale artifact
+- Related hypotheses:
+  - H-001
+- Direction: neutral diagnostic
+- Type: build artifact inspection
+- Source: installed binary hashes and `logs_2.sqlite`
+- Matched signal: The first installed binary had been built before the persistence change and contained no new persistence trace string; its run emitted `thread/settings/update` but no `config/batchWrite`. Rebuilding changed the binary hash and the repeated selection emitted both the config write and persistence confirmation.
+- Interpretation: Local installation copies an existing binary and does not itself compile changed source, so E2E must rebuild before reinstalling.
+- Time: 2026-08-28 00:51

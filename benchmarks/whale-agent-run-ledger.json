@@ -1,15 +1,15 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-28T00:42:42+08:00",
+  "updated_at": "2026-08-28T00:54:05+08:00",
   "entries": [
     {
       "record_id": "WAR-20260828-004242-MODEL-PERSISTENCE-E2E-R1",
       "record_type": "run_batch",
-      "status": "planned",
-      "started_at": null,
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "status": "settled",
+      "started_at": "2026-08-28T00:46:52+08:00",
+      "ended_at": "2026-08-28T00:46:58+08:00",
+      "elapsed_calendar_seconds": 6.161,
+      "aggregate_agent_wall_time_ms": 6161,
       "reason": "Validate that an OpenAI Subscription model selected in the installed Whale TUI is used by the current session and remains the default after creating a new session.",
       "authorization": {
         "required": false,
@@ -38,25 +38,33 @@
         ],
         "repeats_per_arm_per_sample": 1,
         "planned_sample_runs": 1,
-        "actual_sample_runs": 0,
-        "api_requests": 0,
-        "api_requests_evidence_status": "pending"
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
-        "input": 0,
+        "input": 14524,
         "cached_input": 0,
-        "uncached_input": 0,
-        "output": 0
+        "uncached_input": 14524,
+        "output": 13
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "actual",
         "currency": "CNY",
         "amount": 0,
         "actual_billed_amount": 0,
-        "components": null,
-        "pricing_snapshot": null,
-        "formula": null,
-        "note": "OpenAI Subscription has no marginal per-run API charge; token usage will be settled from session evidence when available."
+        "components": {
+          "subscription_marginal_run": 0
+        },
+        "pricing_snapshot": {
+          "currency": "CNY",
+          "captured_at": "2026-08-28",
+          "source": "OpenAI Subscription",
+          "billing_model": "subscription",
+          "marginal_per_run": 0
+        },
+        "formula": "subscription marginal per-run charge = 0",
+        "note": "OpenAI Subscription has no marginal per-run API charge; the completed turn consumed subscription usage rather than metered API billing."
       },
       "evidence": {
         "subject_commit": "2f3f766981445ad3afa9b6d2045a1b41c393b26a",
@@ -66,7 +74,9 @@
           "after_any_persistence_mismatch",
           "after_budget_limit"
         ],
-        "outcome": "planned"
+        "result_path": "benchmarks/provider-e2e/results/WAR-20260828-004242-MODEL-PERSISTENCE-E2E-R1.json",
+        "runner_exit_code": 0,
+        "outcome": "completed"
       }
     },
     {
