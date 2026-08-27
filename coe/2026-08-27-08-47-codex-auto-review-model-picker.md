@@ -1,7 +1,7 @@
 # Problem P-001: Codex Auto Review appears in the model picker
-- Status: open
+- Status: fixed
 - Created: 2026-08-27 08:47
-- Updated: 2026-08-27 08:52
+- Updated: 2026-08-27 22:24
 - Objective: Ensure `/model` contains only user-selectable conversation models and excludes internal review-only models.
 - Symptoms:
   - The user sees `Codex Auto Review` in the `/model` candidate list.
@@ -23,12 +23,12 @@
   - The provider catalog incorrectly marking `codex-auto-review` as generally visible.
 - Fix criteria:
   - The original installed `/model` reproduction no longer shows `Codex Auto Review`; ordinary OpenAI Subscription models remain visible; focused tests identify review-only catalog entries and exclude them from user-selectable presets.
-- Current conclusion: H-001 is confirmed. The provider-aware `/model` renderer introduced in `787919394` bypasses the existing `show_in_picker` contract and exposes hidden internal models.
+- Current conclusion: Fixed by commit `3140d7b95`, which enforces the upstream `show_in_picker` contract once at the Provider-group `ModelCatalog` boundary. Focused tests and installed TUI validation both pass.
 - Related hypotheses:
   - H-001
   - H-002
 - Resolution basis:
-  - not satisfied
+  - H-001, E-002, E-003, E-006, and E-007
 - Close reason:
   - not closed
 
@@ -68,9 +68,11 @@
   - E-002
   - E-003
   - E-004
+  - E-006
+  - E-007
 - Conclusion: The hidden visibility signal survives into each `ModelPreset`, but the provider-group rendering loop ignores it.
-- Repair design readiness: ready pending user confirmation; filter grouped presets by `show_in_picker` at the picker boundary and add a regression assertion for a hidden preset.
-- Next step: Request confirmation before repair implementation.
+- Repair design readiness: implemented and validated
+- Next step: none
 - Blocker:
   - none
 - Close reason:
@@ -219,3 +221,48 @@
   ```
 - Interpretation: H-002's required prediction is false.
 - Time: 2026-08-27 08:52
+
+## Evidence E-006: Focused tests enforce upstream visibility at the shared group boundary
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: fix-validation
+- Source: `cargo test -p codex-tui provider_and_model_pickers_preserve_route_groups -- --nocapture`
+- Prediction or plan link:
+  - The fix criteria require a hidden model fixture to be absent from both the grouped catalog and rendered picker while ordinary provider groups remain functional.
+- Matched signal:
+  - The test inserts `codex-auto-review` first with `show_in_picker: false`, verifies every retained grouped preset is visible, and verifies the rendered popup omits `Codex Auto Review`; 1 test passed.
+- Correlation keys:
+  - commit `3140d7b95`
+- Raw content:
+  ```text
+  test chatwidget::tests::slash_commands::provider_and_model_pickers_preserve_route_groups ... ok
+  test result: ok. 1 passed; 0 failed
+  ```
+- Interpretation: The repair enforces the general visibility contract rather than relying on a model-name blacklist or display order.
+- Time: 2026-08-27 22:17
+
+## Evidence E-007: Installed TUI excludes the real hidden review model
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: fix-validation
+- Source: R10 installed TUI run `WAR-20260827-222257-HIDDEN-MODEL-VISIBILITY-R10` and `logs_2.sqlite`
+- Prediction or plan link:
+  - The original reproduction must no longer show `Codex Auto Review`, while the OpenAI Subscription group and ordinary models remain visible.
+- Matched signal:
+  - `/model` showed `OpenAI Subscription` followed by `GPT-5.6-Sol (default)`; searching `Codex Auto Review` returned `no matches`; process logs contained zero inference markers.
+- Correlation keys:
+  - process `pid:311884:11b85a39-a347-4745-9207-9575445729d8`
+  - thread `01a0439b-287b-7950-8754-b607ecfe2b6c`
+  - binary SHA256 `179a6ce8a0d5fe3a5b54b9192098727d2ed3461358bb93fa703ea51f6d6280c9`
+- Raw content:
+  ```text
+  OpenAI Subscription
+  GPT-5.6-Sol (default)
+  Codex Auto Review
+  no matches
+  inference_markers: 0
+  ```
+- Interpretation: The installed product no longer reproduces the reported symptom and preserves ordinary subscription model visibility.
+- Time: 2026-08-27 22:24
