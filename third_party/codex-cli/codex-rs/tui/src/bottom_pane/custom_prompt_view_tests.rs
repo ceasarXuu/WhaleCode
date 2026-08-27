@@ -210,6 +210,29 @@ fn escape_without_vim_cancels_prompt() {
     assert_eq!(view.completion(), Some(ViewCompletion::Cancelled));
 }
 
+#[test]
+fn secret_prompt_masks_credential_but_submits_original_value() {
+    let (submitted, submitted_rx) = std::sync::mpsc::channel();
+    let mut view = CustomPromptView::new_secret(
+        "API key".to_string(),
+        "Paste key".to_string(),
+        None,
+        Box::new(move |text| {
+            submitted.send(text).expect("receiver should stay open");
+        }),
+    );
+    view.handle_paste("super-secret-key".to_string());
+    let area = Rect::new(0, 0, 60, view.desired_height(60));
+    let mut buf = Buffer::empty(area);
+    view.render(area, &mut buf);
+    let rendered = format!("{buf:?}");
+
+    assert!(!rendered.contains("super-secret-key"));
+    assert!(rendered.contains("****************"));
+    view.handle_key_event(KeyEvent::from(KeyCode::Enter));
+    assert_eq!(submitted_rx.try_recv(), Ok("super-secret-key".to_string()));
+}
+
 fn custom_prompt_view() -> (CustomPromptView, Receiver<String>) {
     let (submitted, submitted_rx) = std::sync::mpsc::channel();
     let view = CustomPromptView::new(

@@ -1223,8 +1223,15 @@ async fn configured_remote_control_listener(codex_home: &std::path::Path) -> Res
 }
 
 async fn read_enroll_request(listener: &TcpListener) -> Result<(String, BufReader<TcpStream>)> {
-    let request = read_http_request(listener).await?;
-    Ok((request.request_line, request.reader))
+    loop {
+        let request = read_http_request(listener).await?;
+        if request
+            .request_line
+            .starts_with("POST /backend-api/wham/remote/control/server/enroll ")
+        {
+            return Ok((request.request_line, request.reader));
+        }
+    }
 }
 
 async fn read_http_request(listener: &TcpListener) -> Result<HttpRequest> {

@@ -92,6 +92,7 @@ use codex_model_provider_info::OLLAMA_CHAT_PROVIDER_REMOVED_ERROR;
 use codex_model_provider_info::built_in_model_providers;
 use codex_model_provider_info::merge_configured_model_providers;
 use codex_models_manager::ModelsManagerConfig;
+use codex_protocol::ProviderAccessMethod;
 use codex_protocol::config_types::AltScreenMode;
 use codex_protocol::config_types::AutoCompactTokenLimitScope;
 use codex_protocol::config_types::ForcedLoginMethod;
@@ -600,6 +601,9 @@ pub struct Config {
 
     /// Key into the model_providers map that specifies which provider to use.
     pub model_provider_id: String,
+
+    /// Explicit authentication path for a built-in multi-route provider.
+    pub model_provider_access_method: Option<ProviderAccessMethod>,
 
     /// Info needed to make an API request to the model.
     pub model_provider: ModelProviderInfo,
@@ -3649,9 +3653,13 @@ impl Config {
             merge_configured_model_providers(built_in_model_providers(openai_base_url), cfg.model_providers)
                 .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidData, message))?;
 
+        let model_provider_was_overridden = model_provider.is_some();
         let model_provider_id = model_provider
             .or(cfg.model_provider)
             .unwrap_or_else(|| DEEPSEEK_PROVIDER_ID.to_string());
+        let model_provider_access_method = (!model_provider_was_overridden)
+            .then_some(cfg.model_provider_access_method)
+            .flatten();
         let model_provider = model_providers
             .get(&model_provider_id)
             .ok_or_else(|| {
@@ -4019,6 +4027,7 @@ impl Config {
                 .model_auto_compact_token_limit_scope
                 .unwrap_or_default(),
             model_provider_id,
+            model_provider_access_method,
             model_provider,
             cwd: resolved_cwd,
             workspace_roots: workspace_roots.clone(),

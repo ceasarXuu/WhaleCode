@@ -218,6 +218,15 @@ fn local_model_messages_for_slug(slug: &str) -> ModelMessages {
     }
 }
 
+pub(crate) fn use_whale_base_instructions_if_empty(model: &mut ModelInfo) {
+    if model
+        .get_model_instructions(/*personality*/ None)
+        .is_empty()
+    {
+        model.model_messages = Some(local_model_messages_for_slug(&model.slug));
+    }
+}
+
 #[cfg(test)]
 #[path = "model_info_tests.rs"]
 mod tests;

@@ -82,6 +82,7 @@ use codex_feedback::CodexFeedback;
 use codex_git_utils::get_git_repo_root;
 use codex_history::RolloutItem;
 use codex_history::RolloutLine;
+use codex_login::default_client::OPENAI_CODEX_COMPATIBILITY_VERSION;
 use codex_login::default_client::set_default_client_residency_requirement;
 use codex_login::default_client::set_default_originator;
 use codex_login::enforce_login_restrictions;
@@ -561,7 +562,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         session_source: SessionSource::Exec,
         enable_codex_api_key_env: true,
         client_name: "codex_exec".to_string(),
-        client_version: env!("CARGO_PKG_VERSION").to_string(),
+        client_version: OPENAI_CODEX_COMPATIBILITY_VERSION.to_string(),
         experimental_api: true,
         mcp_server_openai_form_elicitation: false,
         opt_out_notification_methods: Vec::new(),

@@ -4,6 +4,77 @@ use sha2::Digest;
 use sha2::Sha256;
 use std::path::Path;
 
+fn canonicalize_json(value: &Value) -> Value {
+    canonicalize_json_value(value, None)
+}
+
+fn canonicalize_json_value(value: &Value, field_name: Option<&str>) -> Value {
+    match value {
+        Value::Object(object) => {
+            let mut entries = object.iter().collect::<Vec<_>>();
+            entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+            Value::Object(
+                entries
+                    .into_iter()
+                    .map(|(key, value)| {
+                        (
+                            key.clone(),
+                            canonicalize_json_value(value, Some(key.as_str())),
+                        )
+                    })
+                    .collect(),
+            )
+        }
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| canonicalize_json_value(item, field_name))
+                .collect(),
+        ),
+        Value::String(text) if field_name == Some("x-codex-turn-metadata") => {
+            Value::String(canonicalize_serialized_json(text))
+        }
+        Value::String(text) if field_name == Some("description") => {
+            Value::String(canonicalize_fenced_json(text))
+        }
+        _ => value.clone(),
+    }
+}
+
+fn canonicalize_serialized_json(text: &str) -> String {
+    let Ok(value) = serde_json::from_str::<Value>(text) else {
+        return text.to_string();
+    };
+    serde_json::to_string(&canonicalize_json(&value)).expect("canonical JSON value must serialize")
+}
+
+fn canonicalize_fenced_json(text: &str) -> String {
+    const OPENING_FENCE: &str = "```json\n";
+    const CLOSING_FENCE: &str = "\n```";
+    let mut rendered = String::with_capacity(text.len());
+    let mut remainder = text;
+    while let Some(opening_offset) = remainder.find(OPENING_FENCE) {
+        let json_start = opening_offset + OPENING_FENCE.len();
+        let Some(closing_offset) = remainder[json_start..].find(CLOSING_FENCE) else {
+            break;
+        };
+        let json_end = json_start + closing_offset;
+        rendered.push_str(&remainder[..json_start]);
+        let embedded = &remainder[json_start..json_end];
+        match serde_json::from_str::<Value>(embedded) {
+            Ok(value) => rendered.push_str(
+                &serde_json::to_string(&canonicalize_json(&value))
+                    .expect("canonical JSON value must serialize"),
+            ),
+            Err(_) => rendered.push_str(embedded),
+        }
+        rendered.push_str(CLOSING_FENCE);
+        remainder = &remainder[json_end + CLOSING_FENCE.len()..];
+    }
+    rendered.push_str(remainder);
+    rendered
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct FinalWireEvidence {
     pub raw_body_sha256: String,
@@ -39,7 +110,11 @@ pub fn render_cache_snapshot(scenario_id: &str, value: &Value) -> anyhow::Result
             "cache snapshot scenario id must use lowercase ASCII, digits, or underscores"
         );
     }
-    let rendered = serde_json::to_string_pretty(value)
+    // serde_json's `preserve_order` feature is unified when core is tested with
+    // app-server/TUI. Sort object keys explicitly, including JSON encoded in
+    // headers and fenced tool examples, so core-only and full-workspace cache
+    // evidence are identical.
+    let rendered = serde_json::to_string_pretty(&canonicalize_json(value))
         .context("cache snapshot evidence must be serializable")?;
     if let Some(report_dir) = std::env::var_os("WHALE_CACHE_CHANGE_REPORT_DIR") {
         let report_dir = Path::new(&report_dir);

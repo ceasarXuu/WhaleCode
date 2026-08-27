@@ -248,6 +248,12 @@ impl CatalogRequestProcessor {
             cursor,
             include_hidden,
         } = params;
+        let groups = supported_model_groups(
+            Arc::clone(&thread_manager),
+            include_hidden.unwrap_or(false),
+            http_client_factory.clone(),
+        )
+        .await;
         let models = supported_models(
             thread_manager,
             include_hidden.unwrap_or(false),
@@ -259,6 +265,7 @@ impl CatalogRequestProcessor {
         if total == 0 {
             return Ok(ModelListResponse {
                 data: Vec::new(),
+                groups,
                 next_cursor: None,
             });
         }
@@ -287,6 +294,7 @@ impl CatalogRequestProcessor {
         };
         Ok(ModelListResponse {
             data: items,
+            groups,
             next_cursor,
         })
     }

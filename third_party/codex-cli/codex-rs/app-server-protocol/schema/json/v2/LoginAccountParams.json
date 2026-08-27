@@ -32,6 +32,26 @@
     },
     {
       "properties": {
+        "apiKey": {
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "deepseekApiKey"
+          ],
+          "title": "DeepseekApiKeyv2::LoginAccountParamsType",
+          "type": "string"
+        }
+      },
+      "required": [
+        "apiKey",
+        "type"
+      ],
+      "title": "DeepseekApiKeyv2::LoginAccountParams",
+      "type": "object"
+    },
+    {
+      "properties": {
         "appBrand": {
           "anyOf": [
             {

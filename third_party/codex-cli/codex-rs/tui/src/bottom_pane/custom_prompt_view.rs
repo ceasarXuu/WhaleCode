@@ -41,6 +41,7 @@ pub(crate) struct CustomPromptView {
     placeholder: String,
     context_label: Option<String>,
     on_submit: PromptSubmitted,
+    secret: bool,
 
     // UI state
     textarea: TextArea,
@@ -68,11 +69,23 @@ impl CustomPromptView {
             placeholder,
             context_label,
             on_submit,
+            secret: false,
             textarea,
             textarea_state: RefCell::new(TextAreaState::default()),
             paste_burst: PasteBurst::default(),
             completion: None,
         }
+    }
+
+    pub(crate) fn new_secret(
+        title: String,
+        placeholder: String,
+        context_label: Option<String>,
+        on_submit: PromptSubmitted,
+    ) -> Self {
+        let mut view = Self::new(title, placeholder, String::new(), context_label, on_submit);
+        view.secret = true;
+        view
     }
 
     /// Apply the same editor and Vim bindings used by the main composer.
@@ -270,7 +283,17 @@ impl Renderable for CustomPromptView {
                     height: text_area_height,
                 };
                 let mut state = self.textarea_state.borrow_mut();
-                StatefulWidgetRef::render_ref(&(&self.textarea), textarea_rect, buf, &mut state);
+                if self.secret {
+                    self.textarea
+                        .render_ref_masked(textarea_rect, buf, &mut state, '*');
+                } else {
+                    StatefulWidgetRef::render_ref(
+                        &(&self.textarea),
+                        textarea_rect,
+                        buf,
+                        &mut state,
+                    );
+                }
                 if self.textarea.text().is_empty() {
                     Paragraph::new(Line::from(self.placeholder.clone().dim()))
                         .render(textarea_rect, buf);

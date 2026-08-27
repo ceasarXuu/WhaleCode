@@ -202,6 +202,7 @@ async fn probe_with(
     inputs: ToolPlanInputs,
 ) -> ToolPlanProbe {
     let (_session, mut turn) = make_session_and_context().await;
+    use_openai_provider(&mut turn);
     configure_turn(&mut turn);
     let turn = Arc::new(turn);
     let step_context = StepContext::for_test(Arc::clone(&turn));
@@ -289,6 +290,10 @@ fn use_chatgpt_auth(turn: &mut TurnContext) {
     turn.auth_manager = Some(AuthManager::from_auth_for_testing(
         CodexAuth::create_dummy_chatgpt_auth_for_testing(),
     ));
+    use_openai_provider(turn);
+}
+
+fn use_openai_provider(turn: &mut TurnContext) {
     let provider_info = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
     update_config(turn, |config| {
         config.model_provider_id = OPENAI_PROVIDER_ID.to_string();
@@ -1556,6 +1561,7 @@ async fn strict_tool_collisions_reject_external_and_synthetic_duplicates() {
         cases.into_iter().chain(namespace_cases)
     {
         let (_session, mut turn) = make_session_and_context().await;
+        use_openai_provider(&mut turn);
         update_config(&mut turn, |config| {
             config.tool_registry.error_on_tool_collisions = true;
         });
@@ -1824,6 +1830,7 @@ async fn tool_search_cache_rebuilds_when_deferred_sources_change() {
     let cache = ToolSearchHandlerCache::default();
 
     let (_session, mut first_turn) = make_session_and_context().await;
+    use_openai_provider(&mut first_turn);
     Arc::make_mut(&mut first_turn.model_info).supports_search_tool = true;
     let first_turn = Arc::new(first_turn);
     let first_step_context = StepContext::for_test(Arc::clone(&first_turn));
@@ -1845,6 +1852,7 @@ async fn tool_search_cache_rebuilds_when_deferred_sources_change() {
     let first_plan = ToolPlanProbe::from_router(first_router);
 
     let (_session, mut second_turn) = make_session_and_context().await;
+    use_openai_provider(&mut second_turn);
     Arc::make_mut(&mut second_turn.model_info).supports_search_tool = true;
     let second_turn = Arc::new(second_turn);
     let second_step_context = StepContext::for_test(Arc::clone(&second_turn));
@@ -1892,6 +1900,7 @@ async fn tool_search_cache_rebuilds_when_deferred_world_state_changes() {
 
     for world_state_enabled in [false, true, false] {
         let (_session, mut turn) = make_session_and_context().await;
+        use_openai_provider(&mut turn);
         Arc::make_mut(&mut turn.model_info).supports_search_tool = true;
         set_feature(
             &mut turn,

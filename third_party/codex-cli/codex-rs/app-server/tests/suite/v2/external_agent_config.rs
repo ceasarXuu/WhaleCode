@@ -447,7 +447,7 @@ async fn external_agent_config_import_source_remains_attribution_only() -> Resul
     assert_eq!(completed.item_type_results[0].failures, Vec::new());
     assert_eq!(
         std::fs::read_to_string(codex_home.path().join("AGENTS.md"))?,
-        "Codex guidance"
+        "Whale guidance"
     );
 
     Ok(())
@@ -474,7 +474,9 @@ async fn external_agent_config_secondary_source_imports_session_and_plugin_end_t
         &session_path,
         [
             serde_json::json!({
+                "cwd": project_root,
                 "role": "user",
+                "timestamp_ms": 1_800_000_000_000_i64,
                 "message": {
                     "content": [{
                         "type": "text",
@@ -564,7 +566,12 @@ source = {:?}
         .await?;
     let detected: ExternalAgentConfigDetectResponse =
         timeout(DEFAULT_TIMEOUT, mcp.read_response(request_id)).await??;
-    assert_eq!(detected.items.len(), 2);
+    assert_eq!(
+        detected.items.len(),
+        2,
+        "detected items: {:#?}",
+        detected.items
+    );
     assert!(
         detected
             .items

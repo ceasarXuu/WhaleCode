@@ -174,6 +174,7 @@ pub struct ResponsesStreamEvent {
     text: Option<String>,
     summary_index: Option<i64>,
     content_index: Option<i64>,
+    sequence_number: Option<u64>,
     #[serde(default, deserialize_with = "deserialize_present_value")]
     safety_buffering: Option<Value>,
 }
@@ -362,7 +363,7 @@ pub fn process_responses_event(
                 return Ok(Some(ResponseEvent::OutputTextDelta(delta)));
             }
         }
-        "response.custom_tool_call_input.delta" => {
+        "response.custom_tool_call_input.delta" | "response.function_call_arguments.delta" => {
             if let (Some(delta), Some(item_id)) =
                 (event.delta, event.item_id.clone().or(event.call_id.clone()))
             {
@@ -498,12 +499,15 @@ pub fn process_responses_event(
         | "response.content_part.added"
         | "response.content_part.done"
         | "response.custom_tool_call_input.done"
-        | "response.function_call_arguments.delta"
         | "response.function_call_arguments.done"
         | "response.in_progress"
         | "response.metadata"
         | "response.output_text.done"
+        | "response.reasoning_text.done"
         | "response.reasoning_summary_part.done"
+        | "response.web_search_call.in_progress"
+        | "response.web_search_call.searching"
+        | "response.web_search_call.completed"
         | "responsesapi.websocket_timing" => {
             trace!("unhandled responses event: {}", event.kind);
         }
@@ -546,8 +550,8 @@ async fn process_sse_with_treatment(
     safety_buffering_treatment: SafetyBufferingTreatment,
 ) {
     let mut stream = stream.eventsource();
-    let mut response_error: Option<ApiError> = None;
     let mut last_server_model: Option<String> = None;
+    let mut last_sequence_number: Option<u64> = None;
 
     loop {
         let start = Instant::now();
@@ -563,10 +567,11 @@ async fn process_sse_with_treatment(
                 return;
             }
             Ok(None) => {
-                let error = response_error.unwrap_or(ApiError::Stream(
-                    "stream closed before response.completed".into(),
-                ));
-                let _ = tx_event.send(Err(error)).await;
+                let _ = tx_event
+                    .send(Err(ApiError::Stream(
+                        "stream closed before response.completed".into(),
+                    )))
+                    .await;
                 return;
             }
             Err(_) => {
@@ -592,6 +597,16 @@ async fn process_sse_with_treatment(
                 continue;
             }
         };
+        if let Some(sequence_number) = event.sequence_number {
+            if last_sequence_number.is_some_and(|last| sequence_number <= last) {
+                trace!(
+                    sequence_number,
+                    ?last_sequence_number,
+                    "received non-increasing Responses SSE sequence number"
+                );
+            }
+            last_sequence_number = Some(sequence_number);
+        }
         let model_verifications = event.model_verifications();
         let turn_moderation_metadata = event.turn_moderation_metadata();
         let safety_buffering = event.safety_buffering(&safety_buffering_treatment);
@@ -645,7 +660,8 @@ async fn process_sse_with_treatment(
             }
             Ok(None) => {}
             Err(error) => {
-                response_error = Some(error.into_api_error());
+                let _ = tx_event.send(Err(error.into_api_error())).await;
+                return;
             }
         };
     }
@@ -1063,9 +1079,32 @@ mod tests {
                 "delta": "*** Begin",
             }),
             json!({
+                "type": "response.custom_tool_call_input.done",
+                "item_id": "ctc_1",
+                "call_id": "call_1",
+                "input": "*** Begin Patch",
+            }),
+            json!({
                 "type": "response.function_call_arguments.delta",
                 "item_id": "fc_1",
                 "delta": "{\"input\":\"",
+            }),
+            json!({
+                "type": "response.function_call_arguments.done",
+                "item_id": "fc_1",
+                "call_id": "call_2",
+                "arguments": "{\"input\":\"value\"}",
+            }),
+            json!({
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "function_call",
+                    "id": "fc_1",
+                    "call_id": "call_2",
+                    "name": "lookup",
+                    "arguments": "{\"input\":\"value\"}",
+                    "status": "completed",
+                },
             }),
             json!({
                 "type": "response.completed",
@@ -1082,7 +1121,150 @@ mod tests {
                 delta,
             } if item_id == "ctc_1" && call_id == "call_1" && delta == "*** Begin"
         );
-        assert_matches!(&events[1], ResponseEvent::Completed { .. });
+        assert_matches!(
+            &events[1],
+            ResponseEvent::ToolCallInputDelta {
+                item_id,
+                call_id: None,
+                delta,
+            } if item_id == "fc_1" && delta == "{\"input\":\""
+        );
+        assert_matches!(
+            &events[2],
+            ResponseEvent::OutputItemDone(ResponseItem::FunctionCall {
+                call_id,
+                arguments,
+                ..
+            }) if call_id == "call_2" && arguments == "{\"input\":\"value\"}"
+        );
+        assert_matches!(&events[3], ResponseEvent::Completed { .. });
+        assert_eq!(events.len(), 4, "done events must not duplicate tool items");
+    }
+
+    #[tokio::test]
+    async fn parses_deepseek_vision_response_event_sequence() {
+        let events = run_sse(vec![
+            json!({
+                "type": "response.created",
+                "sequence_number": 0,
+                "response": {
+                    "id": "resp-vision-1",
+                    "model": "deepseek-v4-flash-vision-exp",
+                },
+            }),
+            json!({
+                "type": "response.reasoning_text.delta",
+                "sequence_number": 1,
+                "item_id": "rs-vision-1",
+                "content_index": 0,
+                "delta": "Inspecting the image",
+            }),
+            json!({
+                "type": "response.reasoning_text.done",
+                "sequence_number": 2,
+                "item_id": "rs-vision-1",
+                "content_index": 0,
+                "text": "Inspecting the image",
+            }),
+            json!({
+                "type": "response.output_text.delta",
+                "sequence_number": 3,
+                "item_id": "msg-vision-1",
+                "content_index": 0,
+                "delta": "The screenshot contains a terminal.",
+            }),
+            json!({
+                "type": "response.completed",
+                "sequence_number": 4,
+                "response": { "id": "resp-vision-1" },
+            }),
+        ])
+        .await;
+
+        assert_matches!(&events[0], ResponseEvent::Created {});
+        assert_matches!(
+            &events[1],
+            ResponseEvent::ReasoningContentDelta { delta, content_index: 0 }
+                if delta == "Inspecting the image"
+        );
+        assert_matches!(
+            &events[2],
+            ResponseEvent::OutputTextDelta(delta)
+                if delta == "The screenshot contains a terminal."
+        );
+        assert_matches!(&events[3], ResponseEvent::Completed { response_id, .. }
+            if response_id == "resp-vision-1");
+        assert_eq!(events.len(), 4, "reasoning done is an acknowledgement only");
+    }
+
+    #[tokio::test]
+    async fn parses_web_search_lifecycle_without_duplicate_items() {
+        let events = run_sse(vec![
+            json!({
+                "type": "response.output_item.added",
+                "sequence_number": 0,
+                "item": {
+                    "type": "web_search_call",
+                    "id": "ws-1",
+                    "status": "in_progress",
+                },
+            }),
+            json!({
+                "type": "response.web_search_call.in_progress",
+                "sequence_number": 1,
+                "item_id": "ws-1",
+                "output_index": 0,
+            }),
+            json!({
+                "type": "response.web_search_call.searching",
+                "sequence_number": 2,
+                "item_id": "ws-1",
+                "output_index": 0,
+            }),
+            json!({
+                "type": "response.web_search_call.completed",
+                "sequence_number": 3,
+                "item_id": "ws-1",
+                "output_index": 0,
+            }),
+            json!({
+                "type": "response.output_item.done",
+                "sequence_number": 4,
+                "item": {
+                    "type": "web_search_call",
+                    "id": "ws-1",
+                    "status": "completed",
+                    "action": { "type": "search", "query": "DeepSeek Responses API" },
+                },
+            }),
+            json!({
+                "type": "response.completed",
+                "sequence_number": 5,
+                "response": { "id": "resp-search-1" },
+            }),
+        ])
+        .await;
+
+        assert_matches!(
+            &events[0],
+            ResponseEvent::OutputItemAdded(ResponseItem::WebSearchCall {
+                status: Some(status),
+                ..
+            }) if status == "in_progress"
+        );
+        assert_matches!(
+            &events[1],
+            ResponseEvent::OutputItemDone(ResponseItem::WebSearchCall {
+                status: Some(status),
+                ..
+            }) if status == "completed"
+        );
+        assert_matches!(&events[2], ResponseEvent::Completed { .. });
+        assert_eq!(
+            events.len(),
+            3,
+            "status events must not duplicate search items"
+        );
     }
 
     #[tokio::test]
@@ -1128,6 +1310,40 @@ mod tests {
             }
             other => panic!("unexpected event: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn emits_failed_without_waiting_for_stream_end() {
+        let failed = json!({
+            "type": "response.failed",
+            "sequence_number": 3,
+            "response": {
+                "id": "resp-failed-1",
+                "error": {
+                    "code": "context_length_exceeded",
+                    "message": "Input exceeds the context window."
+                }
+            }
+        })
+        .to_string();
+
+        let sse = format!("event: response.failed\ndata: {failed}\n\n");
+        let stream = stream::iter(vec![Ok(Bytes::from(sse))]).chain(stream::pending());
+        let stream: ByteStream = Box::pin(stream);
+        let (tx, mut rx) = mpsc::channel::<Result<ResponseEvent, ApiError>>(8);
+        tokio::spawn(process_sse(
+            stream,
+            tx,
+            Duration::from_secs(30),
+            /*telemetry*/ None,
+        ));
+
+        let event = tokio::time::timeout(Duration::from_millis(1000), rx.recv())
+            .await
+            .expect("terminal failure was not emitted promptly")
+            .expect("response event channel closed early");
+        assert_matches!(event, Err(ApiError::ContextWindowExceeded));
+        assert!(rx.recv().await.is_none(), "failed is a terminal event");
     }
 
     #[tokio::test]

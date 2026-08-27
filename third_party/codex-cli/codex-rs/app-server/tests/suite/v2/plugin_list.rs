@@ -100,6 +100,7 @@ fn write_remote_plugins_disabled_config_with_base_url(
 [features]
 plugins = true
 remote_plugin = false
+plugin_sharing = true
 "#,
         ),
     )
@@ -293,6 +294,7 @@ async fn plugin_installed_prefers_remote_curated_conflicts_when_remote_plugin_en
 
 [features]
 plugins = true
+remote_plugin = true
 plugin_sharing = false
 
 [plugins."linear@openai-curated"]
@@ -405,6 +407,7 @@ async fn plugin_installed_prefers_api_curated_conflicts_after_switching_to_api_a
 
 [features]
 plugins = true
+remote_plugin = true
 plugin_sharing = false
 
 [plugins."linear@openai-api-curated"]
@@ -3347,6 +3350,7 @@ async fn plugin_installed_includes_created_by_me_when_remote_plugins_enabled() -
 
 [features]
 plugins = true
+remote_plugin = true
 plugin_sharing = false
 "#,
             server.uri()
@@ -3799,6 +3803,7 @@ async fn plugin_list_fetches_user_plugins_in_created_by_me_remote_marketplace() 
 
 [features]
 plugins = true
+remote_plugin = true
 plugin_sharing = false
 "#,
             server.uri()
@@ -3944,7 +3949,7 @@ plugin_sharing = false
 async fn plugin_list_fetches_shared_with_me_kind() -> Result<()> {
     let codex_home = TempDir::new()?;
     let server = MockServer::start().await;
-    write_plugins_enabled_config_with_base_url(
+    write_remote_plugin_sharing_config_with_base_url(
         codex_home.path(),
         &format!("{}/backend-api/", server.uri()),
     )?;
@@ -5208,7 +5213,26 @@ chatgpt_base_url = "{base_url}"
 
 [features]
 plugins = true
+remote_plugin = true
 "#
+        ),
+    )
+}
+
+fn write_remote_plugin_sharing_config_with_base_url(
+    codex_home: &std::path::Path,
+    base_url: &str,
+) -> std::io::Result<()> {
+    std::fs::write(
+        codex_home.join("config.toml"),
+        format!(
+            r#"chatgpt_base_url = "{base_url}"
+
+[features]
+plugins = true
+remote_plugin = true
+plugin_sharing = true
+"#,
         ),
     )
 }

@@ -92,34 +92,41 @@ async fn responses_turn_state_persists_within_turn_and_resets_after() -> Result<
 async fn websocket_turn_state_persists_within_turn_and_resets_after() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
-    let server = start_websocket_server_with_headers(vec![WebSocketConnectionConfig {
-        requests: vec![
-            vec![ev_response_created("warm-1"), ev_completed("warm-1")],
-            vec![
-                json!({
-                    "type": "response.metadata",
-                    "headers": {(TURN_STATE_HEADER): "ts-1"},
-                }),
-                ev_response_created("resp-1"),
-                ev_reasoning_item("rsn-1", &["thinking"], &[]),
-                ev_shell_command_call("ws-shell-turn-state", "echo websocket"),
-                ev_completed("resp-1"),
+    let server = start_websocket_server_with_headers(vec![
+        WebSocketConnectionConfig {
+            requests: vec![
+                vec![ev_response_created("warm-1"), ev_completed("warm-1")],
+                vec![
+                    json!({
+                        "type": "response.metadata",
+                        "headers": {(TURN_STATE_HEADER): "ts-1"},
+                    }),
+                    ev_response_created("resp-1"),
+                    ev_reasoning_item("rsn-1", &["thinking"], &[]),
+                    ev_shell_command_call("ws-shell-turn-state", "echo websocket"),
+                    ev_completed("resp-1"),
+                ],
+                vec![
+                    ev_response_created("resp-2"),
+                    ev_assistant_message("msg-1", "done"),
+                    ev_completed("resp-2"),
+                ],
             ],
-            vec![
-                ev_response_created("resp-2"),
-                ev_assistant_message("msg-1", "done"),
-                ev_completed("resp-2"),
-            ],
-            vec![
+            response_headers: Vec::new(),
+            accept_delay: None,
+            close_after_requests: true,
+        },
+        WebSocketConnectionConfig {
+            requests: vec![vec![
                 ev_response_created("resp-4"),
                 ev_assistant_message("msg-2", "done"),
                 ev_completed("resp-4"),
-            ],
-        ],
-        response_headers: Vec::new(),
-        accept_delay: None,
-        close_after_requests: false,
-    }])
+            ]],
+            response_headers: Vec::new(),
+            accept_delay: None,
+            close_after_requests: false,
+        },
+    ])
     .await;
 
     let mut builder = test_codex();
@@ -128,11 +135,15 @@ async fn websocket_turn_state_persists_within_turn_and_resets_after() -> Result<
     // Phase 2: the first turn mints state for its same-turn tool follow-up.
     test.submit_turn("run the echo command").await?;
     // Phase 3: the follow-up replays that state on the same physical connection.
-    // Phase 4: the next logical turn reuses the connection but starts with empty state.
+    // Phase 4: the next logical turn uses a fresh provider-bound connection and empty state.
     test.submit_turn("start another turn").await?;
 
-    assert_eq!(server.handshakes().len(), 1);
-    let requests = server.single_connection();
+    assert_eq!(server.handshakes().len(), 2);
+    let requests = server
+        .connections()
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
     assert_eq!(requests.len(), 4);
     let bodies = requests
         .iter()

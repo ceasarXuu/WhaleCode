@@ -12,6 +12,7 @@ use super::selection_popup_common::render_rows_with_col_width_mode;
 use super::slash_commands::BuiltinCommandFlags;
 use super::slash_commands::ServiceTierCommand;
 use super::slash_commands::SlashCommandItem;
+use super::slash_commands::USAGE_CHATGPT_LOGIN_REQUIRED;
 use super::slash_commands::commands_for_input;
 use crate::render::Insets;
 use crate::render::RectExt;
@@ -36,6 +37,7 @@ pub(crate) enum CommandItem {
 pub(crate) struct CommandPopup {
     command_filter: String,
     commands: Vec<CommandItem>,
+    token_activity_command_enabled: bool,
     state: ScrollState,
 }
 
@@ -86,6 +88,7 @@ impl CommandPopup {
         Self {
             command_filter: String::new(),
             commands,
+            token_activity_command_enabled: flags.token_activity_command_enabled,
             state: ScrollState::new(),
         }
     }
@@ -206,6 +209,9 @@ impl CommandPopup {
             .map(|(item, indices)| {
                 let name = format!("/{}", item.command());
                 let description = item.description().to_string();
+                let disabled_reason = matches!(item, CommandItem::Builtin(SlashCommand::Usage))
+                    .then_some(USAGE_CHATGPT_LOGIN_REQUIRED.to_string())
+                    .filter(|_| !self.token_activity_command_enabled);
                 GenericDisplayRow {
                     name,
                     name_prefix_spans: Vec::new(),
@@ -214,8 +220,8 @@ impl CommandPopup {
                     description: Some(description),
                     category_tag: None,
                     wrap_indent: None,
-                    is_disabled: false,
-                    disabled_reason: None,
+                    is_disabled: disabled_reason.is_some(),
+                    disabled_reason,
                 }
             })
             .collect()
@@ -364,6 +370,24 @@ mod tests {
         assert_eq!(
             rows.first().and_then(|row| row.description.as_deref()),
             Some("Fastest inference with increased plan usage")
+        );
+    }
+
+    #[test]
+    fn usage_is_visible_with_the_same_disabled_reason_as_dispatch() {
+        let mut popup = CommandPopup::new(CommandPopupFlags::default(), Vec::new());
+        popup.on_composer_text_change("/usage".to_string());
+
+        let rows = popup.rows_from_matches(popup.filtered());
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].is_disabled);
+        assert_eq!(
+            rows[0].disabled_reason.as_deref(),
+            Some(USAGE_CHATGPT_LOGIN_REQUIRED)
+        );
+        assert_eq!(
+            popup.selected_item(),
+            Some(CommandItem::Builtin(SlashCommand::Usage))
         );
     }
 

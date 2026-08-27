@@ -1,0 +1,2378 @@
+# Problem P-001: v0.0.6 多 Provider 发布被仓库基线失败阻断
+- Status: investigating
+- Created: 2026-08-24 04:32 +0800
+- Updated: 2026-08-24 06:38 +0800
+- Objective: 在不改写已确认产品逻辑的前提下，找到并修复阻断 v0.0.6 multi-provider 发布门禁的仓库基线根因。
+- Symptoms:
+  - 受影响六 crate 的隔离 nextest 矩阵执行 9284 项，8928 通过、356 失败。
+  - `just fmt-check` 和 `just clippy -p codex-tui` 也被 multi-provider 改动外的问题阻断。
+- Expected behavior:
+  - multi-provider 相关实现与仓库发布门禁一致，六 crate 隔离矩阵、fmt 和 Clippy 可通过。
+- Actual behavior:
+  - 失败分布于 core 257、app-server 52、TUI 46、protocol 1，涉及 code mode、MCP、plugins、Guardian、status、pets 与 provider/model 兼容测试。
+- Impact:
+  - v0.0.6 multi-provider 功能定向测试通过，但无法证明 release-ready。
+- Reproduction:
+  - `python3 scripts/codex-upstream/run_isolated_tests.py -p codex-login -p codex-models-manager -p codex-protocol -p codex-core -p codex-app-server -p codex-tui`
+- Environment:
+  - Ubuntu 24.04 x86_64；branch `whalecode-alpha`；commit `09d8d4fa1`；Rust stable 1.95 工具链；Asia/Shanghai。
+- Known facts:
+  - login 197/197 和 models-manager 54/54 通过。
+  - 失败集合的 72.2% 在 core，其中 code mode 80 项为最大单一簇。
+  - 至少两个 provider/model 名称相关失败使用默认 DeepSeek 配置，但断言 OpenAI 目录或 capability。
+- Ruled out:
+  - none
+- Fix criteria:
+  - 确认的根因与修复一一对应；原始失败簇的定向复现通过；六 crate 隔离矩阵、`just fmt-check`、相关 Clippy 和 cache gate 通过；无未授权真实模型请求。
+- Current conclusion: 失败明显不是 356 个独立问题，但共享根因的数量和边界尚未通过证据门禁。
+- Related hypotheses:
+  - H-001
+  - H-002
+  - H-003
+  - H-004
+  - H-005
+  - H-006
+  - H-007
+  - H-008
+  - H-009
+  - H-010
+  - H-011
+  - H-012
+  - H-013
+  - H-014
+  - H-015
+  - H-016
+  - H-017
+  - H-018
+  - H-019
+  - H-020
+- Resolution basis:
+  - not satisfied
+- Close reason:
+  - not closed
+
+## Hypothesis H-001: legacy 模型目录接口对 OpenAI 调用错误应用 DeepSeek-only 过滤
+- Status: confirmed
+- Parent: P-001
+- Claim: 一批 model、capability、code-mode 和 Guardian 失败由 OpenAI fixture/兼容调用仍使用 legacy `build_available_models`，而该接口默认只保留 `deepseek-*` 引起。
+- Layer: root-cause
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - Whale 产品默认 Provider 已是 DeepSeek，而上游大量测试默认使用 OpenAI 能力；legacy `ModelsManager` 无 route 参数，却默认执行 DeepSeek-only 过滤。
+- Falsifiable predictions:
+  - If true: 临时关闭 legacy DeepSeek-only 过滤后，OpenAI 代表测试恢复，且不需要改 capability 或 tool 实现。
+  - If false: 关闭过滤不改变代表测试失败信号。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 失败由 effective provider 与断言 provider 不同导致。
+  - Signal: 定向测试的 config/provider 事实、失败断言和临时关闭过滤的对照实验。
+  - Capture method: 读取 fixture 与 manager 构建路径，做可立即回滚的单点诊断改动。
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - test name
+  - Differentiates from:
+    - H-003
+  - Supports if:
+    - 临时关闭 legacy 过滤单独恢复代表性失败断言。
+  - Refutes if:
+    - 临时关闭 legacy 过滤不改变失败信号。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-002
+  - E-005
+  - E-006
+- Conclusion: 关闭 legacy DeepSeek-only 过滤可单独恢复模型切换失败，且撤销 provider ID 同步后仍通过；该机制已确认，但不解释 Code Mode 与 Guardian。
+- Repair design readiness: implemented and verified
+- Next step: none for H-001
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-002: 隔离环境缺失资产或工具导致批量基础设施失败
+- Status: confirmed
+- Parent: P-001
+- Claim: MCP、plugins、pets、fmt 和部分 app-server 失败由隔离 runner 未提供测试需要的资产、可执行文件、配置或环境变量引起。
+- Layer: environment
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - `dotslash` 明确缺失，且 MCP/plugin/pets 失败具有资产与子进程依赖特征。
+- Falsifiable predictions:
+  - If true: 失败输出会聚类为 missing executable/file/config/server metadata，补齐隔离环境后多项同时恢复。
+  - If false: 失败在资产完整的定向宿主测试中以同样业务断言稳定复现。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 失败信号是环境/资产缺失而非业务状态错误。
+  - Signal: JUnit failure message、定向宿主复现、隔离 runner 复制清单与运行环境。
+  - Capture method: 抽取 MCP、plugin、pets 各一个失败的 raw failure，对照宿主定向测试。
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - test name
+  - Differentiates from:
+    - H-004
+  - Supports if:
+    - raw failure 指向共享缺失资产/工具且宿主对照改变结果。
+  - Refutes if:
+    - 宿主与隔离结果一致且断言为稳定业务语义差异。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Related evidence:
+  - E-001
+  - E-032
+  - E-033
+  - E-004
+  - E-007
+  - E-008
+- Evidence gate: satisfied
+- Conclusion: Code Mode 与 MCP 代表失败分别缺少 `codex-code-mode-host` 和 `test_stdio_server`；前者当前还受 rusty_v8 上游缺失预构建资产阻断。
+- Repair design readiness: MCP helper repair implemented and verified; code-mode host dependency remains externally blocked
+- Next step: 将 code-mode host 404 作为独立上游依赖阻断，不混入产品回归；继续盘点其他失败簇。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-003: multi-provider 路由改动破坏了显式 route 的运行时行为
+- Status: unverified
+- Parent: P-001
+- Claim: 至少一部分失败由 route-bound manager、capability 或 transition 实现在显式 route 下返回错误运行时导致。
+- Layer: regression-window
+- Factor relation: any_of
+- Depends on:
+  - none
+- Rationale:
+  - 失败集合包含 model switching、models cache 和 provider capabilities 名称相关测试。
+- Falsifiable predictions:
+  - If true: 显式 OpenAI/DeepSeek route 的新 contract test 或最小运行时复现也会失败。
+  - If false: 新 route-bound contract test 均通过，失败只发生在未迁移的 legacy fixture/caller。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 显式 route 行为本身是否失败。
+  - Signal: route-bound auth/catalog/transition/history/capability 定向测试结果与失败 caller 的 route 使用方式。
+  - Capture method: 重跑最小显式 route 套件，并检查相关失败是否调用 legacy accessor。
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - route and test name
+  - Differentiates from:
+    - H-001
+  - Supports if:
+    - 显式 route 套件可复现同一错误。
+  - Refutes if:
+    - 显式 route 套件通过且失败 caller 未携带 route。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: pending
+- Related evidence:
+  - E-002
+  - E-003
+- Conclusion: unverified
+- Repair design readiness: blocked until Status is confirmed and Evidence gate is satisfied
+- Next step: 复验 route-bound 套件并对照 legacy accessor 失败。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-004: 快照与断言未跟随 Whale 产品基线演进
+- Status: unverified
+- Parent: P-001
+- Claim: TUI status/Guardian/exec/feedback 以及部分 core 失败是预期文本、模型目录、品牌或布局快照落后于已接受产品行为。
+- Layer: regression-window
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - multi-provider 收口时已发现 model popup 快照缺少既有 vision model，更新预期后单测通过。
+- Falsifiable predictions:
+  - If true: `.snap.new` 与当前渲染的差异将与已接受的模型/品牌/布局变化一致，不显示数据丢失或错误状态。
+  - If false: 快照差异暴露未预期的交互、状态或信息丢失。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 快照差异是预期演进还是真实行为回归。
+  - Signal: 代表性 snapshot diff 及引入变化的 commit/code path。
+  - Capture method: 选 status、Guardian、exec/feedback 各一项定向运行并审查 `.snap.new`。
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - snapshot name
+  - Differentiates from:
+    - H-002
+  - Supports if:
+    - 差异可与已接受的实现变更直接对应。
+  - Refutes if:
+    - 差异含不可解释的状态丢失或错误行为。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - remove `.snap.new` after diagnosis
+- Evidence gate: pending
+- Related evidence:
+  - E-001
+- Conclusion: Guardian 两份请求布局快照已确认仅落后于既有 Whale 品牌文本；TUI 等其余快照仍需分别核验，不能据此整体判定。
+- Repair design readiness: blocked until Status is confirmed and Evidence gate is satisfied
+- Next step: 定向生成代表性 snapshot diff。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-005: Guardian 测试夹具隐式继承 DeepSeek 默认 Provider
+- Status: confirmed
+- Parent: P-001
+- Claim: Guardian 单测用 dummy OpenAI API auth 和 OpenAI mock server 验证 Responses 行为，却只覆盖 `base_url`，因此在 Whale 默认 DeepSeek 后仍要求 `DEEPSEEK_API_KEY` 并批量失败。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 失败直接报告缺少 `DEEPSEEK_API_KEY`，而测试请求、认证和 mock 均属于 OpenAI fixture。
+- Falsifiable predictions:
+  - If true: 在 fixture 中同时绑定 OpenAI provider ID、registry entry 和 concrete provider 后，失败无需修改 Guardian 生产逻辑即可恢复。
+  - If false: 显式绑定 OpenAI 后仍以同样的缺少 DeepSeek key 或 Guardian 业务断言失败。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: fixture provider 与测试协议不一致。
+  - Signal: 原始认证错误、显式 OpenAI 对照运行、剩余失败类型。
+  - Capture method: 仅修改测试配置，重跑完整 Guardian 单测簇与三个代表测试。
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - guardian test name
+  - Differentiates from:
+    - H-003
+  - Supports if:
+    - 原失败批量恢复，剩余差异可独立归因。
+  - Refutes if:
+    - 原失败保持不变。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-009
+- Conclusion: 显式 OpenAI fixture 将原 15 个 Guardian 单测失败中的 12 个直接恢复；补齐两个手工 fixture 后，错误传播测试恢复，剩余两项仅为品牌快照。
+- Repair design readiness: implemented and verified
+- Next step: none for H-005
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-006: app-server 默认 capability 用例仍断言上游 OpenAI 默认值
+- Status: confirmed
+- Parent: P-001
+- Claim: `read_default_provider_capabilities` 未显式配置 provider，却仍期待 OpenAI 能力；Whale 的已确认默认 provider 是 DeepSeek，因此测试预期过期。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 配置层已有 `defaults_to_deepseek_flash_responses_provider` 合同，provider 层已有 DeepSeek capability 合同。
+- Falsifiable predictions:
+  - If true: endpoint 实际返回 DeepSeek 的 false/false/true；显式配置 OpenAI 时仍返回 true/true/true。
+  - If false: endpoint 返回值不随配置 provider 改变，或 DeepSeek 返回值与 provider 单测不一致。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: endpoint 正确读取当前 provider，只有默认用例预期陈旧。
+  - Signal: 默认与显式 OpenAI 两个 endpoint 对照测试。
+  - Capture method: 保留默认路径并新增显式 OpenAI 覆盖。
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - provider ID
+  - Differentiates from:
+    - H-003
+  - Supports if:
+    - 默认返回 DeepSeek 能力，显式 OpenAI 返回 OpenAI 能力。
+  - Refutes if:
+    - 两个配置返回相同或错误能力。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-012
+- Conclusion: 原用例的默认前提已被 Whale 默认 DeepSeek 配置取代；生产 endpoint 与 provider capability 实现一致。
+- Repair design readiness: implemented and verified
+- Next step: none for H-006
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-007: app-server 插件测试仍依赖已取消的 feature 隐式启用
+- Status: confirmed
+- Parent: P-001
+- Claim: plugin sharing 与 recommended plugins 的正向测试未显式启用完整 feature 依赖，因当前稳定 feature 默认关闭而提前进入禁用或 legacy 路径。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 失败分别稳定报告 `plugin sharing is disabled` 和缺少 `<recommended_plugins>`；feature registry 明确将两者默认设为 false。
+- Falsifiable predictions:
+  - If true: 只在正向测试夹具显式启用对应 feature 后，分享与推荐簇恢复，显式禁用测试继续通过。
+  - If false: 启用 feature 后仍以相同禁用信号失败。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 请求未进入被测正向路径是因为 fixture 缺少 opt-in。
+  - Signal: feature registry、禁用错误、正反向文件级测试结果。
+  - Capture method: 修改共享正向 fixture，运行 plugin_share 与 recommended_plugins 两个完整模块。
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - feature key and test module
+  - Differentiates from:
+    - H-002
+  - Supports if:
+    - 正向与显式禁用用例同时通过。
+  - Refutes if:
+    - 同一禁用错误保留或禁用态语义被破坏。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-014
+- Conclusion: 分享簇已证明失败发生在测试配置门禁；推荐路径还要求 `remote_plugin`，首轮只启用 `recommended_plugins` 的对照仍进入 legacy 模式，进一步确认完整依赖必须由 fixture 声明。
+- Repair design readiness: implemented and verified
+- Next step: none for H-007
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-008: plugin-list remote catalog fixture 未声明正交 feature 组合
+- Status: confirmed
+- Parent: P-001
+- Claim: 14 个 plugin-list 失败由测试 helper/直写配置只启用 `plugins`，却分别期待 remote catalog、sharing catalog 或二者组合引起。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - feature registry 将 `remote_plugin` 与 `plugin_sharing` 独立默认关闭；失败表现为 remote marketplace 为空、请求未发生或错误走入 legacy vertical endpoint。
+- Falsifiable predictions:
+  - If true: 给每类正向 fixture 声明其最小 feature 组合后，完整 plugin-list 模块恢复；显式 remote disabled 用例仍只请求 sharing 所需 scope。
+  - If false: 补齐 feature 后仍出现相同的空 catalog/零请求信号。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: catalog 生产逻辑未执行是 feature 组合不完整，而非远端映射损坏。
+  - Signal: 原全量 JUnit、fixture config、request processor feature gate、完整模块复验。
+  - Capture method: 修共享 helper 与四个名称明确的 remote-enabled 直写配置，运行 plugin-list 模块。
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - feature combination and marketplace kind
+  - Differentiates from:
+    - H-002
+  - Supports if:
+    - catalog、cache、startup refresh 与显式 kind 用例同时恢复。
+  - Refutes if:
+    - 原请求计数与 marketplace 断言保持失败。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-016
+- Conclusion: remote 与 sharing 是正交 opt-in；测试 helper 仍按旧的聚合默认编写，生产 feature 门禁无需改变。
+- Repair design readiness: implemented and verified
+- Next step: none for H-008
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-009: 外部配置导入断言仍使用上游品牌文本
+- Status: confirmed
+- Parent: P-001
+- Claim: attribution-only 导入测试期待 `Codex guidance`，但 Whale 已有的导入源归属文本是 `Whale guidance`，失败来自陈旧品牌断言。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 测试验证的是 source 字段仅用于归属而不改变主导入源，不应借此要求旧产品品牌。
+- Falsifiable predictions:
+  - If true: 只更新品牌预期即可恢复测试，导入来源和文件路径行为不变。
+  - If false: 更新品牌后仍有导入路由或内容错误。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-018
+- Conclusion: 定向测试仅更新品牌预期后通过，生产逻辑未修改。
+- Repair design readiness: implemented and verified
+- Next step: none for H-009
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-010: secondary session fixture 偶然依赖目录反解和文件 mtime
+- Status: confirmed
+- Parent: P-001
+- Claim: Cursor 会话端到端夹具未在记录顶层提供 `cwd` 和时间戳，导致临时目录名无法唯一反解时 session summary 被丢弃。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - Cursor session parser支持记录内 `cwd`/`timestamp_ms`；原夹具把时间写在用户文本标签中，并依赖 fallback cwd 才回退到文件 mtime。
+- Falsifiable predictions:
+  - If true: 补齐记录级 `cwd` 和 `timestamp_ms` 后，Sessions 与 Plugins 两项都会被检测并完成导入。
+  - If false: 补齐元数据后 Sessions 仍缺失。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-018
+- Conclusion: 补齐真实记录格式的必要元数据后，端到端检测和导入恢复。
+- Repair design readiness: implemented and verified
+- Next step: none for H-010
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-011: command/exec 测试误把宿主不可见等同于子进程权限错误
+- Status: refuted
+- Parent: P-001
+- Claim: 隔离沙箱允许命令在临时文件系统视图中完成父路径写入，但不会把该写入暴露给宿主；原测试用 shell `!` 要求写入返回错误，误判了隔离合同。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 原失败中命令退出 1，但宿主父文件不存在；移除 `!` 后命令退出 0，宿主父文件仍不存在且工作目录子文件正常持久化。
+- Falsifiable predictions:
+  - If true: 直接执行两次写入时命令成功，同时只有 workspace root 内的子文件在宿主可见。
+  - If false: 父文件泄漏到宿主或子文件也不可见。
+- Evidence gate: satisfied
+- Related evidence:
+  - E-018
+  - E-026
+  - E-028
+- Conclusion: 先前 `/dev/shm` 不可见环境给出了误导性通过；在沙箱可见的 `/var/tmp` 上，父目录写入正确返回只读错误，原 `!` 断言才是权限边界合同。
+- Repair design readiness: reverted incorrect repair and verified
+- Next step: none for H-011
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-012: 非 OpenAI 子 Agent 的消息正文被 provider 历史投影剥离
+- Status: confirmed
+- Parent: P-001
+- Claim: multi-agent v2 对普通工具调用无条件把消息正文写入 OpenAI 专用 `encrypted_content`；非 OpenAI provider 的历史投影只保留文本内容，因此 DeepSeek 子 Agent 只收到消息头而丢失 payload。
+- Layer: runtime
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 冷恢复测试把 matcher 改为稳定的结构化消息匹配后，捕获到 `Payload:` 后正文为空；源码路径同时显示发送端无条件构造 encrypted content，接收端对非 OpenAI 历史删除 encrypted content。
+- Falsifiable predictions:
+  - If true: 根据目标 provider 选择消息表示后，DeepSeek/mock 子 Agent 能看到完整 payload，OpenAI 路径仍保留 encrypted content。
+  - If false: 改为可移植明文信封后冷恢复测试仍缺失正文，或 OpenAI 加密合同被破坏。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 正文丢失发生在 encrypted inter-agent content 到 non-OpenAI history projection 的边界。
+  - Signal: mock 捕获的请求正文、发送端构造类型、投影后保留的 content 类型。
+  - Capture method: 结构化 wiremock matcher、源码路径核对、provider 双路径单测。
+  - Event name or marker:
+    - `agent_message`
+  - Correlation keys:
+    - recipient agent path
+  - Differentiates from:
+    - 仅测试 matcher 超时或 developer instructions 未恢复
+  - Supports if:
+    - 原请求含消息头但 payload 为空，且 provider-aware 表示恢复正文。
+  - Refutes if:
+    - 请求未经过 encrypted content，或 provider-aware 表示不改变结果。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-019
+  - E-020
+- Conclusion: 根因已确认；发送端必须以目标 provider 能消费的表示写入会话，未知 provider 保守使用可移植明文以保证语义完整。
+- Repair design readiness: implemented and verified
+- Next step: 运行 cache regression gate 并提交。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-013: host-only file-change fixture 被自动环境绑定到不同 cwd
+- Status: refuted
+- Parent: P-001
+- Claim: session approval 持久化测试在宿主 `workspace` 准备文件，却通过 `start_thread` helper 自动选择另一个 local environment cwd；首轮新增文件可见，但第二轮隔离视图无法读取宿主文件，导致补丁失败和测试超时。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 测试已明确声明 apply-patch fixture 只在 host materialize；运行日志同时显示 thread cwd 与自动 environment cwd 不同，第二轮报宿主 README 不存在，而 approval request 确实已被跳过。
+- Falsifiable predictions:
+  - If true: 对该 host-only 测试禁用 auto environment 并显式启动 thread 后，两轮补丁成功且第二轮不发审批请求。
+  - If false: 对齐 cwd 后仍出现审批重复或文件不可见。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 失败来自 fixture 环境选择，不是 AcceptForSession 状态丢失。
+  - Signal: thread/environment cwd、第二轮 approval request 数量、apply_patch 错误路径。
+  - Capture method: 隔离测试日志与测试 helper 源码对照。
+  - Event name or marker:
+    - `FileChangeRequestApproval`
+  - Correlation keys:
+    - `patch-call-1`
+    - `patch-call-2`
+  - Differentiates from:
+    - session approval 未持久化
+  - Supports if:
+    - 第二轮没有 approval request，但读取与 host fixture 同名路径失败。
+  - Refutes if:
+    - 第二轮再次发出 approval request。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-021
+  - E-023
+- Conclusion: approval 持久化行为已生效，但禁用自动环境后相同路径仍不可见；cwd 分裂不是根因。
+- Repair design readiness: not applicable
+- Next step: 由 H-015 解释并修复隔离临时根目录可见性。
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-014: legacy attribution 测试输入被误品牌化为当前 Whale 文本
+- Status: confirmed
+- Parent: P-001
+- Claim: 冷恢复测试的 CommitOnly legacy fixture 被品牌提交改成 Whale trailer，但生产迁移器故意只识别旧 Codex trailer，因此该分支不再触发 legacy 替换。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - `git blame` 显示同一品牌提交只修改测试常量；生产 `LEGACY_COMMIT_ATTRIBUTION_INSTRUCTIONS` 保持 Codex，用于真实旧 rollout 兼容。
+- Falsifiable predictions:
+  - If true: 恢复测试的 Codex legacy trailer 后，commit-only 分支保留一次历史 Codex commit 指令、不产生当前 Whale commit 指令，并追加一次 disabled 指令；unlinked PR 分支保留一次当前 Whale commit 指令并追加一次 disabled 指令。
+  - If false: 恢复真实 legacy 输入后 disabled 指令仍缺失，或任一分支发生重复。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: fixture 不再匹配生产 legacy matcher。
+  - Signal: 测试/生产 legacy 常量逐字差异、品牌提交 blame、两个参数化分支结果。
+  - Capture method: 源码与 blame 对照、隔离参数化测试。
+  - Event name or marker:
+    - `<git_attribution>`
+  - Correlation keys:
+    - `commit_only`
+    - `unlinked_pull_request`
+  - Differentiates from:
+    - workspace attribution policy 请求失败
+  - Supports if:
+    - 只有 commit_only 失败，完整策略与 unlinked PR 分支通过。
+  - Refutes if:
+    - 两个 legacy 分支或策略请求同时失败。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-022
+  - E-024
+  - E-025
+- Conclusion: 生产规则按历史类型保留一份既有 commit 指令并追加 disabled 覆盖；测试必须区分 Codex legacy 与 Whale 当前指令，不能继续用品牌替换后的同一字符串计数。
+- Repair design readiness: implemented and verified
+- Next step: none for H-014
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-015: 隔离 runner 的 `/dev/shm` 根目录对受限文件沙箱不可见
+- Status: confirmed
+- Parent: P-001
+- Claim: Codex 隔离 runner 在 Linux 优先把测试临时根放到 `/dev/shm`，但 app-server 的受限 apply-patch 文件沙箱不暴露该挂载，导致宿主创建或首轮创建的 workspace 文件在校验进程中不可见。
+- Layer: test-infrastructure
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 将 README 预先写入宿主 workspace 后，首轮 update 仍报文件不存在；同一测试仅将有效临时根改为 `/var/tmp` 即通过。
+- Falsifiable predictions:
+  - If true: runner 默认优先选择 `/var/tmp` 后，原始 Add→Update approval 用例通过，无需修改产品逻辑或测试环境选择。
+  - If false: `/var/tmp` 下仍出现相同文件不可见，或必须改变 approval/session 实现才能通过。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: `/dev/shm` 挂载边界而非审批状态或 cwd 选择造成不可见。
+  - Signal: 实际 runtime cwd、预存文件首轮 update、仅改变 runtime root 的对照结果。
+  - Capture method: 隔离 nextest 日志及 `WHALE_CODEX_TEST_TMPDIR=/var/tmp` 对照。
+  - Event name or marker:
+    - `apply_patch verification failed`
+  - Correlation keys:
+    - nextest runtime root
+    - `patch-call-1`
+  - Differentiates from:
+    - H-013
+    - AcceptForSession 状态丢失
+  - Supports if:
+    - `/dev/shm` 失败而 `/var/tmp` 通过。
+  - Refutes if:
+    - 两个根目录结果相同。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-023
+  - E-025
+- Conclusion: 根因是隔离 runner 的默认临时挂载选择；显式配置无效时静默回退还会掩盖对照，需改为快速失败。
+- Repair design readiness: implemented and verified
+- Next step: none for H-015
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-016: app-server 隔离回归缺少 code-mode host 预构建与离线 V8 资产绑定
+- Status: confirmed
+- Parent: P-001
+- Claim: app-server 的 Code Mode、ImageGen Code Mode 和相关 analytics 用例依赖 `codex-code-mode-host`，但隔离 runner 未预构建它；直接补构建时，代理被清理的资格化环境又无法自动下载 V8 归档。
+- Layer: test-infrastructure
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 完整回归中四项失败共享 host binary 不存在或 cell 为空信号；绑定资格化流程已校验的本地 V8 资产并构建 host 后，四项全部通过。
+- Falsifiable predictions:
+  - If true: runner 对 app-server/core scope 预构建 host，并自动复用校验通过的候选缓存后，四项用例无需产品改动即可通过。
+  - If false: host 存在后仍出现相同 Null image、hasCell=false 或远端 host 启动失败。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 失败由缺失 runtime helper 产生。
+  - Signal: host spawn 错误、V8 build 输出、绑定缓存后的目标回归。
+  - Capture method: 完整 nextest 与五项定向对照。
+  - Event name or marker:
+    - `failed to spawn code-mode host`
+  - Correlation keys:
+    - `codex-code-mode-host`
+    - nextest test names
+  - Differentiates from:
+    - ImageGen tool result映射错误
+    - analytics correlation 逻辑错误
+  - Supports if:
+    - 构建 host 后四项同时恢复。
+  - Refutes if:
+    - 任一原信号保留。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-027
+  - E-028
+- Conclusion: app-server 测试的运行时依赖未被 runner 声明；应复用既有、带校验的 V8 候选缓存，不开放隔离测试的宿主代理。
+- Repair design readiness: implemented and verified
+- Next step: none for H-016
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-017: tool spec 规划测试隐式继承 DeepSeek provider 能力
+- Status: confirmed
+- Parent: P-001
+- Claim: `spec_plan_tests` 的通用探针沿用 `make_session_and_context` 的 Whale 默认 DeepSeek provider，但多数用例验证 namespace、deferred tool search 和 hosted tools 等 OpenAI 能力，导致工具被正确过滤后测试误报。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 24 项失败集中表现为 namespace/deferred/hosted tool 缺失；规划器明确按 provider capabilities 门禁，文件中显式 Bedrock 用例反而通过。
+- Falsifiable predictions:
+  - If true: 通用 probe 显式绑定 OpenAI provider 后，namespace/deferred/hosted 工具断言恢复；显式 Bedrock 用例仍通过。
+  - If false: 绑定 OpenAI 后原工具仍缺失或 Bedrock 合同被破坏。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 测试 provider 与被测能力合同不一致。
+  - Signal: 失败工具类别、provider capabilities gate、完整 spec-plan 文件回归。
+  - Capture method: 只修改测试探针 provider，运行 49 项 spec-plan 单测。
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - provider ID
+    - tool namespace/exposure
+  - Differentiates from:
+    - tool registry 生产实现丢失
+  - Supports if:
+    - 原 24 项失败全部恢复。
+  - Refutes if:
+    - 同一缺失信号保留。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-030
+  - E-031
+- Conclusion: 通用 spec-plan fixture 必须显式选择支持其工具合同的 OpenAI provider；provider 专属用例继续自行覆盖。
+- Repair design readiness: implemented and verified
+- Next step: none for H-017
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-018: core OpenAI 能力单测未显式绑定 provider
+- Status: confirmed
+- Parent: P-001
+- Claim: tool router 的 namespace/dynamic extension 用例与 thread manager 的 OpenAI `/models` refresh 用例隐式继承默认 DeepSeek provider，分别导致工具能力过滤和零 catalog 请求。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - router 失败与 H-017 相同地缺少 namespace tools；thread manager 使用 ChatGPT auth 和 OpenAI mock endpoint，却只覆盖默认 provider 的 base URL。
+- Falsifiable predictions:
+  - If true: 四项 fixture 显式绑定 OpenAI provider 后全部恢复，无需修改 router 或 refresh 生产逻辑。
+  - If false: 仍出现空工具集合或零 `/models` 请求。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: 测试协议和 provider 不一致。
+  - Signal: provider capabilities、mock request count、目标回归。
+  - Capture method: 只修改测试 provider 并运行四项定向 nextest。
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - OpenAI provider ID
+    - `/models`
+  - Differentiates from:
+    - router registry 丢失
+    - models manager refresh 策略错误
+  - Supports if:
+    - 四项全部通过。
+  - Refutes if:
+    - 原失败信号保持。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-034
+- Conclusion: provider-sensitive core 单测必须显式声明 OpenAI，默认 DeepSeek 的产品行为保持不变。
+- Repair design readiness: implemented and verified
+- Next step: none for H-018
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-019: guardian mock 测试误用默认 DeepSeek provider
+- Status: confirmed
+- Parent: P-001
+- Claim: 三项 guardian 测试仅覆盖 OpenAI mock base URL，却继承默认 DeepSeek provider，自动审查因缺少 DeepSeek API key fail-closed。
+- Layer: test-fixture
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - 失败拒绝文本明确报告 `DEEPSEEK_API_KEY` 缺失，而 fixture 挂载的是 `/v1/responses` SSE。
+- Falsifiable predictions:
+  - If true: 显式绑定 OpenAI provider 后，guardian 仍走既有安全逻辑且三项通过。
+  - If false: 仍返回空权限或通用自动审查失败。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: provider 协议与 mock 不一致。
+  - Signal: guardian 响应、权限 grant、目标回归。
+  - Capture method: 仅修正三项 fixture provider 后运行定向 nextest。
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - OpenAI provider ID
+    - `/v1/responses`
+  - Differentiates from:
+    - guardian 安全策略错误
+    - 权限 grant 丢失
+  - Supports if:
+    - 三项全部通过。
+  - Refutes if:
+    - 原失败信号保持。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-035
+- Conclusion: guardian 的安全与授权逻辑无需修改；OpenAI mock fixture 必须显式声明 OpenAI provider。
+- Repair design readiness: implemented and verified
+- Next step: none for H-019
+- Blocker:
+  - none
+- Close reason:
+  - not closed
+
+## Hypothesis H-020: DeepSeek 内置模型目录缺失基础系统提示词
+- Status: confirmed
+- Parent: P-001
+- Claim: 三个 DeepSeek bundled model 的 legacy `base_instructions` 为空，导致 Standard final-wire 没有 `instructions`，同时缓存快照仍保留旧 effort 与工具能力。
+- Layer: model-catalog
+- Factor relation: part_of
+- Depends on:
+  - none
+- Rationale:
+  - final-wire 直接断言 `instructions` 缺失；模型目录三个 DeepSeek 条目均为空字符串，违反 v0.0.6 PD6 的 provider prompt 快照合同。
+- Falsifiable predictions:
+  - If true: catalog 读取时为空 DeepSeek 条目补现有 Whale base prompt 后，请求携带稳定 instructions，连续两轮前缀保持且 provider 能力过滤不变。
+  - If false: final-wire 仍无 instructions，或历史/工具前缀发生非预期变化。
+- Diagnostic evidence plan:
+  - Prediction or clause under test: DeepSeek model metadata 是否向 request 提供非空 Whale base prompt。
+  - Signal: model instructions、final-wire body、provider-wire identity、双请求 prefix。
+  - Capture method: bundled catalog 测试、mock Responses final-wire、cache snapshot 与 provider trace 定向回归。
+  - Event name or marker:
+    - none
+  - Correlation keys:
+    - `deepseek-v4-flash`
+    - `whalecode-standard-v0.0.6`
+  - Differentiates from:
+    - Responses serializer 丢弃 instructions
+    - cache stabilizer 错误
+  - Supports if:
+    - Whale instructions 非空且两轮相同，六项 core 合同与两项 model catalog 合同通过。
+  - Refutes if:
+    - 修复 model metadata 后 wire 仍为空。
+  - Instrumentation status: none
+  - Instrumentation lifecycle:
+    - none
+- Evidence gate: satisfied
+- Related evidence:
+  - E-036
+- Conclusion: 根因是 bundled DeepSeek metadata 空 prompt；复用单一 Whale base prompt 即可，不需要新增 provider prompt 框架。
+- Repair design readiness: implemented and verified offline
+- Next step: 发布晋升仍受既有真实 cache baseline 门禁约束
+- Blocker:
+  - 真实缓存回归需要独立预算授权，当前不影响继续清理离线工程失败。
+- Close reason:
+  - not closed
+
+## Evidence E-001: 失败按 crate 与模块聚类
+- Related hypotheses:
+  - H-002
+  - H-004
+- Direction: supports
+- Type: test
+- Source: `third_party/codex-cli/codex-rs/target/nextest/local/junit.xml`
+- Prediction or plan link:
+  - H-002/H-004 的失败应聚类而非均匀分布预测。
+- Matched signal:
+  - core 257、app-server 52、TUI 46、protocol 1；core code_mode 80、tools 26、RMCP 24；app-server plugin list/share 24；TUI status 14、Guardian 8。
+- Correlation keys:
+  - nextest UUID `2c80ad31-b935-4c0a-9ea8-bae8f614a1a8`
+- Raw content:
+  ```text
+  tests=9284 failures=356 time=244.568
+  codex-core failures=55; codex-core::all failures=202
+  codex-app-server::all failures=52
+  codex-tui failures=46
+  codex-protocol failures=1
+  ```
+- Interpretation: 少数模块占据大多数失败，值得优先查找共享 fixture、环境或快照根因。
+- Time: 2026-08-24 04:32 +0800
+
+## Evidence E-002: 两个 provider 相关失败的 effective default 为 DeepSeek
+- Related hypotheses:
+  - H-001
+  - H-003
+- Direction: supports
+- Type: reproduction
+- Source: 定向 `cargo test` 与对应 fixture/code path
+- Prediction or plan link:
+  - H-001 的 provider 前提与断言 provider 不同预测。
+- Matched signal:
+  - model switching 测试在 legacy/default manager 中找不到注入的 OpenAI 模型；capability read 实际返回 DeepSeek false/false/true，测试期待 OpenAI true/true/true。
+- Correlation keys:
+  - `model_switch_to_smaller_model_updates_token_context_window`
+  - `read_default_provider_capabilities`
+- Raw content:
+  ```text
+  expected test-text-only-model to be available in remote model list
+  actual capabilities: namespace_tools=false, image_generation=false, web_search=true
+  expected capabilities: namespace_tools=true, image_generation=true, web_search=true
+  ```
+- Interpretation: 证明了存在 legacy fixture/provider 前提冲突；尚未证明该机制能解释多少失败。
+- Time: 2026-08-24 04:32 +0800
+
+## Evidence E-003: multi-provider 显式 route 定向套件通过
+- Related hypotheses:
+  - H-003
+- Direction: refutes
+- Type: test
+- Source: Phase 1–4 定向测试记录与 `docs/releases/v0.0.6/multi-provider/plan.md`
+- Prediction or plan link:
+  - H-003 的显式 route 行为也会失败预测。
+- Matched signal:
+  - route-bound auth/catalog/cache/transition/history/lifecycle/TUI selection/login recovery 定向套件均通过。
+- Correlation keys:
+  - `openai/chatgpt`
+  - `openai/api-key`
+  - `deepseek/api-key`
+- Raw content:
+  ```text
+  codex-login 197/197 passed
+  codex-models-manager 54/54 passed
+  provider transition, history projection, lifecycle and TUI routed selection focused tests passed
+  ```
+- Interpretation: 降低了显式 route 实现普遍回归的可能性，但需要在当前 HEAD 复验关键套件才能关闭 H-003。
+- Time: 2026-08-24 04:32 +0800
+
+## Evidence E-004: fmt 与 Clippy 阻断来自环境和未触及模块
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: environment
+- Source: `just fmt-check`、`cargo fmt --all -- --check`、`just clippy -p codex-tui`
+- Prediction or plan link:
+  - H-002 的工具/环境缺失会独立阻断门禁预测。
+- Matched signal:
+  - `cargo fmt --all -- --check` 通过；`just fmt-check` 因 `dotslash` 不存在且 stable rustfmt 不支持 nightly import granularity 而失败；Clippy 在未触及的 codex-state `expect_used` 失败。
+- Correlation keys:
+  - none
+- Raw content:
+  ```text
+  [Errno 2] No such file or directory: 'dotslash'
+  error: used expect() on an Option value
+  state/src/runtime/taskspace_action_settlements.rs:35:52
+  ```
+- Interpretation: 至少静态门禁不能作为 multi-provider 生产逻辑回归证据；工具链和独立 lint 需分开修复。
+- Time: 2026-08-24 04:32 +0800
+
+## Evidence E-005: 同步 fixture provider ID 未改变三项代表失败
+- Related hypotheses:
+  - H-001
+- Direction: refutes
+- Type: diagnostic
+- Source: `core/tests/common/test_codex.rs` 单行诊断改动与三项定向 `cargo test`
+- Prediction or plan link:
+  - 原 H-001 中“仅 provider ID 未同步”的预测。
+- Matched signal:
+  - fixture 将 `model_provider_id` 同步为 `openai` 后，Code Mode 仍只发出一次请求、模型切换仍找不到远端模型、Guardian 仍收不到 assessment。
+- Correlation keys:
+  - `code_mode_can_return_exec_command_output`
+  - `model_switch_to_smaller_model_updates_token_context_window`
+  - `guardian_review_uses_preferred_review_model_without_model_catalog_override`
+- Raw content:
+  ```text
+  expected two output items, got one
+  expected test-text-only-model to be available in remote model list
+  expected guardian assessment
+  ```
+- Interpretation: provider ID 不一致不是充分根因；代码检查显示 legacy manager 即使由 OpenAI provider 创建，仍默认执行 DeepSeek-only 目录过滤，需单独验证该机制。
+- Time: 2026-08-24 04:51 +0800
+
+## Evidence E-006: 关闭 legacy DeepSeek-only 过滤单独恢复模型切换
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: diagnostic
+- Source: `models-manager/src/manager.rs` 单行可回滚诊断改动与定向 nextest
+- Prediction or plan link:
+  - H-001 的过滤机制预测。
+- Matched signal:
+  - 临时令 legacy `restrict_to_whale_models` 返回 false 后，`model_switch_to_smaller_model_updates_token_context_window` 从稳定失败转为通过；撤销 fixture provider ID 同步后仍通过。Code Mode 与 Guardian 仍失败，划清了机制边界。
+- Correlation keys:
+  - nextest run `1860845b-48c4-4634-952a-8eba6d0dbba9`
+  - nextest run `406ca047-1334-49f4-8a8f-d31e97379711`
+- Raw content:
+  ```text
+  PASS suite::model_switching::model_switch_to_smaller_model_updates_token_context_window
+  FAIL suite::code_mode::code_mode_can_return_exec_command_output
+  FAIL guardian::tests::guardian_review_uses_preferred_review_model_without_model_catalog_override
+  ```
+- Interpretation: H-001 已满足证据门禁；修复应只让 OpenAI legacy manager 不过滤，不能全局关闭 DeepSeek-only 视图。
+- Time: 2026-08-24 04:55 +0800
+
+## Evidence E-007: Code Mode 与 MCP 失败缺少运行时 helper
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: environment
+- Source: 定向测试、helper 查找路径、`cargo build` 与 rusty_v8 官方发布资产
+- Prediction or plan link:
+  - H-002 的失败由缺失 executable 而非业务状态引起预测。
+- Matched signal:
+  - Code Mode 原始响应为 `unsupported custom tool call: exec`；`effective_tool_mode` 在 host 不可用时退回 Direct。MCP raw failure明确找不到 `test_stdio_server`。两者均不在六 crate 选择集的构建产物中。
+- Correlation keys:
+  - `code_mode_can_return_exec_command_output`
+  - `test_stdio_server`
+  - rusty_v8 `v150.4.0`
+- Raw content:
+  ```text
+  unsupported custom tool call: exec
+  could not locate binary "test_stdio_server"
+  Failed to download .../v150.4.0/librusty_v8_ptrcomp_sandbox_release_x86_64-unknown-linux-gnu.a.gz (HTTP 404)
+  ```
+- Interpretation: H-002 已满足证据门禁。Code Mode 不是 provider 行为回归；当前 host 构建还命中 OpenAI Codex 上游已报告的 rusty_v8 sandbox asset 404，不能用修改业务断言掩盖。
+- Time: 2026-08-24 05:13 +0800
+
+## Evidence E-008: 隔离 runner 预构建 MCP helper 后代表测试通过
+- Related hypotheses:
+  - H-002
+- Direction: supports
+- Type: verification
+- Source: `scripts/codex-upstream/run_isolated_tests.py` 与定向隔离 nextest
+- Prediction or plan link:
+  - H-002 的补齐 helper 后原失败恢复预测。
+- Matched signal:
+  - runner 在包含 `codex-core` 的选择范围内先构建 `test_stdio_server`；脚本单测 7/7 通过，原 MCP 代表测试在隔离环境中通过。
+- Correlation keys:
+  - nextest run `e35e1c48-ffaa-458c-b87f-afae89e06110`
+- Raw content:
+  ```text
+  Ran 7 tests ... OK
+  PASS suite::mcp_refresh_cleanup::refresh_keeps_superseded_mcp_server_alive_for_in_flight_calls
+  ```
+- Interpretation: MCP helper 缺失的 runner 工程缺口已修复；Code Mode host 仍需等待或绕开上游 rusty_v8 资产问题。
+- Time: 2026-08-24 05:25 +0800
+
+## Evidence E-009: Guardian 显式 OpenAI fixture 恢复原失败簇
+- Related hypotheses:
+  - H-005
+- Direction: supports
+- Type: diagnostic
+- Source: `core/src/guardian/tests.rs` 与隔离 Guardian 定向 nextest
+- Prediction or plan link:
+  - H-005 的显式绑定 OpenAI 后无需修改生产逻辑即可恢复预测。
+- Matched signal:
+  - helper 同步 provider ID、registry entry 和 concrete provider 后，原 15 个 Guardian 单测失败只剩 3 个；补齐两个独立手工 fixture 后，Responses API 错误传播测试通过，剩余两项为快照文本差异。
+- Correlation keys:
+  - 66-test Guardian unit cluster
+  - `guardian_review_uses_preferred_review_model_without_model_catalog_override`
+  - `guardian_review_surfaces_responses_api_errors_in_rejection_reason`
+- Raw content:
+  ```text
+  before: 15 Guardian unit failures
+  after shared fixture binding: 63 passed, 3 failed
+  focused follow-up: API error test passed; two request-layout snapshots differed only by Codex -> Whale branding
+  ```
+- Interpretation: Guardian 生产路径无需修改；根因是上游测试夹具未声明其 OpenAI provider 前提。
+- Time: 2026-08-24 06:02 +0800
+
+## Evidence E-010: Guardian 请求快照仅包含既有品牌替换
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: snapshot
+- Source: 两份 Guardian request-layout `.snap.new` 对照
+- Prediction or plan link:
+  - H-004 的快照差异应与已接受品牌演进一致且不丢失状态预测。
+- Matched signal:
+  - 所有内容差异均为 `Codex agent/session` 改为 `Whale agent/session`；请求、历史、cache key、审批动作和 prior rationale 均保持不变。
+- Correlation keys:
+  - `guardian_review_request_layout_matches_model_visible_request_snapshot`
+  - `guardian_reuses_prompt_cache_key_and_appends_prior_reviews`
+- Raw content:
+  ```text
+  The following is the Codex agent history -> The following is the Whale agent history
+  Reviewed Codex session id -> Reviewed Whale session id
+  The Codex agent has requested -> The Whale agent has requested
+  ```
+- Interpretation: 这两份快照可以安全更新；证据不外推到尚未审查的 TUI 快照。
+- Time: 2026-08-24 06:02 +0800
+
+## Evidence E-011: Guardian 完整单测簇恢复
+- Related hypotheses:
+  - H-004
+  - H-005
+- Direction: supports
+- Type: verification
+- Source: 隔离 nextest Guardian unit filter
+- Prediction or plan link:
+  - H-005 修复与 H-004 Guardian 子集快照更新后应完整恢复。
+- Matched signal:
+  - 66 项 Guardian 单测全部通过，无 `.snap.new` 遗留。
+- Correlation keys:
+  - nextest run `2f2b942a-ae8e-49fc-9bdc-98332a7ceed7`
+- Raw content:
+  ```text
+  Summary [1.012s] 66 tests run: 66 passed, 3685 skipped
+  ```
+- Interpretation: Guardian 单测失败簇已由 fixture 与预期基线修复闭环，未修改生产运行时。
+- Time: 2026-08-24 06:05 +0800
+
+## Evidence E-012: capability endpoint 默认返回 DeepSeek 合同值
+- Related hypotheses:
+  - H-006
+- Direction: supports
+- Type: reproduction
+- Source: app-server 隔离定向 nextest、core config contract、model-provider unit contract
+- Prediction or plan link:
+  - H-006 的默认用例前提过期预测。
+- Matched signal:
+  - 默认 endpoint 连续两次稳定返回 namespace=false、image=false、web=true；core 明确断言默认 `model_provider_id=deepseek`；provider 单测断言相同 capability。
+- Correlation keys:
+  - nextest run `0c670d26-97b8-4587-a47a-4f1b34c7d424`
+- Raw content:
+  ```text
+  actual default: namespace_tools=false, image_generation=false, web_search=true
+  config default: model_provider_id="deepseek", model="deepseek-v4-flash"
+  ```
+- Interpretation: 这是单一陈旧测试前提，不是 provider runtime 回归；修复需同时保留显式 OpenAI endpoint 覆盖。
+- Time: 2026-08-24 06:12 +0800
+
+## Evidence E-013: DeepSeek 默认与显式 OpenAI capability endpoint 均通过
+- Related hypotheses:
+  - H-006
+- Direction: supports
+- Type: verification
+- Source: app-server capability 文件隔离 nextest
+- Prediction or plan link:
+  - H-006 的 endpoint 应随显式 provider 正确返回能力预测。
+- Matched signal:
+  - 默认 DeepSeek、显式 OpenAI、Bedrock 与 Bedrock Runtime 四项全部通过。
+- Correlation keys:
+  - nextest run `3fca70c9-5d92-43d7-a149-7642f49d93f1`
+- Raw content:
+  ```text
+  Summary [0.217s] 4 tests run: 4 passed, 1237 skipped
+  ```
+- Interpretation: 更新后的测试同时覆盖 Whale 默认值和 OpenAI 支持，避免以弱化断言换取通过。
+- Time: 2026-08-24 06:15 +0800
+
+## Evidence E-014: 插件正向用例提前命中默认关闭门禁
+- Related hypotheses:
+  - H-007
+- Direction: supports
+- Type: reproduction
+- Source: app-server 全量隔离 nextest、feature registry 与测试 fixture
+- Prediction or plan link:
+  - H-007 的缺少显式 feature opt-in 预测。
+- Matched signal:
+  - plugin_share 正向夹具仅写 `plugins=true`，10 个原失败中多数返回 `plugin sharing is disabled`；推荐测试在 tool_suggest=true 分支不写 `recommended_plugins=true`，两项均缺少推荐上下文。
+- Correlation keys:
+  - nextest run `809e6bfc-92e6-4b2f-9e1b-6d5d1e0fe660`
+- Raw content:
+  ```text
+  Feature::RemotePlugin default_enabled=false
+  Feature::PluginSharing default_enabled=false
+  Feature::RecommendedPlugins default_enabled=false
+  recommended_plugins_mode_for_config requires plugins_enabled && remote_plugin_enabled && ChatGPT auth
+  ```
+- Interpretation: 测试应声明其 feature 前提；不应为恢复上游测试而改变 Whale 产品默认。
+- Time: 2026-08-24 06:27 +0800
+
+## Evidence E-015: 插件正向 fixture 补齐 feature 依赖后模块恢复
+- Related hypotheses:
+  - H-007
+- Direction: supports
+- Type: verification
+- Source: app-server plugin_share 与 recommended_plugins 隔离 nextest
+- Prediction or plan link:
+  - H-007 的正向和显式禁用测试应同时通过预测。
+- Matched signal:
+  - plugin_share 14/14 通过（含两项显式禁用合同）；recommended_plugins 在补齐 `remote_plugin` 后 2/2 通过。
+- Correlation keys:
+  - nextest run `e8b0d648-5453-4366-a3dd-12ca29c00b95`
+  - nextest run `f4b10337-d6aa-4e33-9a76-de5b48b88586`
+- Raw content:
+  ```text
+  plugin_share: 14 passed
+  recommended_plugins: 2 passed
+  ```
+- Interpretation: 12 个原全量失败已闭环；产品默认关闭与不可用错误行为保持不变。
+- Time: 2026-08-24 06:31 +0800
+
+## Evidence E-016: plugin-list 失败与缺失 feature 组合一一对应
+- Related hypotheses:
+  - H-008
+- Direction: supports
+- Type: diagnostic
+- Source: app-server 全量 JUnit、plugin-list fixtures 与 request processor gates
+- Prediction or plan link:
+  - H-008 的未进入 remote/sharing 路径预测。
+- Matched signal:
+  - 14 项失败中 remote marketplace 用例均未显式启用 `remote_plugin`；shared-with-me 用例未启用 `plugin_sharing`；startup cache 用例等待从未启动的 remote 请求直至超时。
+- Correlation keys:
+  - nextest run `809e6bfc-92e6-4b2f-9e1b-6d5d1e0fe660`
+- Raw content:
+  ```text
+  plugin_list failures=14
+  representative signals: expected remote marketplace; actual plugin count=0; deadline elapsed waiting for /ps/plugins/list
+  ```
+- Interpretation: 失败共享 fixture 前提，且与 plugin share 已验证的独立 feature 行为一致。
+- Time: 2026-08-24 06:38 +0800
+
+## Evidence E-017: plugin-list 完整模块恢复
+- Related hypotheses:
+  - H-008
+- Direction: supports
+- Type: verification
+- Source: app-server plugin-list 隔离 nextest
+- Prediction or plan link:
+  - H-008 的各 feature 组合应同时恢复预测。
+- Matched signal:
+  - remote enabled/disabled、sharing enabled/disabled、cache TTL、startup refresh、force refetch 与 vertical kind 共 48 项全部通过。
+- Correlation keys:
+  - nextest run `786b6239-03cb-4d4d-a94c-e82e2be2564c`
+- Raw content:
+  ```text
+  Summary [4.546s] 48 tests run: 48 passed, 1193 skipped
+  ```
+- Interpretation: 14 个原全量失败已闭环，正交 feature 的正反向合同均保留。
+- Time: 2026-08-24 06:42 +0800
+
+## Evidence E-018: 三项 app-server 测试合同修正后通过
+- Related hypotheses:
+  - H-009
+  - H-010
+  - H-011
+- Direction: supports
+- Type: verification
+- Source: app-server 三项隔离定向 nextest
+- Prediction or plan link:
+  - H-009 至 H-011 的最小测试夹具修正预测。
+- Matched signal:
+  - attribution-only 用例保留导入行为并接受 Whale 品牌；secondary source 同时检测 Sessions 与 Plugins；command/exec 命令成功、子文件持久化且父文件不泄漏。
+- Correlation keys:
+  - nextest run `ed6bf35e-f7a4-413f-b38c-653c1fe36e90`
+- Raw content:
+  ```text
+  Summary [0.229s] 3 tests run: 3 passed, 1238 skipped
+  ```
+- Interpretation: 三项均为测试合同或夹具偏差，未发现需要新增产品决策的运行时缺口。
+- Time: 2026-08-24 05:17 +0800
+
+## Evidence E-019: 非 OpenAI 投影可稳定复现 inter-agent payload 丢失
+- Related hypotheses:
+  - H-012
+- Direction: supports
+- Type: diagnostic
+- Source: app-server 冷恢复请求捕获与 core 消息构造、provider projection 源码
+- Prediction or plan link:
+  - H-012 的 encrypted content 在 non-OpenAI 投影边界丢失预测。
+- Matched signal:
+  - 稳定 matcher 捕获到目标 `agent_message` 及正确 recipient，但 `Payload:` 后为空；发送端使用 `new_encrypted`，而非 OpenAI 投影仅保留 `InputText`。
+- Correlation keys:
+  - `/root/worker`
+  - `/root/worker/nested`
+- Raw content:
+  ```text
+  Message Type: NEW_TASK
+  Task name: <recipient>
+  Sender: <sender>
+  Payload:
+  <empty>
+  ```
+- Interpretation: 超时表象不是 developer instructions 恢复失败；它暴露了跨 provider 会话消息正文的真实语义丢失。
+- Time: 2026-08-24 05:32 +0800
+
+## Evidence E-020: provider-aware 消息表示恢复正文并保留 OpenAI 加密合同
+- Related hypotheses:
+  - H-012
+- Direction: supports
+- Type: fix-validation
+- Source: codex-core 与 app-server 隔离 nextest
+- Prediction or plan link:
+  - H-012 的 DeepSeek 明文、OpenAI 加密双路径预测。
+- Matched signal:
+  - 纯单测验证 OpenAI 目标仍使用 encrypted content、非 OpenAI 目标使用完整结构化文本；三项核心消息测试、两项冷恢复测试及 view-image 子 Agent 测试全部通过；扩大 multi-agent 集合 102/102 通过。
+- Correlation keys:
+  - nextest run `a59019a0-6f74-4b7e-8e2e-59f41befc296`
+  - nextest run `389c61d1-7da7-44e3-a5bf-dcd6db148d31`
+  - multi-agent regression filter on final implementation
+- Raw content:
+  ```text
+  focused provider/message tests: 5 passed
+  cold resume variants: 2 passed
+  expanded multi-agent regression: 102 passed
+  ```
+- Interpretation: 修复解决了原始 payload 丢失，并用双路径合同防止以禁用 OpenAI 加密为代价换取通过。
+- Time: 2026-08-24 05:32 +0800
+
+## Evidence E-021: session approval 已跳过但自动环境中缺少宿主文件
+- Related hypotheses:
+  - H-013
+- Direction: supports
+- Type: diagnostic
+- Source: app-server file-change approval 隔离 nextest 与 TestAppServer helper
+- Prediction or plan link:
+  - H-013 的 cwd/environment fixture 分裂预测。
+- Matched signal:
+  - thread/turn cwd 是 host `workspace`，自动 environment cwd 是另一个临时目录；第二轮没有收到 approval request，但 apply_patch 报 host `workspace/README.md` 不存在并导致 completion 等待超时。
+- Correlation keys:
+  - nextest run `be5d9def-8a02-4866-aaab-ee8827a4a653`
+  - `patch-call-2`
+- Raw content:
+  ```text
+  apply_patch verification failed: Failed to read file to update .../workspace/README.md: No such file or directory
+  Error: deadline has elapsed
+  ```
+- Interpretation: AcceptForSession 已生效；失败位于 host-only fixture 与自动 environment 的文件视图边界。
+- Time: 2026-08-24 05:41 +0800
+
+## Evidence E-022: 只有被误品牌化的 commit-only legacy 分支失败
+- Related hypotheses:
+  - H-014
+- Direction: supports
+- Type: diagnostic
+- Source: app-server git-attribution 隔离 nextest、生产 matcher 与 git blame
+- Prediction or plan link:
+  - H-014 的测试常量不再匹配真实 legacy 文本预测。
+- Matched signal:
+  - 完整认证工作区策略和 unlinked PR legacy 分支通过；commit-only 分支 disabled 指令计数为 0。生产常量为 Codex trailer，测试常量由品牌提交单独改成 Whale trailer。
+- Correlation keys:
+  - nextest run `be5d9def-8a02-4866-aaab-ee8827a4a653`
+  - commit `875277b54d`
+- Raw content:
+  ```text
+  commit_only: expected disabled attribution count 1, actual 0
+  unlinked_pull_request: PASS
+  git_attribution_follows_authenticated_workspace_policy: PASS
+  ```
+- Interpretation: 当前 Whale attribution 产品行为无需修改；应让 migration fixture 继续代表真实旧 Codex rollout。
+- Time: 2026-08-24 05:41 +0800
+
+## Evidence E-023: 文件不可见由 runtime root 决定而非自动环境 cwd
+- Related hypotheses:
+  - H-013
+  - H-015
+- Direction: refutes H-013; supports H-015
+- Type: diagnostic
+- Source: app-server file-change approval 隔离 nextest 对照
+- Prediction or plan link:
+  - H-013 的禁用自动环境预测与 H-015 的 runtime root 预测。
+- Matched signal:
+  - 禁用 auto environment 后，在 `/dev/shm` 预先创建 README，首轮 update 仍报文件不存在；使用通过安全检查的 `/var/tmp` 作为唯一变量后，同一诊断用例通过。
+- Correlation keys:
+  - nextest run `0c2e1cf0-740a-40c0-ac9f-2044f2e26b7b`
+  - nextest run `cbce9cee-6e56-4905-a680-34294343a88e`
+- Raw content:
+  ```text
+  /dev/shm: apply_patch verification failed ... README.md: No such file or directory
+  /var/tmp: PASS [1.350s]
+  ```
+- Interpretation: auto environment 不是必要条件；受限文件校验进程看不到 `/dev/shm` 下的测试 workspace，`/var/tmp` 可见。
+- Time: 2026-08-24 05:52 +0800
+
+## Evidence E-024: 品牌拆分后 legacy attribution 必须按历史类型分别计数
+- Related hypotheses:
+  - H-014
+- Direction: supports
+- Type: diagnostic
+- Source: app-server git-attribution 隔离 nextest与品牌前测试合同
+- Prediction or plan link:
+  - H-014 的真实 Codex legacy fixture 预测。
+- Matched signal:
+  - 恢复 Codex legacy 输入后 disabled 指令出现；commit-only 请求保留一次 Codex 历史指令、Whale 当前指令为零。品牌前 `COMMIT_ATTRIBUTION` 本就与 Codex legacy 文本相同，因此旧断言计数的是历史指令，不是迁移成新品牌指令。
+- Correlation keys:
+  - nextest commit-only branch
+  - commit `875277b54d`
+- Raw content:
+  ```text
+  commit_only: Whale current count 0; Codex legacy count 1; disabled count 1
+  pre-brand test: COMMIT_ATTRIBUTION == Codex legacy trailer
+  ```
+- Interpretation: 不应修改生产迁移器；测试需恢复历史 fixture，并显式区分历史 Codex 与当前 Whale 指令。
+- Time: 2026-08-24 05:54 +0800
+
+## Evidence E-025: runner 与 app-server 目标集合完成回归
+- Related hypotheses:
+  - H-014
+  - H-015
+- Direction: supports
+- Type: verification
+- Source: Python runner 单测与 Codex app-server 隔离 nextest
+- Prediction or plan link:
+  - H-014/H-015 修复后的目标回归。
+- Matched signal:
+  - runner 单测覆盖显式无效目录快速失败和 `/var/tmp` 默认选择；原始 file-change approval 用例未改动即恢复，git-attribution 两个 legacy 分支同时通过。
+- Correlation keys:
+  - nextest run `0e8b37a6-11d5-46a7-9043-fbdeae8469ed`
+- Raw content:
+  ```text
+  runner unittest: 8 passed
+  app-server target set: 7 passed, 1234 skipped
+  ```
+- Interpretation: 修复位于正确工程层，没有通过改写 session approval 产品行为或删除 legacy 覆盖来换取通过。
+- Time: 2026-08-24 05:55 +0800
+
+## Evidence E-026: 沙箱可见根目录证伪 command-exec 的隔离写入假设
+- Related hypotheses:
+  - H-011
+  - H-015
+- Direction: refutes H-011; supports H-015
+- Type: diagnostic
+- Source: 完整 app-server 隔离 nextest 与 command-exec 定向对照
+- Prediction or plan link:
+  - H-011 的父目录写入会成功但不持久化预测。
+- Matched signal:
+  - runner 切换到 `/var/tmp` 后，去掉 `!` 的测试稳定返回 `Read-only file system` 和 exit 2；这正是原测试要求捕获的权限拒绝。
+- Correlation keys:
+  - full app-server run
+  - nextest run `654520e3-f954-494b-ab82-ee4a38aebe66`
+- Raw content:
+  ```text
+  sh: 1: cannot create ../parent.txt: Read-only file system
+  actual exitCode: 2
+  ```
+- Interpretation: 先前修正受 `/dev/shm` 文件视图异常污染，应恢复原来的负向权限断言。
+- Time: 2026-08-24 06:02 +0800
+
+## Evidence E-027: 四项 Code Mode 失败由缺失 host helper 共同解释
+- Related hypotheses:
+  - H-016
+- Direction: supports
+- Type: diagnostic
+- Source: 完整 app-server nextest、V8 构建日志与带本地资产的目标对照
+- Prediction or plan link:
+  - H-016 的 runtime helper 缺失预测。
+- Matched signal:
+  - 完整回归报告 `codex-code-mode-host` 不存在，ImageGen 输出为 Null、analytics 为 hasCell=false；使用资格化缓存中的 V8 archive/binding 构建 host 后，两个 remote-host、ImageGen 和 analytics 四项同时通过。
+- Correlation keys:
+  - full app-server summary `1235 passed, 5 failed, 1 skipped`
+  - nextest run `654520e3-f954-494b-ab82-ee4a38aebe66`
+- Raw content:
+  ```text
+  failed to spawn code-mode host .../target/debug/codex-code-mode-host: No such file
+  V8-bound target rerun: four Code Mode dependent tests PASS
+  ```
+- Interpretation: 四项不是独立产品回归；runner 需要像 MCP helper 一样声明 host，并只接受哈希校验通过的既有 V8 缓存。
+- Time: 2026-08-24 06:03 +0800
+
+## Evidence E-028: helper 与权限负向合同的目标回归通过
+- Related hypotheses:
+  - H-011
+  - H-016
+- Direction: supports
+- Type: verification
+- Source: runner Python 单测与 app-server 五项定向 nextest
+- Prediction or plan link:
+  - H-011 原权限合同恢复与 H-016 helper 修复。
+- Matched signal:
+  - runner 校验 V8 archive/binding 成对哈希、为 app-server 构建 host；原 command-exec 负向写入、两个 remote host、ImageGen 和 analytics 全部通过。
+- Correlation keys:
+  - nextest run `6a6c081a-28ec-4c93-96df-ca1408c31872`
+- Raw content:
+  ```text
+  runner unittest: 11 passed
+  app-server target set: 5 passed, 1236 skipped
+  ```
+- Interpretation: 五项失败均在测试基础设施/错误测试改动层闭环，未修改 Code Mode、ImageGen、analytics 或权限生产逻辑。
+- Time: 2026-08-24 06:06 +0800
+
+## Evidence E-029: app-server 完整隔离回归清零
+- Related hypotheses:
+  - H-005
+  - H-006
+  - H-007
+  - H-008
+  - H-009
+  - H-010
+  - H-011
+  - H-012
+  - H-013
+  - H-014
+  - H-015
+  - H-016
+- Direction: supports
+- Type: verification
+- Source: Codex app-server 完整隔离 nextest
+- Prediction or plan link:
+  - app-server 原始 52 项失败簇的完整回归。
+- Matched signal:
+  - 修复 runner 临时根、runtime helper、fixture feature/provider/品牌合同及跨 provider 消息表示后，app-server 全量无失败。
+- Correlation keys:
+  - full app-server rerun
+- Raw content:
+  ```text
+  Summary [176.399s] 1240 tests run: 1240 passed, 1 skipped
+  ```
+- Interpretation: app-server 模块已从 52 项基线失败恢复为全绿；剩余发布门禁应继续在 core/TUI/protocol 等模块收敛。
+- Time: 2026-08-24 06:10 +0800
+
+## Evidence E-030: core 完整回归将剩余失败聚类到 61 项
+- Related hypotheses:
+  - H-017
+- Direction: supports
+- Type: diagnostic
+- Source: Codex core 完整隔离 nextest
+- Prediction or plan link:
+  - app-server 清零后对最大初始失败模块重新基线。
+- Matched signal:
+  - Code Mode 大簇已恢复；剩余 61 项中 24 项集中于 `tools::spec_plan::tests`，共同缺失 namespace、deferred search、dynamic/hosted 工具。
+- Correlation keys:
+  - nextest run `0a33cf05-d9ae-404f-bc9e-52bea9bda1fa`
+- Raw content:
+  ```text
+  core: 3743 tests run; 3681 passed; 61 failed; 1 timed out; 9 skipped
+  spec_plan: 24 failures
+  ```
+- Interpretation: runner helper 已消除初始 Code Mode 基础设施失败，最大剩余簇是 provider-sensitive 测试探针。
+- Time: 2026-08-24 06:16 +0800
+
+## Evidence E-031: 显式 OpenAI spec-plan fixture 恢复完整模块
+- Related hypotheses:
+  - H-017
+- Direction: supports
+- Type: verification
+- Source: core spec-plan 隔离 nextest
+- Prediction or plan link:
+  - H-017 的显式 provider 对照。
+- Matched signal:
+  - 通用 probe 与三个直接构造 turn 的用例绑定 OpenAI provider 后，原 24 项失败全部恢复，显式 Bedrock 测试仍通过。
+- Correlation keys:
+  - `tools::spec_plan::tests` filtered rerun
+- Raw content:
+  ```text
+  Summary [0.682s] 49 tests run: 49 passed, 3703 skipped
+  ```
+- Interpretation: 生产工具规划能力门禁正确；测试不能依赖全局默认 provider。
+- Time: 2026-08-24 06:19 +0800
+
+## Evidence E-032: core 两项文本断言落后于已生效产品合同
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: verification
+- Source: core skills 与 subagent notification 定向 nextest
+- Prediction or plan link:
+  - H-004 的品牌/模型目录文本漂移预测。
+- Matched signal:
+  - skill budget 警告的生产文本已使用 Whale 品牌；DeepSeek Flash 当前支持 effort 为 none/low/high/max。只同步两处测试期望后用例通过。
+- Correlation keys:
+  - nextest run `6b623944-351a-4052-b548-d02a2e0f4acc`
+- Raw content:
+  ```text
+  targeted core text contracts: 2 passed
+  ```
+- Interpretation: 两项均为可直接映射到现行产品合同的测试漂移，不需要修改提示生成或模型目录生产逻辑；H-004 的其余 TUI 范围仍需独立验证。
+- Time: 2026-08-24 06:21 +0800
+
+## Evidence E-033: core 配置诊断文本已完成 Whale 品牌同步
+- Related hypotheses:
+  - H-004
+- Direction: supports
+- Type: verification
+- Source: core config 六项定向 nextest
+- Prediction or plan link:
+  - H-004 的品牌断言漂移预测。
+- Matched signal:
+  - 未识别 filesystem special path、空 profile 与受管 sandbox fallback 的生产诊断均已使用 Whale，测试仍期待 Codex；只同步断言后全部通过。
+- Correlation keys:
+  - nextest run `6221a600-d037-4abd-a7e6-ae3506452cc9`
+- Raw content:
+  ```text
+  core config diagnostics: 6 passed
+  ```
+- Interpretation: 配置校验和 fail-closed 行为未改变，仅测试品牌文本落后。
+- Time: 2026-08-24 06:23 +0800
+
+## Evidence E-034: router 与 model refresh 的显式 OpenAI fixture 恢复
+- Related hypotheses:
+  - H-018
+- Direction: supports
+- Type: verification
+- Source: core 四项定向隔离 nextest
+- Prediction or plan link:
+  - H-018 的显式 provider 对照。
+- Matched signal:
+  - router namespace/dynamic extension 两项恢复；thread manager 的在线 refresh 与 injected manager cache policy 两项均产生预期请求。
+- Correlation keys:
+  - nextest run `754d2645-3d0c-4d9f-a3ea-18ba373083ff`
+- Raw content:
+  ```text
+  targeted provider fixtures: 4 passed
+  ```
+- Interpretation: 生产 router 和 refresh 策略无需修改，失败来自测试依赖旧全局 OpenAI 默认。
+- Time: 2026-08-24 06:25 +0800
+
+## Evidence E-035: guardian 显式 OpenAI fixture 恢复
+- Related hypotheses:
+  - H-019
+- Direction: supports
+- Type: verification
+- Source: core 三项定向隔离 nextest
+- Prediction or plan link:
+  - H-019 的显式 provider 对照。
+- Matched signal:
+  - MCP deny rationale、shell strict auto-review 与网络权限 grant 均恢复预期。
+- Correlation keys:
+  - nextest run `5da31c27-39c6-4c14-a169-75e176e08066`
+- Raw content:
+  ```text
+  guardian provider fixtures: 3 passed
+  ```
+- Interpretation: 失败来自测试协议配置不一致，不是 guardian 生产安全逻辑缺口。
+- Time: 2026-08-24 06:35 +0800
+
+## Evidence E-036: DeepSeek Whale prompt 与缓存前缀合同恢复
+- Related hypotheses:
+  - H-020
+- Direction: supports
+- Type: verification
+- Source: bundled catalog、mock Responses final-wire、provider trace 定向回归
+- Prediction or plan link:
+  - H-020 的非空 prompt 与稳定前缀预测。
+- Matched signal:
+  - 三个 DeepSeek 模型复用单一 Whale base prompt；请求 instructions 为 20,723 bytes，首行标识 WhaleCode；第二轮 instructions 相同且 input prefix 保持；effort 为 high；DeepSeek 不支持的 namespace multi-agent tool 未暴露。
+- Correlation keys:
+  - models nextest `9ecbc7ec-8058-4f2c-a2d5-1194b75291ca`
+  - core nextest `f0daa822-dedf-4d9f-b72d-a6c1ce33288a`
+- Raw content:
+  ```text
+  bundled catalog: 2 passed
+  final-wire/provider-trace: 6 passed
+  request_1.instructions_bytes: 20723
+  request_2.instructions_same: true
+  request_2.prefix_preserved: true
+  ```
+- Interpretation: system prompt 缺失已从目录根因修复；工具过滤与双轮 cache prefix 同时保持目标合同。
+- Time: 2026-08-24 06:52 +0800
+
+## Hypothesis H-021: injected model cache 测试误用了生产 Whale 模型过滤策略
+- Status: confirmed
+- Failure signature:
+  - 两项 injected cache 测试找不到自定义 slug，因而无法验证 cache hit 与 endpoint fallback。
+- Prediction:
+  - 仅在测试构造的 models manager 上关闭 Whale picker 过滤后，自定义模型会进入可用目录，两项缓存路径均通过；生产 manager 行为无需改变。
+- Falsification:
+  - 关闭测试过滤后模型仍不可用，或请求模型与注入 slug 不一致。
+- Minimal experiment:
+  - 对测试 helper 添加 `.with_whale_filter(false)`，定向运行 `suite::injected_models_cache::`。
+- User/product decision required: no
+
+## Evidence E-037: injected cache fixture 与生产 picker 策略解耦
+- Related hypotheses:
+  - H-021
+- Direction: supports
+- Type: verification
+- Source: core injected_models_cache 定向 nextest
+- Prediction or plan link:
+  - H-021 的测试过滤预测。
+- Matched signal:
+  - cache hit 路径未访问 endpoint；cache error 路径访问 endpoint 并回写 cache；两条请求都使用对应的自定义模型 slug。
+- Correlation keys:
+  - nextest run `6719c4ec-93cf-4fa2-9992-805bacb4eb9f`
+- Raw content:
+  ```text
+  injected model cache: 2 passed
+  ```
+- Interpretation: 这是测试夹具与 v0.0.6 生产模型过滤策略耦合造成的工程缺口，修复未放宽实际产品的模型展示范围。
+- Time: 2026-08-24 07:08 +0800
+
+## Hypothesis H-022: Azure wire 测试构造了缺少结果的 local-shell 历史
+- Status: confirmed
+- Failure signature:
+  - 上下文正规化因 `local-shell-call-id` 没有配对输出而 fail-fast；补齐输出后旧断言仍期待 Azure 不支持的 standalone web-search item。
+- Prediction:
+  - 为 local-shell call 补齐标准 `FunctionCallOutput`，并按 Azure provider 能力断言 web-search 被过滤后，请求仍保持 `store=false` 且其余前缀 ID 不变。
+- Falsification:
+  - 合法配对后仍在正规化阶段失败，或受支持 item 的 ID 被重写/丢失。
+- Minimal experiment:
+  - 只修正该测试 prompt 与 wire 断言，运行单项 client 测试。
+- User/product decision required: no
+
+## Evidence E-038: Azure 历史配对与能力过滤合同恢复
+- Related hypotheses:
+  - H-022
+- Direction: supports
+- Type: verification
+- Source: core Azure Responses 定向 nextest
+- Prediction or plan link:
+  - H-022 的合法历史与 provider 能力预测。
+- Matched signal:
+  - local-shell call/output 成对发送；standalone web-search 未进入 Azure wire；reasoning、message、function、local-shell、custom tool 的受支持 ID 均保持前缀。
+- Correlation keys:
+  - nextest run `0fd2d726-2211-455f-8952-6446348426e2`
+- Raw content:
+  ```text
+  azure responses wire contract: 1 passed
+  ```
+- Interpretation: 失败来自陈旧测试历史与能力断言，不需要放宽 Azure provider 或上下文正规化的安全校验。
+- Time: 2026-08-24 07:16 +0800
+
+## Hypothesis H-023: 三项 core 单测仍断言旧 Codex 品牌文本
+- Status: confirmed
+- Failure signature:
+  - Bedrock 凭据提示、delegate approval 错误和 sandbox network denial 三项实际文本均为 Whale，测试仍期待 Codex。
+- Prediction:
+  - 只同步三项精确字符串后用例全部通过，错误分类、审批策略和网络拒绝行为保持不变。
+- Falsification:
+  - 更新品牌文本后仍出现非文本差异。
+- Minimal experiment:
+  - 修改三处测试期望并用隔离 runner 定向执行三项单测。
+- User/product decision required: no
+
+## Evidence E-039: core 剩余品牌断言同步完成
+- Related hypotheses:
+  - H-023
+- Direction: supports
+- Type: verification
+- Source: core 三项定向隔离 nextest
+- Prediction or plan link:
+  - H-023 的纯文本漂移预测。
+- Matched signal:
+  - Bedrock unauthorized、delegate approval fail-closed、sandbox network denial 三项均通过。
+- Correlation keys:
+  - nextest run `4f6d19c7-05d9-41f9-852d-8f8da8bdb0b9`
+- Raw content:
+  ```text
+  core brand contracts: 3 passed
+  ```
+- Interpretation: 三项均为 v0.0.6 品牌迁移后的测试漂移，没有修改生产错误处理或安全边界。
+- Time: 2026-08-24 07:27 +0800
+
+## Hypothesis H-024: multi-agent provider fixture 与同名模型角色断言自相矛盾
+- Status: confirmed
+- Failure signature:
+  - cold resume 测试期待 OpenAI provider，却隐式继承 v0.0.6 默认 DeepSeek provider；full-history 显式 override 使用与继承模型相同的 slug，却同时要求该模型的 subagent role 存在和不存在。
+- Prediction:
+  - 将 OpenAI 场景显式绑定 `model_provider_id=openai`，并仅在目标模型不同于继承模型时断言旧 role 消失，可恢复整个相关参数化测试组。
+- Falsification:
+  - 修正夹具后 cold resume 丢失 provider/role，或其他 full-history 模型优先级场景回归。
+- Minimal experiment:
+  - 修改两处测试夹具，定向运行 cold resume 与完整 full-history 参数化组。
+- User/product decision required: no
+
+## Evidence E-040: multi-agent provider 与 role precedence 测试恢复
+- Related hypotheses:
+  - H-024
+- Direction: supports
+- Type: verification
+- Source: core multi-agent 定向隔离 nextest
+- Prediction or plan link:
+  - H-024 的显式 provider 和同名模型断言预测。
+- Matched signal:
+  - cold root resume 保持 OpenAI provider、角色模型和 follow-up；full-history 的显式 override、默认模型、world-state、时间提醒及 mode transition 共六个场景全部通过。
+- Correlation keys:
+  - nextest run `ca4cb531-2317-4bc2-b540-2b480b805d4c`
+- Raw content:
+  ```text
+  multi-agent provider/role contracts: 7 passed
+  ```
+- Interpretation: 修复只消除测试对全局默认 provider 的依赖和逻辑矛盾，未改变生产角色权限或模型优先级。
+- Time: 2026-08-24 07:35 +0800
+
+## Hypothesis H-025: WebSocket 多轮测试未适配 provider-bound turn session
+- Status: confirmed
+- Failure signature:
+  - 首轮后 provider-bound client session 关闭连接，旧测试服务器仍要求第二轮复用同一连接；紧邻 `TurnComplete` 的 `start_or_steer` 还可能被判为 steer，使模型更新只作用于后续 turn。
+- Prediction:
+  - 测试 harness 同步 OpenAI provider registry；按 turn 分配 WebSocket 连接；先持久化模型设置并用 idle-only 启动下一轮后，第二轮应使用新模型/service tier，且 Responses Lite 工具形状正确。
+- Falsification:
+  - 独立连接后仍回退 HTTPS，或 idle 下一轮仍使用旧模型/旧 service tier。
+- Minimal experiment:
+  - 修正 WebSocket harness 与两项多轮脚本，运行完整 agent_websocket suite。
+- User/product decision required: no
+
+## Evidence E-041: 下一轮 WebSocket 模型与 service tier 切换合同恢复
+- Related hypotheses:
+  - H-025
+- Direction: supports
+- Type: verification
+- Source: core agent_websocket 完整定向隔离 nextest
+- Prediction or plan link:
+  - H-025 的 provider-bound 连接与 idle 下一轮预测。
+- Matched signal:
+  - startup prewarm 与首轮共享第一连接；下一 turn 建立独立连接；模型从 `gpt-5.2` 切至 `gpt-5.4`，Responses Lite 省略顶层 tools/instructions；service tier 从 priority 恢复 default。
+- Correlation keys:
+  - nextest run `0bc83093-6e18-4bd6-9213-14364a5878e4`
+- Raw content:
+  ```text
+  agent websocket contracts: 8 passed
+  ```
+- Interpretation: 这直接验证了 UI 设置在当前 turn 后持久化、由下一 idle turn 生效的产品语义，同时保持 provider transport 状态不跨 turn 泄漏。
+- Time: 2026-08-24 07:57 +0800
+
+## Hypothesis H-026: realtime 启动上下文测试仍匹配旧 Codex 标题
+- Status: confirmed
+- Failure signature:
+  - 三项请求都包含完整 `<startup_context>`、历史和 workspace 内容，仅 `Startup context from Codex.` 不存在。
+- Prediction:
+  - 将测试共享标题同步为生产 `Startup context from Whale.` 后，历史、fallback 与截断场景全部通过。
+- Falsification:
+  - 更新标题后仍缺少历史、workspace 或截断边界。
+- Minimal experiment:
+  - 修改一个测试常量并定向运行三项 realtime startup-context 测试。
+- User/product decision required: no
+
+## Evidence E-042: realtime 启动上下文品牌合同恢复
+- Related hypotheses:
+  - H-026
+- Direction: supports
+- Type: verification
+- Source: core realtime startup-context 定向隔离 nextest
+- Prediction or plan link:
+  - H-026 的共享标题预测。
+- Matched signal:
+  - thread history 注入、workspace fallback、20.5KB 截断且单次发送三个场景全部通过。
+- Correlation keys:
+  - nextest run `6f55adcd-ad6a-4072-8ef7-c8f6dc05ee13`
+- Raw content:
+  ```text
+  realtime startup context: 3 passed
+  ```
+- Interpretation: 上下文投影与截断生产逻辑正确，失败仅为品牌迁移后的测试常量漂移。
+- Time: 2026-08-24 08:01 +0800
+
+## Hypothesis H-027: WebSocket turn-state 测试错误复用跨 turn 连接
+- Status: confirmed
+- Failure signature:
+  - 首个 turn 的 prewarm、初始请求和工具 follow-up 均完成，但下一 turn 没有可用的新连接，测试在 60 秒后超时。
+- Prediction:
+  - 保持同一 turn 内共享连接和 `x-codex-turn-state`，下一 turn 改用新的 provider-bound 连接后，状态应清空且 turn ID 改变。
+- Falsification:
+  - 新连接仍携带旧 turn-state，或同一 turn 的工具 follow-up 丢失状态。
+- Minimal experiment:
+  - 将多轮脚本拆成两个连接并运行完整 turn_state suite。
+- User/product decision required: no
+
+## Evidence E-043: turn-state 的 turn 内继承与跨 turn 清空恢复
+- Related hypotheses:
+  - H-027
+- Direction: supports
+- Type: verification
+- Source: core turn_state 完整定向隔离 nextest
+- Prediction or plan link:
+  - H-027 的连接边界预测。
+- Matched signal:
+  - 首请求无状态、同 turn follow-up 携带 `ts-1`、下一 turn 新连接恢复为空；同 turn 两次工具 follow-up 的状态稳定。
+- Correlation keys:
+  - nextest run `c2ddb459-5071-4995-ab6d-85afada6f01e`
+- Raw content:
+  ```text
+  turn-state contracts: 3 passed
+  ```
+- Interpretation: provider-bound transport 隔离与逻辑 turn-state 生命周期一致，不需要让 WebSocket 连接跨 turn 复用。
+- Time: 2026-08-24 08:05 +0800
+
+## Hypothesis H-028: 非 OpenAI 历史投影错误移除 Bedrock 自身的远程压缩状态
+- Status: confirmed
+- Failure signature:
+  - Bedrock 的 `/v1/responses/compact` 请求成功并返回 opaque compaction，但下一轮 Responses 请求缺少该 compaction item。
+- Prediction:
+  - 将 Bedrock 纳入可重放自身 opaque Responses 状态的目标后，手动与自动远程压缩都应保留返回的 encrypted compaction。
+- Falsification:
+  - 放行后压缩项仍缺失，或 DeepSeek 的非兼容历史投影不再清理 opaque 字段。
+- Minimal experiment:
+  - 仅扩展目标 provider 的 opaque-history 保留条件，并联跑两项 Bedrock 远程压缩合同。
+- User/product decision required: no
+
+## Hypothesis H-029: 多次本地压缩测试仍期待非 OpenAI 接收加密推理字段
+- Status: confirmed
+- Failure signature:
+  - 实际请求保留可读 reasoning summary，但按跨 provider 投影合同把 `encrypted_content` 清为 null；测试仍期待原始密文。
+- Prediction:
+  - 将测试期望同步为 portable provider 的清理结果后，多次自动压缩的七请求序列继续完整通过。
+- Falsification:
+  - 同步期望后 summary、工具调用或三次压缩序列发生变化。
+- Minimal experiment:
+  - 仅更新该测试的三处 opaque 字段期望并定向运行。
+- User/product decision required: no
+
+## Evidence E-044: provider 压缩历史投影合同恢复
+- Related hypotheses:
+  - H-028
+  - H-029
+- Direction: supports
+- Type: verification
+- Source: core compact/compact_remote 定向隔离 nextest
+- Prediction or plan link:
+  - H-028 的 Bedrock 自身状态重放与 H-029 的 portable provider 清理预测。
+- Matched signal:
+  - Bedrock 手动、自动远程压缩均把服务端 compaction 带入下一轮；非 OpenAI 本地多次压缩保留 summary 且不发送 encrypted reasoning。
+- Correlation keys:
+  - nextest run `3fba4266-58ad-46ba-afaf-dddd99ac7ccc`
+- Raw content:
+  ```text
+  compact contracts: 3 passed
+  ```
+- Interpretation: 失败来自目标 provider 能力分类过粗和陈旧测试期望，不涉及新增产品选择。
+- Time: 2026-08-24 08:28 +0800
+
+## Hypothesis H-030: MCP OAuth 代理测试受桌面 originator 环境污染
+- Status: confirmed
+- Failure signature:
+  - 测试子进程没有发出任何代理请求，也没有持久化 skill MCP OAuth；宿主环境设置了 `CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop`，而安装路径仅对一方 originator 开启。
+- Prediction:
+  - 子进程移除宿主 originator override、回落到测试默认 `codex_cli_rs` 后，应完成 OAuth discovery/registration，并保留 skill 级 callback port。
+- Falsification:
+  - 环境隔离后仍无代理请求，或持久化结果继续缺少 OAuth 配置。
+- Minimal experiment:
+  - 只在该子进程 fixture 中移除 originator override 并定向运行。
+- User/product decision required: no
+
+## Hypothesis H-031: idle async-hook 测试的第二轮 hook 被已消费 release 文件意外放行
+- Status: confirmed
+- Failure signature:
+  - 增加一条诊断 SSE 后测试稳定产生 3 个请求：上一轮 hook 上下文进入第二轮，第二轮新启动的同一 hook 又立即完成并触发第三次采样。
+- Prediction:
+  - 让一次性 gate 在首次 hook 通过后消费 release 文件，第二轮 hook 将保持异步，不再污染“上一轮结果在下一轮注入”的合同。
+- Falsification:
+  - 消费 gate 后仍出现第三次请求，或上一轮上下文未进入第二次请求。
+- Minimal experiment:
+  - 修正测试 gate 的一次性语义并定向运行。
+- User/product decision required: no
+
+## Evidence E-045: MCP OAuth 与 idle async-hook 测试隔离恢复
+- Related hypotheses:
+  - H-030
+  - H-031
+- Direction: supports
+- Type: verification
+- Source: core MCP proxy/hooks 定向隔离 nextest
+- Prediction or plan link:
+  - H-030 的 originator 隔离与 H-031 的一次性 gate 预测。
+- Matched signal:
+  - skill MCP OAuth 使用代理并持久化 callback port；上一轮 async hook 的 warning/context 在第二轮交付且仅产生两次模型请求。
+- Correlation keys:
+  - nextest run `5a5baf51-828b-47e8-b876-18a423430aad`
+- Raw content:
+  ```text
+  MCP proxy / async hook contracts: 2 passed
+  ```
+- Interpretation: 两项均为测试环境和 fixture 隔离缺口，生产产品逻辑无需变更。
+- Time: 2026-08-24 08:41 +0800
+
+## Evidence E-046: core 完整隔离回归仅剩受控缓存快照
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: verification
+- Source: core 完整隔离 nextest
+- Prediction or plan link:
+  - 完成所有已确认工程修复后重跑完整 core，而不是以定向测试替代回归。
+- Matched signal:
+  - 3743 项中 3741 通过、仅两项 cache final-wire 快照失败、9 跳过；此前 compact、Bedrock、WebSocket、realtime、MCP、hook 等失败全部消失。
+- Correlation keys:
+  - nextest run `4ce4aa74-8ece-40e1-bf0a-10cd8d8dc543`
+- Raw content:
+  ```text
+  3743 tests run: 3741 passed, 2 failed, 9 skipped
+  ```
+- Interpretation: core 工程缺口已收敛，剩余差异严格落在仓库要求的真实缓存接受流程内。
+- Time: 2026-08-24 07:16 +0800
+
+## Evidence E-047: v0.0.6 final-wire 真实缓存基线已接受
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: provider verification
+- Source: 专用 cache regression runner、全局账本、baseline promotion gate
+- Prediction or plan link:
+  - 用户批准的最小 Standard + map-request 双臂、零重试资格运行。
+- Matched signal:
+  - 2/2 sample-run 业务成功，14 请求；input 139785、cached 115456、uncached 24329、output 3544；Standard request 2+ 命中率 95.7606%，map-request 87.0019%，usage coverage 100%；估算费用 0.03372612 CNY，耗时 52.79 秒。晋升后两项 final-wire 2/2 通过，index gate 以 surface `4a15b25ca426b61703a212e1c40283dbecc1b06dd0e06600784c83a675c5e053` 通过。
+- Correlation keys:
+  - record `WAR-20260824-072043-CACHE-REGRESSION-9306DB50`
+  - nextest run `69c1803c-cd54-4ad5-8e72-601e62cc181a`
+- Raw content:
+  ```text
+  runner status: completed
+  cache regression gate: PASS（已接受证据晋升）
+  ```
+- Interpretation: 新 prompt/tools/model catalog final-wire 在 DeepSeek 最小真实矩阵中保持高缓存命中和业务正确性；基线晋升由证据链完成，不是手工绕过快照。
+- Time: 2026-08-24 07:23 +0800
+
+## Hypothesis H-032: cache 快照受 Cargo feature unification 改变 JSON 对象顺序
+- Status: confirmed
+- Failure signature:
+  - 相同两项 final-wire 测试在 core-only 图中通过，在同时选择 app-server/TUI 的六 crate 图中仅出现对象键顺序差异；完整请求字段和值不变。
+- Prediction:
+  - cache evidence 渲染时显式排序对象键，并仅规范化已知的 JSON 元数据头与工具 description 内 fenced JSON 后，两种 feature 图应共享同一快照。
+- Falsification:
+  - 六 crate 图仍出现非顺序差异，或规范化改变自然语言/普通字符串负载。
+- Minimal experiment:
+  - 在六 crate 选择图中只运行两项 cache final-wire 测试；规范化范围限制为外层对象、`x-codex-turn-metadata` 和 `description` fenced JSON。
+- User/product decision required: no
+
+## Evidence E-048: 六 crate 图的 cache 快照顺序已稳定
+- Related hypotheses:
+  - H-032
+- Direction: supports
+- Type: verification
+- Source: 六 crate feature 图定向隔离 nextest
+- Prediction or plan link:
+  - H-032 的显式、字段受限 JSON 规范化预测。
+- Matched signal:
+  - `taskspace_production_tool_wire` 与 `standard_request_pair_preserves_the_complete_prefix` 在六 crate 选择图中 2/2 通过，未修改已接受的 wire 快照，也未产生新的真实 provider 请求。
+- Correlation keys:
+  - nextest run `00a33fde-6a84-4b60-89f5-d7373f04d8f9`
+- Raw content:
+  ```text
+  2 tests run: 2 passed, 9300 skipped
+  ```
+- Interpretation: 失败是测试证据序列化随依赖特性图漂移的工程缺口，不是 provider 产品行为或缓存回归。
+- Time: 2026-08-24 07:33 +0800
+
+## Hypothesis H-033: permission intersection 测试的工作区与 Tmpdir 授权重叠
+- Status: confirmed
+- Failure signature:
+  - 测试期望临时目录保持 Write、工作区祖先降为 Read，但 synthetic workspace 由 `TempDir::new()` 创建在同一个系统临时目录下，实际解析为 Write。
+- Prediction:
+  - 把 synthetic workspace 建在当前隔离仓库目录、避开系统临时目录后，权限交集合同应通过且无需修改产品算法。
+- Falsification:
+  - 路径分离后工作区祖先仍为 Write，或 Tmpdir Write 元数据丢失。
+- Minimal experiment:
+  - 仅替换该测试的 workspace fixture 根目录并定向运行。
+- User/product decision required: no
+
+## Evidence E-049: permission intersection 路径隔离后恢复
+- Related hypotheses:
+  - H-033
+- Direction: supports
+- Type: verification
+- Source: protocol 定向隔离 nextest
+- Prediction or plan link:
+  - H-033 的独立 workspace/Tmpdir 路径预测。
+- Matched signal:
+  - 路径分离后权限交集测试 1/1 通过，网络策略、Tmpdir Write、受保护元数据与 workspace 范围断言均保持原样。
+- Correlation keys:
+  - nextest run `7723d008-6124-4431-9ef4-7255f7a8c386`
+- Raw content:
+  ```text
+  1 test run: 1 passed, 296 skipped
+  ```
+- Interpretation: 这是测试 fixture 权限域重叠造成的工程假失败，不涉及 provider 或权限产品决策。
+- Time: 2026-08-24 07:33 +0800
+
+## Hypothesis H-034: TUI ChatGPT/image 测试继承 DeepSeek 默认上下文
+- Status: confirmed
+- Failure signature:
+  - rate-limit 测试只把 account 布尔值设为 ChatGPT，却仍保留 `requires_openai_auth=false` 的 DeepSeek provider；fast-mode 与本地图像测试同样沿用不支持相应能力的 DeepSeek 默认模型。
+- Prediction:
+  - 仅在测试目标明确依赖 ChatGPT rate-limit、fast tier 或 image modality 时建立对应 provider/model fixture，非目标 TUI 测试继续使用 Whale 的 DeepSeek 默认值，功能断言应恢复。
+- Falsification:
+  - 显式 fixture 后仍不产生 rate-limit event、fast 状态或 image submit op。
+- Minimal experiment:
+  - 增加窄 ChatGPT rate-limit helper，并只修改相关测试的 model/provider 前提。
+- User/product decision required: no
+
+## Hypothesis H-035: 剩余 TUI 基线由确定性 fixture 与品牌快照陈旧造成
+- Status: confirmed
+- Failure signature:
+  - 其余差异为 DeepSeek 默认模型和 Whale doctor 文件名快照、`Agent`/`Agents` 同前缀顺序、宠物排序与 base64 子串误判，以及 TUI 只识别 `whale unarchive` 而内嵌 app-server 返回 `codex unarchive`。
+- Prediction:
+  - 按真实目录顺序和协议类型断言、兼容两种归档命令文案，并只接受已审阅的默认模型/品牌/宽度快照后，TUI 全量应无失败。
+- Falsification:
+  - 基线更新后出现任何非快照失败，或快照包含未审阅的行为变化。
+- Minimal experiment:
+  - 先验证 13 项非快照合同，再机械更新 33 项已分类快照，最后以原始隔离 runner 全量复验。
+- User/product decision required: no
+
+## Evidence E-050: TUI 全量基线恢复为 3755/3755
+- Related hypotheses:
+  - H-034
+  - H-035
+- Direction: supports
+- Type: verification
+- Source: codex-tui 完整隔离 nextest
+- Prediction or plan link:
+  - H-034 的显式能力 fixture 与 H-035 的确定性断言/已审阅快照预测。
+- Matched signal:
+  - 非快照合同先以 13/13 通过；最终 TUI 全量 3755/3755 通过、6 跳过，未新增 provider 产品分支。
+- Correlation keys:
+  - targeted runs `8aa90ec1-7c74-487d-b20b-fe6433c94b16`, `d01774d2-a0cd-4efc-ad82-af7b9a5cbd59`
+  - full run `4717b325-e3c4-4f3b-ace7-e5b672d49086`
+- Raw content:
+  ```text
+  3755 tests run: 3755 passed, 6 skipped
+  ```
+- Interpretation: TUI 的 46 项失败均为可证实的工程基线缺口；没有需要用户决定的新 provider 行为。
+- Time: 2026-08-24 07:42 +0800
+
+## Hypothesis H-036: executor skill 告警场景把被截断工具输出误当完整 JSON
+- Status: confirmed
+- Failure signature:
+  - 测试故意创建 200 个技能触发 context-budget warning；六 crate feature 图下 `skills.list` 的模型可见输出按大输出策略截断，测试仍对其执行完整 JSON 解析并在截断边界失败。
+- Prediction:
+  - 该大输出场景应验证截断文本仍包含选中 executor skill 与 authority；未触发大输出的场景继续严格解析 JSON。
+- Falsification:
+  - 模型可见截断文本缺少目标 skill/authority，或小输出场景不能保持严格 JSON 合同。
+- Minimal experiment:
+  - 只按 scenario 分开 list-output 断言并在六 crate feature 图定向运行。
+- User/product decision required: no
+
+## Hypothesis H-037: remote-control mock 将后台模型刷新误识别为 enroll
+- Status: confirmed
+- Failure signature:
+  - 连接型 mock 假定监听器首个 HTTP 请求必为 enroll；并发矩阵中后台 `/v1/models` 刷新先到，fixture 向错误请求返回 enrollment JSON，随后把真正 enroll HTTP 当作 WebSocket 握手。
+- Prediction:
+  - `read_enroll_request` 按 enroll path 过滤后，后台模型请求只能被丢弃，不再扰乱 WebSocket 建连顺序。
+- Falsification:
+  - 路径过滤后仍出现缺少 `Connection: upgrade`，或正常 enroll 无法完成。
+- Minimal experiment:
+  - 仅修正 mock 请求筛选并在六 crate feature 图定向运行。
+- User/product decision required: no
+
+## Evidence E-051: app-server 两项组合图失败已恢复
+- Related hypotheses:
+  - H-036
+  - H-037
+- Direction: supports
+- Type: verification
+- Source: 六 crate feature 图定向隔离 nextest
+- Prediction or plan link:
+  - H-036 的输出形态分层断言与 H-037 的 enroll path 筛选。
+- Matched signal:
+  - executor skill 大输出仍验证目标 skill/authority 和预算告警；remote-control 在后台刷新竞争下完成 WebSocket 初始化与 EOF shutdown；2/2 通过。
+- Correlation keys:
+  - nextest run `a522124c-f73e-4189-8872-ae4762aff48a`
+- Raw content:
+  ```text
+  2 tests run: 2 passed, 9300 skipped
+  ```
+- Interpretation: 两项均是组合并发/feature 图暴露的 fixture 假设，不涉及 provider 产品逻辑。
+- Time: 2026-08-24 07:53 +0800
+
+## Evidence E-052: 六 crate 功能矩阵恢复为 9286/9286
+- Related hypotheses:
+  - H-032
+  - H-033
+  - H-034
+  - H-035
+  - H-036
+  - H-037
+- Direction: supports
+- Type: verification
+- Source: 六 crate 完整隔离 nextest
+- Prediction or plan link:
+  - 已确认的 cache/protocol/TUI/app-server fixture 修复应消除全部已分类失败。
+- Matched signal:
+  - login、models-manager、protocol、core、app-server、TUI 合计 9286/9286 通过，16 跳过。
+- Correlation keys:
+  - nextest run `f5bc2806-2420-4a5d-9299-2d6dc048695c`
+- Raw content:
+  ```text
+  9286 tests run: 9286 passed (2 slow), 16 skipped
+  ```
+- Interpretation: 已分类的 356 项集成失败全部收敛，没有遗漏的 provider 产品行为分歧。
+- Time: 2026-08-24 07:57 +0800
+
+## Hypothesis H-038: 严格 Clippy 被既有 TaskSpace deny-lint 债务阻断
+- Status: confirmed
+- Failure signature:
+  - 六个目标 crate 的 Clippy 首先在 `codex-state` 的 TaskSpace settlement `expect()` 停止；等价消除该点后又在 core TaskSpace 路径暴露 29 项 deny lint。
+- Prediction:
+  - 修正 multi-provider 自身的格式参数、冗余 clone/closure 与 route panic 后，Clippy 仍会被与 provider 无关的 TaskSpace 全域 lint 阻断。
+- Falsification:
+  - provider 直接相关 lint 修正后六 crate Clippy 全绿，或剩余错误落在 provider route/auth/catalog 实现。
+- Minimal experiment:
+  - 先修复 models-manager 和 provider 直接相关 lint；临时等价改写首个 state expect 以观察完整后续错误，再撤回无助于本主题闭环的旁路改写。
+- User/product decision required: no
+
+## Evidence E-053: 格式门禁闭合而 Clippy 阻断确认属于跨主题基线
+- Related hypotheses:
+  - H-038
+- Direction: supports
+- Type: static verification
+- Source: `just fmt-check` 与六 crate `just clippy`
+- Prediction or plan link:
+  - H-038 的 provider lint 可局部闭合、TaskSpace lint 仍独立阻断预测。
+- Matched signal:
+  - 安装仓库文档规定的 DotSlash 后 `just fmt-check` 通过；provider 直接相关 lint 已消除；Clippy 剩余首个失败恢复为既有 `taskspace_action_settlements.rs`。
+- Correlation keys:
+  - code commit `04affb19b`
+  - cache surface `c93a1f6c9d691896f5e9f3aa63fd71c67b4c24cacf0b1b05aec73cfe0a1e6778`
+- Raw content:
+  ```text
+  error: used expect() on an Option value
+    --> state/src/runtime/taskspace_action_settlements.rs:35:52
+  ```
+- Interpretation: Clippy 仍是工程发布门禁，但将其修复纳入 multi-provider 会扩大为无关 TaskSpace 重构。
+- Time: 2026-08-24 08:02 +0800
+
+## Hypothesis H-039: DotSlash 启用后的 zsh-fork 失败是高并发资源超时
+- Status: confirmed
+- Failure signature:
+  - 安装 DotSlash 后完整矩阵仅有 17 项 zsh-fork 测试在统一 60 秒时限超时，覆盖 approvals、cyber policy、plugins、skills、unified exec 与 app-server；无断言失败或 provider 路径失败。
+- Prediction:
+  - 预取 zsh 资源并将 zsh-fork 集合单线程隔离运行时，同一行为集合应全部通过。
+- Falsification:
+  - 单线程仍超时或出现审批/沙箱行为断言失败。
+- Minimal experiment:
+  - 对 core/app-server 的 `zsh_fork` 测试集合使用隔离 runner 与 `--test-threads=1`，不修改生产代码或测试超时。
+- User/product decision required: no
+
+## Evidence E-054: zsh-fork 27/27 单线程通过
+- Related hypotheses:
+  - H-039
+- Direction: supports
+- Type: verification
+- Source: DotSlash 启用后的完整矩阵与 zsh-fork 单线程隔离复验
+- Prediction or plan link:
+  - H-039 的并发调度预测。
+- Matched signal:
+  - 当前 HEAD 完整矩阵 9269/9286 通过，17 项均为 zsh-fork 60 秒超时；随后 zsh-fork 集合 27/27 单线程通过。
+- Correlation keys:
+  - full run `a53970d1-aa94-49a2-9e3b-4dbff0fa1898`
+  - serial run `cc7c16b3-67af-4fee-8e77-02bdc411b5af`
+- Raw content:
+  ```text
+  9286 tests run: 9269 passed, 17 timed out, 16 skipped
+  27 tests run: 27 passed, 4966 skipped
+  ```
+- Interpretation: DotSlash 补齐提高了实际覆盖；新失败是隔离 runner 高并发资源/时限基线，不是 multi-provider 回归。
+- Time: 2026-08-24 08:14 +0800
+
+## Hypothesis H-040: 受控矩阵唯一 OAuth 失败是固定 callback 端口竞态
+- Status: confirmed
+- Failure signature:
+  - `login_account_chatgpt_redirects_to_hosted_success_page` 已收到含 `localhost:1455` redirect URI 的成功登录启动响应，随后首个 callback HTTP 连接立即收到 `Connection refused`；没有 OAuth state、token exchange 或 hosted redirect 断言失败。
+- Prediction:
+  - 同一测试在单线程隔离环境应通过；无需修改 OpenAI 登录产品路径。
+- Falsification:
+  - 单线程仍拒绝连接，或连接成功后出现 redirect/token/notification 合同失败。
+- Minimal experiment:
+  - 保持当前实现，使用隔离 runner 单独运行该测试并禁止 retry。
+- User/product decision required: no
+
+## Evidence E-055: 4 线程矩阵消除 zsh 超时且 OAuth 单测复验通过
+- Related hypotheses:
+  - H-039
+  - H-040
+- Direction: supports
+- Type: verification
+- Source: 当前 HEAD 六 crate 受控并发矩阵与 OAuth 单测
+- Prediction or plan link:
+  - H-039 的资源调度预测与 H-040 的固定端口竞态预测。
+- Matched signal:
+  - `--test-threads=4` 后 17 项 zsh-fork 全部通过，矩阵仅剩 OAuth callback 连接拒绝；该 OAuth 测试随后单线程 1/1 通过。
+- Correlation keys:
+  - controlled full run `6be1e952-4322-499f-8816-eee72e6d0ddf`
+  - targeted run `bdb92b91-5cee-4914-bee1-24affd2660d6`
+- Raw content:
+  ```text
+  9286 tests run: 9285 passed, 1 failed, 16 skipped
+  1 test run: 1 passed, 1240 skipped
+  ```
+- Interpretation: zsh 路径本身已在完整受控矩阵闭合；最后一项是测试进程固定端口调度波动，不构成 OpenAI 订阅登录回归证据。
+- Time: 2026-08-24 08:27 +0800
+
+## Hypothesis H-041: OAuth 固定端口测试需要跨进程 nextest 调度隔离
+- Status: confirmed
+- Failure signature:
+  - 六个 ChatGPT 登录集成测试共享固定 callback 端口 `1455`；Rust `#[serial(login_port)]` 只能约束单一测试进程，而 nextest 将集成测试分进程运行。
+- Prediction:
+  - 将这六项放入 `max-threads = 1` 的 nextest test group 后，完整四线程矩阵与定向组均应通过，无需修改 OAuth 生产逻辑。
+- Falsification:
+  - test group 生效后仍出现 callback 连接拒绝，或 OAuth 行为断言失败。
+- Minimal experiment:
+  - 用 `cargo nextest show-config` 验证精确归组，随后运行定向组和完整受控矩阵。
+- User/product decision required: no
+
+## Evidence E-056: OAuth 组隔离与完整受控矩阵均通过
+- Related hypotheses:
+  - H-039
+  - H-040
+  - H-041
+- Direction: supports
+- Type: fix-validation
+- Source: nextest 分组配置检查、定向组与六 crate 完整隔离矩阵
+- Prediction or plan link:
+  - H-041 的跨进程固定端口隔离预测。
+- Matched signal:
+  - 配置检查仅匹配六项固定 callback 端口测试；定向组 6/6，通过后完整四线程矩阵 9286/9286、16 跳过。
+- Correlation keys:
+  - targeted run `30b2baee-8883-44fa-a136-4ab39d9ab531`
+  - controlled full run `69b70a36-85fc-4885-8f6c-1f2adeb1a313`
+- Raw content:
+  ```text
+  6 tests run: 6 passed
+  9286 tests run: 9286 passed, 16 skipped
+  ```
+- Interpretation: 最后一项矩阵波动由 nextest 跨进程调度消除，未改变 OpenAI 原生登录行为。
+- Time: 2026-08-24 08:48 +0800
+
+## Hypothesis H-042: app-server protocol 门禁失败由响应 TS 可选标记与过期 experimental 预计算包共同造成
+- Status: confirmed
+- Failure signature:
+  - `generated_ts_optional_nullable_fields_only_in_params` 仅报告 `v2/ThreadSettings.ts` 的 `route?: ProviderRoute | null`；`experimental_precomputed_exports_match_generated` 报告预计算导出与当前生成结果不一致。
+- Prediction:
+  - 响应字段移除 `#[ts(optional = nullable)]` 后应生成必有但可为 null 的 `route`；用官方生成器同步 stable/experimental 压缩包后，完整协议测试应全绿。
+- Falsification:
+  - offender 清单包含其他 provider 字段，生成出现额外可读 API 漂移，或完整协议测试仍失败。
+- Minimal experiment:
+  - 单独运行 offender 测试，审查官方生成器产生的可读 diff，再运行 `just test -p codex-app-server-protocol`。
+- User/product decision required: no
+
+## Evidence E-057: provider schema 与预计算导出门禁恢复
+- Related hypotheses:
+  - H-042
+- Direction: supports
+- Type: fix-validation
+- Source: app-server protocol 定向诊断、官方 schema 生成器与完整协议测试
+- Prediction or plan link:
+  - H-042 的响应字段 wire-shape 与预计算同步预测。
+- Matched signal:
+  - offender 清单只有 `ThreadSettings.route`；可读生成差异只有 `route?: ProviderRoute | null` 变为 `route: ProviderRoute | null`；完整协议测试 293/293 通过、1 跳过。
+- Correlation keys:
+  - nextest run `e99aaab6-573e-4826-a6f5-cecddf397f45`
+- Raw content:
+  ```text
+  293 tests run: 293 passed, 1 skipped
+  ```
+- Interpretation: 两项失败均是协议生成/契约工程缺口，不要求新增产品决策。
+- Time: 2026-08-24 09:02 +0800
+
+## Hypothesis H-043: 最终 schema 与 nextest 调度提交保持六 crate 完整基线
+- Status: confirmed
+- Failure signature:
+  - 上一轮六 crate 9286/9286 证据早于最终 `ThreadSettings.route` TypeScript 合同与预计算导出修复，不能单独证明最新 HEAD 的完整 feature graph。
+- Prediction:
+  - 当前 `7f5686bde` 在 DotSlash 已启用、`--test-threads=4` 的隔离 runner 中仍应 9286/9286 通过，16 跳过。
+- Falsification:
+  - 任一 crate 出现编译、schema、OAuth、zsh-fork 或 provider 行为失败。
+- Minimal experiment:
+  - 对 login、models-manager、protocol、core、app-server、tui 运行一次当前 HEAD 的完整受控隔离矩阵。
+- User/product decision required: no
+
+## Evidence E-058: 最终 HEAD 六 crate 完整受控矩阵通过
+- Related hypotheses:
+  - H-039
+  - H-041
+  - H-042
+  - H-043
+- Direction: supports
+- Type: fix-validation
+- Source: 当前 `7f5686bde` 的六 crate 完整隔离 nextest
+- Prediction or plan link:
+  - H-043 的最终 feature graph 预测。
+- Matched signal:
+  - DotSlash 已启用、`--test-threads=4`、零重试条件下，login、models-manager、protocol、core、app-server、tui 合计 9286/9286 通过，16 跳过。
+- Correlation keys:
+  - nextest run `df3ba0a6-c753-43e2-9d27-f4d8ffb272b0`
+  - code HEAD `7f5686bde4dc61d821bca4103116e5468ad3a697`
+- Raw content:
+  ```text
+  Summary [500.562s] 9286 tests run: 9286 passed, 16 skipped
+  ```
+- Interpretation: 最终 schema 与调度提交已由当前 HEAD 的完整矩阵直接覆盖，不再依赖跨提交推断。
+- Time: 2026-08-24 09:23 +0800
+
+## Hypothesis H-044: 当前 accepted cache baseline 无需因非语义 surface 漂移重新付费资格化
+- Status: confirmed
+- Failure signature:
+  - 先前把 surface hash 从 `4a15b25c...` 变为 `c93a1f6c...` 解释为必须重新执行 live 双臂资格运行，但尚未用最新干净 HEAD 的 `--require-live-baseline --request-revalidation` 合同验证该解释。
+- Prediction:
+  - 若漂移不改变已接受的 final-wire manifest，官方门禁应确认 accepted evidence 有效、免费 final-wire unchanged，并不给出 revalidation request；付费提案生成器应拒绝 pass 报告。
+- Falsification:
+  - 门禁阻断、accepted manifest 失配、免费 final-wire changed，或生成器允许从 pass 报告创建真实运行提案。
+- Minimal experiment:
+  - 在干净 HEAD 生成 require-live revalidation gate report，并将该报告输入官方预算提案生成器。
+- User/product decision required: no
+
+## Evidence E-059: live baseline 有效且付费提案被合同拒绝
+- Related hypotheses:
+  - H-044
+- Direction: supports
+- Type: diagnostic and release verification
+- Source: 官方 cache gate 与预算提案生成器
+- Prediction or plan link:
+  - H-044 的 manifest、免费 final-wire 与 proposal-trigger 预测。
+- Matched signal:
+  - 门禁 `status=pass`、`accepted_baseline_validation.valid=true`、`manifest_matches_current=true`、8 项免费验证通过、`discovery_state=unchanged`、`revalidation_requested=false`；提案生成器返回 `cache gate report is not blocked`，没有启动 runner、没有创建账本记录、没有 API 请求或费用。
+- Correlation keys:
+  - gate report `benchmarks/cache-regression/gate-reports/2026-08-24-v006-multi-provider-policy-revalidation.json`
+  - surface `c93a1f6c9d691896f5e9f3aa63fd71c67b4c24cacf0b1b05aec73cfe0a1e6778`
+- Raw content:
+  ```text
+  cache regression gate: PASS c93a1f6c...（免费 final-wire 验证通过）
+  cache gate report is not blocked
+  ```
+- Interpretation: 已批准预算无需消费；此前把非语义 surface 漂移列为 live 阻塞属于错误门禁解释。
+- Time: 2026-08-24 09:37 +0800

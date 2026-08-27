@@ -144,6 +144,8 @@ impl ConfigRequestProcessor {
                 matches!(
                     edit.key_path.as_str(),
                     "model"
+                        | "model_provider"
+                        | "model_provider_access_method"
                         | "model_reasoning_effort"
                         | "plan_mode_reasoning_effort"
                         | "service_tier"

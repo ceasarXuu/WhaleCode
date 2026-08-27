@@ -35,7 +35,7 @@ impl Tui {
             screen_size,
         )?;
         let mode = self.scrollback.history_insertion_mode(wrap_policy);
-        let replaced = replace_visible_terminal_history_tail(
+        let replaced = replace_visible_history_tail_in_terminal(
             &mut self.terminal,
             previous_lines,
             replacement,
@@ -49,7 +49,7 @@ impl Tui {
     }
 }
 
-fn replace_visible_terminal_history_tail<B>(
+fn replace_visible_history_tail_in_terminal<B>(
     terminal: &mut CustomTerminal<B>,
     previous_lines: &[HyperlinkLine],
     replacement: &[HyperlinkLine],

@@ -95,7 +95,11 @@ fn intersection(
 
 #[test]
 fn effective_workspace_intersection_preserves_network_metadata_and_temp() {
-    let temp = TempDir::new().expect("workspace");
+    // Keep the synthetic workspace outside the operating-system temp root.
+    // Otherwise the independent Tmpdir write grant also makes this workspace
+    // writable and masks the intersection behavior this test is exercising.
+    let current_dir = std::env::current_dir().expect("current directory");
+    let temp = tempfile::tempdir_in(current_dir).expect("workspace");
     let root = canonical(&temp);
     let project = root.join("project");
     std::fs::create_dir(project.as_path()).expect("project directory");

@@ -13,9 +13,11 @@ use codex_app_server_protocol::ModelListParams;
 use codex_app_server_protocol::ModelListResponse;
 use codex_app_server_protocol::ModelServiceTier;
 use codex_app_server_protocol::ModelUpgradeInfo;
+use codex_app_server_protocol::ProviderModelAvailability;
 use codex_app_server_protocol::ReasoningEffortOption;
 use codex_app_server_protocol::RequestId;
 use codex_config::types::AuthCredentialsStoreMode;
+use codex_protocol::ProviderAccessMethod;
 use codex_protocol::openai_models::MODEL_SPECIALTY_CYBER;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ModelPreset;
@@ -98,6 +100,14 @@ fn expected_visible_models() -> Vec<Model> {
         .collect()
 }
 
+fn expected_visible_legacy_model_ids() -> Vec<String> {
+    expected_visible_models()
+        .into_iter()
+        .filter(|model| model.model.starts_with("deepseek-"))
+        .map(|model| model.model)
+        .collect()
+}
+
 #[tokio::test]
 async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
     let codex_home = TempDir::new()?;
@@ -109,6 +119,7 @@ async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
         .await?;
     let ModelListResponse {
         data: items,
+        groups,
         next_cursor,
     } = mcp
         .request(|request_id| ClientRequest::ModelList {
@@ -121,9 +132,25 @@ async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
         })
         .await?;
 
-    let expected_models = expected_visible_models();
-
-    assert_eq!(items, expected_models);
+    assert_eq!(
+        items
+            .into_iter()
+            .map(|model| model.model)
+            .collect::<Vec<_>>(),
+        expected_visible_legacy_model_ids()
+    );
+    assert_eq!(groups.len(), 3);
+    assert_eq!(groups[0].route.model_provider_id, "openai");
+    assert_eq!(groups[0].route.access_method, ProviderAccessMethod::Chatgpt);
+    assert_eq!(groups[1].route.model_provider_id, "openai");
+    assert_eq!(groups[1].route.access_method, ProviderAccessMethod::ApiKey);
+    assert_eq!(groups[2].route.model_provider_id, "deepseek");
+    assert!(groups.iter().all(|group| !group.models.is_empty()));
+    assert!(
+        groups
+            .iter()
+            .all(|group| { group.availability == ProviderModelAvailability::MissingCredentials })
+    );
     assert!(next_cursor.is_none());
     Ok(())
 }
@@ -139,6 +166,7 @@ async fn list_models_includes_hidden_models() -> Result<()> {
         .await?;
     let ModelListResponse {
         data: items,
+        groups,
         next_cursor,
     } = mcp
         .request(|request_id| ClientRequest::ModelList {
@@ -151,7 +179,13 @@ async fn list_models_includes_hidden_models() -> Result<()> {
         })
         .await?;
 
-    assert!(items.iter().any(|item| item.hidden));
+    assert!(
+        items.iter().any(|item| item.hidden)
+            || groups
+                .iter()
+                .flat_map(|group| &group.models)
+                .any(|item| item.hidden)
+    );
     assert!(next_cursor.is_none());
     Ok(())
 }
@@ -239,18 +273,30 @@ openai_base_url = "{server_uri}/v1"
     let response = mcp
         .read_stream_until_response_message(RequestId::Integer(request_id))
         .await?;
-    assert_eq!(
-        response.result["data"][0]["upgradeInfo"]["retirementAt"],
-        json!(1_893_456_000)
-    );
-    assert_eq!(
-        response.result["data"][1]["upgradeInfo"]["retirementAt"],
-        serde_json::Value::Null
-    );
     let ModelListResponse {
-        data: items,
+        data: _,
+        groups,
         next_cursor,
     } = serde_json::from_value(response.result)?;
+    let subscription = &groups[0];
+    assert_eq!(
+        subscription.availability,
+        ProviderModelAvailability::Available
+    );
+    assert_eq!(
+        subscription.models[0]
+            .upgrade_info
+            .as_ref()
+            .and_then(|info| info.retirement_at),
+        Some(1_893_456_000)
+    );
+    assert_eq!(
+        subscription.models[1]
+            .upgrade_info
+            .as_ref()
+            .and_then(|info| info.retirement_at),
+        None
+    );
     let mut expected_presets: Vec<ModelPreset> =
         remote_models.into_iter().map(Into::into).collect();
     ModelPreset::mark_default_by_picker_visibility(&mut expected_presets);
@@ -273,7 +319,7 @@ openai_base_url = "{server_uri}/v1"
         },
     ];
 
-    assert_eq!(items, expected_items);
+    assert_eq!(subscription.models, expected_items);
     assert!(next_cursor.is_none());
     assert_eq!(
         models_mock.requests().len(),
@@ -293,13 +339,14 @@ async fn list_models_pagination_works() -> Result<()> {
         .build_initialized()
         .await?;
 
-    let expected_models = expected_visible_models();
+    let expected_models = expected_visible_legacy_model_ids();
     let mut cursor = None;
     let mut items = Vec::new();
 
     for _ in 0..expected_models.len() {
         let ModelListResponse {
             data: page_items,
+            groups: _,
             next_cursor,
         } = mcp
             .request(|request_id| ClientRequest::ModelList {
@@ -313,7 +360,7 @@ async fn list_models_pagination_works() -> Result<()> {
             .await?;
 
         assert_eq!(page_items.len(), 1);
-        items.extend(page_items);
+        items.extend(page_items.into_iter().map(|model| model.model));
 
         if let Some(next_cursor) = next_cursor {
             cursor = Some(next_cursor);

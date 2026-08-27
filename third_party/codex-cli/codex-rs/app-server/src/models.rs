@@ -3,6 +3,7 @@ use std::sync::Arc;
 use codex_app_server_protocol::Model;
 use codex_app_server_protocol::ModelServiceTier;
 use codex_app_server_protocol::ModelUpgradeInfo;
+use codex_app_server_protocol::ProviderModelGroup;
 use codex_app_server_protocol::ReasoningEffortOption;
 use codex_core::ThreadManager;
 use codex_http_client::HttpClientFactory;
@@ -21,6 +22,29 @@ pub async fn supported_models(
         .into_iter()
         .filter(|preset| include_hidden || preset.show_in_picker)
         .map(model_from_preset)
+        .collect()
+}
+
+pub async fn supported_model_groups(
+    thread_manager: Arc<ThreadManager>,
+    include_hidden: bool,
+    http_client_factory: HttpClientFactory,
+) -> Vec<ProviderModelGroup> {
+    thread_manager
+        .list_model_groups(RefreshStrategy::OnlineIfUncached, http_client_factory)
+        .await
+        .into_iter()
+        .map(|group| ProviderModelGroup {
+            route: group.route,
+            display_name: group.display_name,
+            availability: group.availability.into(),
+            models: group
+                .models
+                .into_iter()
+                .filter(|preset| include_hidden || preset.show_in_picker)
+                .map(model_from_preset)
+                .collect(),
+        })
         .collect()
 }
 

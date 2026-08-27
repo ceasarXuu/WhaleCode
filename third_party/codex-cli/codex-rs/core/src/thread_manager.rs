@@ -8,6 +8,7 @@ use crate::current_time::TimeProvider;
 use crate::environment_selection::TurnEnvironmentSnapshot;
 use crate::environment_selection::default_thread_environment_selections;
 use crate::mcp::McpManager;
+use crate::provider_runtime::ProviderRuntimeRegistry;
 use crate::rollout::truncation;
 use crate::session::ForkPersistence;
 use crate::session::GitEnrichmentPolicy;
@@ -42,10 +43,15 @@ use codex_login::CodexAuth;
 use codex_login::default_client::CODEX_INTERNAL_ORIGINATOR_OVERRIDE_ENV_VAR;
 use codex_login::default_client::originator;
 use codex_model_provider::create_model_provider;
+use codex_model_provider::create_route_models_manager;
+use codex_model_provider_info::DEEPSEEK_PROVIDER_ID;
 use codex_model_provider_info::ModelProviderInfo;
 use codex_model_provider_info::OPENAI_PROVIDER_ID;
+use codex_models_manager::manager::ProviderModelsCatalog;
 use codex_models_manager::manager::RefreshStrategy;
 use codex_models_manager::manager::SharedModelsManager;
+use codex_protocol::ProviderAccessMethod;
+use codex_protocol::ProviderRoute;
 use codex_protocol::ThreadId;
 use codex_protocol::config_types::CollaborationModeMask;
 use codex_protocol::error::CodexErr;
@@ -53,6 +59,7 @@ use codex_protocol::error::Result as CodexResult;
 use codex_protocol::mcp::ClientMcpExtensions;
 use codex_protocol::mcp::OPENAI_STANDARD_FORM_INPUT_EXTENSION_ID;
 use codex_protocol::openai_models::ModelPreset;
+use codex_protocol::openai_models::ProviderModelGroup;
 use codex_protocol::protocol::Event;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::MultiAgentVersion;
@@ -339,6 +346,8 @@ pub(crate) struct ThreadManagerState {
     thread_id_generator: ThreadIdGenerator,
     auth_manager: Arc<AuthManager>,
     models_manager: SharedModelsManager,
+    provider_models_catalog: ProviderModelsCatalog,
+    provider_runtime_registry: ProviderRuntimeRegistry,
     environment_manager: Arc<EnvironmentManager>,
     starting_mcp_runtimes: std::sync::Mutex<Vec<std::sync::Weak<AtomicBool>>>,
     skills_service: Arc<HostSkillsService>,
@@ -362,11 +371,47 @@ pub fn build_models_manager(
     config: &Config,
     auth_manager: Arc<AuthManager>,
 ) -> SharedModelsManager {
+    let access_method =
+        config
+            .model_provider_access_method
+            .or_else(|| match config.model_provider_id.as_str() {
+                OPENAI_PROVIDER_ID
+                    if matches!(
+                        auth_manager.auth_cached(),
+                        Some(CodexAuth::Chatgpt(_) | CodexAuth::ChatgptAuthTokens(_))
+                    ) =>
+                {
+                    Some(ProviderAccessMethod::Chatgpt)
+                }
+                OPENAI_PROVIDER_ID | DEEPSEEK_PROVIDER_ID => Some(ProviderAccessMethod::ApiKey),
+                _ => None,
+            });
+    if config.model_providers.get(&config.model_provider_id) == Some(&config.model_provider)
+        && let Some(access_method) = access_method
+    {
+        return create_route_models_manager(
+            config.model_provider.clone(),
+            auth_manager,
+            config.codex_home.to_path_buf(),
+            config.model_catalog.clone(),
+            ProviderRoute::new(config.model_provider_id.clone(), access_method),
+        );
+    }
     let provider = create_model_provider(config.model_provider.clone(), Some(auth_manager));
     provider.models_manager(
         config.codex_home.to_path_buf(),
         config.model_catalog.clone(),
     )
+}
+
+fn build_provider_registries(
+    config: &Config,
+    auth_manager: Arc<AuthManager>,
+) -> (ProviderModelsCatalog, ProviderRuntimeRegistry) {
+    let runtime_registry = ProviderRuntimeRegistry::from_config(config, Arc::clone(&auth_manager));
+    let models_catalog =
+        ProviderModelsCatalog::new(runtime_registry.catalog_entries(), auth_manager);
+    (models_catalog, runtime_registry)
 }
 
 pub fn thread_store_from_config(
@@ -434,6 +479,8 @@ impl ThreadManager {
         external_time_provider: Option<Arc<dyn TimeProvider>>,
     ) -> Self {
         let codex_home = config.codex_home.clone();
+        let (provider_models_catalog, provider_runtime_registry) =
+            build_provider_registries(config, Arc::clone(&auth_manager));
         let restriction_product = session_source.restriction_product();
         let (thread_created_tx, _) = broadcast::channel(THREAD_CREATED_CHANNEL_CAPACITY);
         let skills_service = Arc::new(HostSkillsService::new_with_restriction_product(
@@ -466,6 +513,8 @@ impl ThreadManager {
                 thread_created_tx,
                 thread_id_generator: default_thread_id_generator(),
                 models_manager,
+                provider_models_catalog,
+                provider_runtime_registry,
                 environment_manager,
                 starting_mcp_runtimes: std::sync::Mutex::new(Vec::new()),
                 skills_service,
@@ -613,6 +662,11 @@ impl ThreadManager {
                 thread_id_generator: default_thread_id_generator(),
                 models_manager: create_model_provider(provider, Some(auth_manager.clone()))
                     .models_manager(codex_home, /*config_model_catalog*/ None),
+                provider_models_catalog: ProviderModelsCatalog::new(
+                    Vec::new(),
+                    Arc::clone(&auth_manager),
+                ),
+                provider_runtime_registry: ProviderRuntimeRegistry::default(),
                 environment_manager,
                 starting_mcp_runtimes: std::sync::Mutex::new(Vec::new()),
                 skills_service,
@@ -764,6 +818,17 @@ impl ThreadManager {
         self.state
             .models_manager
             .list_models(refresh_strategy, http_client_factory)
+            .await
+    }
+
+    pub async fn list_model_groups(
+        &self,
+        refresh_strategy: RefreshStrategy,
+        http_client_factory: codex_http_client::HttpClientFactory,
+    ) -> Vec<ProviderModelGroup> {
+        self.state
+            .provider_models_catalog
+            .list_model_groups(refresh_strategy, http_client_factory)
             .await
     }
 
@@ -1862,6 +1927,7 @@ impl ThreadManagerState {
             installation_id: self.installation_id.clone(),
             auth_manager,
             models_manager: Arc::clone(&self.models_manager),
+            provider_runtime_registry: self.provider_runtime_registry.clone(),
             environment_manager: Arc::clone(&self.environment_manager),
             skills_service: Arc::clone(&self.skills_service),
             plugins_manager: Arc::clone(&self.plugins_manager),

@@ -24,6 +24,7 @@ use codex_model_provider_info::ModelProviderInfo;
 use codex_models_manager::manager::ModelsEndpointClient;
 use codex_models_manager::manager::ModelsEndpointFuture;
 use codex_otel::TelemetryAuthMode;
+use codex_protocol::ProviderRoute;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result as CoreResult;
 use codex_protocol::openai_models::ModelInfo;
@@ -44,6 +45,7 @@ const MODELS_ENDPOINT: &str = "/models";
 pub(crate) struct OpenAiModelsEndpoint {
     provider_info: ModelProviderInfo,
     auth_manager: Option<Arc<AuthManager>>,
+    auth_route: Option<ProviderRoute>,
     transport_builder: Arc<dyn ModelsTransportBuilder>,
 }
 
@@ -55,13 +57,30 @@ impl OpenAiModelsEndpoint {
         Self {
             provider_info,
             auth_manager,
+            auth_route: None,
+            transport_builder: Arc::new(RouteAwareModelsTransportBuilder),
+        }
+    }
+
+    pub(crate) fn new_for_route(
+        provider_info: ModelProviderInfo,
+        auth_manager: Option<Arc<AuthManager>>,
+        auth_route: ProviderRoute,
+    ) -> Self {
+        Self {
+            provider_info,
+            auth_manager,
+            auth_route: Some(auth_route),
             transport_builder: Arc::new(RouteAwareModelsTransportBuilder),
         }
     }
 
     async fn auth(&self) -> Option<CodexAuth> {
         match self.auth_manager.as_ref() {
-            Some(auth_manager) => auth_manager.auth().await,
+            Some(auth_manager) => match self.auth_route.as_ref() {
+                Some(route) => auth_manager.auth_for_route(route).await.ok().flatten(),
+                None => auth_manager.auth().await,
+            },
             None => None,
         }
     }
@@ -84,7 +103,13 @@ impl OpenAiModelsEndpoint {
         let auth_mode = auth.as_ref().map(CodexAuth::auth_mode);
         let mut api_provider = self.provider_info.to_api_provider(auth_mode)?;
         enforce_managed_residency(&mut api_provider);
-        let api_auth = resolve_provider_auth(auth.as_ref(), &self.provider_info)?;
+        let api_auth = match self.auth_route.as_ref() {
+            Some(_) => auth
+                .as_ref()
+                .map(crate::auth::auth_provider_from_auth)
+                .unwrap_or_else(crate::auth::unauthenticated_auth_provider),
+            None => resolve_provider_auth(auth.as_ref(), &self.provider_info)?,
+        };
         let request_url =
             ModelsClient::<ReqwestTransport>::request_url(&api_provider, client_version);
         let auth_telemetry = auth_header_telemetry(api_auth.as_ref());
@@ -282,10 +307,14 @@ mod tests {
 
     use super::*;
     use codex_http_client::OutboundProxyPolicy;
+    use codex_login::AuthCredentialsStoreMode;
+    use codex_login::AuthKeyringBackendKind;
     use codex_login::default_client::RESIDENCY_HEADER_NAME;
     use codex_login::default_client::ResidencyRequirement;
     use codex_login::default_client::create_client;
     use codex_login::default_client::set_default_client_residency_requirement;
+    use codex_login::login_with_deepseek_api_key;
+    use codex_protocol::ProviderAccessMethod;
     use codex_protocol::config_types::ModelProviderAuthInfo;
     use codex_protocol::openai_models::ModelsResponse;
     use pretty_assertions::assert_eq;
@@ -357,6 +386,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn route_endpoint_resolves_stored_deepseek_key() {
+        let home = tempfile::tempdir().expect("temp home");
+        login_with_deepseek_api_key(
+            home.path(),
+            "stored-deepseek-key",
+            AuthCredentialsStoreMode::File,
+            AuthKeyringBackendKind::default(),
+        )
+        .expect("store DeepSeek key");
+        let auth_manager = AuthManager::from_auth_for_testing_with_home(
+            CodexAuth::create_dummy_chatgpt_auth_for_testing(),
+            home.path().to_path_buf(),
+        );
+        let endpoint = OpenAiModelsEndpoint::new_for_route(
+            ModelProviderInfo::create_deepseek_provider(),
+            Some(auth_manager),
+            ProviderRoute::new("deepseek", ProviderAccessMethod::ApiKey),
+        );
+
+        let auth = endpoint.auth().await.expect("route auth");
+        assert_eq!(
+            auth.get_token().expect("DeepSeek bearer token"),
+            "stored-deepseek-key"
+        );
+    }
+
+    #[tokio::test]
     async fn model_request_uses_request_time_proxy_policy_and_exact_url() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
@@ -373,6 +429,7 @@ mod tests {
         let endpoint = OpenAiModelsEndpoint {
             provider_info: ModelProviderInfo::create_openai_provider(Some(server.uri())),
             auth_manager: None,
+            auth_route: None,
             transport_builder: Arc::new(RecordingTransportBuilder {
                 observed_request: Arc::clone(&observed_request),
             }),
@@ -418,6 +475,7 @@ mod tests {
         let endpoint = OpenAiModelsEndpoint {
             provider_info,
             auth_manager: None,
+            auth_route: None,
             transport_builder: Arc::new(RecordingTransportBuilder {
                 observed_request: Arc::new(Mutex::new(None)),
             }),

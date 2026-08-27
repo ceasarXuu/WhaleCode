@@ -1376,10 +1376,12 @@ async fn spawned_full_history_v2_child_uses_model_precedence_without_dropping_co
             1
         );
     }
-    assert!(!child_developer_messages.iter().any(|message| {
-        message.contains(&format!("{INHERITED_MODEL} root role."))
-            || message.contains(&format!("{INHERITED_MODEL} subagent role."))
-    }));
+    if expected_model != INHERITED_MODEL {
+        assert!(!child_developer_messages.iter().any(|message| {
+            message.contains(&format!("{INHERITED_MODEL} root role."))
+                || message.contains(&format!("{INHERITED_MODEL} subagent role."))
+        }));
+    }
     if matches!(
         selection,
         FullHistoryV2ModelSelection::MultiAgentModeInstructions
@@ -1592,7 +1594,7 @@ async fn spawn_agent_uses_configured_subagent_defaults() -> Result<()> {
     Some(REQUESTED_MODEL),
     None,
     REQUESTED_MODEL,
-    Some(ReasoningEffort::Custom("standard".to_string()));
+    Some(ReasoningEffort::High);
     "model only"
 )]
 #[test_case(
@@ -1690,9 +1692,9 @@ async fn spawned_agent_uses_summary_support_for_final_model(
     };
     assert_eq!(child_body["model"], json!(REQUESTED_MODEL));
     let expected_reasoning = if child_supports_summary {
-        json!({"effort": "standard", "summary": "detailed"})
+        json!({"effort": "high", "summary": "detailed"})
     } else {
-        json!({"effort": "standard"})
+        json!({"effort": "high"})
     };
     assert_eq!(child_body["reasoning"], expected_reasoning);
     assert_eq!(
@@ -2370,7 +2372,7 @@ async fn spawn_agent_rejects_reasoning_effort_unsupported_by_role_model() -> Res
     assert_eq!(
         output.as_deref(),
         Some(
-            "Reasoning effort `ultra` is not supported for model `deepseek-v4-flash`. Supported reasoning efforts: standard, high, max"
+            "Reasoning effort `ultra` is not supported for model `deepseek-v4-flash`. Supported reasoning efforts: none, low, high, max"
         )
     );
     Ok(())

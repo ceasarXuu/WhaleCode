@@ -115,6 +115,7 @@ async fn handle_spawn_agent(
         message,
         &source,
         /*trigger_turn*/ true,
+        config.model_provider.is_openai(),
     );
     let context = AgentCommunicationContext::new(AgentCommunicationKind::Spawn, session.thread_id);
     let multi_agent_v2_usage_hints =

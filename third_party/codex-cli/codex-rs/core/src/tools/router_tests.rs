@@ -4,6 +4,7 @@ use std::sync::Arc;
 use crate::config::Config;
 use crate::session::step_context::StepContext;
 use crate::session::tests::make_session_and_context;
+use crate::session::turn_context::TurnContext;
 use crate::tools::context::ToolPayload;
 use crate::tools::handlers::McpHandler;
 use crate::tools::registry::CoreToolRuntime;
@@ -19,6 +20,9 @@ use codex_extension_api::ExtensionRegistryBuilder;
 use codex_extension_api::ResponsesApiTool;
 use codex_extension_api::ToolCall as ExtensionToolCall;
 use codex_extension_api::ToolExecutor;
+use codex_model_provider::create_model_provider;
+use codex_model_provider_info::ModelProviderInfo;
+use codex_model_provider_info::OPENAI_PROVIDER_ID;
 use codex_protocol::DEFAULT_FUNCTION_NAMESPACE;
 use codex_protocol::dynamic_tools::DynamicToolFunctionSpec;
 use codex_protocol::dynamic_tools::DynamicToolNamespaceSpec;
@@ -44,6 +48,15 @@ use super::ToolRouter;
 use super::tool_log_payload;
 
 struct ExtensionEchoContributor;
+
+fn use_openai_provider(turn: &mut TurnContext) {
+    let provider_info = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+    let mut config = (*turn.config).clone();
+    config.model_provider_id = OPENAI_PROVIDER_ID.to_string();
+    config.model_provider = provider_info.clone();
+    turn.config = Arc::new(config);
+    turn.provider = create_model_provider(provider_info, turn.auth_manager.clone());
+}
 
 #[test]
 fn tool_log_payload_redacts_plaintext_multi_agent_messages() {
@@ -433,7 +446,8 @@ async fn tools_without_handlers_do_not_support_parallel() -> anyhow::Result<()> 
 
 #[tokio::test]
 async fn specs_filter_deferred_dynamic_tools() -> anyhow::Result<()> {
-    let (_, turn) = make_session_and_context().await;
+    let (_, mut turn) = make_session_and_context().await;
+    use_openai_provider(&mut turn);
     let turn = Arc::new(turn);
     let step_context = StepContext::for_test(Arc::clone(&turn));
     let hidden_tool = "hidden_dynamic_tool";
@@ -529,7 +543,8 @@ fn mcp_runtime(tool_info: codex_mcp::ToolInfo) -> RegisteredTool {
 
 #[tokio::test]
 async fn extension_tool_executors_are_model_visible_and_dispatchable() -> anyhow::Result<()> {
-    let (mut session, turn) = make_session_and_context().await;
+    let (mut session, mut turn) = make_session_and_context().await;
+    use_openai_provider(&mut turn);
     session.services.extensions = extension_tool_test_registry();
     let turn = Arc::new(turn);
     let step_context = StepContext::for_test(Arc::clone(&turn));

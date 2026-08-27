@@ -357,6 +357,8 @@ prompt = json.load(sys.stdin).get("prompt")
 Path(r"{started_path}").write_text(prompt, encoding="utf-8")
 while {gated} and not Path(r"{release_path}").exists():
     time.sleep(0.01)
+if {gated}:
+    Path(r"{release_path}").unlink(missing_ok=True)
 print(json.dumps({{
     "continue": False,
     "decision": "block",

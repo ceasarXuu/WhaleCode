@@ -161,6 +161,14 @@ impl App {
                     .on_rolling_rate_limit_snapshot(notification.rate_limits.clone());
                 return;
             }
+            ServerNotification::AccountLoginCompleted(notification) => {
+                self.app_event_tx.send(AppEvent::ProviderLoginCompleted {
+                    login_id: notification.login_id.clone(),
+                    success: notification.success,
+                    error: notification.error.clone(),
+                });
+                return;
+            }
             ServerNotification::AccountUpdated(notification) => {
                 // Deferred terminal writes must never carry the previous account's billing into
                 // the newly authenticated identity, even when both accounts share one thread.

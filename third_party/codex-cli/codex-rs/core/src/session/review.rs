@@ -141,6 +141,7 @@ pub(super) async fn spawn_review_thread(
         model_info: Arc::new(model_info.clone()),
         session_telemetry: session_telemetry_for_context,
         provider: provider_for_context,
+        route: parent_turn_context.route.clone(),
         reasoning_effort,
         reasoning_summary,
         session_source,

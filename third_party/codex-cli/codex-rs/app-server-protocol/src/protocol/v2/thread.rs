@@ -17,6 +17,7 @@ use super::shared::v2_enum_from_core;
 use crate::JsonSchema;
 use crate::TS;
 use codex_experimental_api_macros::ExperimentalApi;
+use codex_protocol::ProviderRoute;
 pub use codex_protocol::capabilities::CapabilityRootLocation;
 pub use codex_protocol::capabilities::SelectedCapabilityRoot;
 use codex_protocol::config_types::CollaborationMode;
@@ -222,6 +223,9 @@ impl ThreadStartResponse {
 #[ts(export_to = "v2/")]
 pub struct ThreadSettingsUpdateParams {
     pub thread_id: String,
+    /// Override the provider access route for subsequent turns.
+    #[ts(optional = nullable)]
+    pub route: Option<ProviderRoute>,
     /// Override the working directory for subsequent turns.
     #[ts(optional = nullable)]
     pub cwd: Option<PathBuf>,
@@ -284,6 +288,8 @@ pub struct ThreadSettingsUpdateResponse {}
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "v2/")]
 pub struct ThreadSettings {
+    /// Active provider access route for subsequent turns, when route-aware selection is enabled.
+    pub route: Option<ProviderRoute>,
     pub cwd: AbsolutePathBuf,
     pub approval_policy: AskForApproval,
     pub approvals_reviewer: ApprovalsReviewer,

@@ -29,6 +29,7 @@ fn settings_item(
     RolloutItem::EventMsg(EventMsg::ThreadSettingsApplied(
         ThreadSettingsAppliedEvent {
             thread_settings: ThreadSettingsSnapshot {
+                route: None,
                 model: "gpt-5".to_string(),
                 model_provider_id: "openai".to_string(),
                 service_tier: None,
@@ -60,6 +61,7 @@ fn turn_context_item(
     active_permission_profile: Option<ActivePermissionProfile>,
 ) -> RolloutItem {
     RolloutItem::TurnContext(TurnContextItem {
+        route: None,
         turn_id: Some(turn_id.to_string()),
         cwd: cwd(),
         workspace_roots: Some(vec![cwd()]),

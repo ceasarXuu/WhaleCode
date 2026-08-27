@@ -290,6 +290,11 @@ impl ThreadEnvironments {
                 self.shell_snapshot.clone(),
                 configuration_ready,
             )
+            // Keep the comparatively large environment-resolution future off the caller's
+            // stack before `remote_handle` wraps it. Session initialization already has a deep
+            // async poll chain, and moving the unboxed future through that chain can exhaust the
+            // default Rust test-thread stack.
+            .boxed()
             .remote_handle();
             drop(tokio::spawn(
                 resolution_task.in_current_span().with_current_subscriber(),

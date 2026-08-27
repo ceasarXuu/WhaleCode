@@ -557,6 +557,10 @@ impl TestCodexBuilder {
         self.config_mutators.push(Box::new(move |config| {
             config.model_provider.base_url = Some(base_url_clone);
             config.model_provider.supports_websockets = true;
+            config.model_provider_id = "openai".to_string();
+            config
+                .model_providers
+                .insert("openai".to_string(), config.model_provider.clone());
             config.experimental_realtime_ws_model = Some("realtime-test-model".to_string());
             config.realtime.version = RealtimeWsVersion::V1;
         }));

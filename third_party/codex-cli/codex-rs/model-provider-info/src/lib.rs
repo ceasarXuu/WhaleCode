@@ -37,6 +37,11 @@ const OPENAI_PROVIDER_NAME: &str = "OpenAI";
 const OPENAI_ACTOR_AUTHORIZATION_HEADER: &str = "x-openai-actor-authorization";
 pub const OPENAI_PROVIDER_ID: &str = "openai";
 pub const CHATGPT_CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
+/// Version of the vendored Codex substrate spoken to OpenAI services.
+///
+/// Whale's product version has its own release line and must not be used for
+/// OpenAI's request identity or model compatibility gates.
+pub const OPENAI_CODEX_COMPATIBILITY_VERSION: &str = "0.149.1";
 const DEEPSEEK_PROVIDER_NAME: &str = "DeepSeek";
 pub const DEEPSEEK_PROVIDER_ID: &str = "deepseek";
 pub const DEEPSEEK_DEFAULT_BASE_URL: &str = "https://api.deepseek.com";
@@ -389,9 +394,12 @@ impl ModelProviderInfo {
             wire_api: WireApi::Responses,
             query_params: None,
             http_headers: Some(
-                [("version".to_string(), env!("CARGO_PKG_VERSION").to_string())]
-                    .into_iter()
-                    .collect(),
+                [(
+                    "version".to_string(),
+                    OPENAI_CODEX_COMPATIBILITY_VERSION.to_string(),
+                )]
+                .into_iter()
+                .collect(),
             ),
             env_http_headers: Some(
                 [

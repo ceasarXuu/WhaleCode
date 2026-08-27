@@ -514,7 +514,7 @@ async fn prefetch_rate_limits_is_gated_on_chatgpt_auth_provider() {
 
     assert!(!chat.should_prefetch_rate_limits());
 
-    set_chatgpt_auth(&mut chat);
+    set_chatgpt_rate_limit_context(&mut chat);
     assert!(chat.should_prefetch_rate_limits());
 
     chat.config.model_provider.requires_openai_auth = false;
@@ -3791,7 +3791,8 @@ async fn completed_turn_clears_visible_running_hook() {
 
 #[tokio::test]
 async fn status_line_fast_mode_renders_on_and_off() {
-    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.4")).await;
+    set_chatgpt_auth(&mut chat);
     chat.config.tui_status_line = Some(vec!["fast-mode".to_string()]);
 
     chat.refresh_status_line();
@@ -3807,7 +3808,8 @@ async fn status_line_fast_mode_footer_snapshot() {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
 
-    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.4")).await;
+    set_chatgpt_auth(&mut chat);
     chat.show_welcome_banner = false;
     chat.config.tui_status_line = Some(vec!["fast-mode".to_string()]);
     chat.set_service_tier(Some(ServiceTier::Fast.request_value().to_string()));

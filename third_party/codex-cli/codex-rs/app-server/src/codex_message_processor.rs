@@ -5779,6 +5779,7 @@ impl CodexMessageProcessor {
         if total == 0 {
             let response = ModelListResponse {
                 data: Vec::new(),
+                groups: Vec::new(),
                 next_cursor: None,
             };
             outgoing.send_response(request_id, response).await;
@@ -5822,6 +5823,7 @@ impl CodexMessageProcessor {
         };
         let response = ModelListResponse {
             data: items,
+            groups: Vec::new(),
             next_cursor,
         };
         outgoing.send_response(request_id, response).await;
@@ -11039,6 +11041,7 @@ mod tests {
             persist_extended_history: false,
         };
         let config_snapshot = ThreadConfigSnapshot {
+            route: None,
             model: "gpt-5".to_string(),
             model_provider_id: "openai".to_string(),
             service_tier: Some(codex_protocol::config_types::ServiceTier::Flex),

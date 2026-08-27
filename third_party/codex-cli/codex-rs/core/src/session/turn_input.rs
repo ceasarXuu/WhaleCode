@@ -35,10 +35,13 @@ use codex_protocol::turn_input::TurnInputRequest;
 use codex_protocol::turn_input::TurnInputSubmission;
 use codex_protocol::turn_input::TurnStartOptions;
 use codex_protocol::user_input::UserInput;
+use futures::FutureExt;
+use futures::future::BoxFuture;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio_util::task::AbortOnDropHandle;
 use uuid::Uuid;
 
 #[cfg(test)]
@@ -107,9 +110,15 @@ impl PreparedTurnInputSettings {
         updates.final_output_json_schema = Some(final_output_json_schema);
 
         // new_turn_with_sub_id already emits an error event when settings are invalid.
-        let turn_context = session
-            .new_turn_with_sub_id(submission_id.clone(), updates)
-            .await?;
+        let turn_session = Arc::clone(session);
+        let turn_submission_id = submission_id.clone();
+        let turn_context = AbortOnDropHandle::new(tokio::spawn(async move {
+            turn_session
+                .new_turn_with_sub_id(turn_submission_id, updates)
+                .await
+        }))
+        .await
+        .map_err(|err| CodexErr::Fatal(format!("turn initialization task failed: {err}")))??;
         if emit_thread_settings_applied {
             thread_settings::emit_applied(session, submission_id).await;
         }
@@ -138,19 +147,19 @@ impl PreparedTurnInputSettings {
     }
 }
 
-pub(super) async fn handle(
-    session: &Arc<Session>,
+pub(super) fn handle<'a>(
+    session: &'a Arc<Session>,
     request: TurnInputRequest,
     mode: TurnInputMode,
     submission_id: String,
-) -> CodexResult<TurnInputSubmission> {
+) -> BoxFuture<'a, CodexResult<TurnInputSubmission>> {
     match mode {
-        TurnInputMode::StartOrSteer => start_or_steer(session, request, submission_id).await,
+        TurnInputMode::StartOrSteer => start_or_steer(session, request, submission_id).boxed(),
         TurnInputMode::StartIfIdle => {
-            start_if_idle(session, request, submission_id, /*is_recovery*/ false).await
+            start_if_idle(session, request, submission_id, /*is_recovery*/ false).boxed()
         }
         TurnInputMode::Steer { expected_turn_id } => {
-            steer(session, request, expected_turn_id, submission_id).await
+            steer(session, request, expected_turn_id, submission_id).boxed()
         }
     }
 }

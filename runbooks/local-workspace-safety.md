@@ -11,11 +11,13 @@ PLAN_JSON="$(python3 scripts/workspace-safety/workspace_context.py bootstrap pla
 printf '%s\n' "$PLAN_JSON"
 PLAN_FINGERPRINT="$(printf '%s' "$PLAN_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["fingerprint"])')"
 python3 scripts/workspace-safety/workspace_context.py bootstrap apply --expect "$PLAN_FINGERPRINT"
+bash -lc 'cd third_party/codex-cli/codex-rs && cargo build -p codex-cli --bin whale'
 bash scripts/install-whale-local.sh --scope workspace
 python3 scripts/workspace-safety/workspace_context.py doctor --require-binary
 ```
 
 只有检查过计划内容后才能执行apply。fingerprint必须来自紧邻的同一次plan；branch、root或资源状态变化后重新生成。
+安装脚本只复制已有构建产物，不会隐式编译源码；源码变更后的本机验收必须先重建`whale`，再执行workspace安装，避免用旧二进制得到假阴性或假通过。
 
 日常开工检查：
 

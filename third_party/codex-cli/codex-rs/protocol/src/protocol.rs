@@ -15,6 +15,7 @@ use std::time::Duration;
 use strum_macros::EnumIter;
 
 use crate::AgentPath;
+use crate::ProviderRoute;
 use crate::ResponseItemId;
 use crate::SessionId;
 use crate::ThreadId;
@@ -470,6 +471,9 @@ pub struct ConversationSpeechParams {
 /// on their own.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ThreadSettingsOverrides {
+    /// Updated provider access route. Must be committed together with its model snapshot.
+    pub route: Option<ProviderRoute>,
+
     /// Updated fallback `cwd` and environments supplied together as a complete pair.
     pub environments: Option<TurnEnvironmentSelections>,
 
@@ -2061,6 +2065,8 @@ pub struct ThreadSettingsAppliedEvent {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, JsonSchema, TS)]
 pub struct ThreadSettingsSnapshot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<ProviderRoute>,
     pub model: String,
     pub model_provider_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -3065,6 +3071,8 @@ pub struct TurnContextItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_system_sandbox_policy: Option<RawFileSystemSandboxPolicy>,
     pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route: Option<ProviderRoute>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comp_hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -5935,6 +5943,7 @@ mod tests {
                 .try_into()
                 .expect("serializable split policy"),
             ),
+            route: None,
             model: "gpt-5".to_string(),
             comp_hash: None,
             personality: None,

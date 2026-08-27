@@ -153,6 +153,7 @@ pub struct TurnContext {
     /// Turn-wide telemetry; model-attributed step work should use `StepContext::session_telemetry`.
     pub(crate) session_telemetry: SessionTelemetry,
     pub(crate) provider: SharedModelProvider,
+    pub(crate) route: Option<codex_protocol::ProviderRoute>,
     /// Legacy turn effort; step-scoped execution should use `StepContext::reasoning_effort`.
     pub(crate) reasoning_effort: Option<ReasoningEffortConfig>,
     /// Legacy turn summary; step-scoped execution should use `StepContext::reasoning_summary`.
@@ -409,6 +410,7 @@ impl TurnContext {
                 .clone()
                 .with_model(model.as_str(), model_info.slug.as_str()),
             provider: self.provider.clone(),
+            route: self.route.clone(),
             reasoning_effort,
             reasoning_summary: self.reasoning_summary,
             session_source: self.session_source.clone(),
@@ -445,6 +447,22 @@ impl TurnContext {
                 self.model_verification_emitted.load(Ordering::Relaxed),
             ),
         }
+    }
+
+    pub(crate) async fn with_provider_model(
+        &self,
+        route: codex_protocol::ProviderRoute,
+        provider: SharedModelProvider,
+        model: String,
+        models_manager: &SharedModelsManager,
+    ) -> Self {
+        let mut context = self.with_model(model, models_manager).await;
+        let mut config = (*context.config).clone();
+        config.model_provider_id = route.model_provider_id.clone();
+        context.config = Arc::new(config);
+        context.provider = provider;
+        context.route = Some(route);
+        context
     }
 
     pub(crate) fn file_system_sandbox_context(
@@ -513,6 +531,7 @@ impl TurnContext {
             network: self.turn_context_network_item(),
             file_system_sandbox_policy: self.non_legacy_file_system_sandbox_policy(),
             model: self.model_info.slug.clone(),
+            route: self.route.clone(),
             comp_hash: self.model_info.comp_hash.clone(),
             personality: self.personality,
             collaboration_mode: Some(self.collaboration_mode()),
@@ -698,6 +717,7 @@ impl Session {
             model_info: Arc::new(model_info),
             session_telemetry: session_telemetry_for_context,
             provider,
+            route: session_configuration.route.clone(),
             reasoning_effort,
             reasoning_summary,
             session_source,
@@ -736,11 +756,16 @@ impl Session {
     pub(crate) async fn new_turn_with_sub_id(
         &self,
         sub_id: String,
-        updates: SessionSettingsUpdate,
+        mut updates: SessionSettingsUpdate,
     ) -> CodexResult<Arc<TurnContext>> {
+        self.prepare_provider_transition(&mut updates)
+            .await
+            .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?;
         let notify_config_contributors = !self.services.extensions.config_contributors().is_empty();
         let update_result: CodexResult<_> = {
             let mut state = self.state.lock().await;
+            let previous_provider_selection =
+                ProviderSelectionSnapshot::capture(&state.session_configuration);
             match self.apply_session_settings(&state.session_configuration, &updates) {
                 Ok(next) => {
                     let mcp_inputs_changed =
@@ -768,6 +793,7 @@ impl Session {
                             .update_thread_config(&environment_config);
                     }
                     state.session_configuration = next.clone();
+                    state.record_provider_selection_change(previous_provider_selection);
                     let new_config = notify_config_contributors
                         .then(|| self.build_effective_session_config(&state.session_configuration));
                     Ok((
@@ -874,8 +900,7 @@ impl Session {
             .map(TurnEnvironment::permission_profile)
             .cloned()
             .unwrap_or_else(|| session_configuration.permission_profile());
-        let model_info = self
-            .services
+        let model_info = session_configuration
             .models_manager
             .get_model_info(
                 session_configuration.collaboration_mode.model(),
@@ -932,7 +957,7 @@ impl Session {
             self.services.main_execve_wrapper_exe.as_ref(),
             per_turn_config,
             model_info,
-            &self.services.models_manager,
+            &session_configuration.models_manager,
             self.services
                 .network_proxy
                 .load_full()

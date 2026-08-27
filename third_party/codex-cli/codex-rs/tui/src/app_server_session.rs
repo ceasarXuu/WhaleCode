@@ -14,6 +14,7 @@ pub(crate) use history::thread_items_page_params;
 
 use crate::bottom_pane::FeedbackAudience;
 use crate::legacy_core::config::Config;
+use crate::model_catalog::ProviderModelGroup;
 use crate::service_tier_resolution;
 use crate::session_state::MessageHistoryMetadata;
 use crate::session_state::ThreadSessionState;
@@ -41,6 +42,9 @@ use codex_app_server_protocol::GetAccountParams;
 use codex_app_server_protocol::GetAccountRateLimitsResponse;
 use codex_app_server_protocol::GetAccountResponse;
 use codex_app_server_protocol::JSONRPCErrorError;
+use codex_app_server_protocol::LoginAccountParams;
+use codex_app_server_protocol::LoginAccountResponse;
+use codex_app_server_protocol::LogoutAccountParams;
 use codex_app_server_protocol::LogoutAccountResponse;
 use codex_app_server_protocol::MapRuntimeMode;
 use codex_app_server_protocol::MemoryResetResponse;
@@ -48,6 +52,8 @@ use codex_app_server_protocol::Model as ApiModel;
 use codex_app_server_protocol::ModelListParams;
 use codex_app_server_protocol::ModelListResponse;
 use codex_app_server_protocol::NewThreadModelDefaults;
+use codex_app_server_protocol::ProviderCredentialStatusListResponse;
+use codex_app_server_protocol::ProviderModelGroup as ApiProviderModelGroup;
 use codex_app_server_protocol::RateLimitSnapshot;
 use codex_app_server_protocol::RequestId;
 use codex_app_server_protocol::ReviewDelivery;
@@ -121,6 +127,7 @@ use codex_app_server_protocol::TurnSteerParams;
 use codex_app_server_protocol::TurnSteerResponse;
 use codex_app_server_protocol::UserInput;
 use codex_otel::TelemetryAuthMode;
+use codex_protocol::ProviderRoute;
 use codex_protocol::ThreadId;
 use codex_protocol::approvals::GuardianAssessmentEvent;
 use codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
@@ -262,6 +269,7 @@ pub(crate) struct AppServerBootstrap {
     pub(crate) feedback_audience: FeedbackAudience,
     pub(crate) has_chatgpt_account: bool,
     pub(crate) available_models: Vec<ModelPreset>,
+    pub(crate) provider_model_groups: Vec<ProviderModelGroup>,
 }
 
 pub(crate) struct AppServerSession {
@@ -452,6 +460,11 @@ impl AppServerSession {
             .requirements
             .and_then(|requirements| requirements.models)
             .and_then(|models| models.new_thread);
+        let provider_model_groups = models
+            .groups
+            .into_iter()
+            .map(provider_model_group_from_api)
+            .collect::<Vec<_>>();
         let available_models = models
             .data
             .into_iter()
@@ -524,6 +537,7 @@ impl AppServerSession {
             feedback_audience,
             has_chatgpt_account,
             available_models,
+            provider_model_groups,
         })
     }
 
@@ -546,6 +560,47 @@ impl AppServerSession {
             })
             .await
             .map_err(|err| bootstrap_request_error("account/read failed during TUI bootstrap", err))
+    }
+
+    pub(crate) async fn login_account(
+        &mut self,
+        params: LoginAccountParams,
+    ) -> Result<LoginAccountResponse> {
+        let request_id = self.next_request_id();
+        self.client
+            .request_typed(ClientRequest::LoginAccount { request_id, params })
+            .await
+            .wrap_err("account/login/start failed")
+    }
+
+    pub(crate) async fn refresh_model_catalog(
+        &mut self,
+    ) -> Result<(Vec<ModelPreset>, Vec<ProviderModelGroup>)> {
+        let request_id = self.next_request_id();
+        let response = self
+            .client
+            .request_typed::<ModelListResponse>(ClientRequest::ModelList {
+                request_id,
+                params: ModelListParams {
+                    cursor: None,
+                    limit: None,
+                    include_hidden: Some(true),
+                },
+            })
+            .await
+            .wrap_err("model/list failed after provider login")?;
+        let groups = response
+            .groups
+            .into_iter()
+            .map(provider_model_group_from_api)
+            .collect();
+        let models = response
+            .data
+            .into_iter()
+            .map(model_preset_from_api_model)
+            .collect::<Vec<_>>();
+        self.available_models = models.clone();
+        Ok((models, groups))
     }
 
     pub(crate) async fn external_agent_config_detect(
@@ -1295,6 +1350,34 @@ impl AppServerSession {
         Ok(())
     }
 
+    #[allow(dead_code)]
+    pub(crate) async fn logout_provider_route(&mut self, route: ProviderRoute) -> Result<()> {
+        let request_id = self.next_request_id();
+        let _: LogoutAccountResponse = self
+            .client
+            .request_typed(ClientRequest::LogoutAccount {
+                request_id,
+                params: Some(LogoutAccountParams { route }),
+            })
+            .await
+            .wrap_err("provider account/logout failed in TUI")?;
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub(crate) async fn read_provider_credentials(
+        &mut self,
+    ) -> Result<ProviderCredentialStatusListResponse> {
+        let request_id = self.next_request_id();
+        self.client
+            .request_typed(ClientRequest::ProviderCredentialStatusList {
+                request_id,
+                params: None,
+            })
+            .await
+            .wrap_err("account/providerCredentials/read failed in TUI")
+    }
+
     pub(crate) async fn thread_unsubscribe(&mut self, thread_id: ThreadId) -> Result<()> {
         let request_id = self.next_request_id();
         let _: ThreadUnsubscribeResponse = self
@@ -1563,6 +1646,19 @@ fn model_preset_from_api_model(model: ApiModel) -> ModelPreset {
         // `model/list` already returns models filtered for the active client/auth context.
         supported_in_api: true,
         input_modalities: model.input_modalities,
+    }
+}
+
+fn provider_model_group_from_api(group: ApiProviderModelGroup) -> ProviderModelGroup {
+    ProviderModelGroup {
+        route: group.route,
+        display_name: group.display_name,
+        availability: group.availability,
+        models: group
+            .models
+            .into_iter()
+            .map(model_preset_from_api_model)
+            .collect(),
     }
 }
 

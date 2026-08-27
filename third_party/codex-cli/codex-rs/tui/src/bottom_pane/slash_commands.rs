@@ -10,6 +10,8 @@ use codex_utils_fuzzy_match::fuzzy_match;
 use crate::slash_command::SlashCommand;
 use crate::slash_command::built_in_slash_commands;
 
+pub(crate) const USAGE_CHATGPT_LOGIN_REQUIRED: &str = "Sign in with ChatGPT to use /usage.";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ServiceTierCommand {
     pub(crate) id: String,
@@ -74,7 +76,6 @@ pub(crate) fn builtins_for_input(flags: BuiltinCommandFlags) -> Vec<(&'static st
         .filter(|(_, cmd)| flags.collaboration_modes_enabled || *cmd != SlashCommand::Plan)
         .filter(|(_, cmd)| flags.connectors_enabled || *cmd != SlashCommand::Apps)
         .filter(|(_, cmd)| flags.plugins_command_enabled || *cmd != SlashCommand::Plugins)
-        .filter(|(_, cmd)| flags.token_activity_command_enabled || *cmd != SlashCommand::Usage)
         .filter(|(_, cmd)| flags.goal_command_enabled || *cmd != SlashCommand::Goal)
         .filter(|(_, cmd)| flags.personality_command_enabled || *cmd != SlashCommand::Personality)
         .filter(|(_, cmd)| !flags.side_conversation_active || cmd.available_in_side_conversation())
@@ -268,14 +269,13 @@ mod tests {
     }
 
     #[test]
-    fn usage_command_is_hidden_from_input_when_account_token_activity_is_disabled() {
+    fn usage_command_remains_discoverable_when_account_token_activity_is_disabled() {
         let mut flags = all_enabled_flags();
         flags.token_activity_command_enabled = false;
-        assert_eq!(
+        assert!(
             builtins_for_input(flags)
                 .into_iter()
-                .find(|(_, command)| *command == SlashCommand::Usage),
-            None
+                .any(|(_, command)| command == SlashCommand::Usage)
         );
     }
 

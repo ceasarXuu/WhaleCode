@@ -5,10 +5,13 @@ use crate::collaboration_mode_presets::builtin_collaboration_mode_presets;
 use crate::config::ModelsManagerConfig;
 use crate::model_info;
 use crate::model_presets::mark_whale_default_model;
+use crate::model_presets::retain_models_for_route;
 use crate::model_presets::retain_whale_models_for_listing;
 use chrono::Utc;
 use codex_http_client::HttpClientFactory;
 use codex_login::AuthManager;
+use codex_protocol::ProviderAccessMethod;
+use codex_protocol::ProviderRoute;
 use codex_protocol::auth::AuthMode;
 use codex_protocol::config_types::CollaborationModeMask;
 use codex_protocol::error::Result as CoreResult;
@@ -16,6 +19,8 @@ use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ModelPreset;
 use codex_protocol::openai_models::ModelVisibility;
 use codex_protocol::openai_models::ModelsResponse;
+use codex_protocol::openai_models::ProviderModelAvailability;
+use codex_protocol::openai_models::ProviderModelGroup;
 use std::fmt;
 use std::future::Future;
 use std::path::PathBuf;
@@ -124,6 +129,11 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
     /// Return the auth manager used for picker filtering.
     fn auth_manager(&self) -> Option<&AuthManager>;
 
+    /// Whether this manager participates in Whale's legacy DeepSeek-only picker view.
+    fn restrict_to_whale_models(&self) -> bool {
+        false
+    }
+
     /// Build picker-ready presets from the active catalog snapshot.
     fn build_available_models(&self, mut remote_models: Vec<ModelInfo>) -> Vec<ModelPreset> {
         remote_models.sort_by_key(|model| model.priority);
@@ -133,11 +143,32 @@ pub trait ModelsManager: fmt::Debug + Send + Sync {
             .auth_manager()
             .is_some_and(AuthManager::current_auth_uses_codex_backend);
         presets = ModelPreset::filter_by_auth(presets, uses_codex_backend);
-        retain_whale_models_for_listing(&mut presets);
+        if self.restrict_to_whale_models() {
+            retain_whale_models_for_listing(&mut presets);
+        }
 
         ModelPreset::mark_default_by_picker_visibility(&mut presets);
         mark_whale_default_model(&mut presets);
 
+        presets
+    }
+
+    /// Build picker-ready presets for an explicit provider route.
+    fn build_available_models_for_route(
+        &self,
+        mut remote_models: Vec<ModelInfo>,
+        route: &ProviderRoute,
+    ) -> Vec<ModelPreset> {
+        remote_models.sort_by_key(|model| model.priority);
+        let mut presets: Vec<ModelPreset> = remote_models.into_iter().map(Into::into).collect();
+        let uses_codex_backend = route.model_provider_id == "openai"
+            && route.access_method == ProviderAccessMethod::Chatgpt;
+        presets = ModelPreset::filter_by_auth(presets, uses_codex_backend);
+        retain_models_for_route(&mut presets, route);
+        ModelPreset::mark_default_by_picker_visibility(&mut presets);
+        if route.model_provider_id == "deepseek" {
+            mark_whale_default_model(&mut presets);
+        }
         presets
     }
 
@@ -217,14 +248,70 @@ pub type ModelsManagerFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a
 /// Shared model manager handle used across runtime services.
 pub type SharedModelsManager = Arc<dyn ModelsManager>;
 
+/// One independently refreshed source in the provider-aware model catalog.
+#[derive(Clone)]
+pub struct ProviderModelsCatalogEntry {
+    pub route: ProviderRoute,
+    pub display_name: String,
+    pub manager: SharedModelsManager,
+}
+
+/// Aggregates route-isolated managers without hiding unauthenticated groups.
+#[derive(Clone)]
+pub struct ProviderModelsCatalog {
+    entries: Vec<ProviderModelsCatalogEntry>,
+    auth_manager: Arc<AuthManager>,
+}
+
+impl ProviderModelsCatalog {
+    pub fn new(entries: Vec<ProviderModelsCatalogEntry>, auth_manager: Arc<AuthManager>) -> Self {
+        Self {
+            entries,
+            auth_manager,
+        }
+    }
+
+    pub async fn list_model_groups(
+        &self,
+        refresh_strategy: RefreshStrategy,
+        http_client_factory: HttpClientFactory,
+    ) -> Vec<ProviderModelGroup> {
+        let mut groups = Vec::with_capacity(self.entries.len());
+        for entry in &self.entries {
+            let catalog = entry
+                .manager
+                .raw_model_catalog(refresh_strategy, http_client_factory.clone())
+                .await;
+            let models = entry
+                .manager
+                .build_available_models_for_route(catalog.models, &entry.route);
+            let availability = match self.auth_manager.auth_for_route(&entry.route).await {
+                Ok(Some(_)) if models.is_empty() => ProviderModelAvailability::CatalogUnavailable,
+                Ok(Some(_)) => ProviderModelAvailability::Available,
+                Ok(None) => ProviderModelAvailability::MissingCredentials,
+                Err(_) => ProviderModelAvailability::UnsupportedRoute,
+            };
+            groups.push(ProviderModelGroup {
+                route: entry.route.clone(),
+                display_name: entry.display_name.clone(),
+                availability,
+                models,
+            });
+        }
+        groups
+    }
+}
+
 /// OpenAI-compatible model manager backed by bundled models, cache, and `/models`.
 #[derive(Debug)]
 pub struct OpenAiModelsManager {
     remote_models: RwLock<Vec<ModelInfo>>,
     etag: RwLock<Option<String>>,
     cache: Option<Arc<dyn ModelsCache>>,
+    cache_route: Option<ProviderRoute>,
     endpoint_client: SharedModelsEndpointClient,
     auth_manager: Option<Arc<AuthManager>>,
+    restrict_to_whale_models: bool,
 }
 
 /// Static model manager backed by an authoritative in-process catalog.
@@ -232,6 +319,7 @@ pub struct OpenAiModelsManager {
 pub struct StaticModelsManager {
     remote_models: Vec<ModelInfo>,
     auth_manager: Option<Arc<AuthManager>>,
+    restrict_to_whale_models: bool,
 }
 
 impl OpenAiModelsManager {
@@ -249,6 +337,44 @@ impl OpenAiModelsManager {
             ))),
             endpoint_client,
             auth_manager,
+            /*cache_route*/ None,
+            /*restrict_to_whale_models*/ true,
+        )
+    }
+
+    /// Construct a manager whose disk cache is isolated to one provider route.
+    pub fn new_for_route(
+        codex_home: PathBuf,
+        route: ProviderRoute,
+        endpoint_client: Arc<dyn ModelsEndpointClient>,
+        auth_manager: Option<Arc<AuthManager>>,
+    ) -> Self {
+        let access_method = match route.access_method {
+            ProviderAccessMethod::Chatgpt => "chatgpt",
+            ProviderAccessMethod::ApiKey => "api-key",
+        };
+        let provider_key: String = route
+            .model_provider_id
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                    ch
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let cache_path =
+            codex_home.join(format!("models_cache.{provider_key}-{access_method}.json"));
+        Self::new_with_optional_cache(
+            Some(Arc::new(FileModelsCache::new(
+                cache_path,
+                DEFAULT_MODEL_CACHE_TTL,
+            ))),
+            endpoint_client,
+            auth_manager,
+            Some(route),
+            /*restrict_to_whale_models*/ true,
         )
     }
 
@@ -257,7 +383,13 @@ impl OpenAiModelsManager {
         endpoint_client: Arc<dyn ModelsEndpointClient>,
         auth_manager: Option<Arc<AuthManager>>,
     ) -> Self {
-        Self::new_with_optional_cache(/*cache*/ None, endpoint_client, auth_manager)
+        Self::new_with_optional_cache(
+            /*cache*/ None,
+            endpoint_client,
+            auth_manager,
+            /*cache_route*/ None,
+            /*restrict_to_whale_models*/ true,
+        )
     }
 
     /// Constructs an OpenAI-compatible model manager with a caller-provided cache.
@@ -269,21 +401,53 @@ impl OpenAiModelsManager {
         endpoint_client: Arc<dyn ModelsEndpointClient>,
         auth_manager: Option<Arc<AuthManager>>,
     ) -> Self {
-        Self::new_with_optional_cache(Some(cache), endpoint_client, auth_manager)
+        Self::new_with_optional_cache(
+            Some(cache),
+            endpoint_client,
+            auth_manager,
+            /*cache_route*/ None,
+            /*restrict_to_whale_models*/ true,
+        )
+    }
+
+    /// Set whether route-less callers retain Whale's legacy DeepSeek-only catalog view.
+    pub fn with_whale_filter(mut self, restrict_to_whale_models: bool) -> Self {
+        self.restrict_to_whale_models = restrict_to_whale_models;
+        self
+    }
+
+    #[cfg(test)]
+    fn new_with_cache_for_route(
+        cache: Arc<dyn ModelsCache>,
+        route: ProviderRoute,
+        endpoint_client: Arc<dyn ModelsEndpointClient>,
+        auth_manager: Option<Arc<AuthManager>>,
+    ) -> Self {
+        Self::new_with_optional_cache(
+            Some(cache),
+            endpoint_client,
+            auth_manager,
+            Some(route),
+            /*restrict_to_whale_models*/ true,
+        )
     }
 
     fn new_with_optional_cache(
         cache: Option<Arc<dyn ModelsCache>>,
         endpoint_client: Arc<dyn ModelsEndpointClient>,
         auth_manager: Option<Arc<AuthManager>>,
+        cache_route: Option<ProviderRoute>,
+        restrict_to_whale_models: bool,
     ) -> Self {
         let remote_models = load_remote_models_from_file().unwrap_or_default();
         Self {
             remote_models: RwLock::new(remote_models),
             etag: RwLock::new(None),
             cache,
+            cache_route,
             endpoint_client,
             auth_manager,
+            restrict_to_whale_models,
         }
     }
 }
@@ -294,11 +458,27 @@ impl StaticModelsManager {
         Self {
             remote_models: model_catalog.models,
             auth_manager,
+            restrict_to_whale_models: true,
+        }
+    }
+
+    /// Construct a static manager whose provider-owned catalog is shown without Whale filtering.
+    pub fn new_unfiltered(
+        auth_manager: Option<Arc<AuthManager>>,
+        model_catalog: ModelsResponse,
+    ) -> Self {
+        Self {
+            remote_models: model_catalog.models,
+            auth_manager,
+            restrict_to_whale_models: false,
         }
     }
 }
 
 impl ModelsManager for OpenAiModelsManager {
+    fn restrict_to_whale_models(&self) -> bool {
+        self.restrict_to_whale_models
+    }
     fn raw_model_catalog(
         &self,
         refresh_strategy: RefreshStrategy,
@@ -429,6 +609,7 @@ impl OpenAiModelsManager {
                 fetched_at: Utc::now(),
                 etag,
                 client_version: Some(client_version),
+                provider_route: self.cache_route.clone(),
                 models,
             };
             if let Err(err) = cache.store(&entry).await {
@@ -487,8 +668,6 @@ impl OpenAiModelsManager {
             codex_otel::start_global_timer("codex.remote_models.load_cache.duration_ms", &[]);
         let client_version = crate::client_version_to_whole();
         info!(client_version, "models cache: evaluating cache eligibility");
-        // TODO(celia-oai): Include provider identity in cache eligibility so switching
-        // providers does not reuse a fresh models_cache.json entry from another provider.
         let cache_entry = match cache.load(&client_version).await {
             Ok(Some(cache_entry)) => cache_entry,
             Ok(None) => {
@@ -508,6 +687,10 @@ impl OpenAiModelsManager {
             );
             return false;
         }
+        if cache_entry.provider_route != self.cache_route {
+            info!("models cache: provider route mismatch");
+            return false;
+        }
         let models = cache_entry.models.clone();
         *self.etag.write().await = cache_entry.etag.clone();
         self.apply_remote_models(models.clone()).await;
@@ -521,6 +704,10 @@ impl OpenAiModelsManager {
 }
 
 impl ModelsManager for StaticModelsManager {
+    fn restrict_to_whale_models(&self) -> bool {
+        self.restrict_to_whale_models
+    }
+
     fn get_default_model<'a>(
         &'a self,
         model: &'a Option<String>,

@@ -10,6 +10,7 @@ use crate::types::Personality;
 use crate::types::SessionPickerViewMode;
 use crate::types::WindowsToml;
 use codex_features::FeaturesToml;
+use codex_protocol::ProviderAccessMethod;
 use codex_protocol::config_types::ReasoningSummary;
 use codex_protocol::config_types::SandboxMode;
 use codex_protocol::config_types::Verbosity;
@@ -29,6 +30,8 @@ pub struct ConfigProfile {
     /// The key in the `model_providers` map identifying the
     /// [`ModelProviderInfo`] to use.
     pub model_provider: Option<String>,
+    /// Authentication path to use when a built-in provider exposes more than one.
+    pub model_provider_access_method: Option<ProviderAccessMethod>,
     #[schemars(with = "Option<crate::schema::ConfigAskForApproval>")]
     pub approval_policy: Option<AskForApproval>,
     pub approvals_reviewer: Option<ApprovalsReviewer>,

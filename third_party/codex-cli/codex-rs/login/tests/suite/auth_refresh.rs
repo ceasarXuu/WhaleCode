@@ -149,6 +149,7 @@ async fn refresh_token_honors_respect_system_proxy() -> Result<()> {
     let initial_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(initial_tokens.clone()),
         last_refresh: Some(Utc::now() - Duration::days(1)),
         agent_identity: None,
@@ -202,6 +203,7 @@ async fn refresh_token_succeeds_updates_storage() -> Result<()> {
     let initial_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(initial_tokens.clone()),
         last_refresh: Some(initial_last_refresh),
         agent_identity: None,
@@ -278,6 +280,7 @@ async fn refresh_token_refreshes_when_auth_is_unchanged() -> Result<()> {
     let initial_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(initial_tokens.clone()),
         last_refresh: Some(initial_last_refresh),
         agent_identity: None,
@@ -345,6 +348,7 @@ async fn auth_refreshes_when_access_token_is_near_expiry() -> Result<()> {
     let initial_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(initial_tokens.clone()),
         last_refresh: Some(initial_last_refresh),
         agent_identity: None,
@@ -397,6 +401,7 @@ async fn auth_skips_access_token_outside_refresh_window() -> Result<()> {
     let initial_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(initial_tokens.clone()),
         last_refresh: Some(initial_last_refresh),
         agent_identity: None,
@@ -435,6 +440,7 @@ async fn refresh_token_skips_refresh_when_auth_changed() -> Result<()> {
     let initial_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(initial_tokens),
         last_refresh: Some(initial_last_refresh),
         agent_identity: None,
@@ -447,6 +453,7 @@ async fn refresh_token_skips_refresh_when_auth_changed() -> Result<()> {
     let disk_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(disk_tokens.clone()),
         last_refresh: Some(initial_last_refresh),
         agent_identity: None,
@@ -505,6 +512,7 @@ async fn refresh_token_errors_on_account_mismatch() -> Result<()> {
     let initial_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(initial_tokens.clone()),
         last_refresh: Some(initial_last_refresh),
         agent_identity: None,
@@ -518,6 +526,7 @@ async fn refresh_token_errors_on_account_mismatch() -> Result<()> {
     let disk_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(disk_tokens),
         last_refresh: Some(initial_last_refresh),
         agent_identity: None,
@@ -580,6 +589,7 @@ async fn returns_fresh_tokens_as_is() -> Result<()> {
     let initial_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(initial_tokens.clone()),
         last_refresh: Some(stale_refresh),
         agent_identity: None,
@@ -630,6 +640,7 @@ async fn refreshes_token_when_access_token_is_expired() -> Result<()> {
     let initial_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(initial_tokens.clone()),
         last_refresh: Some(fresh_refresh),
         agent_identity: None,
@@ -682,6 +693,7 @@ async fn auth_reloads_disk_auth_when_cached_auth_is_stale() -> Result<()> {
     let initial_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(initial_tokens),
         last_refresh: Some(stale_refresh),
         agent_identity: None,
@@ -695,6 +707,7 @@ async fn auth_reloads_disk_auth_when_cached_auth_is_stale() -> Result<()> {
     let disk_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(disk_tokens.clone()),
         last_refresh: Some(fresh_refresh),
         agent_identity: None,
@@ -750,6 +763,7 @@ async fn auth_reloads_disk_auth_without_calling_expired_refresh_token() -> Resul
     let initial_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(initial_tokens),
         last_refresh: Some(stale_refresh),
         agent_identity: None,
@@ -763,6 +777,7 @@ async fn auth_reloads_disk_auth_without_calling_expired_refresh_token() -> Resul
     let disk_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(disk_tokens.clone()),
         last_refresh: Some(fresh_refresh),
         agent_identity: None,
@@ -816,6 +831,7 @@ async fn refresh_token_returns_permanent_error_for_expired_refresh_token() -> Re
     let initial_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(initial_tokens.clone()),
         last_refresh: Some(initial_last_refresh),
         agent_identity: None,
@@ -871,6 +887,7 @@ async fn refresh_token_does_not_retry_after_permanent_failure() -> Result<()> {
     let initial_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(initial_tokens.clone()),
         last_refresh: Some(initial_last_refresh),
         agent_identity: None,
@@ -940,6 +957,7 @@ async fn refresh_token_does_not_retry_after_bad_request_reused_failure() -> Resu
     let initial_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(initial_tokens.clone()),
         last_refresh: Some(initial_last_refresh),
         agent_identity: None,
@@ -1007,6 +1025,7 @@ async fn refresh_token_does_not_retry_after_standard_invalid_grant_failure() -> 
     let initial_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(initial_tokens.clone()),
         last_refresh: Some(initial_last_refresh),
         agent_identity: None,
@@ -1074,6 +1093,7 @@ async fn refresh_token_does_not_cache_other_bad_request_failure() -> Result<()> 
     let initial_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(initial_tokens.clone()),
         last_refresh: Some(initial_last_refresh),
         agent_identity: None,
@@ -1139,6 +1159,7 @@ async fn refresh_token_reloads_changed_auth_after_permanent_failure() -> Result<
     let initial_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(initial_tokens.clone()),
         last_refresh: Some(initial_last_refresh),
         agent_identity: None,
@@ -1163,6 +1184,7 @@ async fn refresh_token_reloads_changed_auth_after_permanent_failure() -> Result<
     let disk_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(disk_tokens.clone()),
         last_refresh: Some(fresh_refresh),
         agent_identity: None,
@@ -1225,6 +1247,7 @@ async fn refresh_token_returns_transient_error_on_server_failure() -> Result<()>
     let initial_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(initial_tokens.clone()),
         last_refresh: Some(initial_last_refresh),
         agent_identity: None,
@@ -1280,6 +1303,7 @@ async fn unauthorized_recovery_reloads_then_refreshes_tokens() -> Result<()> {
     let initial_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(initial_tokens.clone()),
         last_refresh: Some(initial_last_refresh),
         agent_identity: None,
@@ -1292,6 +1316,7 @@ async fn unauthorized_recovery_reloads_then_refreshes_tokens() -> Result<()> {
     let disk_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(disk_tokens.clone()),
         last_refresh: Some(initial_last_refresh),
         agent_identity: None,
@@ -1379,6 +1404,7 @@ async fn unauthorized_recovery_errors_on_account_mismatch() -> Result<()> {
     let initial_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(initial_tokens.clone()),
         last_refresh: Some(initial_last_refresh),
         agent_identity: None,
@@ -1392,6 +1418,7 @@ async fn unauthorized_recovery_errors_on_account_mismatch() -> Result<()> {
     let disk_auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(disk_tokens),
         last_refresh: Some(initial_last_refresh),
         agent_identity: None,
@@ -1453,6 +1480,7 @@ async fn unauthorized_recovery_requires_chatgpt_auth() -> Result<()> {
     let auth = AuthDotJson {
         auth_mode: Some(AuthMode::ApiKey),
         openai_api_key: Some("sk-test".to_string()),
+        deepseek_api_key: None,
         tokens: None,
         last_refresh: None,
         agent_identity: None,

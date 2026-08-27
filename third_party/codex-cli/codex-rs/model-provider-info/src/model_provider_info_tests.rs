@@ -6,6 +6,24 @@ use std::num::NonZeroU64;
 use tempfile::tempdir;
 
 #[test]
+fn openai_provider_uses_codex_compatibility_version_header() {
+    let provider = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+
+    assert_eq!(
+        provider
+            .http_headers
+            .as_ref()
+            .and_then(|headers| headers.get("version"))
+            .map(String::as_str),
+        Some(OPENAI_CODEX_COMPATIBILITY_VERSION)
+    );
+    assert_ne!(
+        OPENAI_CODEX_COMPATIBILITY_VERSION,
+        env!("CARGO_PKG_VERSION")
+    );
+}
+
+#[test]
 fn test_deserialize_ollama_model_provider_toml() {
     let azure_provider_toml = r#"
 name = "Ollama"

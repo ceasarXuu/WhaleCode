@@ -1,0 +1,11 @@
+{
+  "schema_version": "whalecode-deepseek-responses-smoke-v1",
+  "record_id": "WAR-20260822-053058-DEEPSEEK-VISION-R1",
+  "status": "failed",
+  "provider_request_count": 1,
+  "usage_evidence_status": "unavailable",
+  "credential_recorded": false,
+  "failed_sample": "deepseek-v4-flash-vision-exp",
+  "failure": "The provider response completed but did not contain the required image-recognition marker.",
+  "retry": false
+}

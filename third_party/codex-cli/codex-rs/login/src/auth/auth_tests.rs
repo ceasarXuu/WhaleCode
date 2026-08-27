@@ -2,6 +2,8 @@ use super::*;
 use crate::auth::storage::FileAuthStorage;
 use crate::auth::storage::get_auth_file;
 use crate::token_data::IdTokenInfo;
+use codex_protocol::ProviderAccessMethod;
+use codex_protocol::ProviderRoute;
 use codex_protocol::account::PlanType as AccountPlanType;
 use codex_protocol::auth::AuthMode;
 use codex_protocol::auth::KnownPlan as InternalKnownPlan;
@@ -63,7 +65,7 @@ async fn refresh_without_id_token() {
     let codex_home = tempdir().unwrap();
     let fake_jwt = write_auth_file(
         AuthFileParams {
-            openai_api_key: None,
+            openai_api_key: Some("preserved-api-key".to_string()),
             chatgpt_plan_type: Some("pro".to_string()),
             chatgpt_account_id: None,
         },
@@ -88,16 +90,28 @@ async fn refresh_without_id_token() {
     assert_eq!(tokens.id_token.raw_jwt, fake_jwt);
     assert_eq!(tokens.access_token, "new-access-token");
     assert_eq!(tokens.refresh_token, "new-refresh-token");
+    assert_eq!(
+        updated.openai_api_key.as_deref(),
+        Some("preserved-api-key"),
+        "refreshing ChatGPT tokens must not overwrite a coexisting API key"
+    );
 }
 
 #[test]
-fn login_with_api_key_overwrites_existing_auth_json() {
+fn login_with_api_key_preserves_coexisting_credentials() {
     let dir = tempdir().unwrap();
     let auth_path = dir.path().join("auth.json");
+    let id_token = fake_jwt_for_auth_file_params(&AuthFileParams {
+        openai_api_key: None,
+        chatgpt_plan_type: Some("pro".to_string()),
+        chatgpt_account_id: Some("account-one".to_string()),
+    })
+    .expect("valid test JWT");
     let stale_auth = json!({
         "OPENAI_API_KEY": "sk-old",
+        "DEEPSEEK_API_KEY": "deepseek-existing",
         "tokens": {
-            "id_token": "stale.header.payload",
+            "id_token": id_token,
             "access_token": "stale-access",
             "refresh_token": "stale-refresh",
             "account_id": "stale-acc"
@@ -122,7 +136,137 @@ fn login_with_api_key_overwrites_existing_auth_json() {
         .try_read_auth_json(&auth_path)
         .expect("auth.json should parse");
     assert_eq!(auth.openai_api_key.as_deref(), Some("sk-new"));
-    assert!(auth.tokens.is_none(), "tokens should be cleared");
+    assert_eq!(auth.deepseek_api_key.as_deref(), Some("deepseek-existing"));
+    assert!(auth.tokens.is_some(), "ChatGPT tokens should be preserved");
+}
+
+#[tokio::test]
+#[serial(codex_auth_env)]
+async fn provider_routes_select_and_clear_isolated_api_keys() -> std::io::Result<()> {
+    let dir = tempdir().unwrap();
+    let _openai_env = EnvVarGuard::remove(OPENAI_API_KEY_ENV_VAR);
+    let _deepseek_env = EnvVarGuard::remove(DEEPSEEK_API_KEY_ENV_VAR);
+    let chatgpt_route = ProviderRoute::new("openai", ProviderAccessMethod::Chatgpt);
+    let openai_route = ProviderRoute::new("openai", ProviderAccessMethod::ApiKey);
+    let deepseek_route = ProviderRoute::new("deepseek", ProviderAccessMethod::ApiKey);
+
+    write_auth_file(
+        AuthFileParams {
+            openai_api_key: None,
+            chatgpt_plan_type: Some("pro".to_string()),
+            chatgpt_account_id: Some("account-one".to_string()),
+        },
+        dir.path(),
+    )?;
+    login_with_api_key(
+        dir.path(),
+        "openai-key",
+        AuthCredentialsStoreMode::File,
+        AuthKeyringBackendKind::default(),
+    )
+    .expect("save OpenAI key");
+    login_with_deepseek_api_key(
+        dir.path(),
+        "deepseek-key",
+        AuthCredentialsStoreMode::File,
+        AuthKeyringBackendKind::default(),
+    )
+    .expect("save DeepSeek key");
+
+    let manager = AuthManager::new(
+        dir.path().to_path_buf(),
+        /*enable_codex_api_key_env*/ false,
+        AuthCredentialsStoreMode::File,
+        /*forced_chatgpt_workspace_id*/ None,
+        /*chatgpt_base_url*/ None,
+        AuthKeyringBackendKind::default(),
+        crate::test_support::transport_default_auth_route_config(),
+    )
+    .await;
+    assert_eq!(
+        manager
+            .auth_for_route(&chatgpt_route)
+            .await
+            .expect("resolve ChatGPT route")
+            .map(|auth| auth.auth_mode()),
+        Some(AuthMode::Chatgpt)
+    );
+    assert_eq!(
+        manager
+            .auth_for_route(&openai_route)
+            .await
+            .expect("resolve OpenAI route")
+            .and_then(|auth| auth.api_key().map(str::to_string))
+            .as_deref(),
+        Some("openai-key")
+    );
+    assert_eq!(
+        manager
+            .auth_for_route(&deepseek_route)
+            .await
+            .expect("resolve DeepSeek route")
+            .and_then(|auth| auth.api_key().map(str::to_string))
+            .as_deref(),
+        Some("deepseek-key")
+    );
+
+    assert!(logout_provider_route(
+        dir.path(),
+        &deepseek_route,
+        AuthCredentialsStoreMode::File,
+        AuthKeyringBackendKind::default(),
+    )?);
+    let stored = load_auth_dot_json(
+        dir.path(),
+        AuthCredentialsStoreMode::File,
+        AuthKeyringBackendKind::default(),
+    )?
+    .expect("OpenAI key should remain");
+    assert_eq!(stored.openai_api_key.as_deref(), Some("openai-key"));
+    assert_eq!(stored.deepseek_api_key, None);
+    Ok(())
+}
+
+#[tokio::test]
+#[serial(codex_auth_env)]
+async fn deepseek_only_credentials_do_not_create_legacy_chatgpt_auth() -> std::io::Result<()> {
+    let dir = tempdir().unwrap();
+    let _openai_env = EnvVarGuard::remove(OPENAI_API_KEY_ENV_VAR);
+    let _deepseek_env = EnvVarGuard::remove(DEEPSEEK_API_KEY_ENV_VAR);
+    login_with_deepseek_api_key(
+        dir.path(),
+        "deepseek-key",
+        AuthCredentialsStoreMode::File,
+        AuthKeyringBackendKind::default(),
+    )?;
+
+    let manager = AuthManager::new(
+        dir.path().to_path_buf(),
+        /*enable_codex_api_key_env*/ false,
+        AuthCredentialsStoreMode::File,
+        /*forced_chatgpt_workspace_id*/ None,
+        /*chatgpt_base_url*/ None,
+        AuthKeyringBackendKind::default(),
+        crate::test_support::transport_default_auth_route_config(),
+    )
+    .await;
+
+    assert!(
+        manager.auth().await.is_none(),
+        "a provider-only DeepSeek credential must not become legacy ChatGPT auth"
+    );
+    assert_eq!(
+        manager
+            .auth_for_route(&ProviderRoute::new(
+                "deepseek",
+                ProviderAccessMethod::ApiKey,
+            ))
+            .await?
+            .and_then(|auth| auth.api_key().map(str::to_string))
+            .as_deref(),
+        Some("deepseek-key")
+    );
+    Ok(())
 }
 
 #[tokio::test]
@@ -365,6 +509,7 @@ async fn stored_agent_identity_jwt_keeps_auth_json_unchanged() -> anyhow::Result
         &AuthDotJson {
             auth_mode: Some(AuthMode::AgentIdentity),
             openai_api_key: None,
+            deepseek_api_key: None,
             tokens: None,
             last_refresh: None,
             agent_identity: Some(AgentIdentityStorage::Jwt(agent_identity.clone())),
@@ -444,6 +589,7 @@ async fn login_with_access_token_writes_only_personal_access_token() {
         AuthDotJson {
             auth_mode: None,
             openai_api_key: None,
+            deepseek_api_key: None,
             tokens: None,
             last_refresh: None,
             agent_identity: None,
@@ -1051,6 +1197,7 @@ async fn pro_account_with_no_api_key_uses_chatgpt_auth() {
         AuthDotJson {
             auth_mode: None,
             openai_api_key: None,
+            deepseek_api_key: None,
             tokens: Some(TokenData {
                 id_token: IdTokenInfo {
                     email: Some("user@example.com".to_string()),
@@ -1111,6 +1258,7 @@ fn logout_removes_auth_file() -> Result<(), std::io::Error> {
     let auth_dot_json = AuthDotJson {
         auth_mode: Some(AuthMode::ApiKey),
         openai_api_key: Some("sk-test-key".to_string()),
+        deepseek_api_key: None,
         tokens: None,
         last_refresh: None,
         agent_identity: None,
@@ -2326,6 +2474,7 @@ async fn workspace_policy_rejects_agent_identity_before_hydration() {
             &AuthDotJson {
                 auth_mode: Some(AuthMode::AgentIdentity),
                 openai_api_key: None,
+                deepseek_api_key: None,
                 tokens: None,
                 last_refresh: None,
                 agent_identity: Some(stored_agent_identity),
@@ -2567,6 +2716,7 @@ async fn enforce_login_restrictions_logs_out_for_agent_identity_workspace_mismat
         &AuthDotJson {
             auth_mode: Some(AuthMode::AgentIdentity),
             openai_api_key: None,
+            deepseek_api_key: None,
             tokens: None,
             last_refresh: None,
             agent_identity: Some(AgentIdentityStorage::Jwt(agent_identity)),

@@ -6,4 +6,4 @@ expression: normalized_backend_snapshot(terminal.backend())
 "                                                                                "
 "› Ask Whale to do anything                                                      "
 "                                                                                "
-"  gpt-5.6-sol default · 5.2 credits · ~$0.21                                    "
+"  deepseek-v4-flash default · 5.2 credits · ~$0.21                              "

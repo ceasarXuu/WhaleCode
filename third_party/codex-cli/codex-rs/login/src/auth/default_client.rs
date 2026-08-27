@@ -11,6 +11,7 @@ use codex_http_client::HttpClientBuilder;
 use codex_http_client::HttpClientFactory;
 use codex_http_client::OutboundProxyPolicy;
 pub use codex_http_client::RequestBuilder as CodexRequestBuilder;
+pub use codex_model_provider_info::OPENAI_CODEX_COMPATIBILITY_VERSION;
 use codex_terminal_detection::user_agent;
 use http::HeaderMap;
 use http::HeaderValue;
@@ -162,7 +163,7 @@ pub fn is_first_party_chat_originator(originator_value: &str) -> bool {
 }
 
 pub fn get_codex_user_agent() -> String {
-    let build_version = env!("CARGO_PKG_VERSION");
+    let build_version = OPENAI_CODEX_COMPATIBILITY_VERSION;
     let os_info = os_info::get();
     let originator = originator();
     let prefix = format!(

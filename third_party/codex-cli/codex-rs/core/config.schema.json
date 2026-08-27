@@ -891,6 +891,14 @@
           "description": "The key in the `model_providers` map identifying the [`ModelProviderInfo`] to use.",
           "type": "string"
         },
+        "model_provider_access_method": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ProviderAccessMethod"
+            }
+          ],
+          "description": "Authentication path to use when a built-in provider exposes more than one."
+        },
         "model_reasoning_effort": {
           "$ref": "#/definitions/ReasoningEffort"
         },
@@ -2814,6 +2822,14 @@
         }
       },
       "type": "object"
+    },
+    "ProviderAccessMethod": {
+      "description": "Authentication path used for a provider route. This enum never carries credentials.",
+      "enum": [
+        "chatgpt",
+        "apiKey"
+      ],
+      "type": "string"
     },
     "RawMcpServerConfig": {
       "additionalProperties": false,
@@ -5941,6 +5957,14 @@
     "model_provider": {
       "description": "Provider to use from the model_providers map.",
       "type": "string"
+    },
+    "model_provider_access_method": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ProviderAccessMethod"
+        }
+      ],
+      "description": "Authentication path to use when a built-in provider exposes more than one."
     },
     "model_providers": {
       "additionalProperties": {

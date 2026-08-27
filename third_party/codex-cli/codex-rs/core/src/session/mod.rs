@@ -169,6 +169,7 @@ use tokio::sync::oneshot;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::AbortOnDropHandle;
 use toml::Value as TomlValue;
 use tracing::Instrument;
 use tracing::debug;
@@ -192,6 +193,7 @@ use crate::config::PermissionProfileState;
 use crate::config::StartedNetworkProxy;
 use crate::config::resolve_web_search_mode_for_turn;
 use crate::context_manager::ContextManager;
+use crate::provider_runtime::ProviderRuntimeRegistry;
 use crate::thread_rollout_truncation::initial_history_has_prior_user_turns;
 use codex_config::CONFIG_TOML_FILE;
 use codex_config::ConfigLayerSource;
@@ -241,6 +243,8 @@ pub(crate) use self::input_queue::TurnInput;
 pub(crate) use self::input_queue::TurnInputQueue;
 use self::review::spawn_review_thread;
 use self::session::AppServerClientMetadata;
+use self::session::PreparedProviderTransition;
+use self::session::ProviderSelectionSnapshot;
 use self::session::Session;
 use self::session::SessionConfiguration;
 pub(crate) use self::session::SessionSettingsUpdate;
@@ -265,9 +269,22 @@ mod rollout_reconstruction_tests;
 /// `realtime_active -> false` transition.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PreviousTurnSettings {
+    pub(crate) route: Option<codex_protocol::ProviderRoute>,
     pub(crate) model: String,
     pub(crate) comp_hash: Option<String>,
     pub(crate) realtime_active: Option<bool>,
+}
+
+fn provider_transition_error(
+    route: &codex_protocol::ProviderRoute,
+    allowed: &str,
+) -> crate::config::ConstraintError {
+    crate::config::ConstraintError::InvalidValue {
+        field_name: "route",
+        candidate: format!("{}/{:?}", route.model_provider_id, route.access_method),
+        allowed: allowed.to_string(),
+        requirement_source: codex_config::RequirementSource::Unknown,
+    }
 }
 
 use crate::action_map::ProjectionEmission;
@@ -411,6 +428,7 @@ pub(crate) struct SessionSpawnArgs {
     pub(crate) installation_id: String,
     pub(crate) auth_manager: Arc<AuthManager>,
     pub(crate) models_manager: SharedModelsManager,
+    pub(crate) provider_runtime_registry: ProviderRuntimeRegistry,
     pub(crate) environment_manager: Arc<EnvironmentManager>,
     pub(crate) skills_service: Arc<HostSkillsService>,
     pub(crate) plugins_manager: Arc<PluginsManager>,
@@ -508,6 +526,7 @@ impl Session {
             installation_id,
             auth_manager,
             models_manager,
+            provider_runtime_registry,
             environment_manager,
             skills_service,
             plugins_manager,
@@ -585,29 +604,127 @@ impl Session {
         };
 
         let mut config = Arc::new(config);
+        let restored_provider_lifecycle = rollout_reconstruction::reconstruct_provider_lifecycle(
+            conversation_history.get_rollout_items(),
+        );
+        // A subagent fork inherits the complete route/model snapshot captured by its spawning
+        // turn. Its copied history may end at the parent's previous successful turn, so replaying
+        // that route here would incorrectly undo a provider switch that is already active for the
+        // parent turn. Ordinary user forks still restore the route at their selected history cut.
+        let inherit_subagent_fork_snapshot =
+            parent_thread_id.is_some() && matches!(conversation_history, InitialHistory::Forked(_));
+        let restored_provider_selection = (!inherit_subagent_fork_snapshot)
+            .then_some(restored_provider_lifecycle.active_selection)
+            .flatten();
+        let restoring_provider_selection = restored_provider_selection.is_some();
+        let mut restored_recent_provider_models = restored_provider_lifecycle.recent_models;
+        let (models_manager, initial_provider_route, initial_provider, restored_model) =
+            if let Some((route, model)) = restored_provider_selection {
+                let runtime = provider_runtime_registry.get(&route).ok_or_else(|| {
+                    CodexErr::InvalidRequest(format!(
+                        "cannot restore provider route `{}/{:?}` at stage `runtime`: unsupported route",
+                        route.model_provider_id, route.access_method
+                    ))
+                })?;
+                let has_credentials = auth_manager
+                    .auth_for_route(&route)
+                    .await
+                    .map_err(|_| {
+                        CodexErr::InvalidRequest(format!(
+                            "cannot restore provider route `{}/{:?}` at stage `credentials`: unreadable credential slot",
+                            route.model_provider_id, route.access_method
+                        ))
+                    })?
+                    .is_some();
+                if !has_credentials {
+                    return Err(CodexErr::InvalidRequest(format!(
+                        "cannot restore provider route `{}/{:?}` at stage `credentials`: credentials are not configured",
+                        route.model_provider_id, route.access_method
+                    )));
+                }
+                (
+                    Arc::clone(&runtime.models_manager),
+                    Some(route),
+                    Arc::clone(&runtime.provider),
+                    Some(model),
+                )
+            } else {
+                let initial_route = provider_runtime_registry.initial_route(
+                    &config.model_provider_id,
+                    config.model_provider_access_method,
+                    &config.model_provider,
+                    &config.model_providers,
+                    auth_manager.as_ref(),
+                );
+                let initial_runtime = initial_route
+                    .as_ref()
+                    .and_then(|route| provider_runtime_registry.get(route));
+                (
+                    initial_runtime.map_or_else(
+                        || Arc::clone(&models_manager),
+                        |runtime| Arc::clone(&runtime.models_manager),
+                    ),
+                    initial_route,
+                    initial_runtime.map_or_else(
+                        || {
+                            create_model_provider(
+                                config.model_provider.clone(),
+                                Some(Arc::clone(&auth_manager)),
+                            )
+                        },
+                        |runtime| Arc::clone(&runtime.provider),
+                    ),
+                    None,
+                )
+            };
         let refresh_strategy = if session_source.is_non_root_agent() {
             codex_models_manager::manager::RefreshStrategy::Offline
         } else {
             codex_models_manager::manager::RefreshStrategy::OnlineIfUncached
         };
-        if config.model.is_none()
+        let listed_models = if restored_model.is_some()
+            || config.model.is_none()
             || !matches!(
                 refresh_strategy,
                 codex_models_manager::manager::RefreshStrategy::Offline
+            ) {
+            Some(
+                models_manager
+                    .list_models(refresh_strategy, config.http_client_factory())
+                    .await,
             )
-        {
-            let _ = models_manager
-                .list_models(refresh_strategy, config.http_client_factory())
-                .await;
+        } else {
+            None
+        };
+        let model = if let Some(restored_model) = restored_model {
+            if !listed_models
+                .as_ref()
+                .is_some_and(|models| models.iter().any(|model| model.model == restored_model))
+            {
+                let Some(route) = initial_provider_route.as_ref() else {
+                    return Err(CodexErr::InvalidRequest(format!(
+                        "cannot restore model `{restored_model}` without a provider route"
+                    )));
+                };
+                return Err(CodexErr::InvalidRequest(format!(
+                    "cannot restore provider route `{}/{:?}` at stage `model`: model `{restored_model}` is unavailable",
+                    route.model_provider_id, route.access_method
+                )));
+            }
+            restored_model
+        } else {
+            models_manager
+                .get_default_model(
+                    &config.model,
+                    allow_provider_model_fallback,
+                    refresh_strategy,
+                    config.http_client_factory(),
+                )
+                .await
+        };
+        if inherit_subagent_fork_snapshot && let Some(route) = initial_provider_route.as_ref() {
+            restored_recent_provider_models.insert(route.clone(), model.clone());
         }
-        let model = models_manager
-            .get_default_model(
-                &config.model,
-                allow_provider_model_fallback,
-                refresh_strategy,
-                config.http_client_factory(),
-            )
-            .await;
         let trusted_guardian_reviewer =
             crate::guardian::is_guardian_reviewer_source(&session_source)
                 && !matches!(conversation_history, InitialHistory::Resumed(_));
@@ -669,10 +786,17 @@ impl Session {
         let history_mode = conversation_history.get_history_mode(
             requested_history_mode.unwrap_or_else(|| thread_store.default_history_mode()),
         );
+        let inherited_base_instructions = conversation_history.get_base_instructions();
         let base_instructions = config
             .base_instructions
             .clone()
-            .or_else(|| conversation_history.get_base_instructions().map(|s| s.text))
+            .or_else(|| {
+                inherited_base_instructions.and_then(|base| match base.provenance {
+                    Some(BaseInstructionsProvenance::Custom) => Some(base.text),
+                    _ if !restoring_provider_selection => Some(base.text),
+                    _ => None,
+                })
+            })
             .unwrap_or_else(|| model_info.get_model_instructions(config.personality));
 
         // Dynamic tools are defined at thread start and persisted in rollout session metadata.
@@ -700,10 +824,9 @@ impl Session {
         let service_tier =
             get_service_tier(config.service_tier.clone(), fast_mode_enabled, &model_info);
         let session_configuration = SessionConfiguration {
-            provider: create_model_provider(
-                config.model_provider.clone(),
-                Some(Arc::clone(&auth_manager)),
-            ),
+            route: initial_provider_route,
+            provider: initial_provider,
+            models_manager: Arc::clone(&models_manager),
             collaboration_mode,
             model_reasoning_summary: config.model_reasoning_summary,
             service_tier,
@@ -741,46 +864,58 @@ impl Session {
         let session_source_clone = session_configuration.session_source.clone();
         let (agent_status_tx, agent_status_rx) = watch::channel(AgentStatus::PendingInit);
 
-        let session = Box::pin(Session::new(
-            session_configuration,
-            &environment_selections,
-            config.clone(),
-            user_instructions,
-            installation_id,
-            auth_manager.clone(),
-            models_manager.clone(),
-            model_info,
-            exec_policy,
-            tx_event.clone(),
-            agent_status_tx.clone(),
-            conversation_history,
-            fork_persistence,
-            session_source_clone,
-            skills_service,
-            plugins_manager,
-            mcp_manager.clone(),
-            code_mode_session_provider,
-            extensions,
-            thread_extension_init,
-            client_mcp_extensions,
-            agent_control,
-            reserved_thread_id,
-            environment_manager,
-            inherited_environments,
-            analytics_events_client,
-            thread_store,
-            parent_rollout_thread_trace,
-            attestation_provider,
-            external_time_provider,
-            multi_agent_version,
-            git_enrichment_policy,
-            windows_sandbox_proxy_settings_mode,
-        ))
-        .await
-        .map_err(|e| {
-            error!("Failed to create session: {e:#}");
-            map_session_init_error(&e, &config.codex_home)
-        })?;
+        // Session initialization traverses several independently deep async stacks (environment
+        // resolution, plugin/skill loading, and thread-store hydration). Poll it from a fresh task
+        // so callers do not add their own spawn/resume stack depth to that initialization chain.
+        // Abort-on-drop preserves cancellation if the parent spawn request is cancelled.
+        let session_config = Arc::clone(&config);
+        let session_init = AbortOnDropHandle::new(tokio::spawn(async move {
+            Session::new(
+                session_configuration,
+                &environment_selections,
+                session_config,
+                user_instructions,
+                installation_id,
+                auth_manager.clone(),
+                models_manager.clone(),
+                provider_runtime_registry,
+                restored_recent_provider_models,
+                model_info,
+                exec_policy,
+                tx_event.clone(),
+                agent_status_tx.clone(),
+                conversation_history,
+                fork_persistence,
+                session_source_clone,
+                skills_service,
+                plugins_manager,
+                mcp_manager.clone(),
+                code_mode_session_provider,
+                extensions,
+                thread_extension_init,
+                client_mcp_extensions,
+                agent_control,
+                reserved_thread_id,
+                environment_manager,
+                inherited_environments,
+                analytics_events_client,
+                thread_store,
+                parent_rollout_thread_trace,
+                attestation_provider,
+                external_time_provider,
+                multi_agent_version,
+                git_enrichment_policy,
+                windows_sandbox_proxy_settings_mode,
+            )
+            .await
+        }));
+        let session = session_init
+            .await
+            .map_err(|err| CodexErr::Fatal(format!("session initialization task failed: {err}")))?
+            .map_err(|e| {
+                error!("Failed to create session: {e:#}");
+                map_session_init_error(&e, &config.codex_home)
+            })?;
         if let Some(message) = initial_service_tier_warning {
             session
                 .send_event_raw(Event {
@@ -1588,6 +1723,138 @@ impl Session {
         state.previous_turn_settings()
     }
 
+    async fn pending_provider_transition_for_turn(
+        &self,
+        turn_context: &TurnContext,
+    ) -> Option<u64> {
+        let state = self.state.lock().await;
+        state.pending_provider_transition_for_turn(
+            turn_context.route.as_ref(),
+            &turn_context.model_info.slug,
+        )
+    }
+
+    async fn finalize_provider_transition(&self, revision: u64) -> bool {
+        let mut state = self.state.lock().await;
+        state.finalize_provider_transition(revision)
+    }
+
+    async fn abort_provider_transition(&self, revision: u64) -> bool {
+        let notify_config_contributors = !self.services.extensions.config_contributors().is_empty();
+        let (aborted, previous_config, new_config) = {
+            let mut state = self.state.lock().await;
+            let previous_config = notify_config_contributors
+                .then(|| self.build_effective_session_config(&state.session_configuration));
+            let aborted = state.abort_provider_transition(revision);
+            let new_config = (notify_config_contributors && aborted)
+                .then(|| self.build_effective_session_config(&state.session_configuration));
+            (aborted, previous_config, new_config)
+        };
+        if aborted {
+            self.emit_config_changed_contributors(previous_config.as_ref(), new_config.as_ref());
+            self.mark_mcp_runtime_dirty();
+            self.schedule_mcp_prewarm();
+        }
+        aborted
+    }
+
+    fn prepare_provider_transition<'a>(
+        &'a self,
+        updates: &'a mut SessionSettingsUpdate,
+    ) -> BoxFuture<'a, ConstraintResult<()>> {
+        let Some(route) = updates.route.clone() else {
+            return futures::future::ready(Ok(())).boxed();
+        };
+        self.prepare_provider_transition_for_route(updates, route)
+            .boxed()
+    }
+
+    async fn prepare_provider_transition_for_route(
+        &self,
+        updates: &mut SessionSettingsUpdate,
+        route: codex_protocol::ProviderRoute,
+    ) -> ConstraintResult<()> {
+        let (current, recent_model) = {
+            let state = self.state.lock().await;
+            (
+                state.session_configuration.clone(),
+                state.recent_provider_model(&route).map(str::to_string),
+            )
+        };
+        let Some(runtime) = self.services.provider_runtime_registry.get(&route) else {
+            return Err(provider_transition_error(
+                &route,
+                "one of the supported provider routes",
+            ));
+        };
+        let configured = self
+            .services
+            .auth_manager
+            .auth_for_route(&route)
+            .await
+            .map_err(|_| provider_transition_error(&route, "a readable credential slot"))?
+            .is_some();
+        if !configured {
+            return Err(provider_transition_error(&route, "configured credentials"));
+        }
+        let catalog = runtime
+            .models_manager
+            .raw_model_catalog(
+                RefreshStrategy::Offline,
+                current.original_config_do_not_use.http_client_factory(),
+            )
+            .await;
+        let available_models = runtime
+            .models_manager
+            .build_available_models_for_route(catalog.models, &route);
+        let model = updates
+            .collaboration_mode
+            .as_ref()
+            .map(|mode| mode.model().to_string())
+            .or_else(|| {
+                (current.route.as_ref() == Some(&route))
+                    .then(|| current.collaboration_mode.model().to_string())
+            })
+            .or(recent_model)
+            .or_else(|| available_models.first().map(|preset| preset.model.clone()))
+            .ok_or_else(|| provider_transition_error(&route, "a non-empty model catalog"))?;
+        if !available_models.iter().any(|preset| preset.model == model) {
+            return Err(provider_transition_error(
+                &route,
+                "a model available on that route",
+            ));
+        }
+        let model_info = runtime
+            .models_manager
+            .get_model_info(
+                &model,
+                &current
+                    .original_config_do_not_use
+                    .to_models_manager_config(),
+            )
+            .await;
+        let personality = updates.personality.or(current.personality);
+        let base_instructions = current
+            .original_config_do_not_use
+            .base_instructions
+            .clone()
+            .unwrap_or_else(|| model_info.get_model_instructions(personality));
+        if updates.collaboration_mode.is_none() && current.collaboration_mode.model() != model {
+            updates.collaboration_mode = Some(current.collaboration_mode.with_updates(
+                Some(model.clone()),
+                /*effort*/ None,
+                /*developer_instructions*/ None,
+            ));
+        }
+        updates.prepared_provider_transition = Some(PreparedProviderTransition {
+            route,
+            provider: Arc::clone(&runtime.provider),
+            models_manager: Arc::clone(&runtime.models_manager),
+            base_instructions,
+        });
+        Ok(())
+    }
+
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) async fn set_previous_turn_settings(
         &self,
@@ -1597,13 +1864,24 @@ impl Session {
         state.set_previous_turn_settings(previous_turn_settings);
     }
 
+    pub(crate) async fn record_successful_provider_model(&self, turn_context: &TurnContext) {
+        let Some(route) = turn_context.route.clone() else {
+            return;
+        };
+        let mut state = self.state.lock().await;
+        state.record_successful_provider_model(route, turn_context.model_info.slug.clone());
+    }
+
     pub(crate) async fn update_settings(
         &self,
-        updates: SessionSettingsUpdate,
+        mut updates: SessionSettingsUpdate,
     ) -> ConstraintResult<()> {
+        self.prepare_provider_transition(&mut updates).await?;
         let notify_config_contributors = !self.services.extensions.config_contributors().is_empty();
         let (previous_config, new_config, permission_profile_changed, mcp_inputs_changed) = {
             let mut state = self.state.lock().await;
+            let previous_provider_selection =
+                ProviderSelectionSnapshot::capture(&state.session_configuration);
             let updated = match self.apply_session_settings(&state.session_configuration, &updates)
             {
                 Ok(updated) => updated,
@@ -1637,6 +1915,7 @@ impl Session {
                     .update_thread_config(&environment_config);
             }
             state.session_configuration = updated;
+            state.record_provider_selection_change(previous_provider_selection);
             let new_config = notify_config_contributors
                 .then(|| self.build_effective_session_config(&state.session_configuration));
             (
@@ -1661,8 +1940,10 @@ impl Session {
         &self,
         updates: &SessionSettingsUpdate,
     ) -> ConstraintResult<ThreadConfigSnapshot> {
+        let mut updates = updates.clone();
+        self.prepare_provider_transition(&mut updates).await?;
         let state = self.state.lock().await;
-        let configuration = self.apply_session_settings(&state.session_configuration, updates)?;
+        let configuration = self.apply_session_settings(&state.session_configuration, &updates)?;
         let environments = updates.environments.as_ref().map_or_else(
             || self.services.turn_environments.selections(),
             |environments| environments.environments.clone(),
@@ -3224,18 +3505,19 @@ impl Session {
                 .collect::<HashMap<_, _>>();
             extension_data.insert(sandbox_contexts);
         }
-        let (mcp, prepared_recommendations) = async {
-            tokio::join!(
-                self.mcp_runtime_for_step(
-                    turn_context.as_ref(),
-                    &selected_capability_roots,
-                    required_servers,
-                ),
-                turn::prepare_tool_recommendations(self.as_ref(), turn_context.as_ref()),
+        let mcp_runtime = self
+            .mcp_runtime_for_step(
+                turn_context.as_ref(),
+                &selected_capability_roots,
+                required_servers,
             )
-        }
-        .or_cancel(cancellation_token)
-        .await?;
+            .boxed();
+        let tool_recommendations =
+            turn::prepare_tool_recommendations(self.as_ref(), turn_context.as_ref()).boxed();
+        let (mcp, prepared_recommendations) =
+            async { tokio::join!(mcp_runtime, tool_recommendations) }
+                .or_cancel(cancellation_token)
+                .await?;
         let mut selected_plugins = self
             .services
             .thread_extension_data

@@ -11,13 +11,50 @@ use codex_app_server_protocol::AskForApproval as AppServerAskForApproval;
 use codex_app_server_protocol::ThreadSettings;
 use codex_app_server_protocol::ThreadSettingsUpdateParams;
 use codex_config::types::ApprovalsReviewer;
+use codex_protocol::ProviderRoute;
 use codex_protocol::ThreadId;
+use codex_protocol::config_types::CollaborationMode;
 use codex_protocol::config_types::ModeKind;
 use codex_protocol::models::BUILT_IN_PERMISSION_PROFILE_WORKSPACE;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::openai_models::MODEL_SPECIALTY_CYBER;
+use codex_protocol::openai_models::ReasoningEffort;
 
 impl App {
+    pub(super) async fn sync_active_thread_provider_model_setting(
+        &mut self,
+        app_server: &mut AppServerSession,
+        route: ProviderRoute,
+        model: Option<String>,
+        effort: Option<codex_protocol::openai_models::ReasoningEffort>,
+    ) -> Option<bool> {
+        let Some(thread_id) = self.active_thread_id else {
+            return None;
+        };
+        let collaboration_mode = provider_selection_collaboration_mode(
+            self.chat_widget.effective_collaboration_mode(),
+            model.clone(),
+            effort.clone(),
+        );
+        let params = ThreadSettingsUpdateParams {
+            thread_id: thread_id.to_string(),
+            route: Some(route),
+            model,
+            effort,
+            collaboration_mode: Some(collaboration_mode),
+            ..ThreadSettingsUpdateParams::default()
+        };
+        match app_server.thread_settings_update(params).await {
+            Ok(settings_updated) => Some(settings_updated),
+            Err(err) => {
+                tracing::warn!("failed to update app-server provider/model settings: {err}");
+                self.chat_widget
+                    .add_error_message(format!("Failed to update provider/model settings: {err}"));
+                None
+            }
+        }
+    }
+
     pub(super) async fn sync_active_thread_model_setting(
         &mut self,
         app_server: &mut AppServerSession,
@@ -223,6 +260,18 @@ impl App {
     }
 }
 
+fn provider_selection_collaboration_mode(
+    current: CollaborationMode,
+    model: Option<String>,
+    effort: Option<ReasoningEffort>,
+) -> CollaborationMode {
+    current.with_updates(
+        model,
+        effort.map(Some),
+        /*developer_instructions*/ None,
+    )
+}
+
 fn apply_thread_settings_to_session(session: &mut ThreadSessionState, settings: &ThreadSettings) {
     if settings.collaboration_mode.mode == ModeKind::Default {
         session.model = settings.model.clone();
@@ -249,7 +298,8 @@ fn apply_thread_settings_to_session(session: &mut ThreadSessionState, settings: 
 }
 
 fn thread_settings_update_has_changes(params: &ThreadSettingsUpdateParams) -> bool {
-    params.cwd.is_some()
+    params.route.is_some()
+        || params.cwd.is_some()
         || params.approval_policy.is_some()
         || params.approvals_reviewer.is_some()
         || params.sandbox_policy.is_some()
@@ -260,4 +310,40 @@ fn thread_settings_update_has_changes(params: &ThreadSettingsUpdateParams) -> bo
         || params.summary.is_some()
         || params.collaboration_mode.is_some()
         || params.personality.is_some()
+}
+
+#[cfg(test)]
+mod provider_route_tests {
+    use super::*;
+    use codex_protocol::ProviderAccessMethod;
+    use codex_protocol::config_types::ModeKind;
+    use codex_protocol::config_types::Settings;
+
+    #[test]
+    fn route_only_update_is_not_dropped() {
+        let params = ThreadSettingsUpdateParams {
+            thread_id: ThreadId::new().to_string(),
+            route: Some(ProviderRoute::new("deepseek", ProviderAccessMethod::ApiKey)),
+            ..ThreadSettingsUpdateParams::default()
+        };
+
+        assert!(thread_settings_update_has_changes(&params));
+    }
+
+    #[test]
+    fn provider_selection_replaces_the_previous_routes_model() {
+        let current = CollaborationMode {
+            mode: ModeKind::Default,
+            settings: Settings {
+                model: "deepseek-v4-flash".to_string(),
+                reasoning_effort: None,
+                developer_instructions: None,
+            },
+        };
+
+        let updated =
+            provider_selection_collaboration_mode(current, Some("gpt-5.4".to_string()), None);
+
+        assert_eq!(updated.model(), "gpt-5.4");
+    }
 }

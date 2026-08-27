@@ -31,6 +31,22 @@ use super::mcp_tool::start_mcp_server;
 
 const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(10);
 
+fn is_agent_message_request(request: &wiremock::Request, recipient: &str) -> bool {
+    serde_json::from_slice::<serde_json::Value>(&request.body)
+        .ok()
+        .and_then(|body| {
+            body.get("input")
+                .and_then(serde_json::Value::as_array)
+                .cloned()
+        })
+        .is_some_and(|items| {
+            items.iter().any(|item| {
+                item.get("type").and_then(serde_json::Value::as_str) == Some("agent_message")
+                    && item.get("recipient").and_then(serde_json::Value::as_str) == Some(recipient)
+            })
+        })
+}
+
 /// Fresh-context children inherit disabled built-ins while configured MCP tools
 /// remain visible or searchable and executable.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -90,12 +106,7 @@ async fn fresh_context_subagent_inherits_disabled_view_image_and_mcp_tools() -> 
     .await;
     let child_requests = responses::mount_sse_once_match(
         &responses_server,
-        |request: &wiremock::Request| {
-            let body = String::from_utf8_lossy(&request.body);
-            body.contains(CHILD_PROMPT)
-                && !body.contains(SPAWN_CALL_ID)
-                && !body.contains(MCP_CALL_ID)
-        },
+        |request: &wiremock::Request| is_agent_message_request(request, "/root/mcp_worker"),
         responses::sse(vec![
             responses::ev_response_created("child-mcp"),
             responses::ev_function_call_with_namespace(

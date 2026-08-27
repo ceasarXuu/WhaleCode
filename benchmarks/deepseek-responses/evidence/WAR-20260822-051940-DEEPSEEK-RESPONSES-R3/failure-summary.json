@@ -1,0 +1,15 @@
+{
+  "schema_version": "whalecode-deepseek-responses-smoke-v1",
+  "record_id": "WAR-20260822-051940-DEEPSEEK-RESPONSES-R3",
+  "status": "failed",
+  "provider_request_count": 3,
+  "usage_evidence_status": "unavailable",
+  "credential_recorded": false,
+  "completed_samples": [
+    "deepseek-v4-flash",
+    "deepseek-v4-pro"
+  ],
+  "failed_sample": "deepseek-v4-flash-vision-exp",
+  "failure": "The multi-value --image option consumed the trailing prompt before provider dispatch.",
+  "same_record_retry": false
+}

@@ -1,3 +1,4 @@
+use codex_protocol::ProviderRoute;
 use codex_protocol::openai_models::ModelPreset;
 
 pub const WHALE_DEFAULT_MODEL: &str = "deepseek-v4-flash";
@@ -12,6 +13,14 @@ pub const HIDE_GPT_5_1_CODEX_MAX_MIGRATION_PROMPT_CONFIG: &str =
 
 pub(crate) fn retain_whale_models_for_listing(presets: &mut Vec<ModelPreset>) {
     presets.retain(|preset| preset.model.starts_with(WHALE_MODEL_PREFIX));
+}
+
+pub(crate) fn retain_models_for_route(presets: &mut Vec<ModelPreset>, route: &ProviderRoute) {
+    match route.model_provider_id.as_str() {
+        "deepseek" => retain_whale_models_for_listing(presets),
+        "openai" => presets.retain(|preset| !preset.model.starts_with(WHALE_MODEL_PREFIX)),
+        _ => presets.clear(),
+    }
 }
 
 pub(crate) fn mark_whale_default_model(presets: &mut [ModelPreset]) {

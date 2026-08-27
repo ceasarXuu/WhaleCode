@@ -5,6 +5,7 @@ use codex_protocol::config_types::ServiceTier;
 use codex_protocol::openai_models::ToolMode;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::ThreadSettingsOverrides;
+use codex_protocol::turn_input::StartIfIdleSubmission;
 use codex_protocol::user_input::UserInput;
 use core_test_support::responses::WebSocketConnectionConfig;
 use core_test_support::responses::ev_assistant_message;
@@ -14,6 +15,7 @@ use core_test_support::responses::ev_shell_command_call;
 use core_test_support::responses::start_websocket_server;
 use core_test_support::responses::start_websocket_server_with_headers;
 use core_test_support::skip_if_no_network;
+use core_test_support::submit_thread_settings;
 use core_test_support::test_codex::test_codex;
 use core_test_support::wait_for_event;
 use pretty_assertions::assert_eq;
@@ -26,11 +28,13 @@ const WS_V2_BETA_HEADER_VALUE: &str = "responses_websockets=2026-02-06";
 async fn websocket_model_switch_to_responses_lite_omits_top_level_tools() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
-    let server = start_websocket_server(vec![vec![
-        vec![ev_response_created("warm-1"), ev_completed("warm-1")],
-        vec![ev_response_created("resp-1"), ev_completed("resp-1")],
-        vec![ev_response_created("resp-2"), ev_completed("resp-2")],
-    ]])
+    let server = start_websocket_server(vec![
+        vec![
+            vec![ev_response_created("warm-1"), ev_completed("warm-1")],
+            vec![ev_response_created("resp-1"), ev_completed("resp-1")],
+        ],
+        vec![vec![ev_response_created("resp-2"), ev_completed("resp-2")]],
+    ])
     .await;
 
     let mut builder = test_codex()
@@ -47,32 +51,49 @@ async fn websocket_model_switch_to_responses_lite_omits_top_level_tools() -> Res
     let test = builder.build_with_websocket_server(&server).await?;
 
     test.submit_turn("non-lite turn").await?;
-    test.codex
-        .start_or_steer_turn(
-            TurnInputRequest::user_input(vec![UserInput::Text {
+    submit_thread_settings(
+        &test.codex,
+        ThreadSettingsOverrides {
+            model: Some("gpt-5.4".to_string()),
+            ..Default::default()
+        },
+    )
+    .await?;
+    assert_eq!(test.codex.config_snapshot().await.model, "gpt-5.4");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        match test
+            .codex
+            .start_turn_if_idle(TurnInputRequest::user_input(vec![UserInput::Text {
                 text: "lite turn".into(),
                 text_elements: Vec::new(),
-            }])
-            .with_thread_settings(ThreadSettingsOverrides {
-                model: Some("gpt-5.4".to_string()),
-                ..Default::default()
-            }),
-        )
-        .await?;
+            }]))
+            .await?
+        {
+            StartIfIdleSubmission::Started { .. } => break,
+            StartIfIdleSubmission::NotSubmitted { .. }
+                if tokio::time::Instant::now() < deadline =>
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            StartIfIdleSubmission::NotSubmitted { reason } => {
+                anyhow::bail!("timed out starting lite turn: {reason:?}");
+            }
+        }
+    }
     wait_for_event(&test.codex, |event| {
         matches!(event, EventMsg::TurnComplete(_))
     })
     .await;
 
-    assert_eq!(server.handshakes().len(), 1);
-    let connection = server.single_connection();
-    assert_eq!(connection.len(), 3);
-    let non_lite_turn = connection
+    assert_eq!(server.handshakes().len(), 2);
+    let connections = server.connections();
+    let non_lite_turn = connections[0]
         .get(1)
         .expect("missing non-lite turn request")
         .body_json();
-    let lite_turn = connection
-        .get(2)
+    let lite_turn = connections[1]
+        .first()
         .expect("missing lite turn request")
         .body_json();
 
@@ -473,19 +494,21 @@ async fn websocket_v2_first_turn_drops_fast_tier_after_startup_prewarm() -> Resu
 async fn websocket_v2_next_turn_uses_updated_service_tier() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
-    let server = start_websocket_server(vec![vec![
-        vec![ev_response_created("warm-1"), ev_completed("warm-1")],
+    let server = start_websocket_server(vec![
         vec![
-            ev_response_created("resp-1"),
-            ev_assistant_message("msg_1", "fast"),
-            ev_completed("resp-1"),
+            vec![ev_response_created("warm-1"), ev_completed("warm-1")],
+            vec![
+                ev_response_created("resp-1"),
+                ev_assistant_message("msg_1", "fast"),
+                ev_completed("resp-1"),
+            ],
         ],
-        vec![
+        vec![vec![
             ev_response_created("resp-2"),
             ev_assistant_message("msg_2", "standard"),
             ev_completed("resp-2"),
-        ],
-    ]])
+        ]],
+    ])
     .await;
 
     let mut builder = test_codex().with_config(|config| {
@@ -509,16 +532,15 @@ async fn websocket_v2_next_turn_uses_updated_service_tier() -> Result<()> {
     test.submit_turn_with_service_tier("second", /*service_tier*/ None)
         .await?;
 
-    assert_eq!(server.handshakes().len(), 1);
-    let connection = server.single_connection();
-    assert_eq!(connection.len(), 3);
+    assert_eq!(server.handshakes().len(), 2);
+    let connections = server.connections();
 
-    let first_turn = connection
+    let first_turn = connections[0]
         .get(1)
         .expect("missing first turn request")
         .body_json();
-    let second_turn = connection
-        .get(2)
+    let second_turn = connections[1]
+        .first()
         .expect("missing second turn request")
         .body_json();
 

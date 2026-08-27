@@ -162,6 +162,7 @@ pub fn write_chatgpt_auth(
     let auth = AuthDotJson {
         auth_mode: Some(AuthMode::Chatgpt),
         openai_api_key: None,
+        deepseek_api_key: None,
         tokens: Some(tokens),
         last_refresh,
         agent_identity: None,

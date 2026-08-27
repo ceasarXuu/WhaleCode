@@ -3029,6 +3029,12 @@ async fn azure_responses_request_does_not_store_and_preserves_prefixed_item_ids(
         }),
         internal_chat_message_metadata_passthrough: None,
     });
+    prompt.input.push(ResponseItem::FunctionCallOutput {
+        id: None,
+        call_id: "local-shell-call-id".into(),
+        output: FunctionCallOutputPayload::from_text("hello".into()),
+        internal_chat_message_metadata_passthrough: None,
+    });
     prompt.input.push(ResponseItem::CustomToolCall {
         id: Some(ResponseItemId::with_suffix("ctc", "custom-tool-id")),
         status: Some("completed".into()),
@@ -3091,15 +3097,23 @@ async fn azure_responses_request_does_not_store_and_preserves_prefixed_item_ids(
     assert_eq!(body["store"], serde_json::Value::Bool(false));
     assert_eq!(body["stream"], serde_json::Value::Bool(true));
     assert_eq!(body["input"].as_array().map(Vec::len), Some(10));
+    assert!(
+        body["input"]
+            .as_array()
+            .is_some_and(|items| items.iter().all(|item| item["type"] != "web_search_call"))
+    );
     assert_eq!(body["input"][0]["id"].as_str(), Some("rs_reasoning-id"));
     assert_eq!(body["input"][1]["id"].as_str(), Some("msg_message-id"));
-    assert_eq!(body["input"][2]["id"].as_str(), Some("ws_web-search-id"));
-    assert_eq!(body["input"][3]["id"].as_str(), Some("fc_function-id"));
+    assert_eq!(body["input"][2]["id"].as_str(), Some("fc_function-id"));
     assert_eq!(
-        body["input"][4]["call_id"].as_str(),
+        body["input"][3]["call_id"].as_str(),
         Some("function-call-id")
     );
-    assert_eq!(body["input"][5]["id"].as_str(), Some("lsh_local-shell-id"));
+    assert_eq!(body["input"][4]["id"].as_str(), Some("lsh_local-shell-id"));
+    assert_eq!(
+        body["input"][5]["call_id"].as_str(),
+        Some("local-shell-call-id")
+    );
     assert_eq!(body["input"][6]["id"].as_str(), Some("ctc_custom-tool-id"));
     assert_eq!(
         body["input"][7]["call_id"].as_str(),

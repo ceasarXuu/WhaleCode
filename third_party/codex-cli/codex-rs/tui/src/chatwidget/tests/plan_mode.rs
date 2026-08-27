@@ -369,7 +369,7 @@ async fn reasoning_selection_in_plan_mode_opens_scope_prompt_event() {
     chat.set_reasoning_effort(Some(ReasoningEffortConfig::High));
 
     let preset = get_available_model(&chat, "gpt-5.4");
-    chat.open_reasoning_popup(preset);
+    chat.open_reasoning_popup(None, preset);
     chat.handle_key_event(KeyEvent::from(KeyCode::Down));
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
 
@@ -397,7 +397,7 @@ async fn reasoning_selection_in_plan_mode_without_effort_change_does_not_open_sc
     chat.set_reasoning_effort(Some(ReasoningEffortConfig::Medium));
 
     let preset = get_available_model(&chat, "gpt-5.4");
-    chat.open_reasoning_popup(preset);
+    chat.open_reasoning_popup(None, preset);
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
 
     let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
@@ -434,7 +434,7 @@ async fn reasoning_selection_in_plan_mode_matching_plan_effort_but_different_glo
     chat.set_reasoning_effort(Some(ReasoningEffortConfig::High));
 
     let preset = get_available_model(&chat, "gpt-5.4");
-    chat.open_reasoning_popup(preset);
+    chat.open_reasoning_popup(None, preset);
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
 
     let event = rx.try_recv().expect("expected AppEvent");
@@ -510,7 +510,7 @@ async fn advanced_reasoning_selection_in_plan_mode_uses_expected_scope() {
             effort: effort.clone(),
             description: "Advanced reasoning".to_string(),
         }];
-        chat.open_advanced_reasoning_popup(preset);
+        chat.open_advanced_reasoning_popup(None, preset);
         chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
 
         let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
@@ -553,7 +553,7 @@ async fn plan_mode_reasoning_override_is_marked_current_in_reasoning_popup() {
     chat.set_collaboration_mask(plan_mask);
 
     let preset = get_available_model(&chat, "gpt-5.4");
-    chat.open_reasoning_popup(preset);
+    chat.open_reasoning_popup(None, preset);
 
     let popup = render_bottom_popup(&chat, /*width*/ 100);
     assert!(popup.contains("Low (current)"));
@@ -575,7 +575,7 @@ async fn reasoning_selection_in_plan_mode_model_switch_does_not_open_scope_promp
     set_chatgpt_auth(&mut chat);
 
     let preset = get_available_model(&chat, "gpt-5.2");
-    chat.open_reasoning_popup(preset);
+    chat.open_reasoning_popup(None, preset);
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
 
     let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();

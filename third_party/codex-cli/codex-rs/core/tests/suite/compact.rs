@@ -735,7 +735,7 @@ async fn deepseek_flash_compaction_request_uses_pro_model() {
     assert_eq!(requests.len(), 2, "expected one turn and one compaction");
     let standard_body = requests[0].body_json();
     assert_eq!(standard_body["model"].as_str(), Some("deepseek-v4-flash"));
-    assert_eq!(standard_body["reasoning"], json!({"effort": "standard"}));
+    assert_eq!(standard_body["reasoning"], json!({"effort": "high"}));
     assert_eq!(standard_body.get("stream_options"), None);
     assert_eq!(standard_body.get("text"), None);
     assert_eq!(standard_body["parallel_tool_calls"], true);
@@ -1138,10 +1138,6 @@ async fn multiple_auto_compact_per_task_runs_after_token_limit_hit() {
     // mock responses from the model
 
     let reasoning_response_1 = ev_reasoning_item("m1", &["I will create a react app"], &[]);
-    let encrypted_content_1 = reasoning_response_1["item"]["encrypted_content"]
-        .as_str()
-        .unwrap();
-
     // first chunk of work
     let model_reasoning_response_1_sse = sse(vec![
         reasoning_response_1.clone(),
@@ -1156,10 +1152,6 @@ async fn multiple_auto_compact_per_task_runs_after_token_limit_hit() {
     ]);
 
     let reasoning_response_2 = ev_reasoning_item("m3", &["I will create a node app"], &[]);
-    let encrypted_content_2 = reasoning_response_2["item"]["encrypted_content"]
-        .as_str()
-        .unwrap();
-
     // second chunk of work
     let model_reasoning_response_2_sse = sse(vec![
         reasoning_response_2.clone(),
@@ -1172,11 +1164,6 @@ async fn multiple_auto_compact_per_task_runs_after_token_limit_hit() {
         ev_assistant_message("m4", second_summary_text),
         ev_completed_with_tokens("r4", token_count_used_after_compaction),
     ]);
-
-    let reasoning_response_3 = ev_reasoning_item("m6", &["I will create a python app"], &[]);
-    let encrypted_content_3 = reasoning_response_3["item"]["encrypted_content"]
-        .as_str()
-        .unwrap();
 
     // third chunk of work
     let model_reasoning_response_3_sse = sse(vec![
@@ -1366,7 +1353,7 @@ async fn multiple_auto_compact_per_task_runs_after_token_limit_hit() {
       },
       {
         "content": null,
-        "encrypted_content": encrypted_content_1,
+        "encrypted_content": null,
         "summary": [
           {
             "text": "I will create a react app",
@@ -1466,7 +1453,7 @@ async fn multiple_auto_compact_per_task_runs_after_token_limit_hit() {
       },
       {
         "content": null,
-        "encrypted_content": encrypted_content_2,
+        "encrypted_content": null,
         "summary": [
           {
             "text": "I will create a node app",
@@ -1566,7 +1553,7 @@ async fn multiple_auto_compact_per_task_runs_after_token_limit_hit() {
       },
       {
         "content": null,
-        "encrypted_content": encrypted_content_3,
+        "encrypted_content": null,
         "summary": [
           {
             "text": "I will create a python app",
@@ -2857,6 +2844,79 @@ async fn pre_sampling_compact_keeps_unknown_previous_model_for_api_key_auth_and_
         previous_model,
         next_model,
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pre_sampling_compact_failure_restores_pending_model_selection() {
+    skip_if_no_network!();
+
+    let server = MockServer::start().await;
+    let previous_model = "custom/gpt-5.5";
+    let previous_model_family = "gpt-5.5";
+    let next_model = "gpt-5.6";
+    let mut previous_model_info = model_info_with_optional_comp_hash("gpt-5.4", Some("hash-a"));
+    previous_model_info.slug = previous_model_family.to_string();
+    let mut next_model_info = model_info_with_optional_comp_hash("gpt-5.4", Some("hash-b"));
+    next_model_info.slug = next_model.to_string();
+    let model_catalog = ModelsResponse {
+        models: vec![previous_model_info, next_model_info],
+    };
+    let request_log = mount_sse_sequence(
+        &server,
+        vec![
+            sse(vec![
+                ev_assistant_message("m1", "before switch"),
+                ev_completed_with_tokens("r1", /*total_tokens*/ 100),
+            ]),
+            sse_failed("compact-failed", "server_error", "compact failed"),
+        ],
+    )
+    .await;
+
+    let mut model_provider = non_openai_model_provider(&server);
+    model_provider.stream_max_retries = Some(0);
+    let test = test_codex()
+        .with_model(previous_model)
+        .with_config(move |config| {
+            config.model_provider = model_provider;
+            config.model_catalog = Some(model_catalog);
+            set_test_compact_prompt(config);
+        })
+        .build(&server)
+        .await
+        .expect("build test codex");
+
+    test.codex
+        .start_or_steer_turn(disabled_permission_user_turn(
+            "before switch",
+            test.cwd.path().to_path_buf(),
+            previous_model.to_string(),
+        ))
+        .await
+        .expect("submit first turn");
+    wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::TurnComplete(_))
+    })
+    .await;
+
+    test.codex
+        .start_or_steer_turn(disabled_permission_user_turn(
+            "after switch",
+            test.cwd.path().to_path_buf(),
+            next_model.to_string(),
+        ))
+        .await
+        .expect("submit switched turn");
+    wait_for_event(&test.codex, |event| matches!(event, EventMsg::Error(_))).await;
+    wait_for_event(&test.codex, |event| {
+        matches!(event, EventMsg::TurnComplete(_))
+    })
+    .await;
+
+    let settings = test.codex.thread_settings_snapshot().await;
+    assert_eq!(settings.route, None);
+    assert_eq!(settings.model, previous_model);
+    assert_eq!(request_log.requests().len(), 2);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

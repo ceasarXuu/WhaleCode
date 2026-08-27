@@ -24,8 +24,8 @@ use std::sync::LazyLock;
 use std::thread;
 use std::time::Duration;
 
-use crate::auth::AuthDotJson;
 use crate::auth::AuthKeyringBackendKind;
+use crate::auth::load_auth_dot_json_for_update;
 use crate::auth::save_auth;
 use crate::callback_params::LoginCallbackResult;
 use crate::callback_params::login_callback_result_from_state;
@@ -907,15 +907,15 @@ pub(crate) async fn persist_tokens_async(
         {
             tokens.account_id = Some(acc.to_string());
         }
-        let auth = AuthDotJson {
-            auth_mode: Some(AuthMode::Chatgpt),
-            openai_api_key: api_key,
-            tokens: Some(tokens),
-            last_refresh: Some(Utc::now()),
-            agent_identity: None,
-            personal_access_token: None,
-            bedrock_api_key: None,
-        };
+        let mut auth = load_auth_dot_json_for_update(
+            &codex_home,
+            auth_credentials_store_mode,
+            keyring_backend_kind,
+        )?;
+        auth.auth_mode = Some(AuthMode::Chatgpt);
+        auth.openai_api_key = api_key.or(auth.openai_api_key);
+        auth.tokens = Some(tokens);
+        auth.last_refresh = Some(Utc::now());
         save_auth(
             &codex_home,
             &auth,

@@ -3515,6 +3515,7 @@ async fn record_initial_history_forked_hydrates_previous_turn_settings() {
     let (session, turn_context) = make_session_and_context().await;
     let previous_model = "forked-rollout-model";
     let previous_context_item = TurnContextItem {
+        route: None,
         turn_id: Some(turn_context.sub_id.clone()),
         #[allow(deprecated)]
         cwd: turn_context.cwd.clone(),
@@ -3584,6 +3585,7 @@ async fn record_initial_history_forked_hydrates_previous_turn_settings() {
     assert_eq!(
         session.previous_turn_settings().await,
         Some(PreviousTurnSettings {
+            route: None,
             model: previous_model.to_string(),
             comp_hash: None,
             realtime_active: Some(turn_context.realtime_active),
@@ -3628,6 +3630,7 @@ async fn thread_rollback_drops_last_turn_from_history() {
         .collect();
     sess.persist_rollout_items(&rollout_items).await;
     sess.set_previous_turn_settings(Some(PreviousTurnSettings {
+        route: None,
         model: "stale-model".to_string(),
         comp_hash: None,
         realtime_active: Some(tc.realtime_active),
@@ -3820,6 +3823,7 @@ async fn thread_rollback_recomputes_previous_turn_settings_and_reference_context
     )
     .await;
     sess.set_previous_turn_settings(Some(PreviousTurnSettings {
+        route: None,
         model: "stale-model".to_string(),
         comp_hash: None,
         realtime_active: None,
@@ -3837,6 +3841,7 @@ async fn thread_rollback_recomputes_previous_turn_settings_and_reference_context
     assert_eq!(
         sess.previous_turn_settings().await,
         Some(PreviousTurnSettings {
+            route: None,
             model: tc.model_info.slug.clone(),
             comp_hash: None,
             realtime_active: Some(tc.realtime_active),
@@ -3954,6 +3959,7 @@ async fn thread_rollback_restores_cleared_reference_context_item_after_compactio
             ..Default::default()
         })),
         RolloutItem::TurnContext(TurnContextItem {
+            route: None,
             turn_id: Some(rolled_back_turn_id.clone()),
             model: "rolled-back-model".to_string(),
             comp_hash: None,
@@ -4206,6 +4212,11 @@ async fn set_rate_limits_retains_previous_credits() {
         },
     };
     let session_configuration = SessionConfiguration {
+        route: None,
+        models_manager: create_model_provider(config.model_provider.clone(), None).models_manager(
+            config.codex_home.to_path_buf(),
+            config.model_catalog.clone(),
+        ),
         provider: create_model_provider(config.model_provider.clone(), /*auth_manager*/ None),
         collaboration_mode,
         model_reasoning_summary: config.model_reasoning_summary,
@@ -4317,6 +4328,11 @@ async fn set_rate_limits_updates_plan_type_when_present() {
         },
     };
     let session_configuration = SessionConfiguration {
+        route: None,
+        models_manager: create_model_provider(config.model_provider.clone(), None).models_manager(
+            config.codex_home.to_path_buf(),
+            config.model_catalog.clone(),
+        ),
         provider: create_model_provider(config.model_provider.clone(), /*auth_manager*/ None),
         collaboration_mode,
         model_reasoning_summary: config.model_reasoning_summary,
@@ -4873,6 +4889,11 @@ pub(crate) async fn make_session_configuration_for_tests() -> SessionConfigurati
     };
 
     SessionConfiguration {
+        route: None,
+        models_manager: create_model_provider(config.model_provider.clone(), None).models_manager(
+            config.codex_home.to_path_buf(),
+            config.model_catalog.clone(),
+        ),
         provider: create_model_provider(config.model_provider.clone(), /*auth_manager*/ None),
         collaboration_mode,
         model_reasoning_summary: config.model_reasoning_summary,
@@ -4906,6 +4927,113 @@ pub(crate) async fn make_session_configuration_for_tests() -> SessionConfigurati
         dynamic_tools: Vec::new(),
         user_shell_override: None,
     }
+}
+
+fn change_provider_selection(
+    state: &mut SessionState,
+    route: Option<codex_protocol::ProviderRoute>,
+    model: &str,
+) {
+    let previous = ProviderSelectionSnapshot::capture(&state.session_configuration);
+    state.session_configuration.route = route;
+    state
+        .session_configuration
+        .collaboration_mode
+        .settings
+        .model = model.to_string();
+    state.record_provider_selection_change(previous);
+}
+
+#[tokio::test]
+async fn pending_provider_transition_rejects_stale_abort_and_restores_stable_selection() {
+    let configuration = make_session_configuration_for_tests().await;
+    let stable_route = configuration.route.clone();
+    let stable_model = configuration.collaboration_mode.model().to_string();
+    let mut state = SessionState::new(configuration);
+    let deepseek = codex_protocol::ProviderRoute::new(
+        "deepseek",
+        codex_protocol::ProviderAccessMethod::ApiKey,
+    );
+    change_provider_selection(&mut state, Some(deepseek.clone()), "deepseek-v4-flash");
+    let first_revision = state
+        .pending_provider_transition_for_turn(Some(&deepseek), "deepseek-v4-flash")
+        .expect("first transition should be pending");
+
+    let openai =
+        codex_protocol::ProviderRoute::new("openai", codex_protocol::ProviderAccessMethod::ApiKey);
+    change_provider_selection(&mut state, Some(openai.clone()), "gpt-5.6");
+    let second_revision = state
+        .pending_provider_transition_for_turn(Some(&openai), "gpt-5.6")
+        .expect("replacement transition should be pending");
+
+    state.session_configuration.collaboration_mode.mode =
+        codex_protocol::config_types::ModeKind::Plan;
+    state
+        .session_configuration
+        .collaboration_mode
+        .settings
+        .developer_instructions = Some("preserve later mode instructions".to_string());
+    state.session_configuration.model_reasoning_summary =
+        Some(codex_protocol::config_types::ReasoningSummary::Detailed);
+
+    assert!(!state.abort_provider_transition(first_revision));
+    assert_eq!(state.session_configuration.route, Some(openai));
+    assert!(state.abort_provider_transition(second_revision));
+    assert_eq!(state.session_configuration.route, stable_route);
+    assert_eq!(
+        state.session_configuration.collaboration_mode.model(),
+        stable_model
+    );
+    assert_eq!(
+        state.session_configuration.collaboration_mode.mode,
+        codex_protocol::config_types::ModeKind::Plan
+    );
+    assert_eq!(
+        state
+            .session_configuration
+            .collaboration_mode
+            .settings
+            .developer_instructions
+            .as_deref(),
+        Some("preserve later mode instructions")
+    );
+    assert_eq!(
+        state.session_configuration.model_reasoning_summary,
+        Some(codex_protocol::config_types::ReasoningSummary::Detailed)
+    );
+}
+
+#[tokio::test]
+async fn pending_provider_transition_finalize_and_return_to_stable_are_revision_safe() {
+    let configuration = make_session_configuration_for_tests().await;
+    let stable_route = configuration.route.clone();
+    let stable_model = configuration.collaboration_mode.model().to_string();
+    let mut state = SessionState::new(configuration);
+    let deepseek = codex_protocol::ProviderRoute::new(
+        "deepseek",
+        codex_protocol::ProviderAccessMethod::ApiKey,
+    );
+    change_provider_selection(&mut state, Some(deepseek.clone()), "deepseek-v4-flash");
+    let revision = state
+        .pending_provider_transition_for_turn(Some(&deepseek), "deepseek-v4-flash")
+        .expect("transition should be pending");
+    assert!(state.finalize_provider_transition(revision));
+    assert!(!state.abort_provider_transition(revision));
+
+    change_provider_selection(&mut state, stable_route.clone(), &stable_model);
+    let back_revision = state
+        .pending_provider_transition_for_turn(stable_route.as_ref(), &stable_model)
+        .expect("return transition should be pending after finalize");
+    assert!(state.abort_provider_transition(back_revision));
+    assert_eq!(state.session_configuration.route, Some(deepseek.clone()));
+
+    change_provider_selection(&mut state, stable_route, &stable_model);
+    change_provider_selection(&mut state, Some(deepseek), "deepseek-v4-flash");
+    assert!(
+        state
+            .pending_provider_transition_for_turn(None, &stable_model)
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -5661,6 +5789,8 @@ async fn session_new_fails_when_zsh_fork_enabled_without_packaged_zsh() {
         },
     };
     let session_configuration = SessionConfiguration {
+        route: None,
+        models_manager: Arc::clone(&models_manager),
         provider: create_model_provider(
             config.model_provider.clone(),
             Some(Arc::clone(&auth_manager)),
@@ -5718,6 +5848,8 @@ async fn session_new_fails_when_zsh_fork_enabled_without_packaged_zsh() {
         "11111111-1111-4111-8111-111111111111".to_string(),
         auth_manager,
         models_manager,
+        crate::provider_runtime::ProviderRuntimeRegistry::default(),
+        HashMap::new(),
         model_info,
         Arc::new(ExecPolicyManager::default()),
         tx_event,
@@ -5809,6 +5941,8 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
     };
     let default_environments = vec![local(config.cwd.clone())];
     let session_configuration = SessionConfiguration {
+        route: None,
+        models_manager: Arc::clone(&models_manager),
         provider: create_model_provider(
             config.model_provider.clone(),
             Some(Arc::clone(&auth_manager)),
@@ -5925,6 +6059,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         .with_legacy_custom_ca_fallback(),
         session_telemetry: session_telemetry.clone(),
         models_manager: Arc::clone(&models_manager),
+        provider_runtime_registry: crate::provider_runtime::ProviderRuntimeRegistry::default(),
         tool_approvals: Mutex::new(ApprovalStore::default()),
         guardian_rejection_circuit_breaker: Mutex::new(Default::default()),
         runtime_handle: tokio::runtime::Handle::current(),
@@ -5953,8 +6088,9 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         )),
         attestation_provider: None,
         time_provider: Arc::new(crate::current_time::SystemTimeProvider),
-        model_client: ModelClient::new(
+        model_client: ModelClient::new_with_provider_route(
             Some(auth_manager.clone()),
+            session_configuration.route.clone(),
             AgentIdentityAuthPolicy::JwtOnly,
             thread_id,
             session_configuration.provider.info().clone(),
@@ -6099,6 +6235,8 @@ async fn make_session_with_config_and_rx(
     };
     let default_environments = vec![local(config.cwd.clone())];
     let session_configuration = SessionConfiguration {
+        route: None,
+        models_manager: Arc::clone(&models_manager),
         provider: create_model_provider(
             config.model_provider.clone(),
             Some(Arc::clone(&auth_manager)),
@@ -6157,6 +6295,8 @@ async fn make_session_with_config_and_rx(
         "11111111-1111-4111-8111-111111111111".to_string(),
         auth_manager,
         models_manager,
+        crate::provider_runtime::ProviderRuntimeRegistry::default(),
+        HashMap::new(),
         model_info,
         Arc::new(ExecPolicyManager::default()),
         tx_event,
@@ -6220,6 +6360,8 @@ async fn make_session_with_history_source_and_agent_control_and_rx(
     };
     let default_environments = vec![local(config.cwd.clone())];
     let session_configuration = SessionConfiguration {
+        route: None,
+        models_manager: Arc::clone(&models_manager),
         provider: create_model_provider(
             config.model_provider.clone(),
             Some(Arc::clone(&auth_manager)),
@@ -6278,6 +6420,8 @@ async fn make_session_with_history_source_and_agent_control_and_rx(
         "11111111-1111-4111-8111-111111111111".to_string(),
         auth_manager,
         models_manager,
+        crate::provider_runtime::ProviderRuntimeRegistry::default(),
+        HashMap::new(),
         model_info,
         Arc::new(ExecPolicyManager::default()),
         tx_event,
@@ -8022,6 +8166,8 @@ where
     };
     let default_environments = vec![local(config.cwd.clone())];
     let session_configuration = SessionConfiguration {
+        route: None,
+        models_manager: Arc::clone(&models_manager),
         provider: create_model_provider(
             config.model_provider.clone(),
             Some(Arc::clone(&auth_manager)),
@@ -8137,6 +8283,7 @@ where
         .with_legacy_custom_ca_fallback(),
         session_telemetry: session_telemetry.clone(),
         models_manager: Arc::clone(&models_manager),
+        provider_runtime_registry: crate::provider_runtime::ProviderRuntimeRegistry::default(),
         tool_approvals: Mutex::new(ApprovalStore::default()),
         guardian_rejection_circuit_breaker: Mutex::new(Default::default()),
         runtime_handle: tokio::runtime::Handle::current(),
@@ -8165,8 +8312,9 @@ where
         )),
         attestation_provider: None,
         time_provider: Arc::new(crate::current_time::SystemTimeProvider),
-        model_client: ModelClient::new(
+        model_client: ModelClient::new_with_provider_route(
             Some(Arc::clone(&auth_manager)),
+            session_configuration.route.clone(),
             AgentIdentityAuthPolicy::JwtOnly,
             thread_id,
             session_configuration.provider.info().clone(),
@@ -9516,6 +9664,7 @@ async fn build_initial_context_restates_realtime_start_when_reference_context_is
     let (session, mut turn_context) = make_session_and_context().await;
     turn_context.realtime_active = true;
     let previous_turn_settings = PreviousTurnSettings {
+        route: None,
         model: turn_context.model_info.slug.clone(),
         comp_hash: None,
         realtime_active: Some(true),
@@ -9842,6 +9991,7 @@ async fn record_context_updates_and_set_reference_context_item_persists_split_fi
 async fn build_initial_context_prepends_model_switch_message() {
     let (session, turn_context) = make_session_and_context().await;
     let previous_turn_settings = PreviousTurnSettings {
+        route: None,
         model: "previous-regular-model".to_string(),
         comp_hash: None,
         realtime_active: None,
@@ -9896,6 +10046,7 @@ async fn record_context_updates_and_set_reference_context_item_persists_full_rei
 
     session
         .set_previous_turn_settings(Some(PreviousTurnSettings {
+            route: None,
             model: previous_context.model_info.slug.clone(),
             comp_hash: None,
             realtime_active: Some(previous_context.realtime_active),

@@ -522,14 +522,20 @@ stream_max_retries = 0
             );
         }
     }
-    let list_output = serde_json::from_str::<serde_json::Value>(
-        &requests[1]
-            .function_call_output_text("list")
-            .expect("skills.list output"),
-    )?;
+    let list_output_text = requests[1]
+        .function_call_output_text("list")
+        .expect("skills.list output");
+    if scenario == ExecutorSkillScenario::VisibleWithBudgetWarning {
+        assert!(list_output_text.contains(SKILL_NAME));
+        assert!(list_output_text.contains(authority_id));
+    }
+    let list_output = (scenario != ExecutorSkillScenario::VisibleWithBudgetWarning)
+        .then(|| serde_json::from_str::<serde_json::Value>(&list_output_text))
+        .transpose()?;
     match scenario {
-        ExecutorSkillScenario::VisibleWithBudgetWarning
-        | ExecutorSkillScenario::RestrictedVisible => {
+        ExecutorSkillScenario::VisibleWithBudgetWarning => {}
+        ExecutorSkillScenario::RestrictedVisible => {
+            let list_output = list_output.as_ref().expect("complete skills.list output");
             let deploy_skill = list_output["skills"]
                 .as_array()
                 .and_then(|skills| skills.iter().find(|skill| skill["name"] == SKILL_NAME))
@@ -549,15 +555,12 @@ stream_max_retries = 0
                     .iter()
                     .all(|skill| skill["name"] != DENIED_SKILL_NAME)
             }));
-            if scenario == ExecutorSkillScenario::VisibleWithBudgetWarning {
-                assert!(list_output["next_cursor"].is_string());
-            } else {
-                assert!(list_output["next_cursor"].is_null());
-            }
+            assert!(list_output["next_cursor"].is_null());
         }
         ExecutorSkillScenario::ExplicitOnly
         | ExecutorSkillScenario::RestrictedPermittedReference
         | ExecutorSkillScenario::RestrictedDeniedReference => {
+            let list_output = list_output.as_ref().expect("complete skills.list output");
             assert_eq!(list_output["skills"], json!([]));
         }
     }

@@ -1,7 +1,447 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-21T08:09:37+08:00",
+  "updated_at": "2026-08-28T00:54:05+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260828-004242-MODEL-PERSISTENCE-E2E-R1",
+      "record_type": "run_batch",
+      "status": "settled",
+      "started_at": "2026-08-28T00:46:52+08:00",
+      "ended_at": "2026-08-28T00:46:58+08:00",
+      "elapsed_calendar_seconds": 6.161,
+      "aggregate_agent_wall_time_ms": 6161,
+      "reason": "Validate that an OpenAI Subscription model selected in the installed Whale TUI is used by the current session and remains the default after creating a new session.",
+      "authorization": {
+        "required": false,
+        "status": "not_required",
+        "id": null,
+        "reference": null,
+        "budget_summary": {
+          "provider_requests": 3,
+          "input_tokens": 50000,
+          "output_tokens": 1000,
+          "elapsed_seconds": 300,
+          "estimated_cost": 0,
+          "currency": "CNY"
+        },
+        "note": "单 sample、单 arm、零重试，低于需要专项用户授权的 3 sample 门槛；OpenAI Subscription 无单次 API 计费。"
+      },
+      "execution": {
+        "provider": "openai-subscription",
+        "model": "gpt-5.6-sol",
+        "batch_count": 1,
+        "sample_ids": [
+          "model-selection-current-and-new-session"
+        ],
+        "arm_ids": [
+          "interactive-tui-e2e"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 14524,
+        "cached_input": 0,
+        "uncached_input": 14524,
+        "output": 13
+      },
+      "monetary_cost": {
+        "status": "actual",
+        "currency": "CNY",
+        "amount": 0,
+        "actual_billed_amount": 0,
+        "components": {
+          "subscription_marginal_run": 0
+        },
+        "pricing_snapshot": {
+          "currency": "CNY",
+          "captured_at": "2026-08-28",
+          "source": "OpenAI Subscription",
+          "billing_model": "subscription",
+          "marginal_per_run": 0
+        },
+        "formula": "subscription marginal per-run charge = 0",
+        "note": "OpenAI Subscription has no marginal per-run API charge; the completed turn consumed subscription usage rather than metered API billing."
+      },
+      "evidence": {
+        "subject_commit": "2f3f766981445ad3afa9b6d2045a1b41c393b26a",
+        "planned_run_root": "target/provider-e2e/WAR-20260828-004242-MODEL-PERSISTENCE-E2E-R1",
+        "stop_conditions": [
+          "after_any_provider_error",
+          "after_any_persistence_mismatch",
+          "after_budget_limit"
+        ],
+        "result_path": "benchmarks/provider-e2e/results/WAR-20260828-004242-MODEL-PERSISTENCE-E2E-R1.json",
+        "runner_exit_code": 0,
+        "outcome": "completed"
+      }
+    },
+    {
+      "record_id": "WAR-20260824-072043-CACHE-REGRESSION-9306DB50",
+      "record_type": "run_batch",
+      "status": "settled",
+      "started_at": "2026-08-24T07:20:53+08:00",
+      "ended_at": "2026-08-24T07:21:46+08:00",
+      "elapsed_calendar_seconds": 52.79,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "Validate v0.0.6 multi-provider prompt, tool, model-catalog, and context-projection final-wire changes on the minimum DeepSeek Standard plus TaskSpace map-request matrix approved by the user on 2026-08-24.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260824-V006-MULTI-PROVIDER-FINAL-WIRE",
+        "reference": "用户于 2026-08-24 在已明确说明 deepseek-v4-flash、single-file-fast-fix、Standard + map-request 各 1 次、零重试、最多 36 个 provider 请求、360000 input token、20000 output token、0.40 CNY、1440 秒以及四项立即停止条件后回复‘允许，继续’，明确批准该最小真实缓存回归预算。",
+        "budget_summary": {
+          "provider_requests": 36,
+          "input_tokens": 360000,
+          "output_tokens": 20000,
+          "elapsed_seconds": 1440,
+          "estimated_cost": 0.4,
+          "currency": "CNY"
+        },
+        "note": "严格绑定预算提案 CBP-2FC162901AD9D95D。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "12d6335f250701a91e423ca3a5ed29a8387f5f755ffdd24df6ca87baa6850c91",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "standard",
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 2,
+        "actual_sample_runs": 2,
+        "api_requests": 14,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 139785,
+        "cached_input": 115456,
+        "uncached_input": 24329,
+        "output": 3544
+      },
+      "monetary_cost": {
+        "status": "estimated",
+        "currency": "CNY",
+        "amount": 0.03372612,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.00230912,
+          "uncached_input": 0.024329,
+          "output": 0.007088
+        },
+        "pricing_snapshot": {
+          "currency": "CNY",
+          "captured_at": "2026-08-18",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "按完整 provider token 遥测和冻结价格估算。"
+      },
+      "evidence": {
+        "planned_run_root": "target/cache-hit-regression/WAR-20260824-072043-CACHE-REGRESSION-9306DB50",
+        "subject_commit": "ddd803b7a3bb223624bb0fd3069a144bc51d5734",
+        "surface_sha256": "4a15b25ca426b61703a212e1c40283dbecc1b06dd0e06600784c83a675c5e053",
+        "proposal_id": "CBP-2FC162901AD9D95D",
+        "proposal_contract_sha256": "c7b6198636713ea3279c880191eb7b0dc37c15453e05fa82e6a6ee04e15ffb58",
+        "proposal_path": "benchmarks/cache-regression/proposals/2026-08-24-v006-multi-provider-final-wire.json",
+        "proposal_sha256": "8ce43aecd019d991c980dfa6fa5c213af09fc43ff4a69dc2287dd96e39b08993",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260824-V006-MULTI-PROVIDER-FINAL-WIRE.json",
+        "authorization_sha256": "2b6351f9a495840c1ffa075498c45c7d17e6678410a8bece6a0b245fe462d7cc",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "single-file-fast-fix"
+          ],
+          "arms": [
+            "standard",
+            "map-request"
+          ],
+          "repeat": 1,
+          "planned_sample_runs": 2,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 2,
+          "stop_conditions": [
+            "after_any_run_failure",
+            "after_any_business_failure",
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "Validate v0.0.6 multi-provider prompt, tool, model-catalog, and context-projection final-wire changes on the minimum DeepSeek Standard plus TaskSpace map-request matrix approved by the user on 2026-08-24."
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_run_failure",
+          "after_any_business_failure",
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "complete",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260824-072043-CACHE-REGRESSION-9306DB50/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "15b024b3218ee270aa56e8e28953fe0b84781bb1852d4cd7ef7bda4ca541f889",
+        "actual_run_root": "target/cache-hit-regression/WAR-20260824-072043-CACHE-REGRESSION-9306DB50",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260824-072043-CACHE-REGRESSION-9306DB50.json",
+        "runner_exit_code": 0,
+        "outcome": "completed"
+      }
+    },
+    {
+      "record_id": "WAR-20260823-001949-DEEPSEEK-VISION-FIX-R1",
+      "record_type": "run_batch",
+      "status": "settled",
+      "started_at": "2026-08-23T00:25:14+08:00",
+      "ended_at": "2026-08-23T00:25:56+08:00",
+      "elapsed_calendar_seconds": 42,
+      "aggregate_agent_wall_time_ms": 1467,
+      "reason": "验证修复后的 DeepSeek Vision 冒烟素材、提示词与 marker 判定一致，并确认失败证据在断言前持久化。",
+      "authorization": {
+        "required": false,
+        "status": "granted",
+        "id": "user-approved-deepseek-vision-fix-under-cny1",
+        "reference": "2026-08-23 user: 解决这个问题，批准这个不超过 1元的预算",
+        "budget_summary": {
+          "maximum_sample_runs": 1,
+          "maximum_api_requests": 1,
+          "input_tokens": 12000,
+          "output_tokens": 1000,
+          "elapsed_seconds": 180,
+          "estimated_cost": 1.0,
+          "currency": "CNY"
+        },
+        "note": "仅限 deepseek-v4-flash-vision-exp 的 vision-image-input-fixed 样本；实际计划成本硬边界按 CNY 0.10，零自动重试，不扩展模型或样本。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash-vision-exp",
+        "batch_count": 1,
+        "sample_ids": [
+          "vision-image-input-fixed"
+        ],
+        "arm_ids": [
+          "native-responses"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 5080,
+        "cached_input": 0,
+        "uncached_input": 5080,
+        "output": 39,
+        "reasoning_output": 31
+      },
+      "monetary_cost": {
+        "status": "estimated_from_provider_usage",
+        "currency": "CNY",
+        "amount": 0.01829344,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.0,
+          "uncached_input": 0.0178816,
+          "output": 0.00041184
+        },
+        "pricing_snapshot": {
+          "model": "deepseek-v4-flash-vision-exp",
+          "captured_at": "2026-08-22",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "peak_usd_per_million": {
+            "cached_input": 0.014,
+            "uncached_input": 0.44,
+            "output": 1.32
+          }
+        },
+        "formula": "(5080/1e6*USD 0.44 + 39/1e6*USD 1.32) * 8 CNY/USD = CNY 0.01829344。",
+        "note": "按 provider usage 与 2026-08-22 官方价格快照估算；低于 CNY 0.10 运行子上限和用户批准的 CNY 1.00 总上限。"
+      },
+      "evidence": {
+        "subject_commit": "5f907bc28fa7b098cb233705b9c7025677a0d949",
+        "parent_failed_record": "WAR-20260822-053058-DEEPSEEK-VISION-R1",
+        "planned_evidence_root": "benchmarks/deepseek-responses/evidence/WAR-20260823-001949-DEEPSEEK-VISION-FIX-R1",
+        "stop_conditions": "零自动重试；任一失败、usage 缺失、1 request、12K input、1K output、CNY 0.10 或 3 分钟任一先到即停止。",
+        "provider_request_counter": "benchmarks/deepseek-responses/evidence/WAR-20260823-001949-DEEPSEEK-VISION-FIX-R1/provider-request-count.txt",
+        "usage_evidence_status": "complete",
+        "actual_run_root": "benchmarks/deepseek-responses/evidence/WAR-20260823-001949-DEEPSEEK-VISION-FIX-R1",
+        "whale_binary_sha256": "38502cc58e9db74a3d8c06455ccffc7edbb0a0fbf7de5932ace696656b93f42b",
+        "runner_exit_code": 0,
+        "stop_reason": "completed",
+        "outcome": "一个 Vision Responses 请求完成；最终消息精确为 WHALE_DS_VISION_OK，marker_seen=true，validation_errors 为空，usage 完整，未重试。"
+      }
+    },
+    {
+      "record_id": "WAR-20260822-051940-DEEPSEEK-RESPONSES-R3",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-22T05:30:32+08:00",
+      "ended_at": "2026-08-22T05:30:36+08:00",
+      "elapsed_calendar_seconds": 4.454,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "验证 WhaleCode 对 DeepSeek 当前三个 Responses API 模型的原生文本、工具调用、reasoning 流式事件与视觉输入支持。",
+      "authorization": {
+        "required": false,
+        "status": "granted",
+        "id": "user-approved-deepseek-responses-under-cny1",
+        "reference": "2026-08-22 user: 最大限度完整补齐deepseek 能力支持，批准1元的总测试预算包用于验证，开始",
+        "budget_summary": {
+          "maximum_sample_runs": 3,
+          "maximum_api_requests": 12,
+          "input_tokens": 30000,
+          "output_tokens": 6000,
+          "elapsed_seconds": 600,
+          "estimated_cost": 1.0,
+          "currency": "CNY"
+        },
+        "note": "仅限 deepseek-v4-flash、deepseek-v4-pro、deepseek-v4-flash-vision-exp 各一个样本；共享请求硬门禁，零自动重试；任一失败、usage 缺失或预算风险立即停止。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "model": "deepseek-current-three-models",
+        "batch_count": 1,
+        "sample_ids": [
+          "flash-tool-roundtrip",
+          "pro-reasoning-stream",
+          "vision-image-input"
+        ],
+        "arm_ids": [
+          "native-responses"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 3,
+        "actual_sample_runs": 2,
+        "api_requests": 3,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "estimated_partial",
+        "currency": "CNY",
+        "amount": 0.9,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": {
+          "captured_at": "2026-08-22",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "peak_usd_per_million": {
+            "flash_cached_input": 0.014,
+            "flash_uncached_input": 0.44,
+            "flash_output": 1.32,
+            "pro_cached_input": 0.044,
+            "pro_uncached_input": 1.32,
+            "pro_output": 3.96,
+            "vision_cached_input": 0.014,
+            "vision_uncached_input": 0.44,
+            "vision_output": 1.32
+          }
+        },
+        "formula": "硬上限 CNY 1.00；按 30K 全部使用 Pro 峰值 uncached input 与 6K Pro 峰值 output，USD 0.06336，按 8 CNY/USD 保守折算约 CNY 0.507。",
+        "note": "Flash 与 Pro 共 3 个 provider requests；harness 在写汇总前因 Vision CLI 参数解析失败退出，usage 无法恢复，因此以总包扣除 Vision 预留后的 CNY 0.90 保守上限记为 estimated_partial。"
+      },
+      "evidence": {
+        "subject_commit": "d605ed7f9b66c29ff5283bedda6a934b17aa4869",
+        "prd": "prd/2026-08-22-deepseek-responses-capability-completion.md",
+        "planned_evidence_root": "benchmarks/deepseek-responses/evidence/WAR-20260822-051940-DEEPSEEK-RESPONSES-R3",
+        "stop_conditions": "零自动重试；任一模型失败、usage 缺失、12 requests、30K input、6K output、CNY 1.00 或 10 分钟任一先到即停止。",
+        "provider_request_counter": "benchmarks/deepseek-responses/evidence/WAR-20260822-051940-DEEPSEEK-RESPONSES-R3/provider-request-count.txt",
+        "usage_evidence_status": "unavailable",
+        "stop_reason": "vision_harness_prompt_consumed_by_multi_value_image_option_before_provider_dispatch",
+        "outcome": "Flash tool round-trip and Pro text samples completed using 3 provider requests. Vision did not dispatch because --image consumed the trailing prompt. The batch stopped immediately; no same-record retry was attempted."
+      }
+    },
+    {
+      "record_id": "WAR-20260822-053058-DEEPSEEK-VISION-R1",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-22T05:32:42+08:00",
+      "ended_at": "2026-08-22T05:32:44+08:00",
+      "elapsed_calendar_seconds": 1.528,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "完成原定三模型包中尚未发起 provider 请求的 DeepSeek Vision Responses 图片输入样本；修复仅限 harness 的参数终止符。",
+      "authorization": {
+        "required": false,
+        "status": "granted",
+        "id": "user-approved-deepseek-responses-under-cny1-vision-remainder",
+        "reference": "2026-08-22 user: 最大限度完整补齐deepseek 能力支持，批准1元的总测试预算包用于验证，开始",
+        "budget_summary": {
+          "maximum_sample_runs": 1,
+          "maximum_api_requests": 1,
+          "input_tokens": 12000,
+          "output_tokens": 1000,
+          "elapsed_seconds": 180,
+          "estimated_cost": 0.1,
+          "currency": "CNY"
+        },
+        "note": "关联失败记录 WAR-20260822-051940-DEEPSEEK-RESPONSES-R3；Vision 在前一记录中未 dispatch，本记录只补足原定第三个模型样本，不增加总模型样本范围，零重试。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash-vision-exp",
+        "batch_count": 1,
+        "sample_ids": [
+          "vision-image-input"
+        ],
+        "arm_ids": [
+          "native-responses"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "estimated_partial",
+        "currency": "CNY",
+        "amount": 0.1,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": {
+          "model": "deepseek-v4-flash-vision-exp",
+          "captured_at": "2026-08-22",
+          "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "peak_usd_per_million": {
+            "cached_input": 0.014,
+            "uncached_input": 0.44,
+            "output": 1.32
+          }
+        },
+        "formula": "单请求硬门禁；12K peak uncached input + 1K peak output = USD 0.0066，按 8 CNY/USD 约 CNY 0.0528，保守硬上限 CNY 0.10。",
+        "note": "请求正常返回但固定 marker 判定失败；harness 在写汇总前退出，usage 无法恢复，以 CNY 0.10 子预算上限保守记为 estimated_partial。"
+      },
+      "evidence": {
+        "subject_commit": "d605ed7f9b66c29ff5283bedda6a934b17aa4869",
+        "parent_failed_record": "WAR-20260822-051940-DEEPSEEK-RESPONSES-R3",
+        "planned_evidence_root": "benchmarks/deepseek-responses/evidence/WAR-20260822-053058-DEEPSEEK-VISION-R1",
+        "stop_conditions": "零重试；任一失败、usage 缺失、1 request、12K input、1K output、CNY 0.10 或 3 分钟任一先到即停止。",
+        "provider_request_counter": "benchmarks/deepseek-responses/evidence/WAR-20260822-053058-DEEPSEEK-VISION-R1/provider-request-count.txt",
+        "usage_evidence_status": "unavailable",
+        "stop_reason": "vision_response_missing_expected_semantic_marker",
+        "outcome": "One Vision Responses request completed, but the final assistant message did not contain the required image-recognition marker. The run stopped at the one-request hard limit and no further retry was attempted."
+      }
+    },
     {
       "record_id": "WAR-20260821-080834-CACHE-REGRESSION-8DC2D672",
       "record_type": "run_batch",
@@ -11757,6 +12197,749 @@
         "stop_conditions": "零自动重试；业务或 Map 硬失败、usage/证据缺失、36 requests、600K input、30K output、CNY 1.00 或 15 分钟任一先到即停止。",
         "stop_reason": "any_side_failure_after_pair_001_multi_outer_exec_fatal",
         "outcome": "PlanOnly selected exactly three TaskSpace executions and zero Standard executions. Two preflight attempts stopped before Provider use. The first real TaskSpace run made two Provider requests; response 2 contained two sibling taskspace_exec calls. Runtime rejected the response before client Tool side effects but escalated reconciliation to Fatal, so the Agent received no per-call rejection output. The runner stopped immediately and did not start the remaining two repeats."
+      }
+    },
+    {
+      "record_id": "WAR-20260825-075400-OPENAI-SUBSCRIPTION-HI-E2E",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-25T07:56:29+08:00",
+      "ended_at": "2026-08-25T07:56:32+08:00",
+      "elapsed_calendar_seconds": 2.779,
+      "aggregate_agent_wall_time_ms": 2779,
+      "reason": "Verify that the installed Whale v0.0.6 can switch to the OpenAI ChatGPT subscription route and complete one gpt-5.6-sol turn after separating Whale product identity from Codex protocol compatibility.",
+      "authorization": {
+        "required": false,
+        "status": "not_required",
+        "id": null,
+        "reference": "用户于 2026-08-25 明确要求由开发者自行切换到 OpenAI 模型并发送一条 hi 做 E2E 验收。",
+        "budget_summary": {
+          "maximum_sample_runs": 1,
+          "maximum_api_requests": 2,
+          "input_tokens": 100000,
+          "output_tokens": 2000,
+          "elapsed_seconds": 120
+        },
+        "note": "单个 OpenAI Subscription E2E sample；只发送 hi，零自动重试。"
+      },
+      "execution": {
+        "provider": "openai-chatgpt",
+        "model": "gpt-5.6-sol",
+        "batch_count": 1,
+        "sample_ids": [
+          "provider-switch-hi"
+        ],
+        "arm_ids": [
+          "openai-subscription"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "unavailable",
+        "currency": "USD",
+        "amount": null,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": null,
+        "formula": null,
+        "note": "The subscription request failed with HTTP 400 before provider usage telemetry was emitted."
+      },
+      "evidence": {
+        "subject_commit": "19bc4ebc0fedc70cb5ad183913fac6795d6719b2",
+        "workspace_id": "whalecode-alpha-48d2219088",
+        "whale_binary_sha256": "693cc2ac7253767a953d037e506bb64b6f25846de4c3a8f4b0f3b22f3c48b3dd",
+        "route": "openai/chatgpt",
+        "reasoning_effort": "low",
+        "prompt": "hi",
+        "stop_conditions": "Stop after the first completed turn or any provider/model/authentication error; zero automatic retries.",
+        "usage_evidence_status": "unavailable",
+        "thread_id": "01a03633-2fb5-70c0-9674-30e230170dbc",
+        "turn_id": "01a03634-4080-7d10-8627-d07486683c7a",
+        "stop_reason": "first_request_rejected_by_openai_codex_version_gate",
+        "outcome": "Route switch succeeded and Code Mode host started without a missing-host warning, but the single hi request received HTTP 400 stating that gpt-5.6-sol requires a newer Codex client. No retry was attempted."
+      }
+    },
+    {
+      "record_id": "WAR-20260825-080230-OPENAI-SUBSCRIPTION-HI-E2E-R2",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-25T08:03:04+08:00",
+      "ended_at": "2026-08-25T08:03:07+08:00",
+      "elapsed_calendar_seconds": 2.356,
+      "aggregate_agent_wall_time_ms": 2356,
+      "reason": "Verify the corrected embedded app-server client suffix by completing one OpenAI ChatGPT subscription turn with gpt-5.6-sol.",
+      "authorization": {
+        "required": false,
+        "status": "not_required",
+        "id": null,
+        "reference": "用户于 2026-08-25 明确要求由开发者自行切换到 OpenAI 模型并发送一条 hi 做 E2E 验收。",
+        "budget_summary": {
+          "maximum_sample_runs": 1,
+          "maximum_api_requests": 2,
+          "input_tokens": 100000,
+          "output_tokens": 2000,
+          "elapsed_seconds": 120
+        },
+        "note": "根因修复后的独立 E2E 记录；只发送 hi，零自动重试。"
+      },
+      "execution": {
+        "provider": "openai-chatgpt",
+        "model": "gpt-5.6-sol",
+        "batch_count": 1,
+        "sample_ids": [
+          "provider-switch-hi"
+        ],
+        "arm_ids": [
+          "openai-subscription-client-suffix-fixed"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "unavailable",
+        "currency": "USD",
+        "amount": null,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": null,
+        "formula": null,
+        "note": "The subscription request failed with HTTP 400 before provider usage telemetry was emitted."
+      },
+      "evidence": {
+        "subject_commit": "8a869dc6f",
+        "workspace_id": "whalecode-alpha-48d2219088",
+        "whale_binary_sha256": "644fab493dfcd90560f85ea5cc4346789b9711d256c865d5d40d6e188984ba41",
+        "route": "openai/chatgpt",
+        "reasoning_effort": "low",
+        "prompt": "hi",
+        "observed_user_agent": "Codex Desktop/0.149.0 (Ubuntu 24.4.0; x86_64) dumb (codex-tui; 0.149.0)",
+        "thread_id": "01a03638-dbc3-7bf2-b57c-d74a3de918e6",
+        "stop_conditions": "Stop after the first completed turn or any provider/model/authentication error; zero automatic retries.",
+        "usage_evidence_status": "unavailable",
+        "turn_id": "01a0363a-4754-7530-919d-cb098f6cebf2",
+        "stop_reason": "first_request_rejected_despite_aligned_base_and_suffix_versions",
+        "outcome": "The installed binary advertised Codex 0.149.0 in both the base User-Agent and codex-tui suffix, and route switching succeeded, but the only hi request received the same obsolete-client HTTP 400. No retry was attempted."
+      }
+    },
+    {
+      "record_id": "WAR-20260825-080909-OPENAI-SUBSCRIPTION-HI-E2E-R3",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-25T08:09:09+08:00",
+      "ended_at": "2026-08-25T08:09:41+08:00",
+      "elapsed_calendar_seconds": 2.347,
+      "aggregate_agent_wall_time_ms": 2347,
+      "reason": "Verify the current stable Codex 0.149.1 compatibility identity by completing one OpenAI ChatGPT subscription turn with gpt-5.6-sol.",
+      "authorization": {
+        "required": false,
+        "status": "not_required",
+        "id": null,
+        "reference": "用户于 2026-08-25 明确要求由开发者自行切换到 OpenAI 模型并发送一条 hi 做 E2E 验收。",
+        "budget_summary": {
+          "maximum_sample_runs": 1,
+          "maximum_api_requests": 2,
+          "input_tokens": 100000,
+          "output_tokens": 2000,
+          "elapsed_seconds": 120
+        },
+        "note": "当前授权上限内第 3 个也是最后一个 OpenAI Subscription E2E sample；只发送 hi，零自动重试。"
+      },
+      "execution": {
+        "provider": "openai-chatgpt",
+        "model": "gpt-5.6-sol",
+        "batch_count": 1,
+        "sample_ids": [
+          "provider-switch-hi"
+        ],
+        "arm_ids": [
+          "openai-subscription-current-stable-client"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "unavailable",
+        "currency": "USD",
+        "amount": null,
+        "actual_billed_amount": null,
+        "components": null,
+        "pricing_snapshot": null,
+        "formula": null,
+        "note": "The subscription request failed with HTTP 400 before provider usage telemetry was emitted."
+      },
+      "evidence": {
+        "subject_commit": "a0da5ade2",
+        "workspace_id": "whalecode-alpha-48d2219088",
+        "whale_binary_sha256": "dace50000e8800e11bd028cd491937e31c42bf50ace7598d2eb063cd58e454a6",
+        "route": "openai/chatgpt",
+        "reasoning_effort": "low",
+        "prompt": "hi",
+        "observed_user_agent": "Codex Desktop/0.149.1 (Ubuntu 24.4.0; x86_64) dumb (codex-tui; 0.149.1)",
+        "thread_id": "01a0363d-d368-7b20-8713-86c9062fc5e0",
+        "stop_conditions": "Stop after the first completed turn or any provider/model/authentication error; zero automatic retries.",
+        "usage_evidence_status": "unavailable",
+        "turn_id": "01a03640-4f4e-7ef2-8888-f6b7ebaac05a",
+        "stop_reason": "first_request_rejected_despite_current_stable_version_identity",
+        "outcome": "The installed binary advertised Codex 0.149.1 in both User-Agent version positions and route switching succeeded, but the only hi request received the same obsolete-client HTTP 400. The process inherited CODEX_INTERNAL_ORIGINATOR_OVERRIDE=Codex Desktop, so its identity remained Codex Desktop/0.149.1 instead of the official CLI originator codex_cli_rs/0.149.1. No retry was attempted and no missing Code Mode host warning occurred."
+      }
+    },
+    {
+      "record_id": "WAR-20260825-090337-OPENAI-SUBSCRIPTION-HI-E2E-R4",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-25T09:03:37+08:00",
+      "ended_at": "2026-08-25T09:05:40+08:00",
+      "elapsed_calendar_seconds": 123.0,
+      "aggregate_agent_wall_time_ms": 1733,
+      "reason": "Final live validation that Whale clears the inherited Codex Desktop originator and completes one OpenAI ChatGPT subscription turn with gpt-5.6-sol.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "USER-APPROVAL-20260825-OPENAI-SUBSCRIPTION-HI-R4",
+        "reference": "用户于 2026-08-25 09:02 在获知模型、规模、请求/token/费用/耗时上限、停止条件与零重试范围后明确回复‘批准’。",
+        "budget_summary": {
+          "maximum_sample_runs": 1,
+          "maximum_api_requests": 2,
+          "input_tokens": 100000,
+          "output_tokens": 2000,
+          "cost_usd": 0.0,
+          "elapsed_seconds": 120
+        },
+        "note": "专项追加的单个 OpenAI Subscription E2E sample；只发送 hi，零自动重试。"
+      },
+      "execution": {
+        "provider": "openai-chatgpt",
+        "model": "gpt-5.6-sol",
+        "batch_count": 1,
+        "sample_ids": [
+          "provider-switch-hi"
+        ],
+        "arm_ids": [
+          "openai-subscription-originator-isolated"
+        ],
+        "actual_provider": "deepseek-api-key",
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "settled",
+        "currency": "USD",
+        "amount": 0.0,
+        "actual_billed_amount": 0.0,
+        "components": null,
+        "pricing_snapshot": "ChatGPT subscription route; no API-key metered charge planned.",
+        "formula": null,
+        "note": "The request was misrouted to DeepSeek and rejected by its model-name validation before usage telemetry; no billable token usage was reported."
+      },
+      "evidence": {
+        "subject_commit": "572bd051e67e2e7a6cf539e9f6b696a526dc3070",
+        "workspace_id": "whalecode-alpha-48d2219088",
+        "whale_binary_sha256": "4c31e1e5e14fd445f4aaed353646e382fabafe1325176c004bd87939dc4a9786",
+        "route": "openai/chatgpt",
+        "reasoning_effort": "low",
+        "prompt": "hi",
+        "expected_user_agent": "codex-tui/0.149.1 (Ubuntu 24.4.0; x86_64) dumb (codex-tui; 0.149.1)",
+        "observed_user_agent": "codex-tui/0.149.1 (Ubuntu 24.4.0; x86_64) dumb (codex-tui; 0.149.1)",
+        "thread_id": "01a03673-5b27-78e1-bfde-fc3334a426f5",
+        "stop_conditions": "Stop after the first completed turn or any provider/model/authentication error; zero automatic retries.",
+        "usage_evidence_status": "complete_zero",
+        "turn_id": "01a03673-938d-7c10-a089-34c20f911b27",
+        "stop_reason": "invalid_e2e_driver_omitted_provider_route_object",
+        "outcome": "The installed client identity was correctly isolated as codex-tui/0.149.1, but the E2E driver incorrectly sent obsolete unknown fields modelProvider/authMode instead of route={modelProviderId:openai,accessMethod:chatgpt}. Unknown fields were ignored, leaving the thread on DeepSeek; the only hi request was therefore rejected by DeepSeek's model-name validation. This is invalid harness evidence, not a provider-switch product failure. The run stopped immediately with no retry and no Code Mode host warning."
+      }
+    },
+    {
+      "record_id": "WAR-20260825-092520-OPENAI-SUBSCRIPTION-HI-E2E-R5",
+      "record_type": "run_batch",
+      "status": "failed",
+      "started_at": "2026-08-25T09:25:20+08:00",
+      "ended_at": "2026-08-25T09:26:35+08:00",
+      "elapsed_calendar_seconds": 75.0,
+      "aggregate_agent_wall_time_ms": 3157,
+      "reason": "Complete the schema-correct final OpenAI ChatGPT subscription E2E after validating the committed ProviderRoute notification.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "USER-APPROVAL-20260825-OPENAI-SUBSCRIPTION-HI-R5",
+        "reference": "用户于 2026-08-25 09:24 在获知上一轮 invalid harness、修正后的 route schema 和相同专项预算后明确回复‘批准’。",
+        "budget_summary": {
+          "maximum_sample_runs": 1,
+          "maximum_api_requests": 2,
+          "input_tokens": 100000,
+          "output_tokens": 2000,
+          "cost_usd": 0.0,
+          "elapsed_seconds": 120
+        },
+        "note": "单个 OpenAI Subscription E2E sample；必须先观察 route 提交通知，只发送一次 hi，零自动重试。"
+      },
+      "execution": {
+        "provider": "openai-chatgpt",
+        "model": "gpt-5.6-sol",
+        "batch_count": 1,
+        "sample_ids": [
+          "provider-switch-hi"
+        ],
+        "arm_ids": [
+          "openai-subscription-schema-correct-route"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "settled",
+        "currency": "USD",
+        "amount": 0.0,
+        "actual_billed_amount": 0.0,
+        "components": null,
+        "pricing_snapshot": "ChatGPT subscription route; no API-key metered charge planned.",
+        "formula": null,
+        "note": "The ChatGPT subscription request failed at the Codex client-version gate before usage telemetry; no billable token usage was reported."
+      },
+      "evidence": {
+        "subject_code_commit": "572bd051e67e2e7a6cf539e9f6b696a526dc3070",
+        "ledger_base_commit": "dce385be88d5407ed722f4316c08909067811d58",
+        "workspace_id": "whalecode-alpha-48d2219088",
+        "whale_binary_sha256": "4c31e1e5e14fd445f4aaed353646e382fabafe1325176c004bd87939dc4a9786",
+        "route": "openai/chatgpt",
+        "reasoning_effort": "low",
+        "prompt": "hi",
+        "expected_user_agent": "codex-tui/0.149.1 (Ubuntu 24.4.0; x86_64) dumb (codex-tui; 0.149.1)",
+        "observed_user_agent": "codex-tui/0.149.1 (Ubuntu 24.4.0; x86_64) dumb (codex-tui; 0.149.1)",
+        "observed_route_notification": "openai/chatgpt; modelProvider=openai; model=gpt-5.6-sol; effort=low",
+        "thread_id": "01a03686-4a41-7621-9e47-1b5a5d39b02a",
+        "stop_conditions": "Stop after the first completed turn or any provider/model/authentication error; zero automatic retries.",
+        "usage_evidence_status": "complete_zero",
+        "turn_id": "01a03686-b226-7a61-b9af-dc009f4c9e41",
+        "stop_reason": "openai_rejected_current_stable_codex_0_149_1_identity",
+        "outcome": "The schema-correct thread/settings/update emitted an authoritative notification committing openai/chatgpt, modelProvider=openai, gpt-5.6-sol, and low. The installed client advertised codex-tui/0.149.1. The only hi request reached OpenAI ChatGPT subscription but received HTTP 400 requiring a newer Codex client. No retry was attempted and no Code Mode host warning occurred."
+      }
+    },
+    {
+      "record_id": "WAR-20260826-214015-OPENAI-SUBSCRIPTION-HI-E2E-R6",
+      "record_type": "run_batch",
+      "status": "completed",
+      "started_at": "2026-08-26T21:43:39+08:00",
+      "ended_at": "2026-08-26T21:43:43+08:00",
+      "elapsed_calendar_seconds": 4.0,
+      "aggregate_agent_wall_time_ms": 3665,
+      "reason": "Validate the installed H-014 repair with one schema-correct OpenAI ChatGPT subscription turn.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "USER-APPROVAL-20260826-OPENAI-SUBSCRIPTION-HI-R6",
+        "reference": "用户于 2026-08-26 在确认根因与最小修复方案后明确要求‘修复，完成后真是测试一次，批准预算’。",
+        "budget_summary": {
+          "maximum_sample_runs": 1,
+          "maximum_api_requests": 1,
+          "input_tokens": 100000,
+          "output_tokens": 2000,
+          "cost_usd": 0.0,
+          "elapsed_seconds": 120
+        },
+        "note": "单个 OpenAI Subscription E2E sample；先确认 route 通知，只发送一次 hi，零自动重试，任一错误立即停止。"
+      },
+      "execution": {
+        "provider": "openai-chatgpt",
+        "model": "gpt-5.6-sol",
+        "batch_count": 1,
+        "sample_ids": [
+          "provider-switch-hi"
+        ],
+        "arm_ids": [
+          "openai-subscription-unified-compatibility-version"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 10319,
+        "cached_input": 0,
+        "uncached_input": 10319,
+        "output": 14
+      },
+      "monetary_cost": {
+        "status": "settled",
+        "currency": "USD",
+        "amount": 0.0,
+        "actual_billed_amount": 0.0,
+        "components": null,
+        "pricing_snapshot": "ChatGPT subscription route; no API-key metered charge planned.",
+        "formula": null,
+        "note": "The single ChatGPT subscription request completed successfully; no API-key metered charge applies."
+      },
+      "evidence": {
+        "subject_code_commit": "9a8ff88f9b9878b4662e44d35df6ec75559495dd",
+        "ledger_base_commit": "09ca3f950",
+        "workspace_id": "whalecode-alpha-48d2219088",
+        "whale_binary_sha256": "4cdb6cb09a61dfd3f5422a5cf1840a190b3727269a70b3e277f786b004e07015",
+        "route": "openai/chatgpt",
+        "reasoning_effort": "low",
+        "prompt": "hi",
+        "expected_compatibility_version": "0.149.1",
+        "stop_conditions": "Stop after the first completed turn or any provider/model/authentication error; zero automatic retries.",
+        "usage_evidence_status": "complete",
+        "observed_user_agent": "Codex Desktop/0.149.1 (Ubuntu 24.4.0; x86_64) dumb (codex-tui; 0.149.1)",
+        "observed_route_notification": "openai/chatgpt; modelProvider=openai; model=gpt-5.6-sol; effort=low",
+        "thread_id": "01a03e4f-e990-7282-869c-deb6431ffd48",
+        "turn_id": "01a03e4f-ea18-7d20-82be-c7396b52b4de",
+        "provider_request_count": 1,
+        "provider_wire_trace": "/tmp/whale-r6-provider-wire-20260826-214015.jsonl",
+        "stop_reason": "turn_completed",
+        "outcome": "The installed Whale binary committed the OpenAI ChatGPT route with gpt-5.6-sol low, sent exactly one provider request, completed the turn without error, and returned 'Hi! What can I help you with today?'."
+      }
+    },
+    {
+      "record_id": "WAR-20260827-054109-OPENAI-SUBSCRIPTION-TUI-SWITCH-R7",
+      "record_type": "run_batch",
+      "status": "completed",
+      "started_at": "2026-08-27T05:41:09+08:00",
+      "ended_at": "2026-08-27T05:44:15+08:00",
+      "elapsed_calendar_seconds": 186,
+      "aggregate_agent_wall_time_ms": 6163,
+      "reason": "Validate the installed H-017 repair through the actual TUI /model cross-provider selection path and one OpenAI ChatGPT subscription hi turn.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "USER-APPROVAL-20260826-OPENAI-SUBSCRIPTION-HI-CORRECTIVE-CONTINUATION",
+        "reference": "用户要求深入修复 multi-provider 并在完成后真实测试一次、批准预算；本次是此前 app-server smoke 未覆盖而用户实际 TUI 复现的同一验收目标之纠正性最终路径。",
+        "budget_summary": {
+          "maximum_sample_runs": 1,
+          "maximum_api_requests": 1,
+          "input_tokens": 100000,
+          "output_tokens": 2000,
+          "cost_usd": 0.0,
+          "elapsed_seconds": 180
+        },
+        "note": "单个 OpenAI Subscription TUI E2E sample；通过 /model 选择 OpenAI Subscription 的 gpt-5.6-sol，仅发送一次 hi，零自动重试。"
+      },
+      "execution": {
+        "provider": "openai-chatgpt",
+        "model": "gpt-5.6-sol",
+        "batch_count": 1,
+        "sample_ids": [
+          "tui-provider-switch-hi"
+        ],
+        "arm_ids": [
+          "session-scoped-provider-model-selection"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "provider hard limit was 1; the rollout contains one completed sampling response and no retry"
+      },
+      "tokens": {
+        "input": 14415,
+        "cached_input": 0,
+        "uncached_input": 14415,
+        "output": 17
+      },
+      "monetary_cost": {
+        "status": "completed",
+        "currency": "USD",
+        "amount": 0.0,
+        "actual_billed_amount": 0.0,
+        "components": {
+          "chatgpt_subscription_turns": 1
+        },
+        "pricing_snapshot": "ChatGPT subscription route; no API-key metered charge planned.",
+        "formula": null,
+        "note": "The accepted OpenAI ChatGPT subscription turn has no API-key metered charge."
+      },
+      "evidence": {
+        "subject_code_commit": "6c458a0a1818247b3b731def8ade35be8c0d07cc",
+        "workspace_id": "whalecode-alpha-48d2219088",
+        "whale_binary_sha256": "4971b7294edfe8c7962d8ac1373e0ecc095c779948f0b421c8d0406f44800207",
+        "route": "openai/chatgpt",
+        "reasoning_effort": "low",
+        "prompt": "hi",
+        "stop_conditions": "Stop before inference if route notification is not openai/chatgpt + gpt-5.6-sol; stop after the first completed turn or any error; zero retries.",
+        "usage_evidence_status": "settled from the completed rollout token_count event",
+        "thread_id": "01a04006-1dff-75e0-884a-ab0eae6c4b21",
+        "turn_id": "01a04007-cf6d-7eb2-b933-7bf863b22814",
+        "rollout_path": "/home/zhangxu/.local/state/whalecode/workspaces/whalecode-alpha-48d2219088/home/sessions/2026/08/27/rollout-2026-08-27T05-42-17-01a04006-1dff-75e0-884a-ab0eae6c4b21.jsonl",
+        "route_notification_log_id": 1788,
+        "provider_request_log_ids": [1828, 1829],
+        "completion_log_id": 1867,
+        "response": "Hi! What would you like to work on in WhaleCode?",
+        "stop_reason": "turn_completed",
+        "outcome": "The installed Whale TUI started from the DeepSeek default, switched through /model to openai/chatgpt + gpt-5.6-sol low, committed the atomic route before inference, sent one request, and completed without the DeepSeek model allowlist error."
+      }
+    },
+    {
+      "record_id": "WAR-20260827-060206-OPENAI-CROSS-SESSION-EQUIVALENT-E2E-R8",
+      "record_type": "run_batch",
+      "status": "completed",
+      "started_at": "2026-08-27T06:02:06+08:00",
+      "ended_at": "2026-08-27T06:06:08+08:00",
+      "elapsed_calendar_seconds": 242,
+      "aggregate_agent_wall_time_ms": 5488,
+      "reason": "Run the exact cross-session black-box reproduction for H-017: switch provider, reselect a model on the same route, restart, verify clean defaults, then perform one OpenAI subscription turn.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "USER-APPROVAL-20260827-EQUIVALENT-E2E-R8",
+        "reference": "用户明确要求：执行等效E2E。",
+        "budget_summary": {
+          "maximum_sample_runs": 1,
+          "maximum_api_requests": 1,
+          "input_tokens": 100000,
+          "output_tokens": 2000,
+          "cost_usd": 0.0,
+          "elapsed_seconds": 300
+        },
+        "note": "两个真实 TUI 进程构成一个跨 session sample；第一进程零推理，第二进程仅发送一次 hi，零自动重试。"
+      },
+      "execution": {
+        "provider": "openai-chatgpt",
+        "model": "gpt-5.6-sol",
+        "batch_count": 1,
+        "sample_ids": [
+          "provider-model-reselect-restart-hi"
+        ],
+        "arm_ids": [
+          "session-scope-persistence-boundary"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 1,
+        "api_requests_evidence_status": "the provider hard limit was 1; Phase A had zero TurnInput submissions and Phase B contains one completed sampling response with no retry"
+      },
+      "tokens": {
+        "input": 14415,
+        "cached_input": 3840,
+        "uncached_input": 10575,
+        "output": 12
+      },
+      "monetary_cost": {
+        "status": "completed",
+        "currency": "USD",
+        "amount": 0.0,
+        "actual_billed_amount": 0.0,
+        "components": {
+          "chatgpt_subscription_turns": 1
+        },
+        "pricing_snapshot": "ChatGPT subscription route; no API-key metered charge planned.",
+        "formula": null,
+        "note": "The accepted OpenAI ChatGPT subscription turn has no API-key metered charge."
+      },
+      "evidence": {
+        "subject_code_commit": "6c458a0a1818247b3b731def8ade35be8c0d07cc",
+        "workspace_id": "whalecode-alpha-48d2219088",
+        "whale_binary_sha256": "4971b7294edfe8c7962d8ac1373e0ecc095c779948f0b421c8d0406f44800207",
+        "phase_a": "/provider OpenAI Subscription -> /model gpt-5.6-sol low -> exit",
+        "phase_b": "restart -> verify deepseek/api_key + deepseek-v4-flash -> switch OpenAI Subscription -> hi",
+        "stop_conditions": "Stop before inference on any persisted global OpenAI model, mismatched provider/model pair, or missing openai/chatgpt route; stop after the first completed turn or any error; zero retries.",
+        "usage_evidence_status": "settled from the completed Phase B rollout token_count event",
+        "phase_a_thread_id": "01a04019-5c36-7df2-996c-ffa51c38169f",
+        "phase_a_provider_switch_log_id": 1970,
+        "phase_a_same_route_model_selection_log_id": 1990,
+        "phase_a_inference_submissions": 0,
+        "global_config_after_phase_a": "no model, model_reasoning_effort, or model_provider fields",
+        "phase_b_thread_id": "01a0401a-a88f-7230-a49a-02372ad8ae3c",
+        "phase_b_startup_log_id": 2047,
+        "phase_b_startup_route": "deepseek/api_key + deepseek-v4-flash",
+        "phase_b_provider_switch_log_id": 2097,
+        "phase_b_same_route_model_selection_log_id": 2117,
+        "phase_b_turn_id": "01a0401b-de2a-7c40-b44f-b40902575ead",
+        "phase_b_provider_request_log_ids": [2160, 2161],
+        "phase_b_completion_log_id": 2189,
+        "rollout_path": "/home/zhangxu/.local/state/whalecode/workspaces/whalecode-alpha-48d2219088/home/sessions/2026/08/27/rollout-2026-08-27T06-04-44-01a0401a-a88f-7230-a49a-02372ad8ae3c.jsonl",
+        "response": "你好！想一起做点什么？",
+        "stop_reason": "turn_completed",
+        "outcome": "The exact cross-session black-box sequence passed: same-route OpenAI model reselection did not pollute global defaults, restart initialized deepseek/api_key + deepseek-v4-flash, a new OpenAI Subscription switch committed openai/chatgpt + gpt-5.6-sol low, and one hi turn completed without the DeepSeek model allowlist error."
+      }
+    },
+    {
+      "record_id": "WAR-20260827-071513-MODEL-PICKER-VISIBILITY-R9",
+      "record_type": "run_batch",
+      "status": "completed",
+      "started_at": "2026-08-27T07:15:13+08:00",
+      "ended_at": "2026-08-27T07:16:09+08:00",
+      "elapsed_calendar_seconds": 56,
+      "aggregate_agent_wall_time_ms": 0,
+      "reason": "Validate the installed /model picker hides unconfigured OpenAI API candidates while rendering the OpenAI Subscription group heading.",
+      "authorization": {
+        "required": false,
+        "status": "not-required",
+        "id": null,
+        "reference": "Zero-inference installed TUI UI validation for the user-requested model picker change.",
+        "budget_summary": {
+          "maximum_sample_runs": 1,
+          "maximum_api_requests": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "elapsed_seconds": 120
+        },
+        "note": "Open /model, capture the visible groups, and exit without submitting natural language."
+      },
+      "execution": {
+        "provider": "none",
+        "model": "none",
+        "batch_count": 1,
+        "sample_ids": ["installed-model-picker"],
+        "arm_ids": ["missing-openai-api-key"],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 0,
+        "api_requests_evidence_status": "Verified from the session log: no TurnInput or sampling request was emitted for thread 01a0405c-0659-7263-bd7a-aae6a0150f78."
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "completed",
+        "currency": "USD",
+        "amount": 0.0,
+        "actual_billed_amount": 0.0,
+        "components": {
+          "provider_inference_requests": 0
+        },
+        "pricing_snapshot": "No inference request is permitted.",
+        "formula": null,
+        "note": "UI-only validation."
+      },
+      "evidence": {
+        "subject_code_commit": "af7dba7fd",
+        "workspace_id": "whalecode-alpha-48d2219088",
+        "whale_binary_sha256": "be1442b2b54043b7d9b346e2590dbbc1c8b4aa527dee44ee238ade4a61b20922",
+        "stop_conditions": "Exit immediately after rendering /model; stop on any natural-language submission or provider request.",
+        "usage_evidence_status": "completed-zero-inference",
+        "thread_id": "01a0405c-0659-7263-bd7a-aae6a0150f78",
+        "startup_log_id": 2422,
+        "thread_started_log_id": 2441,
+        "observed_subscription_heading": "OpenAI Subscription",
+        "observed_first_subscription_model": "GPT-5.6-Sol (default)",
+        "openai_api_search_query": "OpenAI API",
+        "openai_api_search_result": "no matches",
+        "stop_reason": "/exit",
+        "outcome": "The installed /model picker visibly rendered the OpenAI Subscription heading before its models and returned no matches for OpenAI API while its API credentials were missing; no natural-language turn or provider inference request was submitted."
+      }
+    },
+    {
+      "record_id": "WAR-20260827-222257-HIDDEN-MODEL-VISIBILITY-R10",
+      "record_type": "run_batch",
+      "status": "completed",
+      "started_at": "2026-08-27T22:22:57+08:00",
+      "ended_at": "2026-08-27T22:24:04+08:00",
+      "elapsed_calendar_seconds": 67,
+      "aggregate_agent_wall_time_ms": 0,
+      "reason": "Validate the installed /model picker honors Codex upstream visibility metadata and excludes codex-auto-review from every provider group.",
+      "authorization": {
+        "required": false,
+        "status": "not-required",
+        "id": null,
+        "reference": "User approved the upstream-contract repair; this is a zero-inference installed TUI validation.",
+        "budget_summary": {
+          "maximum_sample_runs": 1,
+          "maximum_api_requests": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "elapsed_seconds": 120
+        },
+        "note": "Open /model, search for Codex Auto Review, and exit without submitting natural language."
+      },
+      "execution": {
+        "provider": "none",
+        "model": "none",
+        "batch_count": 1,
+        "sample_ids": ["installed-hidden-model-picker"],
+        "arm_ids": ["openai-subscription-hidden-model"],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 0,
+        "api_requests_evidence_status": "Verified from logs_2.sqlite for process pid:311884:11b85a39-a347-4745-9207-9575445729d8: zero TurnInput, run_sampling_request, provider request, or model_provider markers."
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "completed",
+        "currency": "USD",
+        "amount": 0.0,
+        "actual_billed_amount": 0.0,
+        "components": {
+          "provider_inference_requests": 0
+        },
+        "pricing_snapshot": "No inference request is permitted.",
+        "formula": null,
+        "note": "UI-only validation."
+      },
+      "evidence": {
+        "subject_code_commit": "3140d7b95",
+        "workspace_id": "whalecode-alpha-48d2219088",
+        "whale_binary_sha256": "179a6ce8a0d5fe3a5b54b9192098727d2ed3461358bb93fa703ea51f6d6280c9",
+        "stop_conditions": "Exit immediately after the search result renders; stop on any natural-language submission or provider request.",
+        "usage_evidence_status": "completed-zero-inference",
+        "process_uuid": "pid:311884:11b85a39-a347-4745-9207-9575445729d8",
+        "thread_id": "01a0439b-287b-7950-8754-b607ecfe2b6c",
+        "log_id_range": [2653, 2745],
+        "observed_subscription_heading": "OpenAI Subscription",
+        "observed_first_subscription_model": "GPT-5.6-Sol (default)",
+        "hidden_model_search_query": "Codex Auto Review",
+        "hidden_model_search_result": "no matches",
+        "stop_reason": "/exit",
+        "outcome": "The installed /model picker preserved the OpenAI Subscription group and ordinary models while the hidden Codex Auto Review model returned no matches; no natural-language turn or provider inference request was submitted."
       }
     }
   ]

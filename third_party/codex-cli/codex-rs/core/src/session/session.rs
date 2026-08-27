@@ -13,6 +13,8 @@ use codex_http_client::ClientRouteClass;
 use codex_http_client::RouteAwareClientPool;
 use codex_login::auth::AgentIdentityAuthPolicy;
 use codex_model_provider::SharedModelProvider;
+use codex_models_manager::manager::SharedModelsManager;
+use codex_protocol::ProviderRoute;
 use codex_protocol::SessionId;
 use codex_protocol::capabilities::SelectedCapabilityRoot;
 use codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
@@ -73,8 +75,12 @@ pub(crate) struct Session {
 
 #[derive(Clone)]
 pub(crate) struct SessionConfiguration {
+    /// Non-secret identity of the active provider access path.
+    pub(super) route: Option<ProviderRoute>,
     /// Runtime provider and its provider-specific execution policy.
     pub(super) provider: SharedModelProvider,
+    /// Model catalog bound to the same route as `provider`.
+    pub(super) models_manager: SharedModelsManager,
 
     pub(super) collaboration_mode: CollaborationMode,
     pub(super) model_reasoning_summary: Option<ReasoningSummaryConfig>,
@@ -129,6 +135,57 @@ pub(crate) struct SessionConfiguration {
     pub(super) originator: String,
     pub(super) dynamic_tools: Vec<DynamicToolSpec>,
     pub(super) user_shell_override: Option<shell::Shell>,
+}
+
+#[derive(Clone)]
+pub(crate) struct PreparedProviderTransition {
+    pub(crate) route: ProviderRoute,
+    pub(crate) provider: SharedModelProvider,
+    pub(crate) models_manager: SharedModelsManager,
+    pub(crate) base_instructions: String,
+}
+
+#[derive(Clone)]
+pub(crate) struct ProviderSelectionSnapshot {
+    route: Option<ProviderRoute>,
+    provider: SharedModelProvider,
+    models_manager: SharedModelsManager,
+    model: String,
+    base_instructions: String,
+}
+
+impl ProviderSelectionSnapshot {
+    pub(crate) fn capture(configuration: &SessionConfiguration) -> Self {
+        Self {
+            route: configuration.route.clone(),
+            provider: Arc::clone(&configuration.provider),
+            models_manager: Arc::clone(&configuration.models_manager),
+            model: configuration.collaboration_mode.model().to_string(),
+            base_instructions: configuration.base_instructions.clone(),
+        }
+    }
+
+    pub(crate) fn has_same_selection(&self, configuration: &SessionConfiguration) -> bool {
+        self.route == configuration.route && self.model == configuration.collaboration_mode.model()
+    }
+
+    pub(crate) fn matches_turn(&self, route: Option<&ProviderRoute>, model: &str) -> bool {
+        self.route.as_ref() == route && self.model == model
+    }
+
+    pub(crate) fn restore_into(self, configuration: &mut SessionConfiguration) {
+        configuration.route = self.route;
+        configuration.provider = self.provider;
+        configuration.models_manager = self.models_manager;
+        configuration.collaboration_mode.settings.model = self.model;
+        configuration.base_instructions = self.base_instructions;
+    }
+}
+
+pub(crate) struct PendingProviderTransition {
+    pub(crate) revision: u64,
+    pub(crate) previous: ProviderSelectionSnapshot,
+    pub(crate) target: ProviderSelectionSnapshot,
 }
 
 impl SessionConfiguration {
@@ -220,8 +277,12 @@ impl SessionConfiguration {
             .map(|config| config.permission_profile.clone())
             .unwrap_or_else(|| self.permission_profile_state.snapshot());
         ThreadConfigSnapshot {
+            route: self.route.clone(),
             model: self.collaboration_mode.model().to_string(),
-            model_provider_id: self.original_config_do_not_use.model_provider_id.clone(),
+            model_provider_id: self.route.as_ref().map_or_else(
+                || self.original_config_do_not_use.model_provider_id.clone(),
+                |route| route.model_provider_id.clone(),
+            ),
             service_tier: self.service_tier.clone(),
             approval_policy: self.approval_policy.value(),
             approvals_reviewer: self.approvals_reviewer,
@@ -256,8 +317,12 @@ impl SessionConfiguration {
         environment_selections: &[TurnEnvironmentSelection],
     ) -> ThreadSettingsSnapshot {
         ThreadSettingsSnapshot {
+            route: self.route.clone(),
             model: self.collaboration_mode.model().to_string(),
-            model_provider_id: self.original_config_do_not_use.model_provider_id.clone(),
+            model_provider_id: self.route.as_ref().map_or_else(
+                || self.original_config_do_not_use.model_provider_id.clone(),
+                |route| route.model_provider_id.clone(),
+            ),
             service_tier: self.service_tier.clone(),
             approval_policy: self.approval_policy.value(),
             approvals_reviewer: self.approvals_reviewer,
@@ -277,6 +342,7 @@ impl SessionConfiguration {
         environment_selections: Vec<TurnEnvironmentSelection>,
     ) -> CodexThreadSettingsOverrides {
         CodexThreadSettingsOverrides {
+            route: self.route.clone(),
             environments: Some(TurnEnvironmentSelections::new(
                 self.legacy_fallback_cwd.clone(),
                 environment_selections,
@@ -387,6 +453,19 @@ impl SessionConfiguration {
                 });
         if let Some(collaboration_mode) = updates.collaboration_mode.clone() {
             next_configuration.collaboration_mode = collaboration_mode;
+        }
+        if let Some(transition) = &updates.prepared_provider_transition {
+            next_configuration.route = Some(transition.route.clone());
+            next_configuration.provider = Arc::clone(&transition.provider);
+            next_configuration.models_manager = Arc::clone(&transition.models_manager);
+            next_configuration.base_instructions = transition.base_instructions.clone();
+        } else if updates.route.is_some() {
+            return Err(ConstraintError::InvalidValue {
+                field_name: "route",
+                candidate: "unprepared provider transition".to_string(),
+                allowed: "a validated provider route, credential, and model snapshot".to_string(),
+                requirement_source: codex_config::RequirementSource::Unknown,
+            });
         }
         if let Some(summary) = updates.reasoning_summary {
             next_configuration.model_reasoning_summary = Some(summary);
@@ -583,6 +662,8 @@ impl SessionConfiguration {
 
 #[derive(Default, Clone)]
 pub(crate) struct SessionSettingsUpdate {
+    pub(crate) route: Option<ProviderRoute>,
+    pub(crate) prepared_provider_transition: Option<PreparedProviderTransition>,
     pub(crate) environments: Option<TurnEnvironmentSelections>,
     pub(crate) profile_workspace_roots: Option<Vec<AbsolutePathBuf>>,
     pub(crate) approval_policy: Option<AskForApproval>,
@@ -652,6 +733,8 @@ impl Session {
         installation_id: String,
         auth_manager: Arc<AuthManager>,
         models_manager: SharedModelsManager,
+        provider_runtime_registry: crate::provider_runtime::ProviderRuntimeRegistry,
+        restored_recent_provider_models: HashMap<ProviderRoute, String>,
         model_info: ModelInfo,
         exec_policy: Arc<ExecPolicyManager>,
         tx_event: Sender<Event>,
@@ -1182,19 +1265,24 @@ impl Session {
             .instrument(info_span!(
                 "session_init.plugin_skill_warmup",
                 otel.name = "session_init.plugin_skill_warmup",
-            ));
+            ))
+            .boxed();
             let thread_name_lookup =
                 thread_title_from_thread_store(live_thread_init.as_ref(), &thread_store, thread_id)
                     .instrument(info_span!(
                         "session_init.thread_name_lookup",
                         otel.name = "session_init.thread_name_lookup",
-                    ));
-            let (agents_md_result, plugin_skill_errors, thread_name) = tokio::join!(
-                agents_md_manager.refresh(
+                    ))
+                    .boxed();
+            let agents_md_refresh = agents_md_manager
+                .refresh(
                     config.as_ref(),
                     &resolved_environments,
                     session_configuration.windows_sandbox_level,
-                ),
+                )
+                .boxed();
+            let (agents_md_result, plugin_skill_errors, thread_name) = tokio::join!(
+                agents_md_refresh,
                 plugin_skill_warmup,
                 thread_name_lookup,
             );
@@ -1220,6 +1308,7 @@ impl Session {
                 session_configuration.clone(),
                 initial_auto_compact_window_ids,
             );
+            state.replace_recent_provider_models(restored_recent_provider_models);
             if let Some(hydrated) = hydrated_action_map {
                 state.action_map_runtime = hydrated.runtime;
                 state.action_map_store_handle = Some(hydrated.handle);
@@ -1382,6 +1471,7 @@ impl Session {
                 .with_legacy_custom_ca_fallback(),
                 session_telemetry,
                 models_manager: Arc::clone(&models_manager),
+                provider_runtime_registry,
                 tool_approvals: Mutex::new(ApprovalStore::default()),
                 guardian_rejection_circuit_breaker: Mutex::new(Default::default()),
                 runtime_handle: tokio::runtime::Handle::current(),
@@ -1406,8 +1496,9 @@ impl Session {
                 thread_store: Arc::clone(&thread_store),
                 attestation_provider: attestation_provider.clone(),
                 time_provider,
-                model_client: ModelClient::new(
+                model_client: ModelClient::new_with_provider_route(
                     Some(Arc::clone(&auth_manager)),
+                    session_configuration.route.clone(),
                     if config.features.enabled(Feature::UseAgentIdentity) {
                         AgentIdentityAuthPolicy::ChatGptAuth
                     } else {

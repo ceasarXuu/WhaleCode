@@ -1992,7 +1992,14 @@
               "type": "string"
             },
             "params": {
-              "type": "null"
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/v2/LogoutAccountParams"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
@@ -2462,6 +2469,29 @@
             "params"
           ],
           "title": "Account/readRequest",
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/v2/RequestId"
+            },
+            "method": {
+              "enum": [
+                "account/providerCredentials/read"
+              ],
+              "title": "Account/providerCredentials/readRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "id",
+            "method"
+          ],
+          "title": "Account/providerCredentials/readRequest",
           "type": "object"
         },
         {
@@ -12967,6 +12997,26 @@
           },
           {
             "properties": {
+              "apiKey": {
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "deepseekApiKey"
+                ],
+                "title": "DeepseekApiKeyv2::LoginAccountParamsType",
+                "type": "string"
+              }
+            },
+            "required": [
+              "apiKey",
+              "type"
+            ],
+            "title": "DeepseekApiKeyv2::LoginAccountParams",
+            "type": "object"
+          },
+          {
+            "properties": {
               "appBrand": {
                 "anyOf": [
                   {
@@ -13097,6 +13147,22 @@
           },
           {
             "properties": {
+              "type": {
+                "enum": [
+                  "deepseekApiKey"
+                ],
+                "title": "DeepseekApiKeyv2::LoginAccountResponseType",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "title": "DeepseekApiKeyv2::LoginAccountResponse",
+            "type": "object"
+          },
+          {
+            "properties": {
               "authUrl": {
                 "description": "URL the client should open in a browser to initiate the OAuth flow.",
                 "type": "string"
@@ -13191,6 +13257,17 @@
           "chatgpt"
         ],
         "type": "string"
+      },
+      "LogoutAccountParams": {
+        "properties": {
+          "route": {
+            "$ref": "#/definitions/v2/ProviderRoute"
+          }
+        },
+        "required": [
+          "route"
+        ],
+        "type": "object"
       },
       "LogoutAccountResponse": {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -14257,6 +14334,14 @@
             },
             "type": "array"
           },
+          "groups": {
+            "default": [],
+            "description": "Route-scoped groups for provider-aware clients. Legacy clients may continue using `data`.",
+            "items": {
+              "$ref": "#/definitions/v2/ProviderModelGroup"
+            },
+            "type": "array"
+          },
           "nextCursor": {
             "description": "Opaque cursor to pass to the next call to continue after the last item. If None, there are no more items to return.",
             "type": [
@@ -14695,6 +14780,18 @@
           }
         ],
         "title": "Nullable_GetAccountTokenUsageParams"
+      },
+      "NullableLogoutAccountParams": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "anyOf": [
+          {
+            "$ref": "#/definitions/v2/LogoutAccountParams"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Nullable_LogoutAccountParams"
       },
       "OverriddenMetadata": {
         "properties": {
@@ -16381,6 +16478,96 @@
         },
         "required": [
           "path"
+        ],
+        "type": "object"
+      },
+      "ProviderAccessMethod": {
+        "description": "Authentication path used for a provider route. This enum never carries credentials.",
+        "enum": [
+          "chatgpt",
+          "apiKey"
+        ],
+        "type": "string"
+      },
+      "ProviderCredentialStatus": {
+        "properties": {
+          "configured": {
+            "type": "boolean"
+          },
+          "route": {
+            "$ref": "#/definitions/v2/ProviderRoute"
+          }
+        },
+        "required": [
+          "configured",
+          "route"
+        ],
+        "type": "object"
+      },
+      "ProviderCredentialStatusListResponse": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/definitions/v2/ProviderCredentialStatus"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "ProviderCredentialStatusListResponse",
+        "type": "object"
+      },
+      "ProviderModelAvailability": {
+        "enum": [
+          "available",
+          "missingCredentials",
+          "catalogUnavailable",
+          "unsupportedRoute"
+        ],
+        "type": "string"
+      },
+      "ProviderModelGroup": {
+        "properties": {
+          "availability": {
+            "$ref": "#/definitions/v2/ProviderModelAvailability"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/definitions/v2/Model"
+            },
+            "type": "array"
+          },
+          "route": {
+            "$ref": "#/definitions/v2/ProviderRoute"
+          }
+        },
+        "required": [
+          "availability",
+          "displayName",
+          "models",
+          "route"
+        ],
+        "type": "object"
+      },
+      "ProviderRoute": {
+        "description": "Non-secret identity for selecting a model provider and its authentication path.",
+        "properties": {
+          "accessMethod": {
+            "$ref": "#/definitions/v2/ProviderAccessMethod"
+          },
+          "modelProviderId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accessMethod",
+          "modelProviderId"
         ],
         "type": "object"
       },
@@ -21971,6 +22158,17 @@
                 "type": "null"
               }
             ]
+          },
+          "route": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/v2/ProviderRoute"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Active provider access route for subsequent turns, when route-aware selection is enabled."
           },
           "sandboxPolicy": {
             "$ref": "#/definitions/v2/SandboxPolicy"

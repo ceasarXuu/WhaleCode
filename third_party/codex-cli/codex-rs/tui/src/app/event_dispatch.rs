@@ -1425,6 +1425,40 @@ impl App {
                         .await;
                 }
             }
+            AppEvent::SelectProviderModel {
+                route,
+                model,
+                effort,
+            } => {
+                self.select_provider_model(app_server, route, model, effort)
+                    .await;
+            }
+            AppEvent::SubmitProviderApiKey {
+                route,
+                model,
+                effort,
+                api_key,
+            } => {
+                self.submit_provider_api_key(
+                    app_server,
+                    crate::chatwidget::PendingProviderSelection {
+                        route,
+                        model,
+                        effort,
+                        login_id: None,
+                    },
+                    api_key,
+                )
+                .await;
+            }
+            AppEvent::ProviderLoginCompleted {
+                login_id,
+                success,
+                error,
+            } => {
+                self.provider_login_completed(app_server, login_id, success, error)
+                    .await;
+            }
             AppEvent::UpdatePersonality(personality) => {
                 self.on_update_personality(personality);
                 self.sync_active_thread_personality_setting(app_server, personality)
@@ -1452,11 +1486,11 @@ impl App {
                     }
                 }
             }
-            AppEvent::OpenReasoningPopup { model } => {
-                self.chat_widget.open_reasoning_popup(model);
+            AppEvent::OpenReasoningPopup { route, model } => {
+                self.chat_widget.open_reasoning_popup(route, model);
             }
-            AppEvent::OpenAdvancedReasoningPopup { model } => {
-                self.chat_widget.open_advanced_reasoning_popup(model);
+            AppEvent::OpenAdvancedReasoningPopup { route, model } => {
+                self.chat_widget.open_advanced_reasoning_popup(route, model);
             }
             AppEvent::ApplyAdvancedReasoning { model, effort } => {
                 let model_changed = self.chat_widget.current_model() != model

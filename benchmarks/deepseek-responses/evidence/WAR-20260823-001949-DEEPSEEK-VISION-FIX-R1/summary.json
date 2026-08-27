@@ -1,0 +1,41 @@
+{
+  "schema_version": "whalecode-deepseek-responses-smoke-v1",
+  "record_id": "WAR-20260823-001949-DEEPSEEK-VISION-FIX-R1",
+  "status": "passed",
+  "credential_source": ".env.local",
+  "api_key_recorded": false,
+  "provider_request_count": 1,
+  "elapsed_seconds": 1.472,
+  "usage": {
+    "input_tokens": 5080,
+    "cached_input_tokens": 0,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 39,
+    "reasoning_output_tokens": 31
+  },
+  "samples": [
+    {
+      "model": "deepseek-v4-flash-vision-exp",
+      "status": "passed",
+      "elapsed_seconds": 1.467,
+      "usage": {
+        "input_tokens": 5080,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 39,
+        "reasoning_output_tokens": 31
+      },
+      "event_types": [
+        "item.completed",
+        "thread.started",
+        "turn.completed",
+        "turn.started"
+      ],
+      "completed_tool_types": [],
+      "response_marker": "WHALE_DS_VISION_OK",
+      "response_marker_seen": true,
+      "final_message": "WHALE_DS_VISION_OK",
+      "validation_errors": []
+    }
+  ]
+}

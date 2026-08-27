@@ -47,11 +47,6 @@ async fn recommended_plugins_after_external_login(
     tool_suggest_feature: ToolSuggestFeature,
 ) -> Result<()> {
     let tool_suggest_enabled = matches!(tool_suggest_feature, ToolSuggestFeature::Enabled);
-    let recommended_plugins_config = if tool_suggest_enabled {
-        ""
-    } else {
-        "recommended_plugins = true\n"
-    };
     let server = responses::start_mock_server().await;
     let apps_server = AppsTestServer::mount(&server).await?;
     Mock::given(method("GET"))
@@ -90,7 +85,7 @@ async fn recommended_plugins_after_external_login(
     std::fs::write(
         config_path,
         format!(
-            "{config}\n[features]\napps = true\nplugins = true\ntool_suggest = {tool_suggest_enabled}\n{recommended_plugins_config}"
+            "{config}\n[features]\napps = true\nplugins = true\nremote_plugin = true\nrecommended_plugins = true\ntool_suggest = {tool_suggest_enabled}\n"
         ),
     )?;
 

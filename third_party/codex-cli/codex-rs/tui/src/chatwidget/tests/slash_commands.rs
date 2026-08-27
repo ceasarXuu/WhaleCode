@@ -456,7 +456,9 @@ async fn queued_settings_selection_applies_before_next_input() {
     assert_matches!(op_rx.try_recv(), Err(TryRecvError::Empty));
     while let Ok(event) = rx.try_recv() {
         match event {
-            AppEvent::OpenReasoningPopup { model } => chat.open_reasoning_popup(model),
+            AppEvent::OpenReasoningPopup { route, model } => {
+                chat.open_reasoning_popup(route, model)
+            }
             AppEvent::UpdateModel(model) => chat.set_model(&model),
             AppEvent::UpdateReasoningEffort(effort) => chat.set_reasoning_effort(effort),
             AppEvent::SettingsSelectionClosed => {
@@ -478,6 +480,156 @@ async fn queued_settings_selection_applies_before_next_input() {
         other => panic!("expected queued message with updated model, got {other:?}"),
     }
     assert!(chat.input_queue.queued_user_messages.is_empty());
+}
+
+#[tokio::test]
+async fn provider_and_model_pickers_preserve_route_groups() {
+    use crate::model_catalog::ProviderModelGroup;
+    use codex_app_server_protocol::ProviderModelAvailability;
+    use codex_protocol::ProviderAccessMethod;
+    use codex_protocol::ProviderRoute;
+
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.2")).await;
+    chat.thread_id = Some(ThreadId::new());
+    let openai_model = get_available_model(&chat, "gpt-5.2");
+    let mut hidden_openai_model = openai_model.clone();
+    hidden_openai_model.model = "codex-auto-review".to_string();
+    hidden_openai_model.display_name = "Codex Auto Review".to_string();
+    hidden_openai_model.show_in_picker = false;
+    hidden_openai_model.is_default = false;
+    let mut deepseek_model = openai_model.clone();
+    deepseek_model.model = "deepseek-v4-flash".to_string();
+    deepseek_model.display_name = "DeepSeek V4 Flash".to_string();
+    let openai_route = ProviderRoute::new("openai", ProviderAccessMethod::Chatgpt);
+    let openai_api_route = ProviderRoute::new("openai", ProviderAccessMethod::ApiKey);
+    let deepseek_route = ProviderRoute::new("deepseek", ProviderAccessMethod::ApiKey);
+    let groups = vec![
+        ProviderModelGroup {
+            route: openai_route.clone(),
+            display_name: "OpenAI Subscription".to_string(),
+            availability: ProviderModelAvailability::Available,
+            models: vec![hidden_openai_model, openai_model.clone()],
+        },
+        ProviderModelGroup {
+            route: openai_api_route.clone(),
+            display_name: "OpenAI API".to_string(),
+            availability: ProviderModelAvailability::MissingCredentials,
+            models: vec![openai_model.clone()],
+        },
+        ProviderModelGroup {
+            route: deepseek_route.clone(),
+            display_name: "DeepSeek".to_string(),
+            availability: ProviderModelAvailability::MissingCredentials,
+            models: vec![deepseek_model],
+        },
+    ];
+    chat.model_catalog = std::sync::Arc::new(ModelCatalog::with_provider_groups(
+        vec![openai_model.clone()],
+        groups.clone(),
+    ));
+    assert!(
+        chat.model_catalog
+            .provider_groups()
+            .iter()
+            .flat_map(|group| &group.models)
+            .all(|model| model.show_in_picker)
+    );
+
+    chat.open_provider_popup();
+    let provider_popup = render_bottom_popup(&chat, /*width*/ 90);
+    assert!(provider_popup.contains("OpenAI Subscription"));
+    assert!(provider_popup.contains("OpenAI API"));
+    assert!(provider_popup.contains("Sign-in or API key required"));
+    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_matches!(
+        rx.try_recv().expect("provider selection event"),
+        AppEvent::SelectProviderModel { route, model: None, effort: None }
+            if route == openai_route
+    );
+    while rx.try_recv().is_ok() {}
+
+    chat.open_provider_popup();
+    chat.handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_matches!(
+        rx.try_recv().expect("provider credential recovery event"),
+        AppEvent::SelectProviderModel { route, model: None, effort: None }
+            if route == openai_api_route
+    );
+    while rx.try_recv().is_ok() {}
+
+    chat.open_provider_popup();
+    chat.handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    chat.handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_matches!(
+        rx.try_recv().expect("DeepSeek credential recovery event"),
+        AppEvent::SelectProviderModel { route, model: None, effort: None }
+            if route == deepseek_route
+    );
+    while rx.try_recv().is_ok() {}
+
+    chat.open_model_popup();
+    let model_popup = render_bottom_popup(&chat, /*width*/ 90);
+    let subscription_heading = model_popup
+        .find("OpenAI Subscription")
+        .expect("OpenAI Subscription heading");
+    let subscription_model = model_popup.find("GPT-5.2").expect("subscription model row");
+    assert!(subscription_heading < subscription_model);
+    assert!(!model_popup.contains("Codex Auto Review"));
+    assert!(!model_popup.contains("OpenAI API"));
+    assert!(model_popup.contains("DeepSeek"));
+    assert!(model_popup.contains("DeepSeek V4 Flash"));
+    assert!(model_popup.contains("select to configure"));
+    chat.handle_key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_matches!(
+        rx.try_recv().expect("routed reasoning popup event"),
+        AppEvent::OpenReasoningPopup { route: Some(route), model }
+            if route == deepseek_route && model.model == "deepseek-v4-flash"
+    );
+
+    let mut configured_groups = groups;
+    configured_groups[1].availability = ProviderModelAvailability::Available;
+    chat.model_catalog = std::sync::Arc::new(ModelCatalog::with_provider_groups(
+        vec![openai_model],
+        configured_groups,
+    ));
+    chat.open_model_popup();
+    let configured_model_popup = render_bottom_popup(&chat, /*width*/ 90);
+    assert!(configured_model_popup.contains("OpenAI Subscription"));
+    assert!(configured_model_popup.contains("OpenAI API"));
+}
+
+#[tokio::test]
+async fn provider_api_key_prompt_preserves_the_interrupted_selection() {
+    use codex_protocol::ProviderAccessMethod;
+    use codex_protocol::ProviderRoute;
+
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("gpt-5.2")).await;
+    let route = ProviderRoute::new("deepseek", ProviderAccessMethod::ApiKey);
+    let effort = Some(ReasoningEffortConfig::High);
+    chat.show_provider_api_key_prompt(
+        route.clone(),
+        Some("deepseek-v4-pro".to_string()),
+        effort.clone(),
+    );
+    chat.handle_paste("deepseek-secret".to_string());
+    assert!(!render_bottom_popup(&chat, /*width*/ 80).contains("deepseek-secret"));
+    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_matches!(
+        rx.try_recv().expect("provider API key submission"),
+        AppEvent::SubmitProviderApiKey {
+            route: submitted_route,
+            model: Some(model),
+            effort: submitted_effort,
+            api_key,
+        } if submitted_route == route
+            && model == "deepseek-v4-pro"
+            && submitted_effort == effort
+            && api_key == "deepseek-secret"
+    );
 }
 
 #[tokio::test]
