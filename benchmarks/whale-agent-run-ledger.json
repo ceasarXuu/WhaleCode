@@ -1,7 +1,74 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-08-27T05:41:09+08:00",
+  "updated_at": "2026-08-28T00:42:42+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260828-004242-MODEL-PERSISTENCE-E2E-R1",
+      "record_type": "run_batch",
+      "status": "planned",
+      "started_at": null,
+      "ended_at": null,
+      "elapsed_calendar_seconds": null,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "Validate that an OpenAI Subscription model selected in the installed Whale TUI is used by the current session and remains the default after creating a new session.",
+      "authorization": {
+        "required": false,
+        "status": "not_required",
+        "id": null,
+        "reference": null,
+        "budget_summary": {
+          "provider_requests": 3,
+          "input_tokens": 50000,
+          "output_tokens": 1000,
+          "elapsed_seconds": 300,
+          "estimated_cost": 0,
+          "currency": "CNY"
+        },
+        "note": "单 sample、单 arm、零重试，低于需要专项用户授权的 3 sample 门槛；OpenAI Subscription 无单次 API 计费。"
+      },
+      "execution": {
+        "provider": "openai-subscription",
+        "model": "gpt-5.6-sol",
+        "batch_count": 1,
+        "sample_ids": [
+          "model-selection-current-and-new-session"
+        ],
+        "arm_ids": [
+          "interactive-tui-e2e"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 0,
+        "api_requests": 0,
+        "api_requests_evidence_status": "pending"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "planned",
+        "currency": "CNY",
+        "amount": 0,
+        "actual_billed_amount": 0,
+        "components": null,
+        "pricing_snapshot": null,
+        "formula": null,
+        "note": "OpenAI Subscription has no marginal per-run API charge; token usage will be settled from session evidence when available."
+      },
+      "evidence": {
+        "subject_commit": "2f3f766981445ad3afa9b6d2045a1b41c393b26a",
+        "planned_run_root": "target/provider-e2e/WAR-20260828-004242-MODEL-PERSISTENCE-E2E-R1",
+        "stop_conditions": [
+          "after_any_provider_error",
+          "after_any_persistence_mismatch",
+          "after_budget_limit"
+        ],
+        "outcome": "planned"
+      }
+    },
     {
       "record_id": "WAR-20260824-072043-CACHE-REGRESSION-9306DB50",
       "record_type": "run_batch",
