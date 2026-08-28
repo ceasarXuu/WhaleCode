@@ -17,16 +17,16 @@ class ReleaseIdentityTests(unittest.TestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         self.root = Path(self.tempdir.name)
         (self.root / "third_party/codex-cli/codex-rs").mkdir(parents=True)
-        (self.root / "docs/releases/v0.0.5/release-preparation").mkdir(
+        (self.root / "docs/releases/v0.0.6/release-preparation").mkdir(
             parents=True
         )
         (self.root / "docs/v0.0.5/codex-upstream-sync").mkdir(parents=True)
         (self.root / "third_party/codex-cli/codex-rs/Cargo.toml").write_text(
-            '[workspace]\n[workspace.package]\nversion = "0.0.5"\n',
+            '[workspace]\n[workspace.package]\nversion = "0.0.6"\n',
             encoding="utf-8",
         )
         self.manifest_path = (
-            self.root / "docs/releases/v0.0.5/release-preparation/release.json"
+            self.root / "docs/releases/v0.0.6/release-preparation/release.json"
         )
         self.candidate_path = (
             self.root / "docs/v0.0.5/codex-upstream-sync/upstream-candidate.json"
@@ -35,8 +35,8 @@ class ReleaseIdentityTests(unittest.TestCase):
             "schema_version": 1,
             "product": "WhaleCode",
             "release": {
-                "version": "0.0.5",
-                "tag": "v0.0.5",
+                "version": "0.0.6",
+                "tag": "v0.0.6",
                 "status": "preparing",
                 "publish_authorized": False,
             },
@@ -60,8 +60,8 @@ class ReleaseIdentityTests(unittest.TestCase):
 
     def test_accepts_separate_whale_and_codex_identities(self):
         self.assertEqual(
-            release_identity.validate(self.root, "v0.0.5"),
-            ("v0.0.5", "rust-v0.149.0"),
+            release_identity.validate(self.root, "v0.0.6"),
+            ("v0.0.6", "rust-v0.149.0"),
         )
 
     def test_rejects_codex_tag_as_whale_tag(self):
@@ -77,7 +77,7 @@ class ReleaseIdentityTests(unittest.TestCase):
             encoding="utf-8",
         )
         with self.assertRaisesRegex(release_identity.IdentityError, "Cargo Whale"):
-            release_identity.validate(self.root)
+            release_identity.validate(self.root, "v0.0.6")
 
     def test_rejects_candidate_registration_drift(self):
         self.candidate["release_tag"] = "rust-v0.147.0"

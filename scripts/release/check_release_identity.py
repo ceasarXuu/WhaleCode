@@ -48,9 +48,21 @@ def require_string(container: dict, field: str, context: str) -> str:
 
 
 def validate(repo_root: Path, supplied_tag: str | None = None) -> tuple[str, str]:
+    cargo_version = workspace_version(
+        repo_root / "third_party/codex-cli/codex-rs/Cargo.toml"
+    )
+    if supplied_tag is None:
+        candidate_version = cargo_version
+    else:
+        supplied_version = supplied_tag.removeprefix("v")
+        if supplied_tag != f"v{supplied_version}" or not SEMVER_RE.fullmatch(
+            supplied_version
+        ):
+            raise IdentityError(f"invalid supplied Whale tag: {supplied_tag}")
+        candidate_version = supplied_version
     manifest_path = (
         repo_root
-        / "docs/releases/v0.0.5/release-preparation/release.json"
+        / f"docs/releases/v{candidate_version}/release-preparation/release.json"
     )
     manifest = load_json(manifest_path)
     if manifest.get("schema_version") != 1:
@@ -75,10 +87,6 @@ def validate(repo_root: Path, supplied_tag: str | None = None) -> tuple[str, str
         raise IdentityError(
             f"supplied Whale tag must be {whale_tag}, got {supplied_tag}"
         )
-
-    cargo_version = workspace_version(
-        repo_root / "third_party/codex-cli/codex-rs/Cargo.toml"
-    )
     if cargo_version != whale_version:
         raise IdentityError(
             f"Cargo Whale version {cargo_version} != release version {whale_version}"

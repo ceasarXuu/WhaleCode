@@ -1,8 +1,8 @@
 # DeepSeek 当前三模型与 Responses 能力适配
 
 - 版本：WhaleCode `v0.0.6`
-- 状态：已实现，发布前验证中
-- 官方能力快照：2026-08-22
+- 状态：已实现，发布候选准备中
+- 官方能力快照：2026-08-28
 - 实现提交：`521e7730c`
 - Vision smoke 修复与验证：`5f907bc28`、`e169c3c0e`
 - 产品决策权威：[DeepSeek Responses 能力完整接入 PRD](../../../prd/2026-08-22-deepseek-responses-capability-completion.md)
@@ -128,7 +128,7 @@ DeepSeek provider 现在显式声明：
 - [x] thinking effort、provider capability 与 SSE 事件有离线合同测试。
 - [x] Vision 单请求真实 smoke 通过且 usage、费用和证据完整。
 - [ ] 补一轮能够持久化 usage 的 Flash/Pro 最小真实验证后，再将“三模型 live matrix”标记为完全通过；该动作需要新的真实运行预算授权。
-- [ ] 发布前复核 DeepSeek 官方模型列表和 Responses 兼容表是否发生变化。
+- [x] 2026-08-28 发布准备时复核官方模型与价格页：Flash、Pro、Vision Exp 均在当前模型表中并列为支持 Responses API。
 - [ ] 决定 hosted web search 的最终用户可见合同，并统一 provider 与模型目录的能力表达。
 
 ## 6. 关联资料

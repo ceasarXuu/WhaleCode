@@ -6,11 +6,11 @@ on:
       tag:
         description: Draft or published Whale release tag
         required: true
-        default: v0.0.5
+        default: v0.0.6
       version:
         description: Expected Whale product version
         required: true
-        default: 0.0.5
+        default: 0.0.6
 
 permissions:
   contents: read
