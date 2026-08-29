@@ -1,0 +1,130 @@
+name: npm-publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Whale product version (without v prefix)
+        required: true
+        default: 0.0.6
+      build_run_id:
+        description: Successful whale-native-artifacts run ID
+        required: true
+        default: "33202591530"
+      candidate_commit:
+        description: Verified release candidate commit
+        required: true
+        default: 78c46f4fc8dba9bda406cd7f7b2e16ca3797b8b4
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Validate release and native build identity
+        env:
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          CANDIDATE_COMMIT: ${{ inputs.candidate_commit }}
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          test "$VERSION" = "0.0.6"
+          python3 scripts/release/check_release_identity.py --tag "v${VERSION}"
+          run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BUILD_RUN_ID}")"
+          test "$(jq -r '.name' <<<"$run_json")" = "whale-native-artifacts"
+          test "$(jq -r '.status' <<<"$run_json")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$run_json")" = "success"
+          test "$(jq -r '.head_sha' <<<"$run_json")" = "$CANDIDATE_COMMIT"
+      - name: Recreate npm tarballs from verified native artifacts
+        env:
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          python3 third_party/codex-cli/scripts/stage_npm_packages.py \
+            --release-version "$VERSION" \
+            --package whalecode \
+            --workflow-url "https://github.com/${GITHUB_REPOSITORY}/actions/runs/${BUILD_RUN_ID}" \
+            --artifacts-dir "${RUNNER_TEMP}/native-artifacts" \
+            --output-dir "${RUNNER_TEMP}/npm-release"
+      - name: Publish missing versions with npm trusted publishing
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          package='@ceasarxuu/whalecode'
+          asset_dir="${RUNNER_TEMP}/npm-release"
+
+          publish_or_verify() {
+            local tarball="$1"
+            local package_version="$2"
+            local tag="$3"
+            local expected_sha1 existing_sha1 current_tag
+
+            test -f "$tarball"
+            expected_sha1="$(sha1sum "$tarball" | awk '{print $1}')"
+            existing_sha1="$(npm view "${package}@${package_version}" dist.shasum --json 2>/dev/null || true)"
+            existing_sha1="${existing_sha1//\"/}"
+
+            if [[ -n "$existing_sha1" && "$existing_sha1" != "null" ]]; then
+              test "$existing_sha1" = "$expected_sha1"
+              current_tag="$(npm view "$package" "dist-tags.${tag}" --json | tr -d '\"')"
+              test "$current_tag" = "$package_version"
+              echo "Verified existing ${package}@${package_version} (${tag})"
+              return
+            fi
+
+            npm publish "$tarball" --access public --tag "$tag"
+          }
+
+          for platform in \
+            linux-x64 linux-arm64 darwin-x64 darwin-arm64 win32-x64 win32-arm64
+          do
+            publish_or_verify \
+              "$asset_dir/whalecode-npm-${platform}-${VERSION}.tgz" \
+              "${VERSION}-${platform}" "$platform"
+          done
+
+          publish_or_verify \
+            "$asset_dir/whalecode-npm-${VERSION}.tgz" \
+            "$VERSION" latest
+      - name: Verify registry versions and dist-tags
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          package='@ceasarxuu/whalecode'
+          for attempt in {1..12}; do
+            complete=true
+            for platform in \
+              linux-x64 linux-arm64 darwin-x64 darwin-arm64 win32-x64 win32-arm64
+            do
+              actual="$(npm view "$package" "dist-tags.${platform}" --json 2>/dev/null | tr -d '\"' || true)"
+              [[ "$actual" == "${VERSION}-${platform}" ]] || complete=false
+            done
+            actual="$(npm view "$package" dist-tags.latest --json 2>/dev/null | tr -d '\"' || true)"
+            [[ "$actual" == "$VERSION" ]] || complete=false
+            $complete && exit 0
+            sleep 5
+          done
+          echo "npm registry verification did not converge" >&2
+          exit 1
