@@ -109,6 +109,46 @@ fn expected_visible_legacy_model_ids() -> Vec<String> {
 }
 
 #[tokio::test]
+async fn list_models_without_cache_or_credentials_returns_bundled_models() -> Result<()> {
+    let codex_home = TempDir::new()?;
+    let mut mcp = TestAppServer::builder()
+        .with_codex_home(codex_home.path())
+        .without_auto_env()
+        .build_initialized()
+        .await?;
+
+    let response = timeout(
+        DEFAULT_TIMEOUT,
+        mcp.request::<ModelListResponse>(|request_id| ClientRequest::ModelList {
+            request_id,
+            params: ModelListParams {
+                limit: Some(100),
+                cursor: None,
+                include_hidden: None,
+            },
+        }),
+    )
+    .await??;
+
+    assert_eq!(
+        response
+            .data
+            .into_iter()
+            .map(|model| model.model)
+            .collect::<Vec<_>>(),
+        expected_visible_legacy_model_ids()
+    );
+    assert_eq!(response.groups.len(), 3);
+    assert!(
+        response
+            .groups
+            .iter()
+            .all(|group| group.availability == ProviderModelAvailability::MissingCredentials)
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn list_models_returns_all_models_with_large_limit() -> Result<()> {
     let codex_home = TempDir::new()?;
     write_models_cache(codex_home.path())?;

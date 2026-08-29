@@ -13306,6 +13306,230 @@
         "stop_reason": "/exit",
         "outcome": "The installed /model picker preserved the OpenAI Subscription group and ordinary models while the hidden Codex Auto Review model returned no matches; no natural-language turn or provider inference request was submitted."
       }
+    },
+    {
+      "record_id": "WAR-20260829-094727-V006-LOADING-HOOKS-OFF",
+      "record_type": "run_batch",
+      "status": "cancelled",
+      "started_at": "2026-08-29T09:48:09+08:00",
+      "ended_at": "2026-08-29T09:48:09+08:00",
+      "elapsed_calendar_seconds": 0,
+      "aggregate_agent_wall_time_ms": 0,
+      "reason": "Diagnose the installed Whale v0.0.6 startup loading hang by running one UI-only control with startup hooks disabled.",
+      "authorization": {
+        "required": false,
+        "status": "not_required",
+        "id": null,
+        "reference": "User requested diagnosis of the local v0.0.6 loading symptom; this control performs no model inference.",
+        "budget_summary": {
+          "maximum_sample_runs": 1,
+          "maximum_api_requests": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "elapsed_seconds": 15
+        },
+        "note": "Launch the installed TUI with hooks disabled, capture the rendered startup frame, and terminate without submitting input."
+      },
+      "execution": {
+        "provider": "none",
+        "model": "none",
+        "batch_count": 1,
+        "sample_ids": [
+          "installed-v006-startup"
+        ],
+        "arm_ids": [
+          "hooks-disabled"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 0,
+        "api_requests": 0,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "actual",
+        "currency": "USD",
+        "amount": 0.0,
+        "actual_billed_amount": 0.0,
+        "components": {
+          "provider_inference_requests": 0
+        },
+        "pricing_snapshot": {
+          "billing_model": "no-inference"
+        },
+        "formula": null,
+        "note": "UI-only diagnostic; provider inference is prohibited."
+      },
+      "evidence": {
+        "subject_release": "v0.0.6",
+        "workspace_id": "whalecode-alpha-48d2219088",
+        "whale_binary_sha256": "cdf2a26294894412226ab116861cdf4b76d4d8f899c12b7a6bd3f48c864bbcda",
+        "stop_conditions": "Exit after the startup frame resolves or after 15 seconds; stop before any natural-language submission or provider request.",
+        "usage_evidence_status": "completed-zero-inference",
+        "result_path": "target/diagnostics/WAR-20260829-094727-V006-LOADING-HOOKS-OFF/terminal.typescript",
+        "runner_exit_code": 1,
+        "outcome": "Cancelled before TUI startup because TERM=dumb was rejected; no sample or provider inference occurred."
+      }
+    },
+    {
+      "record_id": "WAR-20260829-094817-V006-LOADING-HOOKS-OFF-R1",
+      "record_type": "run_batch",
+      "status": "cancelled",
+      "started_at": "2026-08-29T09:49:51+08:00",
+      "ended_at": "2026-08-29T09:50:08+08:00",
+      "elapsed_calendar_seconds": 17,
+      "aggregate_agent_wall_time_ms": 0,
+      "reason": "Retry the v0.0.6 UI-only startup control with a supported TERM value and startup hooks disabled.",
+      "authorization": {
+        "required": false,
+        "status": "not_required",
+        "id": null,
+        "reference": "User requested diagnosis; the first attempt was cancelled before startup because TERM=dumb was rejected.",
+        "budget_summary": {
+          "maximum_sample_runs": 1,
+          "maximum_api_requests": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "elapsed_seconds": 15
+        },
+        "note": "Set TERM=xterm-256color, launch with hooks disabled, capture the startup frame, and terminate without submitting input."
+      },
+      "execution": {
+        "provider": "none",
+        "model": "none",
+        "batch_count": 1,
+        "sample_ids": [
+          "installed-v006-startup"
+        ],
+        "arm_ids": [
+          "hooks-disabled-term-xterm"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 0,
+        "api_requests": 0,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "actual",
+        "currency": "USD",
+        "amount": 0.0,
+        "actual_billed_amount": 0.0,
+        "components": {
+          "provider_inference_requests": 0
+        },
+        "pricing_snapshot": {
+          "billing_model": "no-inference"
+        },
+        "formula": null,
+        "note": "UI-only diagnostic; provider inference is prohibited."
+      },
+      "evidence": {
+        "subject_release": "v0.0.6",
+        "workspace_id": "whalecode-alpha-48d2219088",
+        "whale_binary_sha256": "cdf2a26294894412226ab116861cdf4b76d4d8f899c12b7a6bd3f48c864bbcda",
+        "stop_conditions": "Exit after the startup frame resolves or after 15 seconds; stop before any natural-language submission or provider request.",
+        "usage_evidence_status": "completed-zero-inference",
+        "process_uuid": "pid:1344777:01b2da74-b6a6-4427-b5df-4816f5f763b4",
+        "log_id_range": [
+          786369,
+          786383
+        ],
+        "result_path": "target/diagnostics/WAR-20260829-094817-V006-LOADING-HOOKS-OFF-R1/terminal.typescript",
+        "runner_exit_code": 124,
+        "outcome": "Cancelled before app-server bootstrap because the passive pseudo-terminal did not answer terminal capability queries; zero provider inference occurred."
+      }
+    },
+    {
+      "record_id": "WAR-20260829-095058-V006-LOADING-HOOKS-OFF-R2",
+      "record_type": "run_batch",
+      "status": "settled",
+      "started_at": "2026-08-29T09:51:29+08:00",
+      "ended_at": "2026-08-29T09:51:38+08:00",
+      "elapsed_calendar_seconds": 9,
+      "aggregate_agent_wall_time_ms": 0,
+      "reason": "Retry the v0.0.6 hooks-disabled startup control in an interactive PTY that answers terminal capability queries.",
+      "authorization": {
+        "required": false,
+        "status": "not_required",
+        "id": null,
+        "reference": "User requested diagnosis; two passive terminal attempts were cancelled before reaching the target startup bootstrap.",
+        "budget_summary": {
+          "maximum_sample_runs": 1,
+          "maximum_api_requests": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "elapsed_seconds": 30
+        },
+        "note": "Use an interactive PTY, disable hooks, observe the model status, then send Ctrl-C without submitting natural language."
+      },
+      "execution": {
+        "provider": "none",
+        "model": "none",
+        "batch_count": 1,
+        "sample_ids": [
+          "installed-v006-startup"
+        ],
+        "arm_ids": [
+          "hooks-disabled-interactive-pty"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 1,
+        "api_requests": 0,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "actual",
+        "currency": "USD",
+        "amount": 0.0,
+        "actual_billed_amount": 0.0,
+        "components": {
+          "provider_inference_requests": 0
+        },
+        "pricing_snapshot": {
+          "billing_model": "no-inference"
+        },
+        "formula": null,
+        "note": "UI-only diagnostic; provider inference is prohibited."
+      },
+      "evidence": {
+        "subject_release": "v0.0.6",
+        "workspace_id": "whalecode-alpha-48d2219088",
+        "whale_binary_sha256": "cdf2a26294894412226ab116861cdf4b76d4d8f899c12b7a6bd3f48c864bbcda",
+        "stop_conditions": "Send Ctrl-C after the startup frame resolves or after 30 seconds; stop before any natural-language submission or provider request.",
+        "usage_evidence_status": "completed-zero-inference",
+        "process_uuid": "pid:1345621:982156d2-1bed-412b-a14c-cb79bf8262c1",
+        "log_id_range": [
+          786384,
+          786398
+        ],
+        "observed_initial_model_status": "loading",
+        "observed_next_screen": "directory trust prompt",
+        "stop_reason": "Ctrl-C before making a trust decision",
+        "outcome": "The hooks-disabled release TUI rendered and advanced from the startup draft to the directory trust prompt, but bootstrap occurs after trust handling, so this run did not test whether hooks caused the post-trust loading hang. Zero natural-language or provider inference requests were submitted."
+      }
     }
   ]
 }
