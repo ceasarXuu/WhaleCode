@@ -20,8 +20,9 @@
 - [x] 六个平台齐全：Linux x64/arm64、macOS x64/arm64、Windows x64/arm64。
 - [x] 七个 npm tarball、`native-manifest.json` 与 `SHA256SUMS` 已生成并通过完整性回读。
 - [x] tarball 清单未混入本机路径、凭据、日志或额外文件。
-- [x] release smoke run `33206670227` 在六个平台原生 runner 全部通过，且未生成 `codex` 命令。
+- [x] 草稿 release smoke run `33206670227` 在六个平台原生 runner 全部通过，且未生成 `codex` 命令。
 - [x] 草稿 smoke 所需临时 `contents: write` 已在验证后恢复为 `contents: read`。
+- [x] 公开后只读 release smoke run `33225594214` 再次在六个平台全部通过，确认公开资产可下载和隔离安装。
 
 ## npm 发布
 

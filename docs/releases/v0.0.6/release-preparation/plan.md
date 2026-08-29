@@ -18,7 +18,7 @@
 | W4 | 复核缓存敏感面 | 当前 index 与已接受 provider final-wire 基线一致 | cache regression index gate | 已验证 |
 | W5 | 固定候选提交 | `release.json` 记录最终 SHA | clean tree、commit 可达 | 已验证 |
 | W6 | 构建六平台候选 | 六个平台未签名制品、manifest 与 checksum 完整 | 构建 run `33202591530`、smoke run `33206670227` | 已验证 |
-| W7 | 发布 npm/tag/GitHub Release | 公开 `v0.0.6` 并回读验证 | OIDC publish run `33225232511`、registry 安装、tag 与 Release 回读 | 已验证 |
+| W7 | 发布 npm/tag/GitHub Release | 公开 `v0.0.6` 并回读验证 | OIDC publish run `33225232511`、公开只读 smoke run `33225594214`、registry 安装、tag 与 Release 回读 | 已验证 |
 
 ## 发布边界
 
