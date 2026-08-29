@@ -1,14 +1,15 @@
 # Problem P-001: v0.0.6 Release 启动后模型列表持续 Loading
 - Status: open
 - Created: 2026-08-29 09:39 +0800
-- Updated: 2026-08-29 09:52 +0800
+- Updated: 2026-08-30 02:16 +0800
 - Objective: 定位本机 Whale v0.0.6 Release 启动后模型列表无法完成加载的根因。
 - Symptoms:
   - 用户报告本机 Release 版本 Whale 0.0.6 启动后 model 一直处于 loading 状态。
+  - 用户在进程持续运行约 16.5 小时后再次查看，界面已显示 `deepseek-v4-flash`；实际完成加载的时间未知。
 - Expected behavior:
   - 启动后模型目录在有限时间内加载完成，并显示当前 provider 的可选模型或明确错误。
 - Actual behavior:
-  - model 持续显示 loading，未呈现可选模型或可操作错误。
+  - 启动初期 model 长时间显示 loading，未呈现进度或可操作错误；同一进程后来自行显示模型，但缺少状态切换时间戳。
 - Impact:
   - 本机 Whale v0.0.6 交互式使用受阻。
 - Reproduction:
@@ -21,12 +22,15 @@
   - E-003：本机配置可解析，但当前 DeepSeek 新式凭据缺失；该状态不会单独阻塞 model/list。
   - E-004：真实进程的启动 bootstrap 请求没有完成，但 thread/start 已独立完成。
   - E-005：无 cache、无凭据的隔离 model/list 测试在 0.32 秒内成功返回 bundled models。
+  - E-007：原始进程没有重启或禁用 hooks，用户后来观察到 `deepseek-v4-flash` 已出现。
+  - E-008：该进程的持久日志只覆盖启动后的约 9 秒，无法量出 UI 实际完成加载的时间。
 - Ruled out:
   - PATH/npm/platform 二进制版本错配。
   - 单纯缺少 DeepSeek 凭据或模型 cache 导致 model/list 无限等待。
+  - 原始进程发生不可恢复的永久死锁。
 - Fix criteria:
   - 根因候选通过运行时信号与代码路径证据门禁；若后续获准修复，原始启动场景不再持续 loading。
-- Current conclusion: 安装与 model/list 基础路径正常；卡顿发生在 TUI 启动 bootstrap 的组合等待中，当前最强候选是 hooks/plugin 启动路径未完成，但仍缺少禁用 hooks 后的 post-trust 对照证据。
+- Current conclusion: 安装与 model/list 基础路径正常；原始症状是启动链路异常慢或缺少可见进度，不是永久死锁。hooks/plugin 仍是延迟候选，但原始进程最终在启用 hooks 时完成，尚无计时对照能把延迟归因到该分支。
 - Related hypotheses:
   - H-001
   - H-002
@@ -112,9 +116,13 @@
 - Evidence gate: pending
 - Related evidence:
   - E-001
-- Conclusion: unverified
+  - E-004
+  - E-005
+  - E-007
+  - E-008
+- Conclusion: 原始进程最终显示模型，反证永久不完成；但缺少 UI 状态切换时间戳，仍无法区分 model/list、configRequirements/read 或组合等待中的暂时延迟。
 - Repair design readiness: blocked until Status is confirmed and Evidence gate is satisfied
-- Next step: 检查既有日志和目录加载代码路径。
+- Next step: 对一次新启动进行人工计时，并与禁用 hooks 的对照启动比较。
 - Blocker:
   - none
 - Close reason:
@@ -198,9 +206,11 @@
   - E-004
   - E-005
   - E-006
-- Conclusion: 当前最强候选，但尚未通过 post-trust 对照门禁。
+  - E-007
+  - E-008
+- Conclusion: hooks/plugin 仍可解释启动延迟，但原始进程在 hooks 启用时最终完成；没有基线与禁用 hooks 的计时差，不能确认因果。
 - Repair design readiness: blocked until Status is confirmed and Evidence gate is satisfied
-- Next step: 获取用户在已信任终端执行 `whale --disable hooks` 的结果。
+- Next step: 用户方便时分别计时普通启动和 `whale --disable hooks`，记录 model 从 loading 切换到具体模型的秒数。
 - Blocker:
   - 诊断 PTY遇到目录信任屏幕；未经用户授权不能代替用户持久化信任决策。
 - Close reason:
@@ -335,3 +345,44 @@
   ```
 - Interpretation: 该对照不支持也不反驳 H-004；下一步必须由用户在已信任环境完成同一命令。
 - Time: 2026-08-29 09:52 +0800
+
+## Evidence E-007: 原始进程最终自行显示 DeepSeek 模型
+- Related hypotheses:
+  - H-002
+  - H-004
+- Direction: refutes
+- Type: user-feedback
+- Source: 2026-08-30 用户消息与进程状态
+- Prediction or plan link:
+  - H-002 请求链路是否永久不完成；H-004 hooks 启用时是否永久阻塞组合等待
+- Matched signal:
+  - 未重启的原始 v0.0.6 进程仍在运行，用户再次查看时界面已显示 `deepseek-v4-flash`。
+- Correlation keys:
+  - process_uuid=pid:1334303:704e4dc9-61d8-485a-a794-456f39063fad
+- Raw content:
+  ```text
+  我很长时间没观察了，刚才看了一眼deepseek-v4-flash 模型出现了
+  process elapsed: about 16:36 at evidence capture
+  ```
+- Interpretation: 反证原始进程发生不可恢复的永久死锁，但由于用户没有持续观察，不能把约 16.5 小时当作实际加载耗时，也不能单独定位慢分支。
+- Time: 2026-08-30 02:16 +0800
+
+## Evidence E-008: 原始进程日志没有覆盖模型出现时刻
+- Related hypotheses:
+  - H-002
+  - H-004
+- Direction: neutral
+- Type: diagnostic-log
+- Source: `~/.whale/logs_2.sqlite`
+- Prediction or plan link:
+  - H-002/H-004 完成时间线取证
+- Matched signal:
+  - 该 process_uuid 共 81 条日志，时间范围仅为 2026-08-29 09:39:59 至 09:40:08；没有模型 UI 状态切换事件。
+- Correlation keys:
+  - process_uuid=pid:1334303:704e4dc9-61d8-485a-a794-456f39063fad
+- Raw content:
+  ```text
+  81|2026-08-29 09:39:59|2026-08-29 09:40:08
+  ```
+- Interpretation: 不能从现有日志判断模型是在数秒、数分钟还是更久后出现；需要带秒表的新启动对照，而不是对当前进程继续等待。
+- Time: 2026-08-30 02:16 +0800
