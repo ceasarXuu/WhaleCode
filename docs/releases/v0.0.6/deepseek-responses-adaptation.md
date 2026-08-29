@@ -62,13 +62,13 @@ DeepSeek provider 现在显式声明：
 | --- | --- |
 | function tools | 支持 |
 | `apply_patch` custom tool | 支持 |
-| hosted web search | provider 层允许 |
+| hosted web search | provider 协议可解析；v0.0.6 不向用户暴露 |
 | 并行工具调用 | 支持；DeepSeek 服务端始终启用 |
 | namespace tools | 不支持 |
 | image generation | 不支持 |
 | remote compaction | 不支持；继续使用本地压缩 |
 
-这组静态能力用于阻止 Whale 向 DeepSeek 暴露已知不兼容的 Codex 工具面。模型目录的 `supports_search_tool` 仍为 `false`；hosted web search 是否进入具体 turn 由 provider 能力和用户配置共同决定，发布前仍需保留合同测试，避免 UI 与工具规划层产生能力漂移。
+这组静态能力用于阻止 Whale 向 DeepSeek 暴露已知不兼容的 Codex 工具面。v0.0.6 将模型目录的 `supports_search_tool` 保持为 `false`，不在 UI、工具规划或发布说明中向用户宣称 DeepSeek hosted web search；provider 层仅保留协议兼容与事件解析能力，待后续统一模型目录、配置和端到端合同后再开放。
 
 ### 2.4 Responses SSE
 
@@ -117,7 +117,7 @@ DeepSeek provider 现在显式声明：
 - **不是所有官方参数都生效。** `store`、`previous_response_id`、`conversation`、reasoning summary、verbosity、remote compaction 等能力不得在 Whale 中宣称受支持；部分兼容字段即使出现在通用请求中也会被服务端忽略。
 - **非 Vision 模型不会提供视觉理解。** DeepSeek Responses 可能对图片进行服务端降级，Whale 的产品目录仍将 Flash/Pro 标记为 text-only；用户需要视觉语义时必须显式选择 Vision。
 - **工具事件依赖最终 item。** 参数 delta 用于流式展示，工具执行以 `response.output_item.done` 的完整调用为准；若 provider 未来不再发送完整 done item，需要重新评估解析策略。
-- **hosted web search 有双层能力来源。** provider 允许搜索，但模型静态目录仍标记 `supports_search_tool=false`；需要防止工具规划与 UI 对这一能力给出矛盾承诺。
+- **hosted web search 暂不开放。** provider 保留协议兼容，但模型静态目录仍标记 `supports_search_tool=false`；v0.0.6 不在工具规划或 UI 中向用户暴露该能力。
 - **真实验证深度有限。** Vision 只有一个最小语义样本；Flash/Pro 当次真实 run 缺少可结算 usage。当前证据不代表吞吐、384K 极限输出、600 图上限、长会话或工具压力场景均已验证。
 - **协议是无状态的。** DeepSeek 不保存 response/conversation；Whale 必须继续在本地维护历史并在后续 turn 回传必要上下文。
 
@@ -129,7 +129,7 @@ DeepSeek provider 现在显式声明：
 - [x] Vision 单请求真实 smoke 通过且 usage、费用和证据完整。
 - [ ] 补一轮能够持久化 usage 的 Flash/Pro 最小真实验证后，再将“三模型 live matrix”标记为完全通过；该动作需要新的真实运行预算授权。
 - [x] 2026-08-28 发布准备时复核官方模型与价格页：Flash、Pro、Vision Exp 均在当前模型表中并列为支持 Responses API。
-- [ ] 决定 hosted web search 的最终用户可见合同，并统一 provider 与模型目录的能力表达。
+- [x] v0.0.6 用户可见合同固定为不展示、不宣称 hosted web search；provider 只保留协议兼容，后续版本统一能力表达后再开放。
 
 ## 6. 关联资料
 

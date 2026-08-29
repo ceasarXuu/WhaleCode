@@ -4,7 +4,7 @@ English | [简体中文](README.md)
 
 WhaleCode is an open-source terminal AI coding agent built around DeepSeek V4. It can read files, run commands, modify code, execute tests, and organize complex work with TaskSpace inside real repositories.
 
-The current stable release is `v0.0.5`. Its default model is `deepseek-v4-flash`.
+The current stable release is `v0.0.6`. Its default model is `deepseek-v4-flash`.
 
 ## Installation
 
@@ -175,10 +175,10 @@ whale doctor --summary
 
 ## Project status and documentation
 
-WhaleCode is under active development. Release `v0.0.5` uses Codex CLI `0.149.0` as its substrate; these are separate version identities.
+WhaleCode is under active development. Release `v0.0.6` uses Codex CLI `0.149.0` as its substrate; these are separate version identities.
 
-- [v0.0.5 Release](https://github.com/ceasarXuu/WhaleCode/releases/tag/v0.0.5)
-- [Release notes](docs/releases/v0.0.5/release-preparation/RELEASE_NOTES.md)
+- [v0.0.6 Release](https://github.com/ceasarXuu/WhaleCode/releases/tag/v0.0.6)
+- [Release notes](docs/releases/v0.0.6/release-preparation/RELEASE_NOTES.md)
 - [Development workflow](docs/runbooks/development-workflow.md)
 - [Local workspace safety](runbooks/local-workspace-safety.md)
 - [System architecture](docs/plans/2026-04-24-system-architecture.md)

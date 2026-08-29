@@ -4,7 +4,7 @@
 
 WhaleCode 是一个以 DeepSeek V4 为核心的开源终端 AI coding agent。它可以在真实代码仓库中读取文件、执行命令、修改代码、运行测试，并通过 TaskSpace 组织复杂任务。
 
-当前稳定版本为 `v0.0.5`，默认模型是 `deepseek-v4-flash`。
+当前稳定版本为 `v0.0.6`，默认模型是 `deepseek-v4-flash`。
 
 ## 安装
 
@@ -162,7 +162,7 @@ whale resume --last
 - **TaskSpace 仍是实验能力。** Map schema、交互方式和内部协议可能在后续版本演进，不应将其当前内部 JSON 结构作为稳定的外部 API。
 - **复杂任务会增加成本。** TaskSpace 本身会增加状态和工具协议开销；与多 Agent、Pro 模型或长任务组合时，API 请求数、token 消耗和耗时通常高于 Standard 模式。
 - **模型可能生成无效行动。** Runtime 会在执行前拒绝不符合 TaskSpace 合同的调用，避免无效 client Tool 产生副作用，但当前任务可能因此中断并需要恢复或重试。
-- **平台验证深度不同。** `v0.0.5` 的六个平台 npm 安装 smoke 已通过；完整的 DeepSeek + TaskSpace 端到端回归以 Linux 为主，Windows 原生终端和完整 TUI 矩阵仍未全部验证。
+- **平台验证深度不同。** `v0.0.6` 的六个平台 npm 安装 smoke 已通过；完整的 DeepSeek + TaskSpace 端到端回归以 Linux 为主，Windows 原生终端和完整 TUI 矩阵仍未全部验证。
 - **本地视图包含任务元数据。** TaskSpace viewer 只监听 localhost，但会展示目标、节点和 source refs。不要通过端口转发或代理把它暴露给不受信任的网络。
 - **Agent 仍可能修改或执行代码。** TaskSpace 不会绕过 Whale 的 sandbox 和 approval 设置，但也不能替代 Git、代码审查和测试。建议在干净的 Git 工作区中运行，并在提交前检查 diff。
 - **原生二进制尚未签名。** 当前 npm/GitHub Release 制品附带完整性信息，但不是经过平台代码签名的发行物。
@@ -175,10 +175,10 @@ whale doctor --summary
 
 ## 项目状态与文档
 
-WhaleCode 正在持续开发。`v0.0.5` 使用 Codex CLI `0.149.0` 作为底层 substrate；两者是独立的版本号。
+WhaleCode 正在持续开发。`v0.0.6` 使用 Codex CLI `0.149.0` 作为底层 substrate；两者是独立的版本号。
 
-- [v0.0.5 Release](https://github.com/ceasarXuu/WhaleCode/releases/tag/v0.0.5)
-- [发布说明](docs/releases/v0.0.5/release-preparation/RELEASE_NOTES.md)
+- [v0.0.6 Release](https://github.com/ceasarXuu/WhaleCode/releases/tag/v0.0.6)
+- [发布说明](docs/releases/v0.0.6/release-preparation/RELEASE_NOTES.md)
 - [开发流程](docs/runbooks/development-workflow.md)
 - [本地 workspace 安全](runbooks/local-workspace-safety.md)
 - [系统架构](docs/plans/2026-04-24-system-architecture.md)

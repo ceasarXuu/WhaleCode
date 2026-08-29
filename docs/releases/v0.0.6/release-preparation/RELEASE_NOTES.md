@@ -1,4 +1,4 @@
-# WhaleCode v0.0.6（发布说明草稿）
+# WhaleCode v0.0.6
 
 本版本重点补齐多 Provider 使用链路，并更新 DeepSeek V4 Responses 能力。
 
@@ -12,7 +12,7 @@
 
 ## 安装
 
-发布后可使用：
+使用 npm 安装：
 
 ```bash
 npm install -g @ceasarxuu/whalecode@0.0.6
@@ -24,5 +24,5 @@ WhaleCode 产品版本为 `v0.0.6`；Codex `0.149.0` 仅表示本版本采用的
 
 - 原生候选仍为未签名制品。
 - `deepseek-v4-flash-vision-exp` 是实验模型，服务端行为和模型可用性可能变化。
-- DeepSeek hosted web search 的官方能力与当前模型目录展示尚需在发布前统一核验。
-- 本说明是候选草稿；六平台制品、npm registry 安装 smoke、tag 与 GitHub Release 尚未执行。
+- DeepSeek hosted web search 在 v0.0.6 中不向用户展示或宣称支持；provider 仅保留协议兼容，待模型目录、配置和端到端合同统一后再开放。
+- 六个平台原生制品均已完成隔离安装 smoke，但完整 DeepSeek + TaskSpace 端到端回归仍以 Linux 为主。
