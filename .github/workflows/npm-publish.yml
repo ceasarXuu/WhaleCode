@@ -82,8 +82,11 @@ jobs:
 
             test -f "$tarball"
             expected_sha1="$(sha1sum "$tarball" | awk '{print $1}')"
-            existing_sha1="$(npm view "${package}@${package_version}" dist.shasum --json 2>/dev/null || true)"
-            existing_sha1="${existing_sha1//\"/}"
+            if existing_sha1="$(npm view "${package}@${package_version}" dist.shasum --json 2>/dev/null)"; then
+              existing_sha1="${existing_sha1//\"/}"
+            else
+              existing_sha1=''
+            fi
 
             if [[ -n "$existing_sha1" && "$existing_sha1" != "null" ]]; then
               test "$existing_sha1" = "$expected_sha1"
