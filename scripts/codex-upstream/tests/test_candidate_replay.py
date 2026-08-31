@@ -23,6 +23,7 @@ class CandidateReplayTests(unittest.TestCase):
             {
                 "codex-rs/core/src/client.rs": "three-way-conflict",
                 "codex-rs/core/src/tools/router.rs": "patch-apply-failure",
+                "other.rs": "index-path-absent",
             },
             parse_apply_failures(output),
         )

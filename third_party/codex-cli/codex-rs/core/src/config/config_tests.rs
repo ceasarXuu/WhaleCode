@@ -229,6 +229,25 @@ async fn load_config_normalizes_relative_cwd_override() -> std::io::Result<()> {
 }
 
 #[tokio::test]
+async fn load_config_applies_optional_mcp_startup_grace() -> std::io::Result<()> {
+    let codex_home = tempdir()?;
+    let config_toml: ConfigToml = toml::from_str("mcp_optional_startup_grace_ms = 2500")
+        .expect("optional MCP startup grace should parse from config.toml");
+    let config = Config::load_from_base_config_with_overrides(
+        config_toml,
+        ConfigOverrides::default(),
+        codex_home.abs(),
+    )
+    .await?;
+
+    assert_eq!(
+        config.mcp_optional_startup_grace,
+        Duration::from_millis(2500)
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_toml_parsing() {
     let history_with_persistence = r#"
 [history]
@@ -654,6 +673,7 @@ async fn load_config_resolves_token_budget_config() -> std::io::Result<()> {
             r#"
 [features.token_budget]
 enabled = true
+use_history_notes_extension = true
 reminder_threshold_tokens = 16000
 reminder_message_template = "Custom reminder: {n_remaining} tokens."
 guidance_message = "Preserve important state before compaction."
@@ -661,6 +681,7 @@ auto_compact_fallback_prompt = "  Write notes immediately.  "
 auto_compact_fallback_buffer_tokens = 8000
 "#,
             TokenBudgetConfig {
+                use_history_notes_extension: true,
                 reminder_threshold_tokens: Some(16_000),
                 reminder_message_template: "Custom reminder: {n_remaining} tokens.".to_string(),
                 guidance_message: Some("Preserve important state before compaction.".to_string()),
@@ -996,10 +1017,8 @@ env_http_headers = { "x-openai-internal-codex-residency" = "CODEX_TEST_UNSET_RES
             .as_ref()
             .expect("environment-backed headers should remain configured");
         assert_eq!(
-            static_headers
-                .get("X-OpenAI-Internal-Codex-Residency")
-                .map(String::as_str),
-            Some("request-override")
+            static_headers.get("X-OpenAI-Internal-Codex-Residency"),
+            Some(&"request-override".into())
         );
         assert_eq!(
             environment_headers
@@ -1008,8 +1027,8 @@ env_http_headers = { "x-openai-internal-codex-residency" = "CODEX_TEST_UNSET_RES
             Some("CODEX_TEST_UNSET_RESIDENCY_HEADER")
         );
         assert_eq!(
-            static_headers.get("x-provider-header").map(String::as_str),
-            Some("preserved")
+            static_headers.get("x-provider-header"),
+            Some(&"preserved".into())
         );
         assert_eq!(
             environment_headers
@@ -1138,7 +1157,7 @@ command = "print-token"
     expected_provider
         .http_headers
         .get_or_insert_default()
-        .insert("X-Custom-Header".to_string(), "value".to_string());
+        .insert("X-Custom-Header".to_string(), "value".into());
 
     assert_eq!(config.model_provider_id, "amazon-bedrock");
     assert_eq!(config.model_provider, expected_provider);
@@ -5533,7 +5552,8 @@ async fn rebuild_preserving_session_layers_refreshes_plugin_derived_mcp_config()
             .plugin_attributions_by_server_name(),
         HashMap::from([(
             "sample".to_string(),
-            McpPluginAttribution::new("sample@test".to_string(), "sample".to_string()),
+            McpPluginAttribution::new("sample@test".to_string(), "sample".to_string())
+                .with_host_root(PathUri::from_host_native_path(&plugin_root)?),
         )])
     );
 
@@ -6440,7 +6460,49 @@ async fn legacy_toggles_map_to_features() -> std::io::Result<()> {
 
     assert!(config.features.enabled(Feature::UnifiedExec));
 
-    assert!(config.use_experimental_unified_exec_tool);
+    Ok(())
+}
+
+#[tokio::test]
+async fn legacy_unified_exec_disable_flags_do_not_disable_command_execution() -> std::io::Result<()>
+{
+    for cfg in [
+        ConfigToml {
+            features: Some(FeaturesToml::from(BTreeMap::from([(
+                "unified_exec".to_string(),
+                false,
+            )]))),
+            ..Default::default()
+        },
+        ConfigToml {
+            experimental_use_unified_exec_tool: Some(false),
+            ..Default::default()
+        },
+    ] {
+        let codex_home = TempDir::new()?;
+        let mut config = Config::load_from_base_config_with_overrides(
+            cfg,
+            ConfigOverrides::default(),
+            codex_home.abs(),
+        )
+        .await?;
+
+        assert!(config.features.enabled(Feature::UnifiedExec));
+        assert!(config.features.enabled(Feature::ShellTool));
+
+        config
+            .features
+            .disable(Feature::UnifiedExec)
+            .expect("legacy unified-exec toggle should normalize successfully");
+        assert!(config.features.enabled(Feature::UnifiedExec));
+
+        config
+            .features
+            .disable(Feature::ShellTool)
+            .expect("shell tool should remain independently configurable");
+        assert!(!config.features.enabled(Feature::ShellTool));
+        assert!(config.features.enabled(Feature::UnifiedExec));
+    }
 
     Ok(())
 }
@@ -7841,6 +7903,7 @@ async fn replace_mcp_servers_streamable_http_serializes_oauth_resource() -> anyh
             scopes: None,
             oauth: Some(McpServerOAuthConfig {
                 client_id: Some("eci-prd-pub-codex-123".to_string()),
+                callback_url: None,
                 callback_port: None,
             }),
             oauth_resource: Some("https://resource.example.com".to_string()),
@@ -9565,6 +9628,7 @@ async fn trace_exporter_defaults_to_none_when_log_exporter_is_set() -> std::io::
     let fixture = create_test_fixture()?;
     let mut cfg = fixture.cfg.clone();
     cfg.otel = Some(OtelConfigToml {
+        tool_result: toml::from_str("max_bytes = 8192").expect("tool-result logging config"),
         exporter: Some(OtelExporterKind::OtlpHttp {
             endpoint: "http://localhost:14318/v1/logs".to_string(),
             headers: HashMap::new(),
@@ -9585,6 +9649,7 @@ async fn trace_exporter_defaults_to_none_when_log_exporter_is_set() -> std::io::
     )
     .await?;
 
+    assert_eq!(config.otel.tool_result.max_bytes, 8192);
     assert!(matches!(
         config.otel.exporter,
         OtelExporterKind::OtlpHttp { .. }
@@ -9895,8 +9960,10 @@ async fn test_requirements_web_search_mode_allowlist_does_not_warn_when_unset() 
         allow_managed_hooks_only: None,
         allow_appshots: None,
         allow_remote_control: None,
+        allow_browser_and_computer_use: None,
         computer_use: None,
         browser_use: None,
+        in_app_browser: None,
         windows: None,
         feature_requirements: None,
         hooks: None,
@@ -9910,6 +9977,7 @@ async fn test_requirements_web_search_mode_allowlist_does_not_warn_when_unset() 
         permissions: None,
         auto_review: None,
         models: None,
+        additional_developer_instructions: None,
         guardian_policy_config: None,
     };
     let requirement_source = codex_config::RequirementSource::Unknown;
@@ -10571,6 +10639,38 @@ async fn test_untrusted_project_gets_unless_trusted_approval_policy() -> anyhow:
 }
 
 #[tokio::test]
+async fn oversized_managed_developer_instructions_are_rejected_during_config_load()
+-> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+    // The policy text alone fits; rendering its required context markers must not.
+    let instructions = "x".repeat(codex_utils_string::approx_bytes_for_tokens(
+        /*tokens*/ 10_000,
+    ));
+
+    let error = ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(codex_home.path().to_path_buf())
+        .fallback_cwd(Some(codex_home.path().to_path_buf()))
+        .cloud_config_bundle(
+            CloudConfigBundleFixture::loader_with_enterprise_requirement(format!(
+                "additional_developer_instructions = {instructions:?}"
+            )),
+        )
+        .build()
+        .await
+        .expect_err("oversized managed instructions must fail during config loading");
+
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    let message = error.to_string();
+    assert!(
+        message.starts_with(
+            "`additional_developer_instructions` from enterprise-managed requirements Base requirements (req_1) exceeds the model-context limit of 10000 estimated tokens"
+        ),
+        "unexpected config-load error: {message}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn requirements_disallowing_default_sandbox_falls_back_to_required_default()
 -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
@@ -10997,6 +11097,52 @@ shell_tool = false
 }
 
 #[tokio::test]
+async fn feature_requirements_can_still_disable_unified_exec() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+
+    let mut config = ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(codex_home.path().to_path_buf())
+        .cloud_config_bundle(
+            CloudConfigBundleFixture::loader_with_enterprise_requirement(
+                r#"
+[features]
+unified_exec = false
+shell_tool = true
+unified_exec_zsh_fork = false
+"#,
+            ),
+        )
+        .build()
+        .await?;
+
+    assert!(!config.features.enabled(Feature::UnifiedExec));
+    assert!(config.features.enabled(Feature::ShellTool));
+    assert!(!config.features.enabled(Feature::UnifiedExecZshFork));
+    assert!(
+        !config
+            .startup_warnings
+            .iter()
+            .any(|warning| warning.contains("Ignoring unknown `features` requirement")),
+        "{:?}",
+        config.startup_warnings
+    );
+
+    config
+        .features
+        .enable(Feature::UnifiedExec)
+        .expect("managed feature mutations should normalize successfully");
+    config
+        .features
+        .enable(Feature::UnifiedExecZshFork)
+        .expect("managed feature updates should preserve administrator policy");
+    assert!(!config.features.enabled(Feature::UnifiedExec));
+    assert!(config.features.enabled(Feature::ShellTool));
+    assert!(!config.features.enabled(Feature::UnifiedExecZshFork));
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn feature_requirements_auto_review_disables_guardian_approval() -> std::io::Result<()> {
     let codex_home = TempDir::new()?;
 
@@ -11084,6 +11230,28 @@ in_app_dictation = false
         .await?;
 
     assert!(!config.features.enabled(Feature::InAppDictation));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn in_app_local_automation_feature_requirements_are_valid() -> std::io::Result<()> {
+    let codex_home = TempDir::new()?;
+
+    let config = ConfigBuilder::without_managed_config_for_tests()
+        .codex_home(codex_home.path().to_path_buf())
+        .cloud_config_bundle(
+            CloudConfigBundleFixture::loader_with_enterprise_requirement(
+                r#"
+[features]
+in_app_local_automation = false
+"#,
+            ),
+        )
+        .build()
+        .await?;
+
+    assert!(!config.features.enabled(Feature::InAppLocalAutomation));
 
     Ok(())
 }

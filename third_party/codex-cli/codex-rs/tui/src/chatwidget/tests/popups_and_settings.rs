@@ -276,7 +276,7 @@ async fn plugins_popup_truncates_long_descriptions_in_list_rows() {
         .expect("expected verbose plugin row in popup");
     insta::assert_snapshot!(
         verbose_row,
-        @"  [-] Verbose Plugin  Available · Legacy OpenAI Curated · This desc…"
+        @"  [-] Verbose Plugin  Available · OpenAI Curated · This description…"
     );
     assert!(
         !popup
@@ -1246,7 +1246,7 @@ async fn plugins_popup_remote_section_fallback_states_when_remote_plugin_disable
         ])),
     );
     let curated_loading_popup =
-        select_tab_containing(&mut chat, "Loading Legacy OpenAI Curated plugins...");
+        select_tab_containing(&mut chat, "Loading OpenAI Curated plugins...");
     let workspace_loading_popup = select_tab_containing(&mut chat, "Loading Workspace plugins.");
     let shared_loading_popup = select_tab_containing(&mut chat, "Loading Shared with me plugins.");
     let _ = select_tab_containing(&mut chat, "Loading Workspace plugins.");
@@ -1280,11 +1280,8 @@ async fn plugins_popup_remote_section_fallback_states_when_remote_plugin_disable
             plugins_test_curated_marketplace(Vec::new()),
         ])),
     );
-    remote_chat.on_plugin_remote_sections_loaded(remote_cwd.to_path_buf(), Vec::new(), Vec::new());
-    let remote_curated_empty_popup = select_tab_containing(
-        &mut remote_chat,
-        "No Legacy OpenAI Curated plugins available",
-    );
+    let remote_curated_empty_popup =
+        select_tab_containing(&mut remote_chat, "No OpenAI Curated plugins available");
 
     insta::assert_snapshot!(
         [
@@ -1296,8 +1293,8 @@ async fn plugins_popup_remote_section_fallback_states_when_remote_plugin_disable
         ]
         .join("\n\n"),
         @r###"
-        Legacy OpenAI Curated marketplace.
-        Loading Legacy OpenAI Curated plugins...  This updates when Legacy OpenAI Curated plugins finis…
+        OpenAI Curated marketplace.
+        Loading OpenAI Curated plugins...  This updates when OpenAI Curated plugins finish loading.
 
         Loading Workspace plugins.
         Loading Workspace plugins...  This updates when workspace plugins finish loading.
@@ -1308,8 +1305,8 @@ async fn plugins_popup_remote_section_fallback_states_when_remote_plugin_disable
         Workspace unavailable.
         Workspace unavailable  Sign in to ChatGPT to load workspace plugins.
 
-        Legacy OpenAI Curated marketplace.
-        No Legacy OpenAI Curated plugins available  No Legacy OpenAI Curated plugins available.
+        OpenAI Curated marketplace.
+        No OpenAI Curated plugins available  No OpenAI Curated plugins available.
         "###
     );
 }
@@ -1948,12 +1945,12 @@ async fn plugins_popup_openai_curated_tab_omits_marketplace_in_rows() {
 
     let popup = render_bottom_popup(&chat, /*width*/ 100);
     assert!(
-        popup.contains("Legacy OpenAI Curated marketplace."),
-        "expected Legacy OpenAI Curated tab header, got:\n{popup}"
+        popup.contains("OpenAI Curated marketplace."),
+        "expected OpenAI Curated tab header, got:\n{popup}"
     );
     assert!(
         popup.contains("Calendar") && !popup.contains("Repo Plugin"),
-        "expected Legacy OpenAI Curated tab to show only official marketplace plugins, got:\n{popup}"
+        "expected OpenAI Curated tab to show only official marketplace plugins, got:\n{popup}"
     );
     assert!(
         !popup.contains("ChatGPT Marketplace ·"),
@@ -3259,7 +3256,7 @@ async fn skills_menu_default_mentions_shortcut_snapshot() {
 }
 
 #[tokio::test]
-async fn model_picker_shows_visible_models_and_hides_filtered_models() {
+async fn model_picker_hides_show_in_picker_false_models_from_cache() {
     let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("test-visible-model")).await;
     chat.thread_id = Some(ThreadId::new());
     let preset = |slug: &str, show_in_picker: bool| ModelPreset {
@@ -3288,7 +3285,6 @@ async fn model_picker_shows_visible_models_and_hides_filtered_models() {
 
     chat.open_model_popup_with_presets(vec![
         preset("test-visible-model", true),
-        preset("deepseek-v4-pro", true),
         preset("test-hidden-model", false),
     ]);
     let popup = render_bottom_popup(&chat, /*width*/ 80);
@@ -3296,10 +3292,6 @@ async fn model_picker_shows_visible_models_and_hides_filtered_models() {
     assert!(
         popup.contains("test-visible-model"),
         "expected visible model to appear in picker:\n{popup}"
-    );
-    assert!(
-        popup.contains("deepseek-v4-pro"),
-        "expected visible Pro model to appear in picker:\n{popup}"
     );
     assert!(
         !popup.contains("test-hidden-model"),
@@ -3360,7 +3352,13 @@ async fn model_reasoning_selection_popup_snapshot() {
             effort: ReasoningEffortConfig::Ultra,
             description: "Ultra reasoning".to_string(),
         });
-    chat.open_reasoning_popup(None, preset);
+    preset
+        .supported_reasoning_efforts
+        .push(ReasoningEffortPreset {
+            effort: ReasoningEffortConfig::Persistent,
+            description: "Continue working until put to sleep".to_string(),
+        });
+    chat.open_reasoning_popup(preset);
 
     let popup = render_bottom_popup(&chat, /*width*/ 80);
     assert_chatwidget_snapshot!("model_reasoning_selection_popup", popup);
@@ -3382,7 +3380,7 @@ async fn model_advanced_reasoning_selection_popup_snapshot() {
             description: "Maximum available reasoning".to_string(),
         },
     ]);
-    chat.open_advanced_reasoning_popup(None, preset);
+    chat.open_advanced_reasoning_popup(preset);
 
     let popup = render_bottom_popup(&chat, /*width*/ 80);
     assert_chatwidget_snapshot!("model_advanced_reasoning_selection_popup", popup);
@@ -3401,7 +3399,7 @@ async fn model_reasoning_selection_popup_applies_custom_effort() {
             effort: custom_effort.clone(),
             description: "Maximum available reasoning".to_string(),
         });
-    chat.open_reasoning_popup(None, preset);
+    chat.open_reasoning_popup(preset);
     while rx.try_recv().is_ok() {}
 
     chat.handle_key_event(KeyEvent::from(KeyCode::Down));
@@ -3442,17 +3440,17 @@ async fn select_ultra_with_multi_agent_thread_limit(max_threads: usize) -> (bool
             description: "Ultra reasoning".to_string(),
         },
     ];
-    chat.open_reasoning_popup(None, preset);
+    chat.open_reasoning_popup(preset);
     while rx.try_recv().is_ok() {}
 
     chat.handle_key_event(KeyEvent::from(KeyCode::Down));
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
 
     let advanced_preset = std::iter::from_fn(|| rx.try_recv().ok()).find_map(|event| match event {
-        AppEvent::OpenAdvancedReasoningPopup { model, .. } => Some(model),
+        AppEvent::OpenAdvancedReasoningPopup { model } => Some(model),
         _ => None,
     });
-    chat.open_advanced_reasoning_popup(None, advanced_preset.expect("advanced reasoning popup"));
+    chat.open_advanced_reasoning_popup(advanced_preset.expect("advanced reasoning popup"));
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
 
     let mut selected_ultra = false;
@@ -3505,7 +3503,7 @@ async fn max_reasoning_selection_persists_model_selection() {
         effort: ReasoningEffortConfig::Max,
         description: "Maximum reasoning".to_string(),
     }];
-    chat.open_advanced_reasoning_popup(None, preset);
+    chat.open_advanced_reasoning_popup(preset);
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
 
     let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
@@ -3535,7 +3533,7 @@ async fn model_reasoning_selection_popup_extra_high_warning_snapshot() {
     chat.set_reasoning_effort(Some(ReasoningEffortConfig::XHigh));
 
     let preset = get_available_model(&chat, "gpt-5.2");
-    chat.open_reasoning_popup(None, preset);
+    chat.open_reasoning_popup(preset);
 
     let popup = render_bottom_popup(&chat, /*width*/ 80);
     assert_chatwidget_snapshot!("model_reasoning_selection_popup_extra_high_warning", popup);
@@ -3741,7 +3739,7 @@ async fn reasoning_popup_shows_extra_high_with_space() {
     set_chatgpt_auth(&mut chat);
 
     let preset = get_available_model(&chat, "gpt-5.4");
-    chat.open_reasoning_popup(None, preset);
+    chat.open_reasoning_popup(preset);
 
     let popup = render_bottom_popup(&chat, /*width*/ 120);
     assert!(
@@ -3782,7 +3780,7 @@ async fn single_reasoning_option_skips_selection() {
         supported_in_api: true,
         input_modalities: default_input_modalities(),
     };
-    chat.open_reasoning_popup(None, preset);
+    chat.open_reasoning_popup(preset);
 
     let popup = render_bottom_popup(&chat, /*width*/ 80);
     assert!(
@@ -3812,7 +3810,7 @@ async fn advanced_only_reasoning_option_requires_explicit_selection() {
         effort: ReasoningEffortConfig::Ultra,
         description: "Ultra reasoning".to_string(),
     }];
-    chat.open_reasoning_popup(None, preset);
+    chat.open_reasoning_popup(preset);
 
     let popup = render_bottom_popup(&chat, /*width*/ 80);
     assert_chatwidget_snapshot!("advanced_only_reasoning_selection_popup", popup);
@@ -3917,7 +3915,7 @@ async fn reasoning_popup_escape_returns_to_model_popup() {
     chat.open_model_popup();
 
     let preset = get_available_model(&chat, "gpt-5.4");
-    chat.open_reasoning_popup(None, preset);
+    chat.open_reasoning_popup(preset);
 
     let before_escape = render_bottom_popup(&chat, /*width*/ 80);
     assert!(before_escape.contains("Select Reasoning Level"));

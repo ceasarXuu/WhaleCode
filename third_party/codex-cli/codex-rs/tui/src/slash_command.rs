@@ -39,6 +39,7 @@ pub enum SlashCommand {
     App,
     Init,
     Compact,
+    Recap,
     Plan,
     Goal,
     #[strum(serialize = "taskspace")]
@@ -94,8 +95,9 @@ impl SlashCommand {
         match self {
             SlashCommand::Feedback => "send logs to maintainers",
             SlashCommand::New => "start a new chat during a conversation",
-            SlashCommand::Init => "create an AGENTS.md file with instructions for Whale",
+            SlashCommand::Init => "create an AGENTS.md file with instructions for Codex",
             SlashCommand::Compact => "summarize conversation to prevent hitting the context limit",
+            SlashCommand::Recap => "summarize the current conversation now",
             SlashCommand::Review => "review my current changes and find issues",
             SlashCommand::Rename => "rename the current thread",
             SlashCommand::Resume => "resume a saved chat",
@@ -104,13 +106,13 @@ impl SlashCommand {
             SlashCommand::Clear => "clear the terminal and start a new chat",
             SlashCommand::Fork => "fork the current chat",
             SlashCommand::App => "continue this session in the Desktop app",
-            SlashCommand::Quit | SlashCommand::Exit => "exit Whale",
-            SlashCommand::Copy => "copy last response as markdown",
+            SlashCommand::Quit | SlashCommand::Exit => "exit Codex",
+            SlashCommand::Copy => "copy the last response, code block, or quote",
             SlashCommand::Export => "export the conversation as markdown",
             SlashCommand::Raw => "toggle raw scrollback mode for copy-friendly terminal selection",
             SlashCommand::Diff => "show git diff (including untracked files)",
             SlashCommand::Mention => "mention a file",
-            SlashCommand::Skills => "use skills to improve how Whale performs specific tasks",
+            SlashCommand::Skills => "use skills to improve how Codex performs specific tasks",
             SlashCommand::Import => "import setup, this project, and recent chats from Claude Code",
             SlashCommand::Hooks => "view and manage lifecycle hooks",
             SlashCommand::Status => "show current session configuration and token usage",
@@ -131,7 +133,7 @@ impl SlashCommand {
             SlashCommand::Ide => {
                 "include current selection, open files, and other context from your IDE"
             }
-            SlashCommand::Personality => "choose a communication style for Whale",
+            SlashCommand::Personality => "choose a communication style for Codex",
             SlashCommand::Plan => "switch to Plan mode",
             SlashCommand::Goal => "set or view the goal for a long-running task",
             SlashCommand::TaskSpace => "enter TaskSpace mode and show the current map",
@@ -141,7 +143,7 @@ impl SlashCommand {
             SlashCommand::Side | SlashCommand::Btw => {
                 "start a side conversation in an ephemeral fork"
             }
-            SlashCommand::Permissions => "choose what Whale is allowed to do",
+            SlashCommand::Permissions => "choose what Codex is allowed to do",
             SlashCommand::Keymap => "remap TUI shortcuts",
             SlashCommand::Vim => "toggle Vim mode for the composer",
             SlashCommand::ElevateSandbox => "set up elevated agent sandbox",
@@ -154,7 +156,7 @@ impl SlashCommand {
             SlashCommand::Mcp => "list configured MCP tools; use /mcp verbose for details",
             SlashCommand::Apps => "manage apps",
             SlashCommand::Plugins => "browse plugins",
-            SlashCommand::Logout => "log out of Whale",
+            SlashCommand::Logout => "log out of Codex",
             SlashCommand::Rollout => "print the rollout file path",
             SlashCommand::TestApproval => "test approval request",
         }
@@ -219,6 +221,7 @@ impl SlashCommand {
             | SlashCommand::Fork
             | SlashCommand::Init
             | SlashCommand::Compact
+            | SlashCommand::Recap
             | SlashCommand::Export
             | SlashCommand::Keymap
             | SlashCommand::Vim
@@ -336,20 +339,5 @@ mod tests {
             SlashCommand::from_str("approve"),
             Ok(SlashCommand::AutoReview)
         );
-    }
-
-    #[test]
-    fn taskspace_commands_parse_with_expected_availability() {
-        assert_eq!(
-            SlashCommand::from_str("taskspace"),
-            Ok(SlashCommand::TaskSpace)
-        );
-        assert_eq!(
-            SlashCommand::from_str("task-show"),
-            Ok(SlashCommand::TaskShow)
-        );
-        assert!(!SlashCommand::TaskSpace.supports_inline_args());
-        assert!(!SlashCommand::TaskSpace.available_during_task());
-        assert!(SlashCommand::TaskShow.available_during_task());
     }
 }

@@ -49,8 +49,8 @@ fn private_only_output_call_ids(items: &[ResponseItem]) -> HashSet<String> {
         .filter_map(|item| match item {
             ResponseItem::FunctionCallOutput {
                 call_id, output, ..
-            }
-            | ResponseItem::CustomToolCallOutput {
+            } if output_is_private_only(&output.body) => call_id.clone(),
+            ResponseItem::CustomToolCallOutput {
                 call_id, output, ..
             } if output_is_private_only(&output.body) => Some(call_id.clone()),
             _ => None,
@@ -72,11 +72,13 @@ fn output_is_private_only(body: &FunctionCallOutputBody) -> bool {
 
 fn should_drop_item(item: &ResponseItem, private_output_calls: &HashSet<String>) -> bool {
     match item {
-        ResponseItem::FunctionCall { call_id, .. }
-        | ResponseItem::FunctionCallOutput { call_id, .. }
-        | ResponseItem::CustomToolCall { call_id, .. }
+        ResponseItem::FunctionCall { call_id, .. } => private_output_calls.contains(call_id),
+        ResponseItem::FunctionCallOutput { call_id, .. } => call_id
+            .as_ref()
+            .is_some_and(|call_id| private_output_calls.contains(call_id)),
+        ResponseItem::CustomToolCall { call_id, .. }
         | ResponseItem::CustomToolCallOutput { call_id, .. } => {
-            private_output_calls.contains(call_id.as_str())
+            private_output_calls.contains(call_id)
         }
         ResponseItem::LocalShellCall {
             call_id: Some(call_id),

@@ -36,6 +36,7 @@ impl Drop for ControlToolCallGuard<'_> {
             .track_control_tool_call(ControlToolCallFact {
                 thread_id: invocation.session.thread_id.to_string(),
                 turn_id: invocation.turn.sub_id.clone(),
+                turn_metadata: invocation.turn.turn_metadata_state.clone(),
                 call_id: invocation.call_id.clone(),
                 cell_id: match &invocation.source {
                     ToolCallSource::CodeMode { cell_id, .. } => Some(cell_id.clone()),
@@ -43,7 +44,12 @@ impl Drop for ControlToolCallGuard<'_> {
                     | ToolCallSource::DirectPlaintextMessage
                     | ToolCallSource::TaskSpaceExec { .. } => None,
                 },
-                tool_name: invocation.tool_name.name.clone(),
+                tool_name: match invocation.tool_name.namespace.as_deref() {
+                    Some(namespace) if !invocation.tool_name.is_default_namespace() => {
+                        format!("{namespace}.{}", invocation.tool_name.name)
+                    }
+                    None | Some(_) => invocation.tool_name.name.clone(),
+                },
                 started_at_ms: self.started_at_ms,
                 completed_at_ms: self
                     .completed_at_ms

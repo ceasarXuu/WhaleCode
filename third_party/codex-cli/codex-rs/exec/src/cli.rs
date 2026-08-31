@@ -2,6 +2,7 @@ use clap::Args;
 use clap::FromArgMatches;
 use clap::Parser;
 use clap::ValueEnum;
+use codex_protocol::protocol::ThreadSource;
 use codex_utils_cli::CliConfigOverrides;
 use codex_utils_cli::SharedCliOptions;
 use std::path::PathBuf;
@@ -9,21 +10,25 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(
     version,
-    override_usage = "whale exec [OPTIONS] [PROMPT]\n       whale exec [OPTIONS] <COMMAND> [ARGS]"
+    override_usage = "codex exec [OPTIONS] [PROMPT]\n       codex exec [OPTIONS] <COMMAND> [ARGS]"
 )]
 pub struct Cli {
     /// Action to perform. If omitted, runs a new non-interactive session.
     #[command(subcommand)]
     pub command: Option<Command>,
 
-    /// Error out when config.toml contains fields that are not recognized by this version of Whale.
+    /// Error out when config.toml contains fields that are not recognized by this version of Codex.
     #[arg(long = "strict-config", global = true, default_value_t = false)]
     pub strict_config: bool,
 
     #[clap(flatten)]
     pub shared: ExecSharedCliOptions,
 
-    /// Allow running Whale outside a Git repository.
+    /// Source classification for newly created or forked threads.
+    #[arg(long = "thread-source", value_name = "SOURCE", global = true)]
+    pub thread_source: Option<ThreadSource>,
+
+    /// Allow running Codex outside a Git repository.
     #[arg(long = "skip-git-repo-check", global = true, default_value_t = false)]
     pub skip_git_repo_check: bool,
 
@@ -31,7 +36,7 @@ pub struct Cli {
     #[arg(long = "ephemeral", global = true, default_value_t = false)]
     pub ephemeral: bool,
 
-    /// Do not load `$WHALE_HOME/config.toml`; auth still uses `WHALE_HOME`.
+    /// Do not load `$CODEX_HOME/config.toml`; auth still uses `CODEX_HOME`.
     #[arg(long = "ignore-user-config", global = true, default_value_t = false)]
     pub ignore_user_config: bool,
 
@@ -67,10 +72,6 @@ pub struct Cli {
         global = true
     )]
     pub last_message_file: Option<PathBuf>,
-
-    /// Enable TaskSpace mode for this exec session.
-    #[arg(long = "taskspace", global = true, default_value_t = false)]
-    pub taskspace: bool,
 
     /// Initial instructions for the agent. If not provided as an argument (or
     /// if `-` is used), instructions are read from stdin. If stdin is piped and
@@ -180,7 +181,7 @@ pub struct ForkArgs {
 #[derive(Args, Debug)]
 struct ResumeArgsRaw {
     // Note: This is the direct clap shape. We reinterpret the positional when --last is set
-    // so "whale resume --last <prompt>" treats the positional as a prompt, not a session id.
+    // so "codex resume --last <prompt>" treats the positional as a prompt, not a session id.
     /// Conversation/session id (UUID) or thread name. UUIDs take precedence if it parses.
     /// If omitted, use --last to pick the most recent recorded session.
     #[arg(value_name = "SESSION_ID")]

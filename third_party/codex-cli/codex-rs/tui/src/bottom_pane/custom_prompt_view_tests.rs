@@ -211,26 +211,80 @@ fn escape_without_vim_cancels_prompt() {
 }
 
 #[test]
-fn secret_prompt_masks_credential_but_submits_original_value() {
-    let (submitted, submitted_rx) = std::sync::mpsc::channel();
-    let mut view = CustomPromptView::new_secret(
-        "API key".to_string(),
-        "Paste key".to_string(),
-        None,
-        Box::new(move |text| {
-            submitted.send(text).expect("receiver should stay open");
-        }),
-    );
-    view.handle_paste("super-secret-key".to_string());
-    let area = Rect::new(0, 0, 60, view.desired_height(60));
-    let mut buf = Buffer::empty(area);
-    view.render(area, &mut buf);
-    let rendered = format!("{buf:?}");
+fn background_prefill_requires_a_matching_unedited_prompt() {
+    let request_id = Uuid::new_v4();
+    let (view, submitted_rx) = custom_prompt_view();
+    let mut view = view.with_text_suggestion(request_id, "Loading".into(), "Ready".into());
 
-    assert!(!rendered.contains("super-secret-key"));
-    assert!(rendered.contains("****************"));
-    view.handle_key_event(KeyEvent::from(KeyCode::Enter));
-    assert_eq!(submitted_rx.try_recv(), Ok("super-secret-key".to_string()));
+    assert!(!view.apply_text_suggestion(Uuid::new_v4(), Some("Stale")));
+    assert!(view.apply_text_suggestion(request_id, Some("Suggested text")));
+    assert_eq!(view.context_label.as_deref(), Some("Ready"));
+
+    view.handle_key_event_at(KeyEvent::from(KeyCode::Enter), Instant::now());
+
+    assert_eq!(submitted_rx.try_recv(), Ok("Suggested text".to_string()));
+    assert!(!view.apply_text_suggestion(request_id, Some("Late")));
+}
+
+#[test]
+fn background_prefill_failure_clears_loading_without_changing_text() {
+    let request_id = Uuid::new_v4();
+    let (view, _submitted_rx) = custom_prompt_view();
+    let mut view = view.with_text_suggestion(request_id, "Loading".into(), "Ready".into());
+    view.textarea.set_text_clearing_elements("Existing title");
+
+    assert!(view.apply_text_suggestion(request_id, /*suggestion*/ None));
+    assert_eq!(
+        (view.textarea.text(), view.context_label.as_deref()),
+        ("Existing title", None)
+    );
+}
+
+#[test]
+fn background_prefill_preserves_typing_even_after_the_text_is_deleted() {
+    let request_id = Uuid::new_v4();
+    let (view, _submitted_rx) = custom_prompt_view();
+    let mut view = view.with_text_suggestion(request_id, "Loading".into(), "Ready".into());
+
+    view.handle_key_event_at(KeyEvent::from(KeyCode::Char('x')), Instant::now());
+    view.handle_key_event_at(KeyEvent::from(KeyCode::Backspace), Instant::now());
+
+    assert!(view.apply_text_suggestion(request_id, Some("Generated")));
+    assert_eq!(
+        (view.textarea.text(), view.context_label.as_deref()),
+        ("", None)
+    );
+}
+
+#[test]
+fn background_prefill_preserves_pasted_text() {
+    let request_id = Uuid::new_v4();
+    let (view, _submitted_rx) = custom_prompt_view();
+    let mut view = view.with_text_suggestion(request_id, "Loading".into(), "Ready".into());
+
+    assert!(view.handle_paste("Manual title".to_string()));
+    assert!(view.apply_text_suggestion(request_id, Some("Generated")));
+    assert_eq!(
+        (view.textarea.text(), view.context_label.as_deref()),
+        ("Manual title", None)
+    );
+}
+
+#[test]
+fn background_prefill_survives_cursor_movement() {
+    let request_id = Uuid::new_v4();
+    let (view, _submitted_rx) = custom_prompt_view();
+    let mut view = view.with_text_suggestion(request_id, "Loading".into(), "Ready".into());
+    view.textarea.set_text_clearing_elements("Existing");
+    view.textarea.set_cursor("Existing".len());
+
+    view.handle_key_event_at(KeyEvent::from(KeyCode::Left), Instant::now());
+
+    assert!(view.apply_text_suggestion(request_id, Some("Generated")));
+    assert_eq!(
+        (view.textarea.text(), view.context_label.as_deref()),
+        ("Generated", Some("Ready"))
+    );
 }
 
 fn custom_prompt_view() -> (CustomPromptView, Receiver<String>) {

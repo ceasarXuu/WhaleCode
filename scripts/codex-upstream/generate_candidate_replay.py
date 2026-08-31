@@ -56,8 +56,10 @@ def parse_apply_failures(output: str) -> dict[str, str]:
     prefix = re.escape(f"{VENDOR_PATH}/")
     conflicts = re.findall(rf"Applied patch to '{prefix}(.+)' with conflicts\.", output)
     failed = re.findall(rf"error: patch failed: {prefix}([^:]+):", output)
+    absent = re.findall(rf"error: {prefix}([^:]+): does not exist in index", output)
     result = {path: "three-way-conflict" for path in conflicts}
     result.update({path: "patch-apply-failure" for path in failed})
+    result.update({path: "index-path-absent" for path in absent})
     return result
 
 

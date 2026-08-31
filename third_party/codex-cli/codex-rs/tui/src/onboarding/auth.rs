@@ -16,7 +16,7 @@ use codex_app_server_protocol::ClientRequest;
 use codex_app_server_protocol::LoginAccountParams;
 use codex_app_server_protocol::LoginAccountResponse;
 use codex_login::AuthConfig;
-use codex_login::read_deepseek_api_key_from_env;
+use codex_login::read_openai_api_key_from_env;
 use codex_protocol::auth::AuthMode;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
@@ -50,6 +50,7 @@ use crate::key_hint::KeyBinding;
 use crate::key_hint::KeyBindingListExt;
 use crate::motion::MotionMode;
 use crate::motion::shimmer_text;
+use crate::onboarding::bedrock::BedrockState;
 use crate::onboarding::keys;
 use crate::onboarding::onboarding_screen::KeyboardHandler;
 use crate::onboarding::onboarding_screen::StepStateProvider;
@@ -88,6 +89,8 @@ pub(crate) enum SignInState {
     ChatGptSuccess,
     ApiKeyEntry(ApiKeyInputState),
     ApiKeyConfigured,
+    Bedrock(BedrockState),
+    BedrockConfigured,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -95,10 +98,11 @@ pub(crate) enum SignInOption {
     ChatGpt,
     DeviceCode,
     ApiKey,
+    Bedrock,
 }
 
-const API_KEY_DISABLED_MESSAGE: &str = "Legacy ChatGPT sign-in is required.";
-fn onboarding_request_id() -> codex_app_server_protocol::RequestId {
+const API_KEY_DISABLED_MESSAGE: &str = "API key login is disabled.";
+pub(super) fn onboarding_request_id() -> codex_app_server_protocol::RequestId {
     codex_app_server_protocol::RequestId::String(Uuid::new_v4().to_string())
 }
 
@@ -178,6 +182,9 @@ impl ContinueWithDeviceCodeState {
 
 impl KeyboardHandler for AuthModeWidget {
     fn handle_key_event(&mut self, key_event: KeyEvent) {
+        if self.handle_bedrock_key_event(&key_event) {
+            return;
+        }
         if self.handle_api_key_entry_key_event(&key_event) {
             return;
         }
@@ -202,6 +209,10 @@ impl KeyboardHandler for AuthModeWidget {
             self.select_option_by_index(/*index*/ 2);
             return;
         }
+        if keys::SELECT_FOURTH.is_pressed(key_event) {
+            self.select_option_by_index(/*index*/ 3);
+            return;
+        }
         if keys::CONFIRM.is_pressed(key_event) {
             let sign_in_state = { (*self.sign_in_state.read().unwrap()).clone() };
             match sign_in_state {
@@ -222,7 +233,18 @@ impl KeyboardHandler for AuthModeWidget {
     }
 
     fn handle_paste(&mut self, pasted: String) {
-        let _ = self.handle_api_key_entry_paste(pasted);
+        let sign_in_state = self.sign_in_state.read().unwrap();
+        match &*sign_in_state {
+            SignInState::Bedrock(_) => {
+                drop(sign_in_state);
+                let _ = self.handle_bedrock_paste(&pasted);
+            }
+            SignInState::ApiKeyEntry(_) => {
+                drop(sign_in_state);
+                let _ = self.handle_api_key_entry_paste(pasted);
+            }
+            _ => {}
+        }
     }
 }
 
@@ -236,6 +258,7 @@ pub(crate) struct AuthModeWidget {
     pub login_status: LoginStatus,
     pub app_server_request_handle: AppServerRequestHandle,
     pub auth_config: AuthConfig,
+    pub bedrock_setup_enabled: bool,
     pub animations_enabled: bool,
     pub animations_suppressed: Cell<bool>,
 }
@@ -286,18 +309,25 @@ impl AuthModeWidget {
         self.error.read().unwrap().clone()
     }
 
-    /// Returns whether the auth flow is currently in API-key entry mode.
-    pub(crate) fn is_api_key_entry_active(&self) -> bool {
-        self.sign_in_state
-            .read()
-            .is_ok_and(|guard| matches!(&*guard, SignInState::ApiKeyEntry(_)))
+    /// Returns whether the auth flow is currently accepting text input.
+    pub(crate) fn is_text_entry_active(&self) -> bool {
+        self.sign_in_state.read().is_ok_and(|guard| match &*guard {
+            SignInState::ApiKeyEntry(_) => true,
+            SignInState::Bedrock(state) => state.is_text_entry_active(),
+            _ => false,
+        })
     }
 
-    /// Returns whether the API-key entry field currently contains any text.
-    pub(crate) fn api_key_entry_has_text(&self) -> bool {
-        self.sign_in_state.read().is_ok_and(
-            |guard| matches!(&*guard, SignInState::ApiKeyEntry(state) if !state.value.is_empty()),
-        )
+    /// Returns whether printable quit shortcuts must be treated as text input.
+    ///
+    /// OpenAI API-key entry keeps its existing empty-field quit behavior, while
+    /// Bedrock fields accept printable input from their first character.
+    pub(crate) fn should_suppress_printable_quit(&self) -> bool {
+        self.sign_in_state.read().is_ok_and(|guard| match &*guard {
+            SignInState::ApiKeyEntry(state) => !state.value.is_empty(),
+            SignInState::Bedrock(state) => state.is_text_entry_active(),
+            _ => false,
+        })
     }
 
     fn confirm_binding(&self) -> KeyBinding {
@@ -319,25 +349,30 @@ impl AuthModeWidget {
     }
 
     fn displayed_sign_in_options(&self) -> Vec<SignInOption> {
-        let mut options = Vec::new();
+        let mut options = vec![SignInOption::ChatGpt];
+        if self.is_chatgpt_login_allowed() {
+            options.push(SignInOption::DeviceCode);
+        }
         if self.is_api_login_allowed() {
             options.push(SignInOption::ApiKey);
-        }
-        if self.is_chatgpt_login_allowed() {
-            options.push(SignInOption::ChatGpt);
-            options.push(SignInOption::DeviceCode);
+            if self.bedrock_setup_enabled {
+                options.push(SignInOption::Bedrock);
+            }
         }
         options
     }
 
     fn selectable_sign_in_options(&self) -> Vec<SignInOption> {
         let mut options = Vec::new();
-        if self.is_api_login_allowed() {
-            options.push(SignInOption::ApiKey);
-        }
         if self.is_chatgpt_login_allowed() {
             options.push(SignInOption::ChatGpt);
             options.push(SignInOption::DeviceCode);
+        }
+        if self.is_api_login_allowed() {
+            options.push(SignInOption::ApiKey);
+            if self.bedrock_setup_enabled {
+                options.push(SignInOption::Bedrock);
+            }
         }
         options
     }
@@ -383,6 +418,13 @@ impl AuthModeWidget {
                     self.disallow_api_login();
                 }
             }
+            SignInOption::Bedrock => {
+                if self.bedrock_setup_enabled && self.is_api_login_allowed() {
+                    self.start_bedrock_discovery();
+                } else if !self.is_api_login_allowed() {
+                    self.disallow_api_login();
+                }
+            }
         }
     }
 
@@ -394,17 +436,21 @@ impl AuthModeWidget {
     }
 
     fn render_pick_mode(&self, area: Rect, buf: &mut Buffer) {
-        let mut lines: Vec<Line> = vec![
-            Line::from(vec![
-                "  ".into(),
-                "Connect a DeepSeek API key to use Whale".into(),
-            ]),
-            Line::from(vec![
-                "  ".into(),
-                "or use the legacy ChatGPT integration".into(),
-            ]),
-            "".into(),
-        ];
+        let mut lines: Vec<Line> = if self.bedrock_setup_enabled {
+            vec!["  Choose how you want to use Codex.".into(), "".into()]
+        } else {
+            vec![
+                Line::from(vec![
+                    "  ".into(),
+                    "Sign in with ChatGPT to use Codex as part of your paid plan".into(),
+                ]),
+                Line::from(vec![
+                    "  ".into(),
+                    "or connect an API key for usage-based billing".into(),
+                ]),
+                "".into(),
+            ]
+        };
 
         let create_mode_item = |idx: usize,
                                 selected_mode: SignInOption,
@@ -438,7 +484,7 @@ impl AuthModeWidget {
         let chatgpt_description = if !self.is_chatgpt_login_allowed() {
             "ChatGPT login is disabled"
         } else {
-            "Legacy ChatGPT plan login"
+            "Usage included with Plus, Pro, Business, and Enterprise plans"
         };
         let device_code_description = "Sign in from another device with a one-time code";
 
@@ -448,7 +494,7 @@ impl AuthModeWidget {
                     lines.extend(create_mode_item(
                         idx,
                         option,
-                        "Sign in with legacy ChatGPT",
+                        "Sign in with ChatGPT",
                         chatgpt_description,
                     ));
                 }
@@ -464,8 +510,20 @@ impl AuthModeWidget {
                     lines.extend(create_mode_item(
                         idx,
                         option,
-                        "Provide your DeepSeek API key",
+                        if self.bedrock_setup_enabled {
+                            "Use an OpenAI API key"
+                        } else {
+                            "Provide your own API key"
+                        },
                         "Pay for what you use",
+                    ));
+                }
+                SignInOption::Bedrock => {
+                    lines.extend(create_mode_item(
+                        idx,
+                        option,
+                        "Use Amazon Bedrock",
+                        "Connect using your AWS credentials",
                     ));
                 }
             }
@@ -474,7 +532,7 @@ impl AuthModeWidget {
 
         if !self.is_api_login_allowed() {
             lines.push(
-                "  API key login is disabled by this workspace. Legacy ChatGPT sign-in is required."
+                "  API key login is disabled by this workspace. Sign in with ChatGPT to continue."
                     .dim()
                     .into(),
             );
@@ -553,8 +611,8 @@ impl AuthModeWidget {
     fn render_chatgpt_success_message(&self, area: Rect, buf: &mut Buffer) {
         let mut docs_line = HyperlinkLine::new(Line::from("  For more details see the ").dim());
         docs_line.push_span(
-            "Whale docs".underlined(),
-            Some("https://github.com/ceasarXuu/WhaleCode"),
+            "Codex docs".underlined(),
+            Some("https://developers.openai.com/codex/security"),
         );
         let mut preferences_line =
             HyperlinkLine::new(Line::from("  Uses your plan's rate limits and ").dim());
@@ -572,10 +630,10 @@ impl AuthModeWidget {
             "".into(),
             "  Before you start:".into(),
             "".into(),
-            "  Decide how much autonomy you want to grant Whale".into(),
+            "  Decide how much autonomy you want to grant Codex".into(),
             docs_line,
             "".into(),
-            "  Whale can make mistakes".into(),
+            "  Codex can make mistakes".into(),
             HyperlinkLine::new(
                 "  Review the code it writes and commands it runs"
                     .dim()
@@ -614,7 +672,7 @@ impl AuthModeWidget {
         let lines = vec![
             "✓ API key configured".fg(Color::Green).into(),
             "".into(),
-            "  Whale will use usage-based billing with your API key.".into(),
+            "  Codex will use usage-based billing with your API key.".into(),
         ];
 
         Paragraph::new(lines)
@@ -633,14 +691,14 @@ impl AuthModeWidget {
         let mut intro_lines: Vec<Line> = vec![
             Line::from(vec![
                 "> ".into(),
-                "Use your DeepSeek API key for usage-based billing".bold(),
+                "Use your own OpenAI API key for usage-based billing".bold(),
             ]),
             "".into(),
             "  Paste or type your API key below. It will be stored locally in auth.json.".into(),
             "".into(),
         ];
         if state.prepopulated_from_env {
-            intro_lines.push("  Detected DEEPSEEK_API_KEY environment variable.".into());
+            intro_lines.push("  Detected OPENAI_API_KEY environment variable.".into());
             intro_lines.push(
                 "  Paste a different key if you prefer to use another account."
                     .dim()
@@ -781,7 +839,7 @@ impl AuthModeWidget {
             return;
         }
         self.set_error(/*message*/ None);
-        let prefill_from_env = read_deepseek_api_key_from_env();
+        let prefill_from_env = read_openai_api_key_from_env();
         let mut guard = self.sign_in_state.write().unwrap();
         match &mut *guard {
             SignInState::ApiKeyEntry(state) => {
@@ -819,13 +877,13 @@ impl AuthModeWidget {
             match request_handle
                 .request_typed::<LoginAccountResponse>(ClientRequest::LoginAccount {
                     request_id: onboarding_request_id(),
-                    params: LoginAccountParams::DeepseekApiKey {
+                    params: LoginAccountParams::ApiKey {
                         api_key: api_key.clone(),
                     },
                 })
                 .await
             {
-                Ok(LoginAccountResponse::DeepseekApiKey {}) => {
+                Ok(LoginAccountResponse::ApiKey {}) => {
                     *error.write().unwrap() = None;
                     *sign_in_state.write().unwrap() = SignInState::ApiKeyConfigured;
                 }
@@ -964,6 +1022,7 @@ impl AuthModeWidget {
                     ApiAuthMode::AgentIdentity => AuthMode::AgentIdentity,
                     ApiAuthMode::PersonalAccessToken => AuthMode::PersonalAccessToken,
                     ApiAuthMode::BedrockApiKey => AuthMode::BedrockApiKey,
+                    ApiAuthMode::BedrockAccessKeys => AuthMode::BedrockAccessKeys,
                 })
             })
             .unwrap_or(LoginStatus::NotAuthenticated);
@@ -978,8 +1037,11 @@ impl StepStateProvider for AuthModeWidget {
             | SignInState::ApiKeyEntry(_)
             | SignInState::ChatGptContinueInBrowser(_)
             | SignInState::ChatGptDeviceCode(_)
-            | SignInState::ChatGptSuccessMessage => StepState::InProgress,
-            SignInState::ChatGptSuccess | SignInState::ApiKeyConfigured => StepState::Complete,
+            | SignInState::ChatGptSuccessMessage
+            | SignInState::Bedrock(_) => StepState::InProgress,
+            SignInState::ChatGptSuccess
+            | SignInState::ApiKeyConfigured
+            | SignInState::BedrockConfigured => StepState::Complete,
         }
     }
 }
@@ -1008,6 +1070,14 @@ impl WidgetRef for AuthModeWidget {
             }
             SignInState::ApiKeyConfigured => {
                 self.render_api_key_configured(area, buf);
+            }
+            SignInState::Bedrock(state) => {
+                state.render(area, buf, self.error_message());
+            }
+            SignInState::BedrockConfigured => {
+                Paragraph::new("✓ Amazon Bedrock configured".green())
+                    .wrap(Wrap { trim: false })
+                    .render(area, buf);
             }
         }
     }
@@ -1101,6 +1171,7 @@ mod tests {
             login_status: LoginStatus::NotAuthenticated,
             app_server_request_handle: AppServerRequestHandle::InProcess(client.request_handle()),
             auth_config,
+            bedrock_setup_enabled: false,
             animations_enabled: true,
             animations_suppressed: std::cell::Cell::new(false),
         };
@@ -1121,6 +1192,70 @@ mod tests {
             &*widget.sign_in_state.read().unwrap(),
             SignInState::PickMode
         ));
+    }
+
+    #[tokio::test]
+    async fn bedrock_option_requires_feature_and_api_login_permission() {
+        let (mut widget, _tmp) = widget_forced_chatgpt().await;
+        widget.auth_config.forced_login_method = None;
+        assert_eq!(
+            widget.displayed_sign_in_options(),
+            vec![
+                SignInOption::ChatGpt,
+                SignInOption::DeviceCode,
+                SignInOption::ApiKey,
+            ]
+        );
+
+        widget.bedrock_setup_enabled = true;
+        assert_eq!(
+            widget.displayed_sign_in_options(),
+            vec![
+                SignInOption::ChatGpt,
+                SignInOption::DeviceCode,
+                SignInOption::ApiKey,
+                SignInOption::Bedrock,
+            ]
+        );
+
+        let area = Rect::new(0, 0, 76, 19);
+        let mut buffer = Buffer::empty(area);
+        widget.render_pick_mode(area, &mut buffer);
+        let mut rows = (area.top()..area.bottom())
+            .map(|row| {
+                (area.left()..area.right())
+                    .map(|column| buffer[(column, row)].symbol())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+        while rows.last().is_some_and(String::is_empty) {
+            rows.pop();
+        }
+        insta::assert_snapshot!(rows.join("\n"), @r###"
+          Choose how you want to use Codex.
+
+        > 1. Sign in with ChatGPT
+             Usage included with Plus, Pro, Business, and Enterprise plans
+
+          2. Sign in with Device Code
+             Sign in from another device with a one-time code
+
+          3. Use an OpenAI API key
+             Pay for what you use
+
+          4. Use Amazon Bedrock
+             Connect using your AWS credentials
+
+          Press enter to continue
+        "###);
+
+        widget.auth_config.forced_login_method = Some(ForcedLoginMethod::Chatgpt);
+        assert_eq!(
+            widget.displayed_sign_in_options(),
+            vec![SignInOption::ChatGpt, SignInOption::DeviceCode]
+        );
     }
 
     #[tokio::test]
@@ -1264,8 +1399,8 @@ mod tests {
         widget.render_chatgpt_success_message(area, &mut buf);
 
         assert_eq!(
-            collect_osc8_chars(&buf, area, "https://github.com/ceasarXuu/WhaleCode"),
-            "Whale docs"
+            collect_osc8_chars(&buf, area, "https://developers.openai.com/codex/security"),
+            "Codex docs"
         );
         assert_eq!(
             collect_osc8_chars(&buf, area, "https://chatgpt.com/#settings"),
@@ -1304,10 +1439,10 @@ mod tests {
 
           Before you start:
 
-          Decide how much autonomy you want to grant Whale
-          For more details see the Whale docs
+          Decide how much autonomy you want to grant Codex
+          For more details see the Codex docs
 
-          Whale can make mistakes
+          Codex can make mistakes
           Review the code it writes and commands it runs
 
           Powered by your ChatGPT account

@@ -564,7 +564,7 @@
       ]
     },
     {
-      "apply_status": "overlap-clean",
+      "apply_status": "index-path-absent",
       "cutover_batch": "batch-1-brand-home",
       "disposition": "adapt-semantically",
       "owner_domain": "brand-home",
@@ -3385,7 +3385,8 @@
   "source": "git-apply-check-3way-against-index",
   "summary": {
     "by_apply_status": {
-      "overlap-clean": 241,
+      "index-path-absent": 1,
+      "overlap-clean": 240,
       "patch-apply-failure": 1,
       "three-way-conflict": 64
     },

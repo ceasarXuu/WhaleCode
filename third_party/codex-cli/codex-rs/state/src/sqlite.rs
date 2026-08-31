@@ -9,6 +9,7 @@ use crate::DbTelemetry;
 use crate::migrations::repair_legacy_recency_migration_version;
 use crate::migrations::repair_legacy_whale_taskspace_migrations;
 use crate::migrations::repair_whale_0147_taskspace_migration_versions;
+use crate::migrations::repair_whale_0149_taskspace_migration_versions;
 use crate::runtime::RuntimeDbInitError;
 use crate::telemetry;
 use crate::telemetry::DbKind;
@@ -255,6 +256,7 @@ impl SqliteConfig {
         let started = Instant::now();
         let migrate_result = async {
             if matches!(spec.kind, DbKind::State) {
+                repair_whale_0149_taskspace_migration_versions(&pool, migrator).await?;
                 repair_whale_0147_taskspace_migration_versions(&pool, migrator).await?;
                 repair_legacy_whale_taskspace_migrations(&pool, migrator).await?;
                 repair_legacy_recency_migration_version(&pool, migrator).await?;
@@ -295,12 +297,19 @@ impl SqliteConfig {
     }
 
     /// Open an existing Codex SQLite database without creating or modifying it.
-    pub async fn open_read_only_pool(&self, path: &Path) -> Result<SqlitePool, Error> {
-        let options = SqliteConnectOptions::new()
+    pub async fn open_read_only_pool(
+        &self,
+        path: &Path,
+        busy_timeout: Option<Duration>,
+    ) -> Result<SqlitePool, Error> {
+        let mut options = SqliteConnectOptions::new()
             .filename(path)
             .create_if_missing(false)
             .read_only(true)
             .log_statements(LevelFilter::Off);
+        if let Some(busy_timeout) = busy_timeout {
+            options = options.busy_timeout(busy_timeout);
+        }
         SqlitePoolOptions::new()
             .max_connections(1)
             .connect_with(options)
