@@ -38,6 +38,8 @@ use codex_app_server_protocol::ThreadHistoryMode;
 use codex_app_server_protocol::ThreadItem as AppServerThreadItem;
 use codex_app_server_protocol::ThreadListParams;
 use codex_app_server_protocol::ThreadListResponse;
+use codex_app_server_protocol::ThreadMapRuntimeModeSetParams;
+use codex_app_server_protocol::ThreadMapRuntimeModeSetResponse;
 use codex_app_server_protocol::ThreadReadParams;
 use codex_app_server_protocol::ThreadReadResponse;
 use codex_app_server_protocol::ThreadResumeParams;
@@ -95,6 +97,7 @@ use codex_protocol::config_types::SandboxMode;
 use codex_protocol::models::ActivePermissionProfile;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::protocol::AskForApproval;
+use codex_protocol::protocol::MapRuntimeMode;
 use codex_protocol::protocol::ReviewRequest;
 use codex_protocol::protocol::ReviewTarget;
 use codex_protocol::protocol::SessionConfiguredEvent;
@@ -223,6 +226,7 @@ struct ExecRunArgs {
     prompt: Option<String>,
     skip_git_repo_check: bool,
     stderr_with_ansi: bool,
+    taskspace: bool,
     thread_source: ThreadSource,
 }
 
@@ -259,11 +263,17 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         ignore_rules,
         color,
         last_message_file,
+        taskspace,
         json: json_mode,
         prompt,
         output_schema: output_schema_path,
         mut config_overrides,
     } = cli;
+    if taskspace {
+        config_overrides
+            .raw_overrides
+            .push("features.multi_agent_v2.enabled=true".to_string());
+    }
     let mut shared = shared.into_inner();
     shared.take_auto_review_config_overrides(&mut config_overrides);
     let SharedCliOptions {
@@ -576,6 +586,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         prompt,
         skip_git_repo_check,
         stderr_with_ansi,
+        taskspace,
         thread_source: thread_source.map(Into::into).unwrap_or(ThreadSource::User),
     })
     .instrument(exec_span)
@@ -675,6 +686,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
         prompt,
         skip_git_repo_check,
         stderr_with_ansi,
+        taskspace,
         thread_source,
     } = args;
 
@@ -928,6 +940,23 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
     // Waiting for a later streamed `SessionConfigured` event adds up to 10s of
     // avoidable startup latency on the in-process path.
     let session_configured = fallback_session_configured;
+
+    if taskspace {
+        let _: ThreadMapRuntimeModeSetResponse = send_request_with_response(
+            &client,
+            ClientRequest::ThreadMapRuntimeModeSet {
+                request_id: request_ids.next(),
+                params: ThreadMapRuntimeModeSetParams {
+                    thread_id: primary_thread_id_for_span.clone(),
+                    mode: MapRuntimeMode::Experiment,
+                    projection_policy: None,
+                },
+            },
+            "thread/mapRuntimeMode/set",
+        )
+        .await
+        .map_err(anyhow::Error::msg)?;
+    }
 
     exec_span.record("thread.id", primary_thread_id_for_span.as_str());
 

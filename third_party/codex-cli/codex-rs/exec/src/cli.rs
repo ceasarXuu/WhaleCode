@@ -73,6 +73,15 @@ pub struct Cli {
     )]
     pub last_message_file: Option<PathBuf>,
 
+    /// Internal benchmark switch for the TaskSpace runtime experiment.
+    #[arg(
+        long = "taskspace",
+        global = true,
+        default_value_t = false,
+        hide = true
+    )]
+    pub taskspace: bool,
+
     /// Initial instructions for the agent. If not provided as an argument (or
     /// if `-` is used), instructions are read from stdin. If stdin is piped and
     /// a prompt is also provided, stdin is appended as a `<stdin>` block.
