@@ -1,0 +1,184 @@
+{
+  "schema_version": 1,
+  "release_tag": "rust-v0.151.0",
+  "commit_sha": "78c290807ce710180111df227df3b7a4fe845452",
+  "tree_sha": "68d61fd9886a749a78487d8ce950e3cb9309a3d7",
+  "release_date": "2026-08-29",
+  "license_path": "LICENSE",
+  "license_sha256": "d17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc",
+  "source_method": "git-archive",
+  "source_object_verified": true,
+  "toolchain": {
+    "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)",
+    "nextest": "cargo-nextest 0.9.138 (fc97e97bb 2026-06-21)\nrelease: 0.9.138\ncommit-hash: fc97e97bbe0a3927482a694247da00c099f4269e\ncommit-date: 2026-06-21\nhost: x86_64-unknown-linux-gnu",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)"
+  },
+  "qualification_commands": [
+    {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "cwd": "codex-rs",
+      "environment": {
+        "INSTA_UPDATE": "no",
+        "NEXTEST_PROFILE": "local",
+        "RUST_MIN_STACK": "8388608"
+      },
+      "proxy_environment": "inherited",
+      "home_environment": "inherited",
+      "tmp_environment": "external",
+      "git_ceiling_directories": "inherited",
+      "child_umask": "inherited",
+      "rusty_v8_artifacts": "codex-release-verified",
+      "evidence": "docs/releases/v0.0.7/codex-upstream-sync/evidence/rust-v0.151.0/attempt-1-isolated-qualification/01-fmt.log",
+      "exit_code": 0,
+      "id": "01-fmt",
+      "result": "passed"
+    },
+    {
+      "command": [
+        "cargo",
+        "check",
+        "-p",
+        "codex-cli",
+        "--bin",
+        "codex",
+        "--offline"
+      ],
+      "cwd": "codex-rs",
+      "environment": {
+        "INSTA_UPDATE": "no",
+        "NEXTEST_PROFILE": "local",
+        "RUST_MIN_STACK": "8388608"
+      },
+      "proxy_environment": "inherited",
+      "home_environment": "inherited",
+      "tmp_environment": "external",
+      "git_ceiling_directories": "inherited",
+      "child_umask": "inherited",
+      "rusty_v8_artifacts": "codex-release-verified",
+      "evidence": "docs/releases/v0.0.7/codex-upstream-sync/evidence/rust-v0.151.0/attempt-1-isolated-qualification/02-cli-check.log",
+      "exit_code": 0,
+      "id": "02-cli-check",
+      "result": "passed"
+    },
+    {
+      "command": [
+        "cargo",
+        "build",
+        "--offline",
+        "-p",
+        "codex-code-mode-host",
+        "--bin",
+        "codex-code-mode-host"
+      ],
+      "cwd": "codex-rs",
+      "environment": {
+        "INSTA_UPDATE": "no",
+        "NEXTEST_PROFILE": "local",
+        "RUST_MIN_STACK": "8388608"
+      },
+      "proxy_environment": "inherited",
+      "home_environment": "inherited",
+      "tmp_environment": "external",
+      "git_ceiling_directories": "inherited",
+      "child_umask": "inherited",
+      "rusty_v8_artifacts": "codex-release-verified",
+      "evidence": "docs/releases/v0.0.7/codex-upstream-sync/evidence/rust-v0.151.0/attempt-1-isolated-qualification/03-code-mode-host-build.log",
+      "exit_code": 0,
+      "id": "03-code-mode-host-build",
+      "result": "passed"
+    },
+    {
+      "command": [
+        "cargo",
+        "nextest",
+        "run",
+        "--no-fail-fast",
+        "-p",
+        "codex-core"
+      ],
+      "cwd": "codex-rs",
+      "environment": {
+        "INSTA_UPDATE": "no",
+        "NEXTEST_PROFILE": "local",
+        "RUST_MIN_STACK": "8388608"
+      },
+      "proxy_environment": "scrubbed",
+      "home_environment": "inherited",
+      "tmp_environment": "external",
+      "git_ceiling_directories": "runtime-temp",
+      "child_umask": "0022",
+      "rusty_v8_artifacts": "codex-release-verified",
+      "evidence": "docs/releases/v0.0.7/codex-upstream-sync/evidence/rust-v0.151.0/attempt-1-isolated-qualification/04-core-tests.log",
+      "exit_code": 100,
+      "id": "04-core-tests",
+      "result": "failed"
+    },
+    {
+      "command": [
+        "cargo",
+        "nextest",
+        "run",
+        "--no-fail-fast",
+        "-p",
+        "codex-app-server"
+      ],
+      "cwd": "codex-rs",
+      "environment": {
+        "INSTA_UPDATE": "no",
+        "NEXTEST_PROFILE": "local",
+        "RUST_MIN_STACK": "8388608"
+      },
+      "proxy_environment": "scrubbed",
+      "home_environment": "isolated",
+      "tmp_environment": "external",
+      "git_ceiling_directories": "runtime-temp",
+      "child_umask": "0022",
+      "rusty_v8_artifacts": "codex-release-verified",
+      "evidence": "docs/releases/v0.0.7/codex-upstream-sync/evidence/rust-v0.151.0/attempt-1-isolated-qualification/05-app-server-tests.log",
+      "exit_code": 100,
+      "id": "05-app-server-tests",
+      "result": "failed"
+    },
+    {
+      "command": [
+        "cargo",
+        "nextest",
+        "run",
+        "--no-fail-fast",
+        "-p",
+        "codex-tui"
+      ],
+      "cwd": "codex-rs",
+      "environment": {
+        "INSTA_UPDATE": "no",
+        "NEXTEST_PROFILE": "local",
+        "RUST_MIN_STACK": "8388608"
+      },
+      "proxy_environment": "scrubbed",
+      "home_environment": "inherited",
+      "tmp_environment": "external",
+      "git_ceiling_directories": "runtime-temp",
+      "child_umask": "0022",
+      "rusty_v8_artifacts": "codex-release-verified",
+      "evidence": "docs/releases/v0.0.7/codex-upstream-sync/evidence/rust-v0.151.0/attempt-1-isolated-qualification/06-tui-tests.log",
+      "exit_code": 100,
+      "id": "06-tui-tests",
+      "result": "failed"
+    }
+  ],
+  "production_vendor_unchanged": true,
+  "model_request_count": 0,
+  "summary": {
+    "command_count": 6,
+    "by_result": {
+      "failed": 3,
+      "passed": 3
+    }
+  }
+}
