@@ -1,6 +1,6 @@
 # WhaleCode v0.0.7 Codex CLI 0.151 主线追赶计划
 
-- Status: blocked-on-plan-approval（Phase B）
+- Status: in-progress（Phase B / W3）
 - Plan Validity: valid-with-qualifications
 - Created: 2026-08-31
 - Product Authority: [`prd/2026-08-23-v0.0.6-multi-provider.md#confirmed-product-decisions`](../../../../prd/2026-08-23-v0.0.6-multi-provider.md#confirmed-product-decisions)
@@ -17,6 +17,7 @@
 - 每个物质 Phase 结束后只审计该阶段的 Product Decision Delta；每个物质 Phase 开始前必须用已完成实现和证据 rebase 全部剩余计划。
 - Pre-Phase Plan Rebase Gate 为 `pending` 或 `blocked-on-plan-approval` 时不得开始该 Phase。
 - 设计方向、范围、模块/API/状态边界、工作单元、顺序、验证、回滚、收益、成本或风险发生物质变化时，必须记录 Plan Delta 并获得用户明确批准后才能继续。
+- 纯工程范围、工作量、冲突数量或验证成本变化只需记录并由执行 Agent 治理，不要求用户批准；只有涉及产品逻辑、用户可见行为、状态权威或默认配置的 Plan Delta 才进入用户审批门。
 - 不创建新分支；不触碰其他工作空间；不自动触发 GitHub Actions。真实模型运行仍受账本和预算门禁约束，本计划本身不授权任何付费请求。
 
 ## 2. Current And Expected Behavior
@@ -122,8 +123,8 @@
 - Rebase scope: Phase A 证据、最终 replay batches、当前 production vendor
 - Material plan delta: PDL1（replay 范围由旧清单 292/115 扩为真实 883/306）
 - Plan delta record: PDL1
-- User approval: pending
-- Gate status: blocked-on-plan-approval
+- User approval: not-required（engineering-only；用户于 2026-09-01 明确授权此类变化由 Agent 自行治理）
+- Gate status: ready
 
 - Entry: Phase A verified，方向为 supported，所有通用冲突已归属。
 - Exit: vendor 指向 0.151；通用 build/identity/workspace/security/exec 定向验证通过；Provider/TaskSpace 未被误宣称完成。
@@ -175,7 +176,7 @@
 
 | ID | Before Phase | Previous Plan | Current Fact | Proposed Change | Impact | User Approval | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| PDL1 | Phase B | 以旧的 292 条 overlay、115 个上游交集估算 W3–W5 replay 范围 | v0.0.6 最终 index 形成 883 条 overlay；0.151 有 306 个交集、64 个三方冲突和 1 个硬套用失败 | 保持 W3/W4/W5 架构与顺序不变，改用新生成的 883 条 replay ledger 作为执行全集；每阶段只处理归属自身 batch 的路径 | 不增加产品功能或新架构，但机械 replay、人工复核和回归成本显著增加；Phase B 前需重新确认继续投入 | pending | approval-required |
+| PDL1 | Phase B | 以旧的 292 条 overlay、115 个上游交集估算 W3–W5 replay 范围 | v0.0.6 最终 index 形成 883 条 overlay；0.151 有 306 个交集、64 个三方冲突和 1 个硬套用失败 | 保持 W3/W4/W5 架构与顺序不变，改用新生成的 883 条 replay ledger 作为执行全集；每阶段只处理归属自身 batch 的路径 | 不增加产品功能或新架构，但机械 replay、人工复核和回归成本显著增加 | not-required（engineering-only，2026-09-01 用户确认） | accepted |
 
 每个 Phase 开始前必须在此记录物质变化，禁止静默改计划后继续执行。
 
