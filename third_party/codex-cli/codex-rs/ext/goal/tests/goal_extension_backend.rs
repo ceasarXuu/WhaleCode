@@ -1469,6 +1469,7 @@ async fn installed_tools_with_start(
             .on_thread_start(ThreadStartInput {
                 config: &(),
                 session_source: &session_source,
+                forked_from_thread_id: None,
                 persistent_thread_state_available,
                 environments: &[],
                 mcp_resource_client: None,
@@ -1527,6 +1528,7 @@ impl GoalExtensionHarness {
                 .on_thread_start(ThreadStartInput {
                     config: &(),
                     session_source: &session_source,
+                    forked_from_thread_id: None,
                     persistent_thread_state_available: true,
                     environments: &[],
                     mcp_resource_client: None,
@@ -1570,6 +1572,7 @@ impl GoalExtensionHarness {
                 .on_thread_start(ThreadStartInput {
                     config: &(),
                     session_source: &session_source,
+                    forked_from_thread_id: None,
                     persistent_thread_state_available: true,
                     environments: &[],
                     mcp_resource_client: None,

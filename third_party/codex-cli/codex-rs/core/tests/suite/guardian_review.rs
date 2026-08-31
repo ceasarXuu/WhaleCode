@@ -261,6 +261,14 @@ async fn guardian_session_prewarms_and_is_reused_for_first_review(
         .expect("catalog Guardian policy template");
     let expected_guardian_policy =
         catalog_template.replace("{{ tenant_policy_config }}", catalog_policy.trim());
+    let mut root_model = bundled_models
+        .iter()
+        .find(|model| model.slug == "gpt-5.5")
+        .expect("bundled parent model")
+        .clone();
+    root_model.auto_review_model_override = Some(expected_model.to_string());
+    root_model.service_tiers.clear();
+    root_model.default_service_tier = None;
     let review_model = bundled_models
         .into_iter()
         .find(|model| model.slug == expected_model)
@@ -341,7 +349,7 @@ async fn guardian_session_prewarms_and_is_reused_for_first_review(
             )
             .expect("write execution policy rule");
             config.model_catalog = Some(ModelsResponse {
-                models: vec![review_model],
+                models: vec![root_model, review_model],
             });
             config.model_context_window = Some(900_000);
             config.model_auto_compact_token_limit = Some(600_000);

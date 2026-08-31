@@ -78,6 +78,8 @@ fn personal_access_token_exec_command(server: &MockServer, home: &TempDir) -> Co
         .arg("-c")
         .arg("model_provider=\"openai\"")
         .arg("-c")
+        .arg("model=\"gpt-5.5\"")
+        .arg("-c")
         .arg(format!("chatgpt_base_url=\"{}/backend-api\"", server.uri()))
         .arg("-C")
         .arg(repo_root())
@@ -157,7 +159,6 @@ async fn responses_mode_stream_cli_supports_personal_access_tokens() {
 
     let mut cmd = personal_access_token_exec_command(&server, &home);
     let output = run_cli_command(&mut cmd).unwrap();
-
     assert!(
         output.status.success(),
         "codex-cli exec failed: {}",

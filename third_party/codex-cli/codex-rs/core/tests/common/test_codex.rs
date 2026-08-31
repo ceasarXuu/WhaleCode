@@ -840,6 +840,14 @@ impl TestCodexBuilder {
         // Keep generic tests stable when the bundled catalog default changes. Tests that need a
         // specific model can still override this with a config mutator.
         config.model = Some("gpt-5.5".to_string());
+        // Keep the mock provider out of the built-in route registry. Binding the mock to the
+        // reserved `openai` id makes resume tests persist a real API-key route and then require
+        // credentials that these local wiremock fixtures intentionally do not configure.
+        config.model_provider_id = "test-openai".to_string();
+        config.model_provider_access_method = None;
+        config
+            .model_providers
+            .insert("test-openai".to_string(), model_provider.clone());
         config.cwd = cwd_override;
         config.model_provider = model_provider;
         if let Ok(path) = codex_utils_cargo_bin::cargo_bin("whale") {

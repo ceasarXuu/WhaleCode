@@ -51,6 +51,7 @@ use core_test_support::responses::ev_completed;
 use core_test_support::responses::ev_response_created;
 use core_test_support::responses::start_websocket_server;
 use core_test_support::responses::start_websocket_server_with_headers;
+use core_test_support::responses::strip_metadata_from_json;
 use core_test_support::responses_metadata as test_responses_metadata;
 use core_test_support::skip_if_no_network;
 use core_test_support::test_codex::test_codex;
@@ -1118,7 +1119,7 @@ async fn responses_websocket_prewarm_uses_v2_when_provider_supports_websockets()
         .body_json();
     assert_eq!(prewarm["type"].as_str(), Some("response.create"));
     assert_eq!(
-        prewarm["input"],
+        strip_metadata_from_json(prewarm["input"].clone()),
         serde_json::to_value(&prompt.input).unwrap()
     );
 
@@ -1211,7 +1212,7 @@ async fn responses_websocket_v2_requests_use_v2_when_provider_supports_websocket
     assert_eq!(second["type"].as_str(), Some("response.create"));
     assert_eq!(second["previous_response_id"].as_str(), Some("resp-1"));
     assert_eq!(
-        second["input"],
+        strip_metadata_from_json(second["input"].clone()),
         serde_json::to_value(&prompt_two.input[2..]).unwrap()
     );
 
@@ -1312,7 +1313,7 @@ async fn responses_websocket_v2_incremental_requests_are_reused_across_turns() {
     assert_eq!(second["type"].as_str(), Some("response.create"));
     assert_eq!(second["previous_response_id"].as_str(), Some("resp-1"));
     assert_eq!(
-        second["input"],
+        strip_metadata_from_json(second["input"].clone()),
         serde_json::to_value(&prompt_two.input[2..]).unwrap()
     );
 
@@ -1321,7 +1322,7 @@ async fn responses_websocket_v2_incremental_requests_are_reused_across_turns() {
     assert_eq!(third["type"].as_str(), Some("response.create"));
     assert_eq!(third["previous_response_id"].as_str(), Some("resp-2"));
     assert_eq!(
-        third["input"],
+        strip_metadata_from_json(third["input"].clone()),
         serde_json::to_value(&prompt_three.input[4..]).unwrap()
     );
 
@@ -1360,7 +1361,7 @@ async fn responses_websocket_v2_wins_when_both_features_enabled() {
     assert_eq!(second["type"].as_str(), Some("response.create"));
     assert_eq!(second["previous_response_id"].as_str(), Some("resp-1"));
     assert_eq!(
-        second["input"],
+        strip_metadata_from_json(second["input"].clone()),
         serde_json::to_value(&prompt_two.input[2..]).unwrap()
     );
 
@@ -1874,7 +1875,7 @@ async fn responses_websocket_uses_incremental_create_on_prefix() {
     assert_eq!(second["type"].as_str(), Some("response.create"));
     assert_eq!(second["previous_response_id"].as_str(), Some("resp-1"));
     assert_eq!(
-        second["input"],
+        strip_metadata_from_json(second["input"].clone()),
         serde_json::to_value(&prompt_two.input[2..]).expect("serialize incremental items")
     );
 
@@ -1933,7 +1934,7 @@ async fn responses_lite_websocket_uses_incremental_create_on_prefix() {
     assert_eq!(first_input[2]["id"], "msg_supplied");
     assert_eq!(second["previous_response_id"].as_str(), Some("resp-1"));
     assert_eq!(
-        second["input"],
+        strip_metadata_from_json(second["input"].clone()),
         serde_json::to_value(&prompt_two.input[2..]).expect("serialize incremental items")
     );
 
@@ -2107,7 +2108,7 @@ async fn responses_websocket_uses_previous_response_id_when_prefix_after_complet
     assert_eq!(second["type"].as_str(), Some("response.create"));
     assert_eq!(second["previous_response_id"].as_str(), Some("resp-1"));
     assert_eq!(
-        second["input"],
+        strip_metadata_from_json(second["input"].clone()),
         serde_json::to_value(&prompt_two.input[2..]).expect("serialize incremental input")
     );
 
@@ -2140,7 +2141,7 @@ async fn responses_websocket_creates_on_non_prefix() {
     assert_eq!(second["model"].as_str(), Some(MODEL));
     assert_eq!(second["stream"], serde_json::Value::Bool(true));
     assert_eq!(
-        second["input"],
+        strip_metadata_from_json(second["input"].clone()),
         serde_json::to_value(&prompt_two.input).unwrap()
     );
 
@@ -2176,7 +2177,7 @@ async fn responses_websocket_creates_when_non_input_request_fields_change() {
     assert_eq!(second["type"].as_str(), Some("response.create"));
     assert_eq!(second.get("previous_response_id"), None);
     assert_eq!(
-        second["input"],
+        strip_metadata_from_json(second["input"].clone()),
         serde_json::to_value(&prompt_two.input).expect("serialize full input")
     );
 
@@ -2218,7 +2219,7 @@ async fn responses_websocket_v2_creates_with_previous_response_id_on_prefix() {
     assert_eq!(second["type"].as_str(), Some("response.create"));
     assert_eq!(second["previous_response_id"].as_str(), Some("resp-1"));
     assert_eq!(
-        second["input"],
+        strip_metadata_from_json(second["input"].clone()),
         serde_json::to_value(&prompt_two.input[2..]).unwrap()
     );
 
@@ -2255,7 +2256,7 @@ async fn responses_websocket_v2_creates_without_previous_response_id_when_non_in
     assert_eq!(second["type"].as_str(), Some("response.create"));
     assert_eq!(second.get("previous_response_id"), None);
     assert_eq!(
-        second["input"],
+        strip_metadata_from_json(second["input"].clone()),
         serde_json::to_value(&prompt_two.input).expect("serialize full input")
     );
 
@@ -2347,7 +2348,7 @@ async fn responses_websocket_v2_after_error_uses_full_create_without_previous_re
     assert_eq!(third["type"].as_str(), Some("response.create"));
     assert_eq!(third.get("previous_response_id"), None);
     assert_eq!(
-        third["input"],
+        strip_metadata_from_json(third["input"].clone()),
         serde_json::to_value(&prompt_three.input).unwrap()
     );
 

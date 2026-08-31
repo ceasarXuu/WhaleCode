@@ -22,6 +22,7 @@ use codex_models_manager::manager::StaticModelsManager;
 use codex_protocol::ProviderAccessMethod;
 use codex_protocol::ProviderRoute;
 use codex_protocol::account::ProviderAccount;
+use codex_protocol::auth::AuthMode;
 use codex_protocol::error::CodexErr;
 use codex_protocol::openai_models::ModelsResponse;
 use http::HeaderValue;
@@ -424,6 +425,20 @@ impl ModelProvider for ConfiguredModelProvider {
             remote_compaction,
             ..ProviderCapabilities::default()
         }
+    }
+
+    fn api_provider(&self) -> ModelProviderFuture<'_, codex_protocol::error::Result<Provider>> {
+        Box::pin(async move {
+            let auth = self.auth().await;
+            let auth_mode = match self.route.as_ref().map(|route| route.access_method) {
+                Some(ProviderAccessMethod::ApiKey) => Some(AuthMode::ApiKey),
+                Some(ProviderAccessMethod::Chatgpt) => Some(AuthMode::Chatgpt),
+                None => auth.as_ref().map(CodexAuth::auth_mode),
+            };
+            let mut provider = self.info.to_api_provider(auth_mode)?;
+            enforce_managed_residency(&mut provider);
+            Ok(provider)
+        })
     }
 
     fn approval_review_preferred_model(&self) -> &'static str {

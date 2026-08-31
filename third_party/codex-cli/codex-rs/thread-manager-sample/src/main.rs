@@ -195,6 +195,7 @@ fn new_config(model: Option<String>, arg0_paths: Arg0DispatchPaths) -> anyhow::R
         model_auto_compact_token_limit: None,
         model_auto_compact_token_limit_scope: AutoCompactTokenLimitScope::Total,
         model_provider_id,
+        model_provider_access_method: None,
         model_provider,
         personality: None,
         permissions: Permissions::from_approval_and_profile(

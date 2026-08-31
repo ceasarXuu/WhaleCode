@@ -945,6 +945,7 @@ mod tests {
                 network: None,
                 file_system_sandbox_policy: None,
                 model: model.to_string(),
+                route: None,
                 comp_hash: None,
                 personality: None,
                 collaboration_mode: None,

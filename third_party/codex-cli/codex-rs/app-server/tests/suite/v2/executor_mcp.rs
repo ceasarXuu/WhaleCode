@@ -1,6 +1,7 @@
 use anyhow::Result;
 use app_test_support::MockResponsesConfig;
 use app_test_support::TestAppServer;
+use app_test_support::write_models_cache;
 use axum::Json;
 use axum::Router;
 use axum::body::Bytes;
@@ -126,8 +127,10 @@ async fn selected_executor_discovers_browser_mcp_with_executor_only_bearer_token
     let codex_home = TempDir::new()?;
     let executor_home = TempDir::new()?;
     MockResponsesConfig::new(&responses_server.uri())
+        .with_model("gpt-5.6-sol")
         .with_sandbox_mode("danger-full-access")
         .write(codex_home.path())?;
+    write_models_cache(codex_home.path())?;
     std::fs::write(
         codex_home.path().join("requirements.toml"),
         format!(
@@ -146,7 +149,7 @@ async fn selected_executor_discovers_browser_mcp_with_executor_only_bearer_token
         .args(["exec-server", "--listen", "ws://127.0.0.1:0"])
         .stdout(Stdio::piped())
         .kill_on_drop(true)
-        .env("CODEX_HOME", executor_home.path())
+        .env("WHALE_HOME", executor_home.path())
         .env(PROJECT_MCP_BEARER_ENV_NAME, PROJECT_MCP_BEARER_TOKEN)
         .env("HTTP_PROXY", format!("http://{http_addr}"))
         .spawn()?;
@@ -275,9 +278,11 @@ async fn legacy_executor_skips_required_browser_and_keeps_host_owned_mcp() -> Re
         "[mcp_servers.host_remote]\nurl = \"{mcp_url}\"\nenvironment_id = \"{EXECUTOR_ID}\"\nbearer_token_env_var = \"HOST_MCP_TEST_TOKEN\"\nrequired = true\n"
     );
     MockResponsesConfig::new(&responses_server.uri())
+        .with_model("gpt-5.6-sol")
         .with_sandbox_mode("danger-full-access")
         .with_extra_config(&root_config)
         .write(codex_home.path())?;
+    write_models_cache(codex_home.path())?;
     std::fs::write(
         executor_home.path().join("config.toml"),
         format!(
@@ -289,7 +294,7 @@ async fn legacy_executor_skips_required_browser_and_keeps_host_owned_mcp() -> Re
         .args(["exec-server", "--listen", "ws://127.0.0.1:0"])
         .stdout(Stdio::piped())
         .kill_on_drop(true)
-        .env("CODEX_HOME", executor_home.path())
+        .env("WHALE_HOME", executor_home.path())
         .spawn()?;
     let stdout = executor.stdout.take().expect("executor stdout is piped");
     let mut lines = BufReader::new(stdout).lines();
@@ -426,6 +431,7 @@ async fn guardian_review_does_not_discover_executor_mcp() -> Result<()> {
         .with_root_config("approvals_reviewer = \"auto_review\"")
         .enable_feature(Feature::GuardianApproval)
         .write(codex_home.path())?;
+    write_models_cache(codex_home.path())?;
     std::fs::write(executor_home.path().join("config.toml"), "")?;
     let codex_bin = toml::Value::String(
         codex_utils_cargo_bin::cargo_bin("codex")?
@@ -437,7 +443,7 @@ async fn guardian_review_does_not_discover_executor_mcp() -> Result<()> {
     std::fs::write(
         codex_home.path().join("environments.toml"),
         format!(
-            "default = \"{EXECUTOR_ID}\"\ninclude_local = false\n\n[[environments]]\nid = \"{EXECUTOR_ID}\"\nprogram = {codex_bin}\nargs = [\"exec-server\", \"--listen\", \"stdio\"]\n[environments.env]\nCODEX_HOME = {executor_home_value}\n"
+            "default = \"{EXECUTOR_ID}\"\ninclude_local = false\n\n[[environments]]\nid = \"{EXECUTOR_ID}\"\nprogram = {codex_bin}\nargs = [\"exec-server\", \"--listen\", \"stdio\"]\n[environments.env]\nWHALE_HOME = {executor_home_value}\n"
         ),
     )?;
     let mut app_server = TestAppServer::builder()
@@ -647,9 +653,11 @@ async fn selected_executor_plugin_exposes_its_mcps_only_to_that_thread() -> Resu
         "compact_prompt = \"compact\"\nmodel_auto_compact_token_limit = 1024\nmcp_oauth_credentials_store = \"file\"\nmcp_oauth_callback_port = {global_callback_port}"
     );
     MockResponsesConfig::new(&responses_server.uri())
+        .with_model("gpt-5.6-sol")
         .with_root_config(&root_config)
         .with_provider_config("supports_websockets = false")
         .write(codex_home.path())?;
+    write_models_cache(codex_home.path())?;
     let executor_config: codex_config::types::McpServerConfig = serde_json::from_value(json!({
         "url": EXECUTOR_OAUTH_MCP_URL,
         "environment_id": EXECUTOR_ID,
@@ -672,7 +680,7 @@ async fn selected_executor_plugin_exposes_its_mcps_only_to_that_thread() -> Resu
         .args(["exec-server", "--listen", "ws://127.0.0.1:0"])
         .stdout(Stdio::piped())
         .kill_on_drop(true)
-        .env("CODEX_HOME", executor_home.path())
+        .env("WHALE_HOME", executor_home.path())
         .env(EXECUTOR_ENV_NAME, EXECUTOR_ENV_VALUE)
         .env(EXECUTOR_HTTP_AUTH_ENV_NAME, EXECUTOR_HTTP_AUTH_ENV_VALUE)
         .env("HTTP_PROXY", format!("http://{http_addr}"))
@@ -863,7 +871,7 @@ startup_timeout_sec = 10
     let registration_request = timeout(DEFAULT_READ_TIMEOUT, registration_request_rx.recv())
         .await?
         .expect("executor registration endpoint should receive a request");
-    assert_eq!(registration_request["client_name"], json!("Codex"));
+    assert_eq!(registration_request["client_name"], json!("Whale"));
     assert_eq!(
         registration_request["redirect_uris"],
         json!([redirect_uri.clone()])
@@ -1157,7 +1165,7 @@ async fn start_thread(
 ) -> Result<String> {
     let request_id = app_server
         .send_thread_start_request(ThreadStartParams {
-            model: Some("mock-model".to_string()),
+            model: Some("gpt-5.6-sol".to_string()),
             selected_capability_roots,
             ..Default::default()
         })

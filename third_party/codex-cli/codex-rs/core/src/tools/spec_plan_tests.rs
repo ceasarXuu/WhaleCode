@@ -219,6 +219,9 @@ async fn probe_with(
     inputs: ToolPlanInputs,
 ) -> ToolPlanProbe {
     let (_session, mut turn) = make_session_and_context().await;
+    // These upstream tool-planning tests exercise the OpenAI namespace contract.
+    // Whale defaults new sessions to DeepSeek, so make the intended provider explicit.
+    use_openai_provider(&mut turn);
     configure_turn(&mut turn);
     ToolPlanProbe::from_router(plan_with_model(&turn, turn.model_info(), inputs))
 }
@@ -1877,6 +1880,7 @@ async fn strict_tool_collisions_reject_external_and_synthetic_duplicates() {
         cases.into_iter().chain(namespace_cases)
     {
         let (_session, mut turn) = make_session_and_context().await;
+        use_openai_provider(&mut turn);
         update_config(&mut turn, |config| {
             config.tool_registry.error_on_tool_collisions = true;
         });

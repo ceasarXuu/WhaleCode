@@ -110,6 +110,7 @@ async fn task_context_recovers_prior_requests_and_explicit_intent_without_changi
             .on_thread_start(ThreadStartInput {
                 config: &config,
                 session_source: &SessionSource::Cli,
+                forked_from_thread_id: None,
                 persistent_thread_state_available: true,
                 environments: &[],
                 mcp_resource_client: None,

@@ -65,7 +65,9 @@ def _repo_root() -> Path:
 def _isolated_environment(runtime_root: Path) -> dict[str, str]:
     temporary_root = runtime_root / "tmp"
     temporary_root.mkdir(mode=0o700)
-    environment = _qualification_environment()
+    isolated_home = runtime_root / "home"
+    isolated_home.mkdir(mode=0o700)
+    environment = _qualification_environment(isolated_home=isolated_home)
     for key, value in _cached_rusty_v8_environment().items():
         environment.setdefault(key, value)
     environment["TMPDIR"] = str(temporary_root)
@@ -134,6 +136,8 @@ def _selected_packages(arguments: list[str]) -> set[str]:
 def _runtime_helper_commands(arguments: list[str]) -> list[list[str]]:
     packages = _selected_packages(arguments)
     commands: list[list[str]] = []
+    if not packages or packages.intersection({"codex-core", "codex-app-server"}):
+        commands.append(["cargo", "build", "-p", "codex-cli", "--bin", "whale"])
     if not packages or "codex-core" in packages:
         commands.append(
             ["cargo", "build", "-p", "codex-rmcp-client", "--bin", "test_stdio_server"]
@@ -160,6 +164,9 @@ def main(arguments: list[str] | None = None) -> int:
         ) as runtime:
             runtime_root = Path(runtime)
             environment = _isolated_environment(runtime_root)
+            environment["CARGO_BIN_EXE_codex"] = str(
+                codex_root / "target" / "debug" / "whale"
+            )
             for helper_command in _runtime_helper_commands(test_arguments):
                 helper = subprocess.run(
                     helper_command,

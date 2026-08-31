@@ -2492,6 +2492,11 @@ impl AuthManager {
     ) -> std::io::Result<Option<CodexAuth>> {
         match (route.model_provider_id.as_str(), route.access_method) {
             (OPENAI_PROVIDER_ID, ProviderAccessMethod::ApiKey) => {
+                // Personal access tokens authenticate like ChatGPT credentials, but upstream
+                // permits them on the explicitly selected OpenAI API endpoint.
+                if matches!(self.auth_cached(), Some(CodexAuth::PersonalAccessToken(_))) {
+                    return Ok(self.auth().await);
+                }
                 let stored = self.load_stored_auth()?;
                 Ok(read_openai_api_key_from_env()
                     .or_else(|| stored.and_then(|auth| auth.openai_api_key))

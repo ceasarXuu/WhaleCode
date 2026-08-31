@@ -65,6 +65,7 @@ fn activation_models() -> Vec<ModelInfo> {
         .into_iter()
         .map(|slug| ModelInfo {
             slug: slug.to_string(),
+            used_fallback_model_metadata: false,
             ..model.clone()
         })
         .collect()
@@ -204,7 +205,7 @@ async fn activation_fixture(models: Vec<ModelInfo>) -> ActivationFixture {
     let mut session = Arc::new(session);
     let mutable = Arc::get_mut(&mut session).expect("unshared test session");
     let (models, lookup) = GatedModelsManager::new(models);
-    mutable.services.models_manager = models;
+    mutable.services.models_manager = models.clone();
     for feature in [
         Feature::StepModelSwitching,
         Feature::FastMode,
@@ -216,6 +217,7 @@ async fn activation_fixture(models: Vec<ModelInfo>) -> ActivationFixture {
             .expect("enable test feature");
     }
     let configuration = &mut mutable.state.get_mut().session_configuration;
+    configuration.models_manager = models;
     let config = Arc::make_mut(&mut configuration.original_config_do_not_use);
     config.model = Some(MODEL_A.to_string());
     config.features = mutable.features.clone();

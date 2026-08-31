@@ -640,6 +640,7 @@ mod tests {
             ThreadSettingsAppliedEvent {
                 thread_settings: ThreadSettingsSnapshot {
                     model: "gpt-5.2-codex".to_string(),
+                    route: None,
                     model_provider_id: "updated-provider".to_string(),
                     service_tier: None,
                     approval_policy: AskForApproval::Never,

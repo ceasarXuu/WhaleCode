@@ -37,7 +37,18 @@ QUALIFICATION_ENVIRONMENT = {
 PROXY_ENVIRONMENT_KEYS = frozenset(
     {"http_proxy", "https_proxy", "all_proxy", "no_proxy"}
 )
-AMBIENT_CODEX_ENVIRONMENT_KEYS = frozenset({"CODEX_SANDBOX_NETWORK_DISABLED"})
+AMBIENT_CODEX_ENVIRONMENT_KEYS = frozenset(
+    {
+        "CODEX_APP_TOOLS_PIPE_PATH",
+        "CODEX_INTERNAL_ORIGINATOR_OVERRIDE",
+        "CODEX_MCP_NODE_PATH",
+        "CODEX_PERMISSION_PROFILE",
+        "CODEX_SANDBOX_NETWORK_DISABLED",
+        "CODEX_SESSION_ID",
+        "CODEX_SHELL",
+        "CODEX_THREAD_ID",
+    }
+)
 COMMANDS = (
     ("01-fmt", ("cargo", "fmt", "--all", "--", "--check")),
     (

@@ -105,11 +105,8 @@ fn parses_config_isolation_flags() {
 }
 
 #[test]
-fn parses_taskspace_exec_flag() {
-    let cli = Cli::parse_from(["codex-exec", "--taskspace", "summarize"]);
-
-    assert!(cli.taskspace);
-    assert_eq!(cli.prompt.as_deref(), Some("summarize"));
+fn rejects_hidden_taskspace_exec_flag() {
+    assert!(Cli::try_parse_from(["codex-exec", "--taskspace", "summarize"]).is_err());
 }
 
 #[test]

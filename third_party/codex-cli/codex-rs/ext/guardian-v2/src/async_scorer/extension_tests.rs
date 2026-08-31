@@ -137,6 +137,7 @@ async fn installed_extension_warms_connections_without_blocking_thread_start() -
         .on_thread_start(ThreadStartInput {
             config: &config,
             session_source: &SessionSource::Exec,
+            forked_from_thread_id: None,
             persistent_thread_state_available: false,
             environments: &[],
             mcp_resource_client: None,
@@ -195,6 +196,7 @@ async fn installed_extension_reconnects_after_auth_refresh() -> Result<()> {
         .on_thread_start(ThreadStartInput {
             config: &config,
             session_source: &SessionSource::Exec,
+            forked_from_thread_id: None,
             persistent_thread_state_available: false,
             environments: &[],
             mcp_resource_client: None,
@@ -919,6 +921,7 @@ async fn sample_configured_conversation_history_with_source(
         .on_thread_start(ThreadStartInput {
             config: &config,
             session_source: &SessionSource::Exec,
+            forked_from_thread_id: None,
             persistent_thread_state_available: false,
             environments: &[],
             mcp_resource_client: None,
@@ -1165,6 +1168,7 @@ async fn contributor_fails_closed_when_luna_classification_fails() -> Result<()>
         .on_thread_start(ThreadStartInput {
             config: &config,
             session_source: &SessionSource::Exec,
+            forked_from_thread_id: None,
             persistent_thread_state_available: false,
             environments: &[],
             mcp_resource_client: None,
@@ -2134,6 +2138,7 @@ async fn contributor_skips_required_models_in_standard_scope() -> Result<()> {
         .on_thread_start(ThreadStartInput {
             config: &config,
             session_source: &SessionSource::Exec,
+            forked_from_thread_id: None,
             persistent_thread_state_available: false,
             environments: &[],
             mcp_resource_client: None,
@@ -2613,6 +2618,7 @@ async fn contributor_reuses_the_latest_compatible_parent_compaction() -> Result<
         .on_thread_start(ThreadStartInput {
             config: &config,
             session_source: &SessionSource::Exec,
+            forked_from_thread_id: None,
             persistent_thread_state_available: false,
             environments: &[],
             mcp_resource_client: None,
