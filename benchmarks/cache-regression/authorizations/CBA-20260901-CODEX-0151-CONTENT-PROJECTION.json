@@ -1,0 +1,39 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v2",
+  "status": "granted",
+  "approved_by": "user",
+  "authorization_id": "CBA-20260901-CODEX-0151-CONTENT-PROJECTION",
+  "approval_reference": "用户于 2026-09-01 在收到 Codex 0.151 content projection 最小双臂真实缓存回归预算后明确回复‘批准预算’；仅覆盖 deepseek-v4-flash、single-file-fast-fix 的 standard 与 map-request 各 1 次，零重试，总费用硬上限 0.40 CNY。",
+  "approved_at": "2026-09-01T07:26:28+08:00",
+  "proposal_id": "CBP-087259F654B9B71C",
+  "proposal_sha256": "1121613574e40e26dbabc0853274c334eb454ee2c1a22b18fd8ef516bc69a9bb",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "standard",
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "Codex 0.151 content projection changed Standard request metadata and TaskSpace production tool wire; validate the minimum two-arm cache contract before baseline promotion."
+  },
+  "approved_maximums": {
+    "provider_requests": 36,
+    "input_tokens": 360000,
+    "output_tokens": 20000,
+    "elapsed_seconds": 1440,
+    "estimated_cost": 0.4,
+    "currency": "CNY"
+  }
+}
