@@ -12,6 +12,7 @@ use codex_model_provider_info::AMAZON_BEDROCK_GPT_5_6_LUNA_MODEL_ID;
 use codex_model_provider_info::AMAZON_BEDROCK_GPT_5_6_SOL_MODEL_ID;
 use codex_model_provider_info::AMAZON_BEDROCK_PROVIDER_ID;
 use codex_model_provider_info::ModelProviderInfo;
+use codex_model_provider_info::OPENAI_PROVIDER_ID;
 use codex_protocol::AgentPath;
 use codex_protocol::ThreadId;
 use codex_protocol::config_types::WebSearchMode;
@@ -324,6 +325,15 @@ fn use_bedrock_provider(turn: &mut TurnContext) {
     let provider_info = ModelProviderInfo::create_amazon_bedrock_provider(/*aws*/ None);
     update_config(turn, |config| {
         config.model_provider_id = AMAZON_BEDROCK_PROVIDER_ID.to_string();
+        config.model_provider = provider_info.clone();
+    });
+    turn.provider = create_model_provider(provider_info, turn.auth_manager.clone());
+}
+
+fn use_openai_provider(turn: &mut TurnContext) {
+    let provider_info = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
+    update_config(turn, |config| {
+        config.model_provider_id = OPENAI_PROVIDER_ID.to_string();
         config.model_provider = provider_info.clone();
     });
     turn.provider = create_model_provider(provider_info, turn.auth_manager.clone());
@@ -1331,7 +1341,7 @@ async fn sleep_tool_stays_direct_and_outside_code_mode() {
 #[tokio::test]
 async fn mcp_and_tool_search_follow_direct_and_deferred_tool_exposure() {
     let direct_mcp = probe_with(
-        |_| {},
+        use_openai_provider,
         ToolPlanInputs {
             tool_runtimes: vec![mcp_runtime(
                 "direct",
@@ -1397,6 +1407,7 @@ async fn mcp_and_tool_search_follow_direct_and_deferred_tool_exposure() {
 
     let enabled = probe_with(
         |turn| {
+            use_openai_provider(turn);
             update_turn_settings_for_test(turn, |settings| {
                 Arc::make_mut(&mut settings.model_info).supports_search_tool = true;
             });
@@ -1412,6 +1423,7 @@ async fn mcp_and_tool_search_follow_direct_and_deferred_tool_exposure() {
 
     let reserved_namespace = probe_with(
         |turn| {
+            use_openai_provider(turn);
             set_feature(turn, Feature::CodeMode, /*enabled*/ true);
             update_turn_settings_for_test(turn, |settings| {
                 Arc::make_mut(&mut settings.model_info).supports_search_tool = true;
@@ -2115,6 +2127,7 @@ async fn code_mode_uses_the_first_normalized_tool_identity() {
 async fn deferred_extension_tools_are_discoverable_with_tool_search() {
     let plan = probe_with(
         |turn| {
+            use_openai_provider(turn);
             update_turn_settings_for_test(turn, |settings| {
                 Arc::make_mut(&mut settings.model_info).supports_search_tool = true;
             });
@@ -2137,6 +2150,7 @@ async fn tool_search_cache_rebuilds_when_deferred_sources_change() {
     let cache = ToolSearchHandlerCache::default();
 
     let (_session, mut first_turn) = make_session_and_context().await;
+    use_openai_provider(&mut first_turn);
     update_turn_settings_for_test(&mut first_turn, |settings| {
         Arc::make_mut(&mut settings.model_info).supports_search_tool = true;
     });
@@ -2166,6 +2180,7 @@ async fn tool_search_cache_rebuilds_when_deferred_sources_change() {
     let first_plan = ToolPlanProbe::from_router(first_router);
 
     let (_session, mut second_turn) = make_session_and_context().await;
+    use_openai_provider(&mut second_turn);
     update_turn_settings_for_test(&mut second_turn, |settings| {
         Arc::make_mut(&mut settings.model_info).supports_search_tool = true;
     });
@@ -2221,6 +2236,7 @@ async fn tool_search_cache_rebuilds_when_deferred_world_state_changes() {
 
     for world_state_enabled in [false, true, false] {
         let (_session, mut turn) = make_session_and_context().await;
+        use_openai_provider(&mut turn);
         update_turn_settings_for_test(&mut turn, |settings| {
             Arc::make_mut(&mut settings.model_info).supports_search_tool = true;
         });
@@ -2830,6 +2846,7 @@ async fn tool_mode_selector_overrides_feature_flags() {
 #[tokio::test]
 async fn v1_multi_agent_tools_defer_when_tool_search_available() {
     let plan = probe(|turn| {
+        use_openai_provider(turn);
         update_turn_settings_for_test(turn, |settings| {
             Arc::make_mut(&mut settings.model_info).supports_search_tool = true;
         });
