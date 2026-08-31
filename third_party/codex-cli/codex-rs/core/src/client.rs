@@ -942,7 +942,7 @@ impl ModelClient {
             text,
             ..
         } = request;
-        self.prepare_response_items_for_request(&mut input);
+        self.prepare_response_items_for_request(&self.state.provider, &mut input);
         let payload = ApiCompactionInput {
             model: &model,
             input: &input,
@@ -1358,12 +1358,17 @@ impl ModelClient {
         Ok(request)
     }
 
-    fn prepare_response_items_for_request(&self, input: &mut [ResponseItem]) {
+    fn prepare_response_items_for_request(
+        &self,
+        provider: &SharedModelProvider,
+        input: &mut [ResponseItem],
+    ) {
+        let preserves_content_item_kinds = provider.info().is_openai();
         for item in input {
             if item.id().is_some_and(|id| !id.is_prefixed()) {
                 item.set_id(/*new_id*/ None);
             }
-            if !self.state.content_item_kinds_enabled {
+            if !self.state.content_item_kinds_enabled || !preserves_content_item_kinds {
                 item.clear_content_item_kinds();
             }
         }
@@ -2056,7 +2061,7 @@ impl ModelClientSession {
                 prompt.cyber_access_program,
             );
             self.client
-                .prepare_response_items_for_request(&mut request.input);
+                .prepare_response_items_for_request(&provider, &mut request.input);
             let request_session_telemetry =
                 session_telemetry_for_request(session_telemetry, &request);
             let inference_trace_attempt = inference_trace.start_attempt();
@@ -2294,7 +2299,7 @@ impl ModelClientSession {
             };
             let original_item_ids = if let Some(incremental_items) = &mut incremental_items {
                 self.client
-                    .prepare_response_items_for_request(incremental_items);
+                    .prepare_response_items_for_request(&provider, incremental_items);
                 None
             } else {
                 let original_item_ids = request
@@ -2303,7 +2308,7 @@ impl ModelClientSession {
                     .map(|item| item.id().cloned())
                     .collect::<Vec<_>>();
                 self.client
-                    .prepare_response_items_for_request(&mut request.input);
+                    .prepare_response_items_for_request(&provider, &mut request.input);
                 Some(original_item_ids)
             };
             let ws_payload = ResponseCreateWsRequest {
