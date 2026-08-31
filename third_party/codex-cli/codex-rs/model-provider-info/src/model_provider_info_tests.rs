@@ -14,7 +14,7 @@ fn openai_provider_uses_codex_compatibility_version_header() {
             .http_headers
             .as_ref()
             .and_then(|headers| headers.get("version"))
-            .map(String::as_str),
+            .map(|value| value.as_str()),
         Some(OPENAI_CODEX_COMPATIBILITY_VERSION)
     );
     assert_ne!(

@@ -5473,6 +5473,7 @@ async fn make_test_app() -> App {
         pending_plugin_enabled_writes: HashMap::new(),
         pending_hook_enabled_writes: HashMap::new(),
         recap: recap::RecapState::default(),
+        taskspace_viewer: None,
     }
 }
 
@@ -5554,6 +5555,7 @@ async fn make_test_app_with_channels() -> (
             pending_plugin_enabled_writes: HashMap::new(),
             pending_hook_enabled_writes: HashMap::new(),
             recap: recap::RecapState::default(),
+            taskspace_viewer: None,
         },
         rx,
         op_rx,
@@ -8407,6 +8409,7 @@ async fn inactive_thread_settings_notification_updates_cached_collaboration_mode
             ),
             model: "gpt-plan".to_string(),
             model_provider: "openai".to_string(),
+            route: None,
             service_tier: None,
             effort: collaboration_mode.settings.reasoning_effort.clone(),
             summary: None,

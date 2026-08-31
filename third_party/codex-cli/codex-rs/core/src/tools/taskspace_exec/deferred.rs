@@ -133,7 +133,9 @@ mod tests {
     fn output(call_id: &str, value: Value) -> ResponseItem {
         ResponseItem::FunctionCallOutput {
             id: None,
-            call_id: call_id.into(),
+            name: None,
+            namespace: None,
+            call_id: Some(call_id.into()),
             output: FunctionCallOutputPayload::from_text(value.to_string()),
             internal_chat_message_metadata_passthrough: None,
         }

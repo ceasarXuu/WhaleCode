@@ -18,7 +18,9 @@ fn function_call(call_id: &str) -> ResponseItem {
 fn encrypted_output(call_id: &str) -> ResponseItem {
     ResponseItem::FunctionCallOutput {
         id: None,
-        call_id: call_id.into(),
+        name: None,
+        namespace: None,
+        call_id: Some(call_id.into()),
         output: FunctionCallOutputPayload {
             body: FunctionCallOutputBody::ContentItems(vec![
                 FunctionCallOutputContentItem::EncryptedContent {
@@ -46,7 +48,9 @@ fn non_openai_projection_removes_opaque_fields_without_mutating_source() {
         function_call("call-readable"),
         ResponseItem::FunctionCallOutput {
             id: None,
-            call_id: "call-readable".into(),
+            name: None,
+            namespace: None,
+            call_id: Some("call-readable".into()),
             output: FunctionCallOutputPayload::from_text("result".into()),
             internal_chat_message_metadata_passthrough: None,
         },
@@ -116,7 +120,7 @@ fn missing_output_is_closed_after_projection() {
     assert_eq!(projected.len(), 2);
     assert!(matches!(
         &projected[1],
-        ResponseItem::FunctionCallOutput { call_id, .. } if call_id == "aborted"
+        ResponseItem::FunctionCallOutput { call_id, .. } if call_id.as_deref() == Some("aborted")
     ));
 }
 

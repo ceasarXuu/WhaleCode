@@ -1345,7 +1345,10 @@ fn validate_auth_restrictions(
     let Some(expected_workspaces) = expected_workspaces else {
         return Ok(());
     };
-    if matches!(auth, CodexAuth::ApiKey(_) | CodexAuth::BedrockApiKey(_)) {
+    if matches!(
+        auth,
+        CodexAuth::ApiKey(_) | CodexAuth::BedrockApiKey(_) | CodexAuth::BedrockAccessKeys(_)
+    ) {
         return Ok(());
     }
 
@@ -1836,6 +1839,7 @@ impl AuthDotJson {
             || self.agent_identity.is_some()
             || self.personal_access_token.is_some()
             || self.bedrock_api_key.is_some()
+            || self.bedrock_access_keys.is_some()
     }
 
     fn has_auth_material(&self) -> bool {
@@ -1883,6 +1887,9 @@ impl AuthDotJson {
         }
         if self.bedrock_api_key.is_some() {
             return AuthMode::BedrockApiKey;
+        }
+        if self.bedrock_access_keys.is_some() {
+            return AuthMode::BedrockAccessKeys;
         }
         if self.openai_api_key.is_some() {
             return AuthMode::ApiKey;
@@ -2010,7 +2017,7 @@ impl UnauthorizedRecovery {
     }
 
     pub fn has_next(&self) -> bool {
-        if self.manager.has_external_api_key_auth() {
+        if self.manager.has_refreshable_external_auth() {
             return !matches!(self.step, UnauthorizedRecoveryStep::Done);
         }
 
@@ -2031,7 +2038,7 @@ impl UnauthorizedRecovery {
     }
 
     pub fn unavailable_reason(&self) -> &'static str {
-        if self.manager.has_external_api_key_auth() {
+        if self.manager.has_refreshable_external_auth() {
             return if matches!(self.step, UnauthorizedRecoveryStep::Done) {
                 "recovery_exhausted"
             } else {
@@ -2694,6 +2701,7 @@ impl AuthManager {
                 },
                 (AuthMode::PersonalAccessToken, AuthMode::PersonalAccessToken) => a == b,
                 (AuthMode::BedrockApiKey, AuthMode::BedrockApiKey) => a == b,
+                (AuthMode::BedrockAccessKeys, AuthMode::BedrockAccessKeys) => a == b,
                 _ => false,
             },
             _ => false,
@@ -2951,12 +2959,12 @@ impl AuthManager {
             .and_then(|external_auth| external_auth.clone())
     }
 
-    fn has_external_api_key_auth(&self) -> bool {
+    fn has_refreshable_external_auth(&self) -> bool {
         self.has_external_auth()
             && self
                 .auth_cached()
                 .as_ref()
-                .is_some_and(CodexAuth::is_api_key_auth)
+                .is_none_or(|auth| auth.is_api_key_auth() || auth.supports_unauthorized_recovery())
     }
 
     async fn resolve_external_auth(
@@ -3027,40 +3035,44 @@ impl AuthManager {
     async fn refresh_token_from_authority_impl(&self) -> Result<(), RefreshTokenError> {
         tracing::info!("Refreshing token");
 
-        let auth = match self.auth_cached() {
-            Some(auth) => auth,
-            None => return Ok(()),
-        };
-        if let Some(error) = self.refresh_failure_for_auth(&auth) {
+        let attempted_auth = self.auth_cached();
+        if let Some(error) = attempted_auth
+            .as_ref()
+            .and_then(|auth| self.refresh_failure_for_auth(auth))
+        {
             return Err(RefreshTokenError::Permanent(error));
         }
 
-        let attempted_auth = auth.clone();
         let result = if self.has_external_auth() {
             self.refresh_external_auth(ExternalAuthRefreshReason::Unauthorized)
                 .await
         } else {
-            match auth {
-                CodexAuth::Chatgpt(chatgpt_auth) => {
+            match attempted_auth.as_ref() {
+                Some(CodexAuth::Chatgpt(chatgpt_auth)) => {
                     let token_data = chatgpt_auth.current_token_data().ok_or_else(|| {
                         RefreshTokenError::Transient(std::io::Error::other(
                             "Token data is not available.",
                         ))
                     })?;
-                    self.refresh_and_persist_chatgpt_token(&chatgpt_auth, token_data.refresh_token)
+                    self.refresh_and_persist_chatgpt_token(chatgpt_auth, token_data.refresh_token)
                         .await
                 }
-                CodexAuth::ApiKey(_)
-                | CodexAuth::ChatgptAuthTokens(_)
-                | CodexAuth::Headers(_)
-                | CodexAuth::AgentIdentity(_)
-                | CodexAuth::PersonalAccessToken(_)
-                | CodexAuth::BedrockApiKey(_)
-                | CodexAuth::BedrockAccessKeys(_) => Ok(()),
+                Some(
+                    CodexAuth::ApiKey(_)
+                    | CodexAuth::ChatgptAuthTokens(_)
+                    | CodexAuth::Headers(_)
+                    | CodexAuth::AgentIdentity(_)
+                    | CodexAuth::PersonalAccessToken(_)
+                    | CodexAuth::BedrockApiKey(_)
+                    | CodexAuth::BedrockAccessKeys(_),
+                )
+                | None => Ok(()),
             }
         };
-        if let Err(RefreshTokenError::Permanent(error)) = &result {
-            self.record_permanent_refresh_failure_if_unchanged(&attempted_auth, error);
+        if let Some(attempted_auth) = attempted_auth.as_ref()
+            && let Err(RefreshTokenError::Permanent(error)) = &result
+        {
+            self.record_permanent_refresh_failure_if_unchanged(attempted_auth, error);
         }
         result
     }

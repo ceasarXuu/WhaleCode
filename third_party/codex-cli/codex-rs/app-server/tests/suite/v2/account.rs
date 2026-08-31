@@ -1181,6 +1181,7 @@ async fn login_amazon_bedrock_replaces_primary_auth_and_persists_provider(
                 DomainAuthMode::BedrockApiKey
             }),
             openai_api_key: None,
+            deepseek_api_key: None,
             tokens: None,
             last_refresh: None,
             agent_identity: None,
@@ -1409,6 +1410,7 @@ async fn login_amazon_bedrock_allows_bedrock_provider_override() -> Result<()> {
         Some(AuthDotJson {
             auth_mode: Some(DomainAuthMode::BedrockApiKey),
             openai_api_key: None,
+            deepseek_api_key: None,
             tokens: None,
             last_refresh: None,
             agent_identity: None,

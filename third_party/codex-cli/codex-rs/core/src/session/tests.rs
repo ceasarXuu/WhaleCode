@@ -3687,6 +3687,7 @@ async fn record_initial_history_forked_hydrates_previous_turn_settings() {
         network: None,
         file_system_sandbox_policy: None,
         model: previous_model.to_string(),
+        route: None,
         comp_hash: None,
         personality: turn_context.personality(),
         collaboration_mode: Some(turn_context.collaboration_mode()),
@@ -3744,6 +3745,7 @@ async fn record_initial_history_forked_hydrates_previous_turn_settings() {
         session.previous_turn_settings().await,
         Some(PreviousTurnSettings {
             model: previous_model.to_string(),
+            route: None,
             comp_hash: None,
             realtime_active: Some(turn_context.realtime_active),
         })
@@ -3788,6 +3790,7 @@ async fn thread_rollback_drops_last_turn_from_history() {
     sess.persist_rollout_items(&rollout_items).await;
     sess.set_previous_turn_settings(Some(PreviousTurnSettings {
         model: "stale-model".to_string(),
+        route: None,
         comp_hash: None,
         realtime_active: Some(tc.realtime_active),
     }))
@@ -3980,6 +3983,7 @@ async fn thread_rollback_recomputes_previous_turn_settings_and_reference_context
     .await;
     sess.set_previous_turn_settings(Some(PreviousTurnSettings {
         model: "stale-model".to_string(),
+        route: None,
         comp_hash: None,
         realtime_active: None,
     }))
@@ -3997,6 +4001,7 @@ async fn thread_rollback_recomputes_previous_turn_settings_and_reference_context
         sess.previous_turn_settings().await,
         Some(PreviousTurnSettings {
             model: tc.model_info().slug.clone(),
+            route: None,
             comp_hash: None,
             realtime_active: Some(tc.realtime_active),
         })
@@ -4115,6 +4120,7 @@ async fn thread_rollback_restores_cleared_reference_context_item_after_compactio
         RolloutItem::TurnContext(TurnContextItem {
             turn_id: Some(rolled_back_turn_id.clone()),
             model: "rolled-back-model".to_string(),
+            route: None,
             comp_hash: None,
             ..first_context_item.clone()
         }),
@@ -4352,6 +4358,12 @@ async fn set_rate_limits_retains_previous_credits() {
     let codex_home = tempfile::tempdir().expect("create temp dir");
     let config = build_test_config(codex_home.path()).await;
     let config = Arc::new(config);
+    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("Test API Key"));
+    let models_manager = models_manager_with_provider(
+        config.codex_home.to_path_buf(),
+        Arc::clone(&auth_manager),
+        config.model_provider.clone(),
+    );
     let model = get_model_offline_for_tests(config.model.as_deref());
     let model_info =
         construct_model_info_offline_for_tests(model.as_str(), &config.to_models_manager_config());
@@ -4365,7 +4377,9 @@ async fn set_rate_limits_retains_previous_credits() {
         },
     };
     let session_configuration = SessionConfiguration {
-        provider: create_model_provider(config.model_provider.clone(), /*auth_manager*/ None),
+        route: None,
+        provider: create_model_provider(config.model_provider.clone(), Some(auth_manager)),
+        models_manager,
         step_settings: Arc::new(StepSettings {
             collaboration_mode,
             reasoning_summary: config.model_reasoning_summary,
@@ -4468,6 +4482,12 @@ async fn set_rate_limits_updates_plan_type_when_present() {
     let codex_home = tempfile::tempdir().expect("create temp dir");
     let config = build_test_config(codex_home.path()).await;
     let config = Arc::new(config);
+    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("Test API Key"));
+    let models_manager = models_manager_with_provider(
+        config.codex_home.to_path_buf(),
+        Arc::clone(&auth_manager),
+        config.model_provider.clone(),
+    );
     let model = get_model_offline_for_tests(config.model.as_deref());
     let model_info =
         construct_model_info_offline_for_tests(model.as_str(), &config.to_models_manager_config());
@@ -4481,7 +4501,9 @@ async fn set_rate_limits_updates_plan_type_when_present() {
         },
     };
     let session_configuration = SessionConfiguration {
-        provider: create_model_provider(config.model_provider.clone(), /*auth_manager*/ None),
+        route: None,
+        provider: create_model_provider(config.model_provider.clone(), Some(auth_manager)),
+        models_manager,
         step_settings: Arc::new(StepSettings {
             collaboration_mode,
             reasoning_summary: config.model_reasoning_summary,
@@ -5108,6 +5130,12 @@ pub(crate) async fn make_session_configuration_for_tests() -> SessionConfigurati
     let codex_home = tempfile::tempdir().expect("create temp dir");
     let config = build_test_config(codex_home.path()).await;
     let config = Arc::new(config);
+    let auth_manager = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("Test API Key"));
+    let models_manager = models_manager_with_provider(
+        config.codex_home.to_path_buf(),
+        Arc::clone(&auth_manager),
+        config.model_provider.clone(),
+    );
     let model = get_model_offline_for_tests(config.model.as_deref());
     let model_info =
         construct_model_info_offline_for_tests(model.as_str(), &config.to_models_manager_config());
@@ -5122,7 +5150,9 @@ pub(crate) async fn make_session_configuration_for_tests() -> SessionConfigurati
     };
 
     SessionConfiguration {
-        provider: create_model_provider(config.model_provider.clone(), /*auth_manager*/ None),
+        route: None,
+        provider: create_model_provider(config.model_provider.clone(), Some(auth_manager)),
+        models_manager,
         step_settings: Arc::new(StepSettings {
             collaboration_mode,
             reasoning_summary: config.model_reasoning_summary,
@@ -6028,10 +6058,12 @@ async fn session_new_fails_when_zsh_fork_enabled_without_packaged_zsh() {
         },
     };
     let session_configuration = SessionConfiguration {
+        route: None,
         provider: create_model_provider(
             config.model_provider.clone(),
             Some(Arc::clone(&auth_manager)),
         ),
+        models_manager: Arc::clone(&models_manager),
         step_settings: Arc::new(StepSettings {
             collaboration_mode,
             reasoning_summary: config.model_reasoning_summary,
@@ -6090,6 +6122,8 @@ async fn session_new_fails_when_zsh_fork_enabled_without_packaged_zsh() {
         "11111111-1111-4111-8111-111111111111".to_string(),
         auth_manager,
         models_manager,
+        crate::provider_runtime::ProviderRuntimeRegistry::default(),
+        HashMap::new(),
         model_info,
         Arc::new(ExecPolicyManager::default()),
         tx_event,
@@ -6181,10 +6215,12 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
     };
     let default_environments = vec![local(config.cwd.clone())];
     let session_configuration = SessionConfiguration {
+        route: None,
         provider: create_model_provider(
             config.model_provider.clone(),
             Some(Arc::clone(&auth_manager)),
         ),
+        models_manager: Arc::clone(&models_manager),
         step_settings: Arc::new(StepSettings {
             collaboration_mode,
             reasoning_summary: config.model_reasoning_summary,
@@ -6302,6 +6338,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         .with_legacy_custom_ca_fallback(),
         session_telemetry: session_telemetry.clone(),
         models_manager: Arc::clone(&models_manager),
+        provider_runtime_registry: crate::provider_runtime::ProviderRuntimeRegistry::default(),
         tool_approvals: Mutex::new(ApprovalStore::default()),
         guardian_rejection_circuit_breaker: Mutex::new(Default::default()),
         runtime_handle: tokio::runtime::Handle::current(),
@@ -6365,6 +6402,9 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         tx_event,
         agent_status: agent_status_tx,
         state: Mutex::new(state),
+        taskspace_store_write_lock: Semaphore::new(/*permits*/ 1),
+        taskspace_action_settlements: TaskSpaceActionSettlementQueue::default(),
+        taskspace_action_recovery_scanned: AtomicBool::new(false),
         managed_network_proxy_refresh_lock: Semaphore::new(/*permits*/ 1),
         features: config.features.clone(),
         windows_sandbox_proxy_settings_mode:
@@ -6480,10 +6520,12 @@ async fn make_session_with_config_and_rx(
     };
     let default_environments = vec![local(config.cwd.clone())];
     let session_configuration = SessionConfiguration {
+        route: None,
         provider: create_model_provider(
             config.model_provider.clone(),
             Some(Arc::clone(&auth_manager)),
         ),
+        models_manager: Arc::clone(&models_manager),
         step_settings: Arc::new(StepSettings {
             collaboration_mode,
             reasoning_summary: config.model_reasoning_summary,
@@ -6543,6 +6585,8 @@ async fn make_session_with_config_and_rx(
         "11111111-1111-4111-8111-111111111111".to_string(),
         auth_manager,
         models_manager,
+        crate::provider_runtime::ProviderRuntimeRegistry::default(),
+        HashMap::new(),
         model_info,
         Arc::new(ExecPolicyManager::default()),
         tx_event,
@@ -6606,10 +6650,12 @@ async fn make_session_with_history_source_and_agent_control_and_rx(
     };
     let default_environments = vec![local(config.cwd.clone())];
     let session_configuration = SessionConfiguration {
+        route: None,
         provider: create_model_provider(
             config.model_provider.clone(),
             Some(Arc::clone(&auth_manager)),
         ),
+        models_manager: Arc::clone(&models_manager),
         step_settings: Arc::new(StepSettings {
             collaboration_mode,
             reasoning_summary: config.model_reasoning_summary,
@@ -6669,6 +6715,8 @@ async fn make_session_with_history_source_and_agent_control_and_rx(
         "11111111-1111-4111-8111-111111111111".to_string(),
         auth_manager,
         models_manager,
+        crate::provider_runtime::ProviderRuntimeRegistry::default(),
+        HashMap::new(),
         model_info,
         Arc::new(ExecPolicyManager::default()),
         tx_event,
@@ -8461,10 +8509,12 @@ where
     };
     let default_environments = vec![local(config.cwd.clone())];
     let session_configuration = SessionConfiguration {
+        route: None,
         provider: create_model_provider(
             config.model_provider.clone(),
             Some(Arc::clone(&auth_manager)),
         ),
+        models_manager: Arc::clone(&models_manager),
         step_settings: Arc::new(StepSettings {
             collaboration_mode,
             reasoning_summary: config.model_reasoning_summary,
@@ -8581,6 +8631,7 @@ where
         .with_legacy_custom_ca_fallback(),
         session_telemetry: session_telemetry.clone(),
         models_manager: Arc::clone(&models_manager),
+        provider_runtime_registry: crate::provider_runtime::ProviderRuntimeRegistry::default(),
         tool_approvals: Mutex::new(ApprovalStore::default()),
         guardian_rejection_circuit_breaker: Mutex::new(Default::default()),
         runtime_handle: tokio::runtime::Handle::current(),
@@ -8644,6 +8695,9 @@ where
         tx_event,
         agent_status: agent_status_tx,
         state: Mutex::new(state),
+        taskspace_store_write_lock: Semaphore::new(/*permits*/ 1),
+        taskspace_action_settlements: TaskSpaceActionSettlementQueue::default(),
+        taskspace_action_recovery_scanned: AtomicBool::new(false),
         managed_network_proxy_refresh_lock: Semaphore::new(/*permits*/ 1),
         features: config.features.clone(),
         windows_sandbox_proxy_settings_mode:
@@ -10066,6 +10120,7 @@ async fn build_initial_context_restates_realtime_start_when_reference_context_is
     turn_context.realtime_active = true;
     let previous_turn_settings = PreviousTurnSettings {
         model: turn_context.model_info().slug.clone(),
+        route: None,
         comp_hash: None,
         realtime_active: Some(true),
     };
@@ -10392,6 +10447,7 @@ async fn build_initial_context_prepends_model_switch_message() {
     let (session, turn_context) = make_session_and_context().await;
     let previous_turn_settings = PreviousTurnSettings {
         model: "previous-regular-model".to_string(),
+        route: None,
         comp_hash: None,
         realtime_active: None,
     };
@@ -10446,6 +10502,7 @@ async fn record_context_updates_and_set_reference_context_item_persists_full_rei
     session
         .set_previous_turn_settings(Some(PreviousTurnSettings {
             model: previous_context.model_info().slug.clone(),
+            route: None,
             comp_hash: None,
             realtime_active: Some(previous_context.realtime_active),
         }))

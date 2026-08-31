@@ -3358,7 +3358,7 @@ async fn model_reasoning_selection_popup_snapshot() {
             effort: ReasoningEffortConfig::Persistent,
             description: "Continue working until put to sleep".to_string(),
         });
-    chat.open_reasoning_popup(preset);
+    chat.open_reasoning_popup(None, preset);
 
     let popup = render_bottom_popup(&chat, /*width*/ 80);
     assert_chatwidget_snapshot!("model_reasoning_selection_popup", popup);
@@ -3380,7 +3380,7 @@ async fn model_advanced_reasoning_selection_popup_snapshot() {
             description: "Maximum available reasoning".to_string(),
         },
     ]);
-    chat.open_advanced_reasoning_popup(preset);
+    chat.open_advanced_reasoning_popup(None, preset);
 
     let popup = render_bottom_popup(&chat, /*width*/ 80);
     assert_chatwidget_snapshot!("model_advanced_reasoning_selection_popup", popup);
@@ -3399,7 +3399,7 @@ async fn model_reasoning_selection_popup_applies_custom_effort() {
             effort: custom_effort.clone(),
             description: "Maximum available reasoning".to_string(),
         });
-    chat.open_reasoning_popup(preset);
+    chat.open_reasoning_popup(None, preset);
     while rx.try_recv().is_ok() {}
 
     chat.handle_key_event(KeyEvent::from(KeyCode::Down));
@@ -3440,17 +3440,18 @@ async fn select_ultra_with_multi_agent_thread_limit(max_threads: usize) -> (bool
             description: "Ultra reasoning".to_string(),
         },
     ];
-    chat.open_reasoning_popup(preset);
+    chat.open_reasoning_popup(None, preset);
     while rx.try_recv().is_ok() {}
 
     chat.handle_key_event(KeyEvent::from(KeyCode::Down));
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
 
     let advanced_preset = std::iter::from_fn(|| rx.try_recv().ok()).find_map(|event| match event {
-        AppEvent::OpenAdvancedReasoningPopup { model } => Some(model),
+        AppEvent::OpenAdvancedReasoningPopup { route, model } => Some((route, model)),
         _ => None,
     });
-    chat.open_advanced_reasoning_popup(advanced_preset.expect("advanced reasoning popup"));
+    let (route, advanced_preset) = advanced_preset.expect("advanced reasoning popup");
+    chat.open_advanced_reasoning_popup(route, advanced_preset);
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
 
     let mut selected_ultra = false;
@@ -3503,7 +3504,7 @@ async fn max_reasoning_selection_persists_model_selection() {
         effort: ReasoningEffortConfig::Max,
         description: "Maximum reasoning".to_string(),
     }];
-    chat.open_advanced_reasoning_popup(preset);
+    chat.open_advanced_reasoning_popup(None, preset);
     chat.handle_key_event(KeyEvent::from(KeyCode::Enter));
 
     let events = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
@@ -3533,7 +3534,7 @@ async fn model_reasoning_selection_popup_extra_high_warning_snapshot() {
     chat.set_reasoning_effort(Some(ReasoningEffortConfig::XHigh));
 
     let preset = get_available_model(&chat, "gpt-5.2");
-    chat.open_reasoning_popup(preset);
+    chat.open_reasoning_popup(None, preset);
 
     let popup = render_bottom_popup(&chat, /*width*/ 80);
     assert_chatwidget_snapshot!("model_reasoning_selection_popup_extra_high_warning", popup);
@@ -3739,7 +3740,7 @@ async fn reasoning_popup_shows_extra_high_with_space() {
     set_chatgpt_auth(&mut chat);
 
     let preset = get_available_model(&chat, "gpt-5.4");
-    chat.open_reasoning_popup(preset);
+    chat.open_reasoning_popup(None, preset);
 
     let popup = render_bottom_popup(&chat, /*width*/ 120);
     assert!(
@@ -3780,7 +3781,7 @@ async fn single_reasoning_option_skips_selection() {
         supported_in_api: true,
         input_modalities: default_input_modalities(),
     };
-    chat.open_reasoning_popup(preset);
+    chat.open_reasoning_popup(None, preset);
 
     let popup = render_bottom_popup(&chat, /*width*/ 80);
     assert!(
@@ -3810,7 +3811,7 @@ async fn advanced_only_reasoning_option_requires_explicit_selection() {
         effort: ReasoningEffortConfig::Ultra,
         description: "Ultra reasoning".to_string(),
     }];
-    chat.open_reasoning_popup(preset);
+    chat.open_reasoning_popup(None, preset);
 
     let popup = render_bottom_popup(&chat, /*width*/ 80);
     assert_chatwidget_snapshot!("advanced_only_reasoning_selection_popup", popup);
@@ -3915,7 +3916,7 @@ async fn reasoning_popup_escape_returns_to_model_popup() {
     chat.open_model_popup();
 
     let preset = get_available_model(&chat, "gpt-5.4");
-    chat.open_reasoning_popup(preset);
+    chat.open_reasoning_popup(None, preset);
 
     let before_escape = render_bottom_popup(&chat, /*width*/ 80);
     assert!(before_escape.contains("Select Reasoning Level"));

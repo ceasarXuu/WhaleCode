@@ -296,6 +296,7 @@ pub(crate) struct AppServerBootstrap {
     pub(crate) feedback_audience: FeedbackAudience,
     pub(crate) has_chatgpt_account: bool,
     pub(crate) available_models: Vec<ModelPreset>,
+    pub(crate) provider_model_groups: Vec<ProviderModelGroup>,
 }
 
 pub(crate) struct AppServerSession {
@@ -582,6 +583,11 @@ impl AppServerSession {
             .requirements
             .and_then(|requirements| requirements.models)
             .and_then(|models| models.new_thread);
+        let provider_model_groups = models
+            .groups
+            .into_iter()
+            .map(provider_model_group_from_api)
+            .collect::<Vec<_>>();
         let available_models = models
             .data
             .into_iter()
@@ -654,6 +660,7 @@ impl AppServerSession {
             feedback_audience,
             has_chatgpt_account,
             available_models,
+            provider_model_groups,
         })
     }
 

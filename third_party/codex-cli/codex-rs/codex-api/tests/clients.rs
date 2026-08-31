@@ -415,6 +415,7 @@ async fn deepseek_client_uses_native_responses_request() -> Result<()> {
         prompt_cache_key: Some("session-1".into()),
         text: None,
         client_metadata: None,
+        access_programs: None,
     };
 
     let _stream = client
@@ -475,6 +476,7 @@ async fn deepseek_vision_client_preserves_responses_image_input() -> Result<()> 
         prompt_cache_key: None,
         text: None,
         client_metadata: None,
+        access_programs: None,
     };
 
     let _stream = client

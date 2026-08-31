@@ -1,6 +1,6 @@
 # WhaleCode v0.0.7 Codex CLI 0.151 主线追赶计划
 
-- Status: in-progress（Phase C / W4）
+- Status: in-progress（Phase D pre-rebase；W4 verified）
 - Plan Validity: valid-with-qualifications
 - Created: 2026-08-31
 - Product Authority: [`prd/2026-08-23-v0.0.6-multi-provider.md#confirmed-product-decisions`](../../../../prd/2026-08-23-v0.0.6-multi-provider.md#confirmed-product-decisions)
@@ -94,7 +94,7 @@
 | W1 | 固定并资格验证 0.151 候选 | qualification | `scripts/codex-upstream/qualify_candidate.py`、candidate metadata/evidence | tag/commit/tree、V8/toolchain、pristine test manifest | 将候选合同从 0.149 更新到固定 0.151，并在临时目录运行既有隔离矩阵 | 获得不触碰 production vendor 的 go/no-go 证据 | 在大规模 cutover 前排除无效目标 | Complexity：只改既有常量、fixture 和证据；Reach/cost：本地构建与长测试，0 模型请求 | tag/commit/tree/license、sync script tests、fmt、CLI、code-mode-host、core/app-server/TUI candidate logs | 任一方向性阻断即保留 0.149；W1 可独立 revert | verified |
 | W2 | 生成可执行 replay 合同 | provenance/analysis | `scripts/codex-upstream/`、`docs/releases/v0.0.7/codex-upstream-sync/` | upstream delta、overlay inventory、replay batches、conflict ledger | 以 0.151 为目标生成路径级工件，并把冲突归入 generic、provider/DeepSeek、TaskSpace/extension、generated 四类 | 后续每个冲突只有一个 owner 和验证边界 | 降低现场误合并和跨域重构风险 | Complexity：metadata/文档，无运行时分支；Reach/cost：Git 分析、人工审阅，0 请求 | generator reproducibility、schema validator、path counts、三方 apply check | 分类不闭合则不进入 cutover；production vendor 保持 0.149 | verified |
 | W3 | 导入 0.151 substrate 与通用 Whale seam | vendor/generic | `third_party/codex-cli/` 通用 build、identity、home、workspace、sandbox、exec/PTY 路径 | 官方 tree、Whale CLI/workspace seam、安全和效率修复 | 以官方 tree 机械替换 substrate，按 W2 replay 最小 identity/workspace seam；不在本单元设计 Provider 或 TaskSpace 新语义 | 通用底座升至 0.151，并获得权限、安全、shutdown 与执行效率修复 | 避免逐提交 cherry-pick 形成长期漂移 | Complexity：大规模机械 vendor 变化，上游文件豁免普通 500 行限制；Reach/cost：build/sandbox/exec/TUI 基础路径，0 请求 | conflict-free index、fmt/check、CLI identity、workspace doctor、权限/sandbox/PTY/unified-exec 定向测试 | 单独 commit；失败可 revert W3 回到完整 0.149，不在半冲突状态提交 | verified |
-| W4 | 恢复 Multi-Provider 与 DeepSeek 合同 | provider/cache/context | login、model-provider-info、models-manager、core client/session/ToolRouter/compaction、TUI provider/model | route-bound auth、model catalog、prepared transition、history projection、DeepSeek Responses/final-wire | 在 0.151 seam 上重放 v0.0.6 provider overlay，吸收 model-aware ToolRouter/reasoning 修复；retained-image budgeting 只对支持的 route 生效，DeepSeek 保持本地压缩 | 三访问路由和 DeepSeek 三模型行为不退化，同时获得上游模型切换修复 | 直接保护当前主要产品链和缓存正确性 | Complexity：只改既有 route/capability seam，不新增 mega-registry；Reach/cost：凭据、模型、请求、压缩、cache，可能触发真实 revalidation 申请 | login/model/provider/core/TUI 定向测试、DeepSeek SSE、provider transition、history projection、Standard final-wire、`check_cache_regression_gate.py --source index` | 免费 gate 要求真实 revalidation 时立即停止并申请预算；W4 commit 可独立 revert 到 W3 substrate 状态 | not-started |
+| W4 | 恢复 Multi-Provider 与 DeepSeek 合同 | provider/cache/context | login、model-provider-info、models-manager、core client/session/ToolRouter/compaction、TUI provider/model | route-bound auth、model catalog、prepared transition、history projection、DeepSeek Responses/final-wire | 在 0.151 seam 上重放 v0.0.6 provider overlay，吸收 model-aware ToolRouter/reasoning 修复；retained-image budgeting 只对支持的 route 生效，DeepSeek 保持本地压缩 | 三访问路由和 DeepSeek 三模型行为不退化，同时获得上游模型切换修复 | 直接保护当前主要产品链和缓存正确性 | Complexity：只改既有 route/capability seam，不新增 mega-registry；Reach/cost：凭据、模型、请求、压缩、cache，可能触发真实 revalidation 申请 | login/model/provider/core/TUI 定向测试、DeepSeek SSE、provider transition、history projection、Standard final-wire、`check_cache_regression_gate.py --source index` | 免费 gate 要求真实 revalidation 时立即停止并申请预算；W4 commit 可独立 revert 到 W3 substrate 状态 | verified |
 | W5 | 恢复 TaskSpace、Extension 与 app-server/TUI 组合链 | taskspace/extension/protocol | state、tools、core extension lifecycle、app-server protocol/server、TUI routing/viewer、generated schema | relational store、fork/resume/reload、MCP result lifecycle、TaskSpace RPC/events | 在单一 relational state authority 上适配 0.151 session/extension 协议，生成 schema；PPD1 未确认前不激活冲突的 task UI | TaskSpace 与 extension 组合链在新 substrate 上可恢复、可重放 | 保留差异化能力并吸收 MCP result hook | Complexity：适配既有 extension seam，不建第二 store；Reach/cost：state/core/app-server/TUI/schema，0 请求 | state/tools/core TaskSpace、fork→reload→request、extension lifecycle/MCP result、app-server schema、TUI routing/viewer | 发现双状态权威或 PPD1 依赖即阻断相关入口；W5 独立 commit/revert | not-started |
 | W6 | 发布资格与证据收口 | release/metadata | provenance、replay、UPSTREAM、release report、cache evidence | 0.151 vendor identity、完整受控矩阵、延期边界 | 刷新所有生成工件，运行当前 vendor 隔离回归与静态门禁，记录非绿项真实签名并提交推送 | v0.0.7 获得可审计的 0.151 substrate 候选 | 防止“版本已改但证据未跟上” | Complexity：文档/metadata/generated，无新产品逻辑；Reach/cost：长时间本地测试，真实模型费用默认 0 | metadata/delta/inventory/replay check、schema、fmt、isolated affected/full matrix、cache gate、clean tree、remote sync | 未达到退出条件不宣称完成；真实验证仍需单独预算和账本 | not-started |
 
@@ -144,6 +144,7 @@
 - Entry: Phase B verified；现有 PD 可在 0.151 seam 上保持。
 - Exit: provider/DeepSeek 定向矩阵与免费 cache gate 通过，或按门禁明确停在预算审批前。
 - Product Decision Delta: 对照 Applicable Decisions 逐项审计 route、凭据、模型、history、compaction 和持久化。
+- W4 evidence（2026-09-01）：恢复 DeepSeek Flash/Pro/Vision bundled catalog、Flash 默认和 1M/755K 合同；补齐 Bedrock access keys 的认证生命周期与首次外部认证失败后的 0.151 bounded recovery；TUI 初始 bootstrap 现消费 app-server provider groups。login 163/163、model-provider-info 30/30、models-manager 55/55、TUI provider 9/9、DeepSeek API 2/2，以及 core/app-server 的 route、history projection、provider transition、compaction 与 default-provider 定向矩阵均通过。聚合测试暴露的 test-only 0.151 接口迁移已以独立提交 `b393bca6be` 修复。cache gate 对 index 指纹 `a14e29c02a1c36c51815072a0c948137fab58e8d60da8a58b1b4fd246b739abb` 返回 PASS，Standard/TaskSpace final-wire 从不可比较恢复为可比较 candidate change；未修改既有 accepted baseline，发布晋升继续留在 W6，模型请求 0。Product Decision Delta 为 none：默认模型、三访问路由和 DeepSeek 本地压缩语义均未改变。
 
 ### Phase D：TaskSpace、Extension 与 TUI 组合链（W5）
 
@@ -154,6 +155,7 @@
 - Plan delta record: pending
 - User approval: pending-if-material；PPD1 相关激活需要用户决策
 - Gate status: pending
+- Phase C rebase result: W4 已 verified；0.151 final-wire candidate 的真实基线晋升只影响 W6 发布资格，不改变 W5 的 TaskSpace 单一状态权威与入口延期边界。
 
 - Entry: Phase C verified；TaskSpace 仍可保持单一 relational state authority。
 - Exit: state/tools/core/app-server/TUI 组合链闭合；schema 可复现；PPD1 未决入口保持延期。
