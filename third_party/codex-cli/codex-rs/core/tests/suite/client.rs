@@ -3124,7 +3124,9 @@ async fn azure_responses_request_does_not_store_and_preserves_prefixed_item_ids(
     });
     prompt.input.push(ResponseItem::FunctionCallOutput {
         id: None,
-        call_id: "local-shell-call-id".into(),
+        name: None,
+        namespace: None,
+        call_id: Some("local-shell-call-id".into()),
         output: FunctionCallOutputPayload::from_text("hello".into()),
         internal_chat_message_metadata_passthrough: None,
     });

@@ -34,7 +34,7 @@ impl ToolContributor for RejectingToolBatchExtension {
         &self,
         _session_store: &ExtensionData,
         _thread_store: &ExtensionData,
-    ) -> Vec<Arc<dyn ToolExecutor<ToolCall>>> {
+    ) -> Vec<Arc<dyn for<'call> ToolExecutor<ToolCall<'call>>>> {
         vec![Arc::new(CountingTool {
             dispatch_count: Arc::clone(&self.dispatch_count),
         })]
@@ -60,7 +60,7 @@ struct CountingTool {
     dispatch_count: Arc<AtomicUsize>,
 }
 
-impl ToolExecutor<ToolCall> for CountingTool {
+impl<'call> ToolExecutor<ToolCall<'call>> for CountingTool {
     fn tool_name(&self) -> ToolName {
         ToolName::plain("count_dispatch")
     }
@@ -76,7 +76,10 @@ impl ToolExecutor<ToolCall> for CountingTool {
         })
     }
 
-    fn handle(&self, _call: ToolCall) -> ToolExecutorFuture<'_> {
+    fn handle<'a>(&'a self, _call: ToolCall<'call>) -> ToolExecutorFuture<'a>
+    where
+        'call: 'a,
+    {
         Box::pin(async move {
             self.dispatch_count.fetch_add(1, Ordering::SeqCst);
             Ok(

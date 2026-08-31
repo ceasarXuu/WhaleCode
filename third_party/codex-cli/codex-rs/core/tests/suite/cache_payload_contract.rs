@@ -257,7 +257,7 @@ pub(super) fn configure_deepseek_responses(config: &mut Config) {
     provider.base_url = base_url;
     provider.env_key = None;
     provider.env_key_instructions = None;
-    provider.experimental_bearer_token = Some("test-deepseek-key".to_string());
+    provider.experimental_bearer_token = Some("test-deepseek-key".to_string().into());
     config.model_provider_id = DEEPSEEK_PROVIDER_ID.to_string();
     config.model_provider = provider;
     config.model = Some("deepseek-v4-flash".to_string());
