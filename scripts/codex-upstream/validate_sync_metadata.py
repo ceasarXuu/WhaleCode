@@ -33,7 +33,7 @@ from qualify_candidate import CANDIDATE_TARGET
 LEDGER_PATH = "docs/v0.0.5/codex-upstream-sync/backport-ledger.json"
 BACKLOG_PATH = "docs/v0.0.5/codex-upstream-sync/backport-provenance-backlog.json"
 TUI_BASELINE_PATH = "docs/v0.0.5/codex-upstream-sync/tui-baseline.json"
-CANDIDATE_PATH = "docs/v0.0.5/codex-upstream-sync/upstream-candidate.json"
+CANDIDATE_PATH = "docs/releases/v0.0.7/codex-upstream-sync/upstream-candidate.json"
 DELTA_PATH = "docs/v0.0.5/codex-upstream-sync/upstream-delta-inventory.json"
 REPLAY_PATH = "docs/v0.0.5/codex-upstream-sync/overlay-replay-ledger.json"
 UPSTREAM_PATH = "third_party/codex-cli/UPSTREAM.md"
