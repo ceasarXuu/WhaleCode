@@ -229,6 +229,7 @@ def classify(
             "subsystem.app_server",
             (
                 "codex-rs/app-server/**",
+                "codex-rs/app-server-daemon/**",
                 "codex-rs/app-server-protocol/**",
                 "codex-rs/app-server-test-client/**",
             ),
@@ -250,7 +251,12 @@ def classify(
         (
             "cloud_remote",
             "subsystem.cloud",
-            ("codex-rs/cloud-requirements/**", "codex-rs/cloud-tasks/**"),
+            (
+                "codex-rs/chatgpt/**",
+                "codex-rs/connectors/**",
+                "codex-rs/cloud-requirements/**",
+                "codex-rs/cloud-tasks/**",
+            ),
         ),
         (
             "configuration",
@@ -268,6 +274,11 @@ def classify(
             "subsystem.instructions_skills",
             (
                 "codex-rs/core-skills/**",
+                "codex-rs/core-plugins/**",
+                "codex-rs/ext/memories/**",
+                "codex-rs/ext/skills/**",
+                "codex-rs/external-agent-migration/**",
+                "codex-rs/memories/**",
                 "codex-rs/skills/**",
                 "codex-rs/core/src/agents_md*",
                 "codex-rs/core/src/plugins/**",
@@ -291,7 +302,9 @@ def classify(
             (
                 "codex-rs/core/src/guardian/**",
                 "codex-rs/core/src/tools/network_approval.rs",
+                "codex-rs/ext/guardian-v2/**",
                 "codex-rs/protocol/src/permissions.rs",
+                "codex-rs/utils/approval-presets/**",
             ),
         ),
         (
@@ -306,7 +319,9 @@ def classify(
                 "codex-rs/codex-api/**",
                 "codex-rs/responses-api-proxy/**",
                 "codex-rs/model-provider/**",
+                "codex-rs/ollama/**",
                 "codex-rs/core/src/client*",
+                "codex-rs/core/src/provider_runtime*",
                 "codex-rs/core/src/realtime_conversation.rs",
             ),
         ),
@@ -316,6 +331,10 @@ def classify(
             (
                 "codex-rs/windows-sandbox-rs/**",
                 "codex-rs/linux-sandbox/**",
+                "codex-rs/bwrap/**",
+                "codex-rs/sandboxing/**",
+                "codex-rs/network-proxy/**",
+                "codex-rs/http-client/src/outbound_proxy/**",
                 "codex-rs/exec-server/**",
                 "codex-rs/stdio-to-uds/**",
                 "codex-rs/core/src/exec*",
@@ -336,9 +355,15 @@ def classify(
                 "codex-rs/core/src/context_manager/**",
                 "codex-rs/core/src/memories/**",
                 "codex-rs/core/src/session/**",
+                "codex-rs/core/src/realtime_context.rs",
+                "codex-rs/core/src/session_rollout_init_error.rs",
+                "codex-rs/core/src/session_startup_prewarm.rs",
+                "codex-rs/core/src/state/**",
                 "codex-rs/core/src/tasks/**",
                 "codex-rs/rollout/**",
                 "codex-rs/rollout-trace/**",
+                "codex-rs/state/src/runtime/**",
+                "codex-rs/thread-store/**",
             ),
         ),
         (
@@ -369,9 +394,27 @@ def classify(
         add("brand_home", "brand.exact_surface")
 
     if path in {
+        "codex-rs/core/src/codex_delegate.rs",
+        "codex-rs/core/src/codex_delegate_tests.rs",
+    }:
+        add("multi_agent", "multi_agent.exact_surface")
+
+    if path in {
+        "codex-rs/core/src/environment_selection.rs",
+    }:
+        add("configuration", "configuration.exact_surface")
+
+    if path in {
         "codex-rs/core/src/test_support.rs",
         "codex-rs/core/src/util.rs",
         "codex-rs/core/src/util_tests.rs",
+        "codex-rs/feedback/src/lib.rs",
+        "codex-rs/git-utils/src/baseline.rs",
+        "codex-rs/install-context/src/lib.rs",
+        "codex-rs/thread-manager-sample/src/main.rs",
+        "codex-rs/utils/sleep-inhibitor/src/linux_inhibitor.rs",
+        "codex-rs/utils/sleep-inhibitor/src/macos.rs",
+        "codex-rs/utils/sleep-inhibitor/src/windows_inhibitor.rs",
     }:
         add("runtime_utilities", "runtime_utilities.exact_surface")
 
@@ -379,13 +422,15 @@ def classify(
         add("generated_artifact", "generated.path")
 
     if (
-        path.startswith((".github/", ".vscode/"))
+        path.startswith((".github/", ".vscode/", "scripts/install/"))
         or path
         in {
+            ".gitattributes",
             "BUILD_NUMBER",
             "MODULE.bazel.lock",
             "justfile",
             "codex-rs/arg0/src/lib.rs",
+            "codex-rs/.config/nextest.toml",
         }
         or path.endswith(("Cargo.toml", "Cargo.lock", "BUILD.bazel", ".bzl"))
         or path.startswith("codex-cli/scripts/")

@@ -43,9 +43,9 @@ def _backport_paths(repo: Path) -> set[str]:
     return {path for entry in ledger["entries"] for path in entry["paths"]}
 
 
-def build_inventory(repo: Path) -> dict:
-    baseline_commit = resolve_commit(repo, BASELINE)
-    target_commit = resolve_commit(repo, TARGET)
+def build_inventory(repo: Path, baseline: str = BASELINE, target: str = TARGET) -> dict:
+    baseline_commit = resolve_commit(repo, baseline)
+    target_commit = resolve_commit(repo, target)
     head_commit = resolve_commit(repo, "HEAD")
     baseline_tree = resolve_tree(repo, baseline_commit)
     current_tree = index_subtree(repo, VENDOR_PATH)

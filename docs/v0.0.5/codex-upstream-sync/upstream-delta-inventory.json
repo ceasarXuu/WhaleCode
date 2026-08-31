@@ -3829,7 +3829,7 @@
       "binary": true,
       "crate_owner": "app-server-protocol",
       "deletions": null,
-      "generated_kind": null,
+      "generated_kind": "app-server-precomputed-schema",
       "path": "codex-rs/app-server-protocol/schema/precomputed/app-server-exports-experimental.json.zst",
       "status": "added",
       "target_sha256": "5185430fffaa0d7c254d74d0d528e24c2814ac6d7f25f9b0679d6ad26f84eadc"
@@ -3840,7 +3840,7 @@
       "binary": true,
       "crate_owner": "app-server-protocol",
       "deletions": null,
-      "generated_kind": null,
+      "generated_kind": "app-server-precomputed-schema",
       "path": "codex-rs/app-server-protocol/schema/precomputed/app-server-exports-stable.json.zst",
       "status": "added",
       "target_sha256": "5b0cb2524f4719764b11fe4a0321ca300a61daf081bbc391a21e2417254dafb3"
@@ -56864,6 +56864,7 @@
     },
     "by_generated_kind": {
       "app-server-json-schema": 164,
+      "app-server-precomputed-schema": 2,
       "app-server-typescript": 326,
       "cargo-lock": 1,
       "config-schema": 1,

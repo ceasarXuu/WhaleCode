@@ -66,7 +66,11 @@ def _repo_root() -> Path:
 
 
 def lineage(kind: str | None) -> dict | None:
-    if kind in {"app-server-json-schema", "app-server-typescript"}:
+    if kind in {
+        "app-server-json-schema",
+        "app-server-precomputed-schema",
+        "app-server-typescript",
+    }:
         return {
             "command": "just write-app-server-schema",
             "generator": (
@@ -100,7 +104,9 @@ def cutover_batch(categories: set[str], kind: str | None) -> str:
     return "batch-2-substrate"
 
 
-def verification_for(batch: str, disposition: str, lineage_data: dict | None) -> list[str]:
+def verification_for(
+    batch: str, disposition: str, lineage_data: dict | None
+) -> list[str]:
     checks = {
         "batch-1-brand-home": "cargo test -p codex-cli",
         "batch-2-substrate": "cargo nextest run -p codex-core",
@@ -162,9 +168,17 @@ def decide(
     )
 
 
-def build_ledger(repo: Path) -> dict:
-    overlay = json.loads((repo / OVERLAY_PATH).read_text(encoding="utf-8"))
-    delta = json.loads((repo / DELTA_PATH).read_text(encoding="utf-8"))
+def build_ledger(
+    repo: Path,
+    overlay: dict | None = None,
+    delta: dict | None = None,
+    baseline: str = BASELINE,
+    target: str = TARGET,
+) -> dict:
+    if overlay is None:
+        overlay = json.loads((repo / OVERLAY_PATH).read_text(encoding="utf-8"))
+    if delta is None:
+        delta = json.loads((repo / DELTA_PATH).read_text(encoding="utf-8"))
     delta_by_path = {entry["path"]: entry for entry in delta["entries"]}
     dependencies = {batch["id"]: batch["depends_on"] for batch in CUTOVER_BATCHES}
     entries: list[dict] = []
@@ -202,8 +216,8 @@ def build_ledger(repo: Path) -> dict:
     batches = Counter(entry["cutover_batch"] for entry in entries)
     return {
         "schema_version": 1,
-        "baseline_commit": BASELINE,
-        "target_commit": TARGET,
+        "baseline_commit": baseline,
+        "target_commit": target,
         "overlay_tree": index_subtree(repo, VENDOR_PATH),
         "cutover_batches": list(CUTOVER_BATCHES),
         "entries": entries,
@@ -215,8 +229,8 @@ def build_ledger(repo: Path) -> dict:
     }
 
 
-def _lineage_paths_exist(repo: Path, document: dict) -> list[str]:
-    target_paths = set(list_tree(repo, resolve_tree(repo, TARGET)))
+def _lineage_paths_exist(repo: Path, document: dict, target: str = TARGET) -> list[str]:
+    target_paths = set(list_tree(repo, resolve_tree(repo, target)))
     return sorted(
         {
             entry["generated_lineage"]["generator"]
@@ -252,7 +266,9 @@ def main() -> int:
         rendered = render(document)
         if args.write:
             output.write_text(rendered, encoding="utf-8")
-            logging.info("wrote %s with %d paths", OUTPUT_PATH, len(document["entries"]))
+            logging.info(
+                "wrote %s with %d paths", OUTPUT_PATH, len(document["entries"])
+            )
             return 0
         if not output.is_file() or output.read_text(encoding="utf-8") != rendered:
             logging.error("overlay replay ledger is missing or stale")

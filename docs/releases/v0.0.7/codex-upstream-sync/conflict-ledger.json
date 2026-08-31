@@ -1,0 +1,3402 @@
+{
+  "baseline_commit": "758ef40f50c1a458425c7cfbf1eb12cbc07af0b0",
+  "entries": [
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-cli/package.json",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "defer",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/Cargo.lock",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/Cargo.toml",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "regenerate",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/json/ClientRequest.json",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "regenerate",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/json/ServerNotification.json",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "regenerate",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/json/codex_app_server_protocol.schemas.json",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "regenerate",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/json/codex_app_server_protocol.v2.schemas.json",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "regenerate",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/json/v2/LoginAccountParams.json",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "regenerate",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/precomputed/app-server-exports-experimental.json.zst",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "regenerate",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/precomputed/app-server-exports-stable.json.zst",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "regenerate",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/typescript/ClientRequest.ts",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "regenerate",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/typescript/ServerNotification.ts",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "regenerate",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/typescript/ServerNotificationEnvelope.ts",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "regenerate",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/typescript/v2/LoginAccountParams.ts",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "regenerate",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/app-server-protocol/schema/typescript/v2/index.ts",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-app-server-schema",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/app-server-protocol/src/protocol/common.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/app-server-protocol/src/protocol/v2/account.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server-protocol/src/protocol/v2/mod.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/app-server-protocol/src/protocol/v2/tests.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server-protocol/src/protocol/v2/thread.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server-test-client/src/lib.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server/README.md",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server/src/lib.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/app-server/src/message_processor.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/app-server/src/request_processors.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/app-server/src/request_processors/account_processor.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server/src/request_processors/catalog_processor.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server/src/request_processors/config_processor.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server/src/request_processors/feedback_processor.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server/src/request_processors/persisted_resume_settings_tests.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/app-server/src/request_processors/thread_processor.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server/src/request_processors/thread_summary.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server/src/request_processors/turn_processor.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server/src/thread_state.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/app-server/tests/common/auth_fixtures.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/app-server/tests/common/test_app_server.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/app-server/tests/suite/v2/account.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/app-server/tests/suite/v2/app_list.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/app-server/tests/suite/v2/command_exec.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server/tests/suite/v2/executor_mcp.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server/tests/suite/v2/executor_skills.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/app-server/tests/suite/v2/git_attribution.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server/tests/suite/v2/multi_agent_v2_developer_instructions.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server/tests/suite/v2/plugin_list.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server/tests/suite/v2/realtime_conversation.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/app-server/tests/suite/v2/selected_capability_stack.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/app-server/tests/suite/v2/thread_fork.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server/tests/suite/v2/thread_resume.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/app-server/tests/suite/v2/turn_start.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/app-server/tests/suite/v2/view_image.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/src/desktop_app/mac.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/cli/src/doctor.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/src/doctor/thread_inventory.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/src/login.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/cli/src/main.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/src/marketplace_cmd.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/src/mcp_cmd.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/src/plugin_cmd.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/app_server.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/exec_server.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/features.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/cli/tests/login.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/marketplace_remove.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/mcp_add_remove.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/cli/tests/mcp_cloud_config.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/codex-api/src/sse/responses.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/codex-api/tests/clients.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/codex-mcp/src/connection_manager/tool_catalog.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/codex-mcp/src/rmcp_client.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/config/src/config_toml.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/config/src/loader/mod.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/config/src/loader/tests.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/config/src/tui_keymap.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/Cargo.toml",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "regenerate",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/core/config.schema.json",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "just write-config-schema",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/agent/control_tests.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/client.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/client_common.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/core/src/client_tests.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/codex_delegate.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/codex_delegate_tests.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/codex_thread.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/core/src/compact.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/compact_remote_request.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/compact_remote_v2_attempt.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/core/src/compact_tests.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/core/src/config/config_tests.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/core/src/config/mod.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/config/permissions.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/context_manager/history_tests.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/context_manager/mod.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/environment_selection.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/guardian/prompt.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "defer",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/core/src/guardian/snapshots/codex_core__guardian__tests__guardian_followup_review_request_layout.snap",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "defer",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/core/src/guardian/snapshots/codex_core__guardian__tests__guardian_review_request_layout.snap",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/guardian/tests.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/lib.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/mcp_openai_file.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/mcp_tool_call.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/mcp_tool_call_tests.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/core/src/realtime_conversation.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/core/src/session/context_window.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/session/handlers.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/session/mod.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/session/review.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/session/rollout_reconstruction.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/core/src/session/rollout_reconstruction_tests.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/session/session.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/session/step_context.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/session/tests.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/session/tests/guardian_tests.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/session/thread_settings.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/session/turn.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/session/turn_context.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/session/turn_input.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/session_rollout_init_error.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/session_startup_prewarm.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/stream_events_utils.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/tasks/mod.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/tasks/user_shell.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/core/src/thread_manager.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/core/src/thread_manager_tests.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/tools/context.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/tools/control_tool_analytics.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/tools/executed_tool_calls.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/tools/handlers/dynamic.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/tools/handlers/multi_agents_tests.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/tools/handlers/multi_agents_v2.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/tools/handlers/multi_agents_v2/message_tool.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/tools/handlers/multi_agents_v2/spawn.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/tools/handlers/request_permissions.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "patch-apply-failure",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/tools/handlers/shell/shell_command.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/tools/lifecycle.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/tools/mod.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/tools/parallel.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/tools/registry.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/core/src/tools/router.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/tools/router_tests.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/tools/spec_plan_tests.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/unified_exec/process_manager.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/src/unified_exec/process_manager_tests.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/tests/common/lib.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/tests/common/test_codex.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/tests/suite/agent_websocket.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/core/tests/suite/cli_stream.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/tests/suite/client.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/core/tests/suite/compact.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/tests/suite/hooks.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/tests/suite/mcp_startup_refresh_http_proxy.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/tests/suite/mod.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/tests/suite/multi_agent_resume.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/core/tests/suite/multi_exec_server_sandbox.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/tests/suite/realtime_conversation.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/tests/suite/resume_warning.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/core/tests/suite/rmcp_client.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/tests/suite/skills_extension.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/core/tests/suite/subagent_notifications.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/core/tests/suite/turn_state.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/exec-server/src/environment.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/exec-server/src/environment_config.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/exec-server/src/remote.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/exec-server/tests/relay/version_skew.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/exec/src/cli.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/exec/src/cli_tests.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/exec/src/event_processor_with_jsonl_output_tests.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/exec/src/lib.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/exec/tests/suite/resume.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/ext/extension-api/src/contributors.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/ext/extension-api/src/contributors/thread_lifecycle.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/ext/extension-api/src/contributors/tool_lifecycle.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/ext/extension-api/src/lib.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/ext/extension-api/src/registry.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/ext/extension-api/tests/registry.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/ext/guardian-v2/src/async_scorer/extension.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/ext/guardian-v2/src/async_scorer/extension_tests.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/ext/memories/src/tools/ad_hoc_note.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/ext/memories/src/tools/list.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/ext/memories/src/tools/read.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/ext/memories/src/tools/search.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/ext/skills/src/render.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/features/src/lib.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/features/src/tests.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/login/src/auth/auth_tests.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/login/src/auth/bedrock_api_key.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/login/src/auth/bedrock_api_key_tests.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/login/src/auth/manager.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/login/src/auth/storage.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/login/src/auth/storage_tests.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/login/src/lib.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/login/src/server.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/login/tests/suite/auth_refresh.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/login/tests/suite/logout.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/mcp-server/src/codex_tool_runner.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/mcp-server/tests/suite/codex_tool.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/memories/write/src/startup_tests.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/model-provider-info/src/lib.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/model-provider-info/src/model_provider_info_tests.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/model-provider/Cargo.toml",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/model-provider/src/amazon_bedrock/mod.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/model-provider/src/models_endpoint.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/model-provider/src/provider.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/models-manager/models.json",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/models-manager/src/manager_tests.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/models-manager/src/model_info.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/network-proxy/src/proxy.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/protocol/src/error.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/protocol/src/error_tests.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/protocol/src/lib.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/protocol/src/models.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/protocol/src/openai_models.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/protocol/src/protocol.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/rmcp-client/src/bin/test_stdio_server.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/rmcp-client/src/oauth.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/rmcp-client/src/oauth_client_registration.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/rmcp-client/tests/resources.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/rmcp-client/tests/streamable_http_oauth_startup.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/rmcp-client/tests/streamable_http_oauth_store_pinning.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/rollout-trace/src/protocol_event.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/rollout/src/policy.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/rollout/src/recorder_tests.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/state/src/lib.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/state/src/migrations_tests.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/state/src/model/mod.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/state/src/runtime.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/state/src/sqlite.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/thread-manager-sample/src/main.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/thread-store/src/local/mod.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/thread-store/src/local/model_context_tests.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/thread-store/src/local/rollout_migration.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/thread-store/src/local/rollout_migration_tests.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tools/src/lib.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/tui/src/app.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/app/agents_overview.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/tui/src/app/app_server_event_targets.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/app/app_server_events.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/app/background_requests.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/app/event_dispatch.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/tui/src/app/startup.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/tui/src/app/test_support.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/tui/src/app/tests.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/app/tests/background_exit_tests.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/app/tests/key_chords.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/app/tests/session_lifecycle_requests.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/app/tests/startup.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/tui/src/app/thread_routing.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/tui/src/app/thread_settings.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/app/working_directory.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/app_event.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/tui/src/app_server_session.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/bottom_pane/approval_overlay.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/bottom_pane/bottom_pane_view.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/bottom_pane/chat_composer.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/bottom_pane/custom_prompt_view.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/bottom_pane/custom_prompt_view_tests.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/bottom_pane/hooks_browser_view.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/bottom_pane/list_selection_view.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/bottom_pane/mod.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "defer",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__command_popup__tests__command_popup_default_items.snap",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "defer",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__hooks_browser_view__tests__hooks_browser_events.snap",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "defer",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__hooks_browser_view__tests__hooks_browser_events_with_issues.snap",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "defer",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/tui/src/bottom_pane/snapshots/codex_tui__bottom_pane__hooks_browser_view__tests__hooks_browser_events_with_review_column.snap",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/bottom_pane/status_line_setup.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/tui/src/chatwidget.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/chatwidget/constructor.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/tui/src/chatwidget/model_popups.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/chatwidget/permission_popups.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/tui/src/chatwidget/protocol.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/chatwidget/rendering_tests.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/chatwidget/settings.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/tui/src/chatwidget/slash_dispatch.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "defer",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__hooks_popup_shows_list_diagnostics.snap",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-5-generated-release",
+      "disposition": "defer",
+      "owner_domain": "generated-release",
+      "path": "codex-rs/tui/src/chatwidget/snapshots/codex_tui__chatwidget__tests__status_line_fast_mode_footer.snap",
+      "verification": [
+        "full workspace tests and generated-tree diff",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/chatwidget/status_surfaces.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/chatwidget/tests/app_server.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/chatwidget/tests/composer_submission.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/chatwidget/tests/helpers.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/chatwidget/tests/permissions.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/chatwidget/tests/plan_mode.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/tui/src/chatwidget/tests/popups_and_settings.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/tui/src/chatwidget/tests/slash_commands.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/chatwidget/tests/status_and_layout.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/chatwidget/turn_runtime.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/tui/src/chatwidget/windows_sandbox_prompts.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/tui/src/debug_config.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/git_action_directives.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/history_cell/hook_cell.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/tui/src/history_cell/mcp.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/history_cell/mod.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/tui/src/history_cell/notices.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/tui/src/history_cell/tests.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/insert_history.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/tui/src/keymap.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/keymap_setup.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/lib.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/tui/src/local_chatgpt_auth.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/markdown_render.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/markdown_render_tests.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/tui/src/model_migration.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-3-deepseek-wire",
+      "disposition": "adapt-semantically",
+      "owner_domain": "deepseek-wire",
+      "path": "codex-rs/tui/src/onboarding/auth.rs",
+      "verification": [
+        "provider wire fixtures and cache regression gate",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/tui/src/onboarding/keys.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/tui/src/onboarding/onboarding_screen.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/session_start.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "three-way-conflict",
+      "cutover_batch": "batch-4-taskspace-multi-agent",
+      "disposition": "adapt-semantically",
+      "owner_domain": "taskspace-multi-agent",
+      "path": "codex-rs/tui/src/slash_command.rs",
+      "verification": [
+        "TaskSpace and Multi-Agent targeted nextest suites",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/startup_draft.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-2-substrate",
+      "disposition": "adapt-semantically",
+      "owner_domain": "substrate",
+      "path": "codex-rs/tui/src/tui.rs",
+      "verification": [
+        "cargo nextest run -p codex-core",
+        "sync metadata validator"
+      ]
+    },
+    {
+      "apply_status": "overlap-clean",
+      "cutover_batch": "batch-1-brand-home",
+      "disposition": "adapt-semantically",
+      "owner_domain": "brand-home",
+      "path": "codex-rs/tui/src/update_prompt.rs",
+      "verification": [
+        "cargo test -p codex-cli",
+        "sync metadata validator"
+      ]
+    }
+  ],
+  "schema_version": 1,
+  "source": "git-apply-check-3way-against-index",
+  "summary": {
+    "by_apply_status": {
+      "overlap-clean": 241,
+      "patch-apply-failure": 1,
+      "three-way-conflict": 64
+    },
+    "by_cutover_batch": {
+      "batch-1-brand-home": 39,
+      "batch-2-substrate": 138,
+      "batch-3-deepseek-wire": 50,
+      "batch-4-taskspace-multi-agent": 57,
+      "batch-5-generated-release": 22
+    },
+    "path_count": 306
+  },
+  "target_commit": "78c290807ce710180111df227df3b7a4fe845452"
+}
