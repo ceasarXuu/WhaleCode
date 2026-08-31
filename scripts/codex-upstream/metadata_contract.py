@@ -344,6 +344,7 @@ def validate_ledger(document: dict) -> list[str]:
     if not SHA40.fullmatch(str(document.get("baseline_commit", ""))):
         errors.append("ledger baseline_commit must be a full SHA")
     expected_policy = {
+        "serialization": "git_show_binary_abbrev_9",
         "trailer_required_false": "recomputed_2026-08-01_not_historical",
         "trailer_required_true": "historical_commit_trailer",
     }

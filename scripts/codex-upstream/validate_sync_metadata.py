@@ -150,7 +150,11 @@ def validate_repository(repo: Path) -> list[str]:
             continue
         if not _object_exists(repo, f"{local}^{{commit}}"):
             errors.append(f"missing local commit object {local}")
-        patch = git(repo, "show", upstream, "--format=", "--binary")
+        # The historical ledger was created from Git's nine-character index
+        # abbreviations.  Make that byte representation explicit: Git's
+        # automatic abbreviation grows as the object database grows and would
+        # otherwise invalidate immutable historical digests.
+        patch = git(repo, "show", upstream, "--format=", "--binary", "--abbrev=9")
         upstream_paths = set(list_tree(repo, f"{upstream}^{{tree}}"))
         errors.extend(validate_patch_digest(entry, patch))
         errors.extend(
