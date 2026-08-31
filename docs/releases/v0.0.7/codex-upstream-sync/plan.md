@@ -1,13 +1,13 @@
 # WhaleCode v0.0.7 Codex CLI 0.151 主线追赶计划
 
-- Status: planned
+- Status: in-progress（Phase A / W1）
 - Plan Validity: valid-with-qualifications
 - Created: 2026-08-31
 - Product Authority: [`prd/2026-08-23-v0.0.6-multi-provider.md#confirmed-product-decisions`](../../../../prd/2026-08-23-v0.0.6-multi-provider.md#confirmed-product-decisions)
 - Applicable Decisions: PD3、PD4、PD5、PD6、PD8、PD9、PD10、PD11、PD12、PD13、PD15、PD17、PD18、PD19
 - Current vendor: `rust-v0.149.0` / `758ef40f50c1a458425c7cfbf1eb12cbc07af0b0`
 - Target vendor: `rust-v0.151.0` / `78c290807ce710180111df227df3b7a4fe845452`
-- Execution authorization: 本次只授权建立主题与计划；Phase A 需用户后续明确要求开始
+- Execution authorization: user-approved-execution-direct: 2026-09-01 “开始推进”
 
 ## 1. Execution Contract
 
@@ -90,7 +90,7 @@
 
 | ID | Objective | Change Axis | Change Location | Target Object | Concrete Action | Resulting Behavior | Benefit | Side Effects | Verification | Safe Stop / Rollback | Plan Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| W1 | 固定并资格验证 0.151 候选 | qualification | `scripts/codex-upstream/qualify_candidate.py`、candidate metadata/evidence | tag/commit/tree、V8/toolchain、pristine test manifest | 将候选合同从 0.149 更新到固定 0.151，并在临时目录运行既有隔离矩阵 | 获得不触碰 production vendor 的 go/no-go 证据 | 在大规模 cutover 前排除无效目标 | Complexity：只改既有常量、fixture 和证据；Reach/cost：本地构建与长测试，0 模型请求 | tag/commit/tree/license、sync script tests、fmt、CLI、code-mode-host、core/app-server/TUI candidate logs | 任一方向性阻断即保留 0.149；W1 可独立 revert | not-started |
+| W1 | 固定并资格验证 0.151 候选 | qualification | `scripts/codex-upstream/qualify_candidate.py`、candidate metadata/evidence | tag/commit/tree、V8/toolchain、pristine test manifest | 将候选合同从 0.149 更新到固定 0.151，并在临时目录运行既有隔离矩阵 | 获得不触碰 production vendor 的 go/no-go 证据 | 在大规模 cutover 前排除无效目标 | Complexity：只改既有常量、fixture 和证据；Reach/cost：本地构建与长测试，0 模型请求 | tag/commit/tree/license、sync script tests、fmt、CLI、code-mode-host、core/app-server/TUI candidate logs | 任一方向性阻断即保留 0.149；W1 可独立 revert | in-progress |
 | W2 | 生成可执行 replay 合同 | provenance/analysis | `scripts/codex-upstream/`、`docs/releases/v0.0.7/codex-upstream-sync/` | upstream delta、overlay inventory、replay batches、conflict ledger | 以 0.151 为目标生成路径级工件，并把冲突归入 generic、provider/DeepSeek、TaskSpace/extension、generated 四类 | 后续每个冲突只有一个 owner 和验证边界 | 降低现场误合并和跨域重构风险 | Complexity：metadata/文档，无运行时分支；Reach/cost：Git 分析、人工审阅，0 请求 | generator reproducibility、schema validator、path counts、三方 apply check | 分类不闭合则不进入 cutover；production vendor 保持 0.149 | not-started |
 | W3 | 导入 0.151 substrate 与通用 Whale seam | vendor/generic | `third_party/codex-cli/` 通用 build、identity、home、workspace、sandbox、exec/PTY 路径 | 官方 tree、Whale CLI/workspace seam、安全和效率修复 | 以官方 tree 机械替换 substrate，按 W2 replay 最小 identity/workspace seam；不在本单元设计 Provider 或 TaskSpace 新语义 | 通用底座升至 0.151，并获得权限、安全、shutdown 与执行效率修复 | 避免逐提交 cherry-pick 形成长期漂移 | Complexity：大规模机械 vendor 变化，上游文件豁免普通 500 行限制；Reach/cost：build/sandbox/exec/TUI 基础路径，0 请求 | conflict-free index、fmt/check、CLI identity、workspace doctor、权限/sandbox/PTY/unified-exec 定向测试 | 单独 commit；失败可 revert W3 回到完整 0.149，不在半冲突状态提交 | not-started |
 | W4 | 恢复 Multi-Provider 与 DeepSeek 合同 | provider/cache/context | login、model-provider-info、models-manager、core client/session/ToolRouter/compaction、TUI provider/model | route-bound auth、model catalog、prepared transition、history projection、DeepSeek Responses/final-wire | 在 0.151 seam 上重放 v0.0.6 provider overlay，吸收 model-aware ToolRouter/reasoning 修复；retained-image budgeting 只对支持的 route 生效，DeepSeek 保持本地压缩 | 三访问路由和 DeepSeek 三模型行为不退化，同时获得上游模型切换修复 | 直接保护当前主要产品链和缓存正确性 | Complexity：只改既有 route/capability seam，不新增 mega-registry；Reach/cost：凭据、模型、请求、压缩、cache，可能触发真实 revalidation 申请 | login/model/provider/core/TUI 定向测试、DeepSeek SSE、provider transition、history projection、Standard final-wire、`check_cache_regression_gate.py --source index` | 免费 gate 要求真实 revalidation 时立即停止并申请预算；W4 commit 可独立 revert 到 W3 substrate 状态 | not-started |
@@ -106,7 +106,7 @@
 - Rebase scope: `main@a3ac0770d`、0.149 vendor、v0.0.6 已发布实现、固定 0.151 tag/commit/tree、当前 overlay/diff 证据
 - Material plan delta: none
 - Plan delta record: not-required
-- User approval: 本次仅批准建立主题；执行仍待用户后续明确要求
+- User approval: user-approved-execution-direct: 2026-09-01 “开始推进”
 - Gate status: ready
 
 - Entry: 工作区 ready、工作树 clean、固定 tag 可达。
