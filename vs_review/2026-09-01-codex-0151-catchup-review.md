@@ -1,7 +1,7 @@
 # Subagent VS Review: Codex 0.151 主线追赶
 
 - Created: 2026-09-01T07:45:00+08:00
-- Updated: 2026-09-01T08:06:00+08:00
+- Updated: 2026-09-02T09:42:00+08:00
 - Report schema: adversarial-v2
 - Task: 对本轮 Codex 0.151 主线追赶的实现完整性、兼容性、验证证据和发布收口状态进行对抗性审查。
 - Report path: `vs_review/2026-09-01-codex-0151-catchup-review.md`
@@ -308,8 +308,8 @@
 
 | Finding | Triage | Evidence / rationale | Required action |
 | --- | --- | --- | --- |
-| B1 | **accept-blocking** | 主 Agent 独立复现 metadata validator exit 1；plan W6/Phase E 仍 pending；cache result 为 partial、ledger usage unavailable；stash name-status 证实 closeout 工件未进入 HEAD | 先保持 W6 未完成；不得复用已消费授权。后续需新预算完成双臂运行，再落地并复验 W6 工件 |
-| B2 | **accept-blocking** | stashed COE 只有问题簇摘要，确无最终完整日志和逐 test 的 baseline/authority mapping；冻结验收条件要求区分真实回归与已批准延期 | 先做 0 成本证据闭合；无法映射者再修复或交用户接受风险 |
+| B1 | **accept-blocking / static-fixed** | `b631eb7e67` 落地 final-wire；`f68c09c4c9` 落地 883-path inventory、validator、release report 与 gate evidence；免费 final-wire gate 通过，但 live gate 仍以 accepted `4a15…` != current `e39d…` 阻断 | 保持 W6 未完成；不得复用已消费授权。仍需新预算完成双臂运行和 baseline 晋升 |
+| B2 | **accept-blocking / fixed-pending-re-review** | `f68c09c4c9` 持久化精确 8-test JUnit、全量 JUnit、pristine 对照和逐项“签名—生产路径—延期权威”manifest；定向结果严格为 7 failed + 1 timeout | 等待与 B1 一起进入 focused closure review；不在本轮修改已批准延期的 TaskSpace 产品路径 |
 | N1 | **accept-nonblocking** | 两个 hidden seam 的恢复提交证明 replay metadata 不是行为完备性证明 | 作为下一次 upstream cut-over 的测试改进项记录，不扩大本轮 W6 |
 | N2 | **accept-nonblocking** | 本轮有 commit reachability 和兼容性证据，无 A/B 性能 benchmark | 发布措辞限于可达性、兼容性和对应修复，不量化效率提升 |
 | N3 | **accept-nonblocking** | generator 尚在 stash，未见 dedicated test | validator/check 足够本轮收口；后续小型单测可延期 |
@@ -317,21 +317,21 @@
 ### Review Governor
 
 - Decision: `user-decision-required`
-- Reason: 两个有 E0/E1 支撑的 blocker 均被接受；B1 的最终关闭需要一笔新的真实模型预算，而冻结合同禁止本轮复用已消费授权或自行启动付费运行。B2 可先以 0 成本工程证据推进，但当前用户请求是审查，Round 1 明确不自动修复。
+- Reason: B2 与 B1 静态部分已按最小范围修复；B1 的最终关闭仍需要一笔新的真实模型预算，而冻结合同禁止复用已消费授权或自行启动付费运行。
 - Round 2: 未启动。只有 B1/B2 完成最小关闭动作后，才允许一次仅针对这两个 finding 的 focused blocker-closure review；它是自动 round budget 中的最后一轮。
 - Scope growth: 无；未要求修复 Windows、0.152、TaskSpace 产品逻辑或新增架构。
 
 ### Closure Status
 
 - Blocking findings found: B1, B2
-- Accepted blocking findings fixed: n/a
+- Accepted blocking findings fixed: B2 fixed-pending-re-review；B1 static-fixed/live-pending
 - Blocking re-review completed: n/a
 - Blocking re-review passed: n/a
 - Blocking re-review round links: n/a
 - Blocking re-review launch records: n/a
 - Rejected findings backed by evidence: n/a（无 rejected finding）
 - Deferred findings documented: N1、N3；N2 为 release-claim constraint
-- Implementation completeness gaps resolved or accepted by user: no
+- Implementation completeness gaps resolved or accepted by user: B2 resolved；B1 live qualification unresolved
 - Target benefit warnings recorded: yes（N2）
 - Automatic round budget respected: yes
 - Third-or-later round explicitly user-approved before launch: n/a
@@ -339,11 +339,11 @@
 - Evidence sufficient for scope-expanding actions: no scope expansion proposed
 - Convergence reflection required and recorded: n/a
 - Control outcome: user-decision-required
-- Blocked reason: W6 cache qualification requires replacement budget；core residual failures require per-test authority mapping
-- Allowed to proceed: 仅允许先做 B2 的 0 成本证据闭合；不得宣称完成、合入 main 或启动真实运行
+- Blocked reason: W6 cache qualification requires replacement budget
+- Allowed to proceed: 仅在取得新预算后执行最小双臂真实 cache qualification；不得宣称完成或合入 main
 
 ## Final Conclusion
 
-Round 1 已完成，结论为 **fail / not merge-ready**。W1–W5 的生产实现总体成立，且未发现阻断性的过度设计或产品范围漂移；阻断集中于 W6 发布资格和残余 core 非绿项的证据归属，而非要求重做 0.151 cut-over。
+Round 1 已完成，当前仍为 **not merge-ready**。W1–W5 的生产实现总体成立；B2 和 B1 静态部分已由 `b631eb7e67`、`f68c09c4c9` 修复，未引入产品逻辑或范围扩张。唯一剩余 blocker 是 W6 live cache qualification 与 accepted baseline 晋升。
 
-下一步最小顺序：先不花费预算地持久化完整 core 日志并逐项关闭 B2；随后申请一笔新的最小双臂 DeepSeek cache 资格预算关闭 B1；最后落地 W6 stash、执行静态/生成/clean/push gate，并只对 B1/B2 做一次 focused closure review。
+下一步最小顺序：申请一笔新的最小双臂 DeepSeek cache 资格预算关闭 B1；成功后晋升 baseline、更新 W6 状态，并只对 B1/B2 做一次 focused closure review。
