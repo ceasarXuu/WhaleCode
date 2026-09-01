@@ -2,7 +2,7 @@
 
 ## 结论
 
-当前 `whalecode-codex` vendor 已追赶至官方稳定版 `rust-v0.151.0`，固定 peeled commit 为 `78c290807ce710180111df227df3b7a4fe845452`、tree 为 `68d61fd9886a749a78487d8ce950e3cb9309a3d7`。W1–W6 的实现与发布证据已经闭合，当前只等待聚焦对抗性收口复审；0.152 alpha 未进入本主题。
+当前 `whalecode-codex` vendor 已追赶至官方稳定版 `rust-v0.151.0`，固定 peeled commit 为 `78c290807ce710180111df227df3b7a4fe845452`、tree 为 `68d61fd9886a749a78487d8ce950e3cb9309a3d7`。W1–W6 的实现、发布证据和聚焦对抗性收口复审均已闭合；0.152 alpha 未进入本主题。
 
 本次保留 DeepSeek Flash 默认、Pro 可见、Responses API、三访问路由与 TaskSpace 单一 relational state authority。Codex 原生 task UI 继续隐藏，没有为上游测试全绿改变 Whale 产品逻辑。
 
@@ -35,7 +35,7 @@
 
 ## 缓存与成本
 
-用户批准本轮不超过 1 CNY 的总包后，最小 `deepseek-v4-flash` Standard + map-request 双臂完成两组成功资格运行。R2 `WAR-20260902-070644-CACHE-REGRESSION-BA4DEF1B` 业务成功，但其门禁报告位于临时目录，因此只保留为审计证据；持久化 R3 `WAR-20260902-071009-CACHE-REGRESSION-BBE4EBE4` 使用仓库内门禁报告再次通过并用于晋升。两组累计 26 个 Provider 请求，输入 334,386 tokens（其中 cached 294,144、uncached 40,242），输出 6,416 tokens，估算费用 0.05895688 CNY。R3 的 Standard 后续请求缓存命中率 96.696%，TaskSpace 为 91.5114%，两臂 trace coverage 均为 100%、usage gap 为 0、business success 为 true。当前 `e39d5bd4…` 敏感面已成为 accepted baseline，[持久门禁报告](../../../benchmarks/cache-regression/gate-reports/20260902-codex-0151-w6-package-r3.json)及发布级 live gate 均通过。
+用户批准本轮不超过 1 CNY 的总包后，最小 `deepseek-v4-flash` Standard + map-request 双臂完成两组成功资格运行。R2 `WAR-20260902-070644-CACHE-REGRESSION-BA4DEF1B` 业务成功，但其门禁报告位于临时目录，因此只保留为审计证据；持久化 R3 `WAR-20260902-071009-CACHE-REGRESSION-BBE4EBE4` 使用仓库内门禁报告再次通过并用于晋升。两组累计 26 个 Provider 请求，输入 334,386 tokens（其中 cached 294,144、uncached 40,242），输出 6,416 tokens，估算费用 0.05895688 CNY。R3 的 Standard 后续请求缓存命中率 96.696%，TaskSpace 为 91.5114%，两臂 trace coverage 均为 100%、usage gap 为 0、business success 为 true。[持久 revalidation trigger report](../../../benchmarks/cache-regression/gate-reports/20260902-codex-0151-w6-package-r3.json)记录的是晋升前旧 baseline 导致的预期 blocked transition；晋升后当前 `e39d5bd4…` 敏感面已成为 accepted baseline，发布级 live gate 现场复验通过。
 
 ## Provenance 与回滚
 

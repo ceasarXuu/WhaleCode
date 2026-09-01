@@ -1,16 +1,16 @@
 # Subagent VS Review: Codex 0.151 主线追赶
 
 - Created: 2026-09-01T07:45:00+08:00
-- Updated: 2026-09-02T09:42:00+08:00
+- Updated: 2026-09-02T07:25:00+08:00
 - Report schema: adversarial-v2
 - Task: 对本轮 Codex 0.151 主线追赶的实现完整性、兼容性、验证证据和发布收口状态进行对抗性审查。
 - Report path: `vs_review/2026-09-01-codex-0151-catchup-review.md`
 - Review mode: fresh internal subagents
 - Source session policy: no inherited main-agent context；reviewer 只接收本报告的中性导航包。
-- Status: completed-blocked
-- Control outcome: user-decision-required
+- Status: completed-pass
+- Control outcome: pass
 - Automatic round budget: 2
-- Completed rounds: 1
+- Completed rounds: 2
 - Last known-good checkpoint: `a3ac0770df153dea2a18ff7e3cc5df245c76f45a`（0.151 主题开始前的 project main）
 
 ## Review Control Contract
@@ -342,8 +342,46 @@
 - Blocked reason: W6 cache qualification requires replacement budget
 - Allowed to proceed: 仅在取得新预算后执行最小双臂真实 cache qualification；不得宣称完成或合入 main
 
+## Round 2: B1/B2 聚焦收口复审
+
+### Round Control
+
+- Round type: focused blocker closure
+- Round number: 2
+- User approval: 2026-09-02 用户批准总包不超过 1 CNY，并允许多轮审查修复。
+- Closure finding IDs: B1、B2
+- Scope: 只验证 W6/live baseline 与 7+1 延期证据；不扩展 Windows、0.152、TaskSpace 产品修复或新架构。
+- Reviewer: fresh internal subagent `/root/codex_0151_closure_review`，`fork_turns=none`，只读、零真实模型请求。
+- Review subject: `c252e020d7851f12aa350adeff59e0bed5a92597`
+
+### Reviewer Verdict
+
+`pass`。B1、B2 均已最小充分关闭，未发现 admissible blocker；冻结的 Codex 0.151 目标 merge-ready。
+
+### Closure Evidence
+
+| Finding | Result | Independent evidence |
+| --- | --- | --- |
+| B1 | closed | 883-path generator、metadata validator、56/56 script tests 通过；R3 持久 proposal/auth/gate/result/acceptance/evidence/ledger 完整；两臂 business success、trace 100%、usage gap 0；`--source head --require-live-baseline --require-clean-subject` PASS；HEAD/remote/clean 一致 |
+| B2 | closed | 定向 JUnit 实测 8 项=7 failed+1 timeout；完整 JUnit 3969 项=7 failed+14 timeout；7 个 failure 逐名相等，14 timeout 中 1 个 turn-state + 13 个 zsh-fork；pristine 证明 1 个 upstream 同签名、其余 7 个当前集成非绿；manifest 逐项绑定签名、生产路径与延期权威 |
+
+### Non-blocking Notes
+
+- R3 持久 gate JSON 是晋升前触发 revalidation 的预期 `blocked` 报告；晋升后的 live gate 才是 PASS。release report 已修正文案，避免把两者混称。
+- 13 个 zsh-fork 宿主 timeout 仍未验证通过，但已与 TaskSpace 7+1 精确隔离，属于冻结 non-goal。
+- Round 1 的历史 fail 结论保留，不覆盖；本 Round 2 记录其关闭证据。
+
+### Closure Status
+
+- Blocking findings found: B1, B2
+- Accepted blocking findings fixed: B1、B2
+- Blocking re-review completed: yes
+- Blocking re-review passed: yes
+- Automatic round budget respected: yes（2/2）
+- Scope drift detected: no
+- Control outcome: pass
+- Merge-ready for frozen Codex 0.151 objective: yes
+
 ## Final Conclusion
 
-Round 1 已完成，当前仍为 **not merge-ready**。W1–W5 的生产实现总体成立；B2 和 B1 静态部分已由 `b631eb7e67`、`f68c09c4c9` 修复，未引入产品逻辑或范围扩张。唯一剩余 blocker 是 W6 live cache qualification 与 accepted baseline 晋升。
-
-下一步最小顺序：申请一笔新的最小双臂 DeepSeek cache 资格预算关闭 B1；成功后晋升 baseline、更新 W6 状态，并只对 B1/B2 做一次 focused closure review。
+Round 2 聚焦复审通过。W1–W6 已完成；B1 的 live cache qualification、账本结算和 baseline 晋升闭合，B2 的 7+1 延期边界有逐项证据。没有通过修改 DeepSeek 默认、TaskSpace 状态权威或用户入口换取测试变绿，也没有把 Windows、zsh-fork 或 0.152 扩入本轮。当前 Codex 0.151 追赶目标可合入主线。
