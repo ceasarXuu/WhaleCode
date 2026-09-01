@@ -1,8 +1,8 @@
 # Problem P-001: Codex 0.151 发布收口回归
 
-- Status: blocked-on-cache-budget
+- Status: resolved
 - Created: 2026-09-01 06:00
-- Updated: 2026-09-02 09:35
+- Updated: 2026-09-02 07:20
 - Objective: 在不改变 DeepSeek 默认行为和 TaskSpace 状态权威的前提下，为 Codex 0.151 当前 vendor 建立可审计的隔离回归与 W6 发布资格证据。
 - Symptoms:
   - 完整 `codex-core` 隔离回归曾记录 7 个失败与 1 个超时，但未持久化最终原始日志和逐项延期映射。
@@ -28,15 +28,15 @@
   - 持久化最终隔离结果并逐项证明残余非绿项属于已批准延期，或修复不能证明者。
   - W6 metadata/generator/cache gate 可复验；真实 cache qualification 成功并结算后才晋升 baseline。
   - focused closure review 关闭 B1/B2。
-- Current conclusion: B2 已由精确 7+1 JUnit、pristine 对照和逐项授权映射关闭；B1 静态 metadata/final-wire 已修复，真实 cache 双臂资格仍等待新预算。
+- Current conclusion: B2 已由精确 7+1 JUnit、pristine 对照和逐项授权映射关闭；B1 的静态 metadata/final-wire 与真实 cache 双臂资格均通过，`e39d5bd4…` 已晋升 accepted baseline。
 - Related hypotheses:
   - H-001
   - H-002
   - H-003
 - Resolution basis:
-  - not satisfied
+  - E-003 至 E-006 关闭逐项延期和静态资格缺口；E-007 证明持久双臂真实资格、账本结算与 live baseline 晋升完成。
 - Close reason:
-  - not closed
+  - Fix criteria satisfied；不修改已批准延期的 TaskSpace 产品路径。
 
 ## Hypothesis H-001: 残余 7+1 均可从隔离运行恢复并逐项绑定既有延期
 
@@ -172,9 +172,9 @@
   - E-006
 - Conclusion: confirmed
 - Repair design readiness: ready；只补证据与 W6 静态工件，不修改延期产品路径
-- Next step: 落地 failure manifest、W6 metadata/snapshot closeout，并执行修复验证。
+- Next step: 进入 B1/B2 聚焦收口复审。
 - Blocker:
-  - B1 的真实 cache 资格仍需新预算
+  - none
 - Close reason:
   - not closed
 
@@ -317,3 +317,28 @@
   ```
 - Interpretation: 7+1 的延期集合可审计；额外 zsh-fork timeout 是当前宿主验证限制，单列且不冒充 TaskSpace 延期或通过。
 - Time: 2026-09-02 09:35
+
+## Evidence E-007: 持久双臂真实资格通过并晋升当前 baseline
+
+- Related hypotheses:
+  - H-003
+- Direction: supports
+- Type: fix-validation
+- Source: `WAR-20260902-071009-CACHE-REGRESSION-BBE4EBE4`、全局账本、cache acceptance 与 live gate
+- Prediction or plan link:
+  - P-001 的 B1 真实资格关闭条件
+- Matched signal:
+  - Standard + map-request 均 business success；usage/trace 完整；`e39d5bd4…` 晋升后 live gate PASS
+- Correlation keys:
+  - subject `7d492442f1`
+  - proposal `CBP-F62CE3162005EC13`
+  - result `WAR-20260902-071009-CACHE-REGRESSION-BBE4EBE4`
+- Raw content:
+  ```text
+  2 sample runs completed; 13 provider requests
+  input 166833 (cached 156928, uncached 9905); output 3014
+  estimated cost 0.01907156 CNY
+  cache regression gate: PASS e39d5bd4...
+  ```
+- Interpretation: B1 的真实运行、费用结算、持久证据与 baseline 晋升闭合；R2 另有成功审计记录，两组累计费用 0.05895688 CNY，低于 1 CNY 总包。
+- Time: 2026-09-02 07:20

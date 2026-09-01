@@ -1,0 +1,34 @@
+{
+  "schema_version": "whalecode-cache-baseline-acceptance-v1",
+  "status": "accepted",
+  "accepted_by": "user",
+  "accepted_at": "2026-09-02T07:13:00+08:00",
+  "acceptance_reference": "用户于 2026-09-02 在被告知本轮剩余阻塞是 Codex 0.151 当前缓存敏感面真实回归与基线晋升后，批准总包不超过 1 CNY 并允许多轮审查修复。持久证据 R3 的 deepseek-v4-flash Standard 与 map-request 双臂均业务成功、usage 完整、证据覆盖率 100%，且未超过预算；本接受仅把相同 final-wire 内容重新绑定到当前 e39d5bd4 缓存敏感面，不扩大产品范围。",
+  "result_path": "benchmarks/cache-regression/results/WAR-20260902-071009-CACHE-REGRESSION-BBE4EBE4.json",
+  "result_sha256": "a35e98fe2bdd4a7af7e49208828f7d1fe75363b84d557b6bb5ddde5cfdd4c68b",
+  "proposal_path": "benchmarks/cache-regression/proposals/20260902-codex-0151-w6-package-r3.json",
+  "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260902-CODEX-0151-W6-PACKAGE-R3.json",
+  "accepted_scope": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "standard",
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "Repeat the successful minimum Codex 0.151 two-arm live cache qualification with a durable repository gate report; R2 cost 0.03988532 CNY but its ignored temporary gate report cannot support a reproducible promoted baseline."
+  },
+  "acknowledged_unverified_scope": [],
+  "accepted_scenarios": []
+}

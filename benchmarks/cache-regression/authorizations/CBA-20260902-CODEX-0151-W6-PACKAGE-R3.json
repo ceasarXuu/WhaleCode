@@ -1,0 +1,39 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v2",
+  "status": "granted",
+  "approved_by": "user",
+  "authorization_id": "CBA-20260902-CODEX-0151-W6-PACKAGE-R3",
+  "approval_reference": "用户于 2026-09-02 批准本轮总包不超过 1 CNY 并允许多轮审查修复。R2 双臂真实运行成功，实际估算费用 0.03988532 CNY，但其门禁报告位于忽略的临时目录，不能支撑可复现基线晋升。本替代授权使用持久化仓库门禁报告重跑相同最小范围：deepseek-v4-flash、single-file-fast-fix 的 standard 与 map-request 各 1 次，零 sample 重试，本次硬上限 0.40 CNY，累计总包仍不得超过 1 CNY。",
+  "approved_at": "2026-09-02T07:10:00+08:00",
+  "proposal_id": "CBP-F62CE3162005EC13",
+  "proposal_sha256": "0d63afa730adf17b43b91af67805c899f2786458b50bc70218f178c537879295",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "standard",
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "Repeat the successful minimum Codex 0.151 two-arm live cache qualification with a durable repository gate report; R2 cost 0.03988532 CNY but its ignored temporary gate report cannot support a reproducible promoted baseline."
+  },
+  "approved_maximums": {
+    "provider_requests": 36,
+    "input_tokens": 360000,
+    "output_tokens": 20000,
+    "elapsed_seconds": 1680,
+    "estimated_cost": 0.4,
+    "currency": "CNY"
+  }
+}

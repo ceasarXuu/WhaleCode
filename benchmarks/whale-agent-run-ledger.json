@@ -1,7 +1,124 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-09-02T07:08:11+08:00",
+  "updated_at": "2026-09-02T07:11:31+08:00",
   "entries": [
+    {
+      "record_id": "WAR-20260902-071009-CACHE-REGRESSION-BBE4EBE4",
+      "record_type": "run_batch",
+      "status": "settled",
+      "started_at": "2026-09-02T07:10:18+08:00",
+      "ended_at": "2026-09-02T07:11:31+08:00",
+      "elapsed_calendar_seconds": 73.37,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "Repeat the successful minimum Codex 0.151 two-arm live cache qualification with a durable repository gate report; R2 cost 0.03988532 CNY but its ignored temporary gate report cannot support a reproducible promoted baseline.",
+      "authorization": {
+        "required": true,
+        "status": "granted",
+        "id": "CBA-20260902-CODEX-0151-W6-PACKAGE-R3",
+        "reference": "用户于 2026-09-02 批准本轮总包不超过 1 CNY 并允许多轮审查修复。R2 双臂真实运行成功，实际估算费用 0.03988532 CNY，但其门禁报告位于忽略的临时目录，不能支撑可复现基线晋升。本替代授权使用持久化仓库门禁报告重跑相同最小范围：deepseek-v4-flash、single-file-fast-fix 的 standard 与 map-request 各 1 次，零 sample 重试，本次硬上限 0.40 CNY，累计总包仍不得超过 1 CNY。",
+        "budget_summary": {
+          "provider_requests": 36,
+          "input_tokens": 360000,
+          "output_tokens": 20000,
+          "elapsed_seconds": 1680,
+          "estimated_cost": 0.4,
+          "currency": "CNY"
+        },
+        "note": "严格绑定预算提案 CBP-F62CE3162005EC13。"
+      },
+      "execution": {
+        "provider": "deepseek",
+        "transport_provider": "deepseek-boundary",
+        "provider_descriptor_sha256": "dd7c79081a8bbb8540e38a9d2013a968cf21c6fd4731b379c667acb2a3bcb9cb",
+        "model": "deepseek-v4-flash",
+        "batch_count": 1,
+        "sample_ids": [
+          "single-file-fast-fix"
+        ],
+        "arm_ids": [
+          "standard",
+          "map-request"
+        ],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 2,
+        "actual_sample_runs": 2,
+        "api_requests": 13,
+        "api_requests_evidence_status": "complete"
+      },
+      "tokens": {
+        "input": 166833,
+        "cached_input": 156928,
+        "uncached_input": 9905,
+        "output": 3014
+      },
+      "monetary_cost": {
+        "status": "estimated",
+        "currency": "CNY",
+        "amount": 0.01907156,
+        "actual_billed_amount": null,
+        "components": {
+          "cached_input": 0.0031385600000000003,
+          "uncached_input": 0.009905,
+          "output": 0.006028
+        },
+        "pricing_snapshot": {
+          "currency": "CNY",
+          "captured_at": "2026-08-18",
+          "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+          "cached_input_per_million": 0.02,
+          "uncached_input_per_million": 1.0,
+          "output_per_million": 2.0
+        },
+        "formula": "cached_input/1e6*cached_rate + uncached_input/1e6*miss_rate + output/1e6*output_rate",
+        "note": "按完整 provider token 遥测和冻结价格估算。"
+      },
+      "evidence": {
+        "planned_run_root": "target/cache-hit-regression/WAR-20260902-071009-CACHE-REGRESSION-BBE4EBE4",
+        "subject_commit": "7d492442f1dfeeca62fc44821c75d1d9c3852590",
+        "surface_sha256": "e39d5bd4a50c4c2948ce5309cffcea534be12c8cf522e48998aa32ec08337068",
+        "proposal_id": "CBP-F62CE3162005EC13",
+        "proposal_contract_sha256": "0d63afa730adf17b43b91af67805c899f2786458b50bc70218f178c537879295",
+        "proposal_path": "benchmarks/cache-regression/proposals/20260902-codex-0151-w6-package-r3.json",
+        "proposal_sha256": "a94a9b05d17fde39ab4ecff3e3d893fcbc486b4d3c456410c80087bc58396d99",
+        "authorization_path": "benchmarks/cache-regression/authorizations/CBA-20260902-CODEX-0151-W6-PACKAGE-R3.json",
+        "authorization_sha256": "da474e339d644dea6df39937b6b916434179bc6e71ea0850d2589ea939e5d2cf",
+        "approved_selection": {
+          "model": "deepseek-v4-flash",
+          "samples": [
+            "single-file-fast-fix"
+          ],
+          "arms": [
+            "standard",
+            "map-request"
+          ],
+          "repeat": 1,
+          "planned_sample_runs": 2,
+          "retry_sample_run_limit": 0,
+          "maximum_sample_runs": 2,
+          "stop_conditions": [
+            "after_any_run_failure",
+            "after_any_business_failure",
+            "after_any_usage_gap",
+            "after_any_budget_observation_exceeded"
+          ],
+          "selection_reason": "Repeat the successful minimum Codex 0.151 two-arm live cache qualification with a durable repository gate report; R2 cost 0.03988532 CNY but its ignored temporary gate report cannot support a reproducible promoted baseline."
+        },
+        "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+        "stop_conditions": [
+          "after_any_run_failure",
+          "after_any_business_failure",
+          "after_any_usage_gap",
+          "after_any_budget_observation_exceeded"
+        ],
+        "usage_evidence_status": "complete",
+        "provider_route_attestation_path": "benchmarks/cache-regression/evidence/WAR-20260902-071009-CACHE-REGRESSION-BBE4EBE4/provider-route-preflight/provider-route-preflight.json",
+        "provider_route_attestation_sha256": "ae8b8e33f4c60ea921a0b6155b728c9ae1ad56d47dd404ff427a9ad4c1d2cf71",
+        "actual_run_root": "target/cache-hit-regression/WAR-20260902-071009-CACHE-REGRESSION-BBE4EBE4",
+        "result_path": "benchmarks/cache-regression/results/WAR-20260902-071009-CACHE-REGRESSION-BBE4EBE4.json",
+        "runner_exit_code": 0,
+        "outcome": "completed"
+      }
+    },
     {
       "record_id": "WAR-20260902-070644-CACHE-REGRESSION-BA4DEF1B",
       "record_type": "run_batch",
