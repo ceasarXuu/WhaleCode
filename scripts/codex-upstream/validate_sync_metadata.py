@@ -13,9 +13,10 @@ from generate_overlay_inventory import (
     IMPORT_BASELINE,
     OUTPUT_PATH,
     TARGET,
-    build_inventory,
-    render,
 )
+from generate_current_overlay import OUTPUT_PATH as CURRENT_OVERLAY_PATH
+from generate_current_overlay import build_current_inventory
+from generate_overlay_inventory import render
 from git_snapshot import GitError, git, index_subtree, list_tree, resolve_tree
 from metadata_contract import (
     validate_backlog,
@@ -33,9 +34,13 @@ from qualify_candidate import CANDIDATE_TARGET
 LEDGER_PATH = "docs/v0.0.5/codex-upstream-sync/backport-ledger.json"
 BACKLOG_PATH = "docs/v0.0.5/codex-upstream-sync/backport-provenance-backlog.json"
 TUI_BASELINE_PATH = "docs/v0.0.5/codex-upstream-sync/tui-baseline.json"
-CANDIDATE_PATH = "docs/releases/v0.0.7/codex-upstream-sync/upstream-candidate.json"
-DELTA_PATH = "docs/v0.0.5/codex-upstream-sync/upstream-delta-inventory.json"
-REPLAY_PATH = "docs/v0.0.5/codex-upstream-sync/overlay-replay-ledger.json"
+CANDIDATE_DIR = "docs/releases/v0.0.7/codex-upstream-sync"
+CANDIDATE_PATH = f"{CANDIDATE_DIR}/upstream-candidate.json"
+CANDIDATE_OVERLAY_PATH = f"{CANDIDATE_DIR}/overlay-inventory.json"
+CANDIDATE_DELTA_PATH = f"{CANDIDATE_DIR}/upstream-delta-inventory.json"
+CANDIDATE_REPLAY_PATH = f"{CANDIDATE_DIR}/overlay-replay-ledger.json"
+LEGACY_DELTA_PATH = "docs/v0.0.5/codex-upstream-sync/upstream-delta-inventory.json"
+LEGACY_REPLAY_PATH = "docs/v0.0.5/codex-upstream-sync/overlay-replay-ledger.json"
 UPSTREAM_PATH = "third_party/codex-cli/UPSTREAM.md"
 SCHEMA_PATHS = (
     "scripts/codex-upstream/schemas/overlay-inventory.schema.json",
@@ -74,7 +79,6 @@ def validate_repository(repo: Path) -> list[str]:
     inventory = _load(repo, OUTPUT_PATH)
     ledger = _load(repo, LEDGER_PATH)
     backlog = _load(repo, BACKLOG_PATH)
-    delta: dict | None = None
     errors.extend(validate_inventory(inventory))
     errors.extend(validate_ledger(ledger))
     errors.extend(validate_backlog(backlog))
@@ -87,58 +91,66 @@ def validate_repository(repo: Path) -> list[str]:
         errors.extend(validate_candidate(candidate))
         if candidate.get("commit_sha") != CANDIDATE_TARGET:
             errors.append("candidate commit does not match candidate target")
-    delta_path = repo / DELTA_PATH
-    if delta_path.exists():
-        delta = _load(repo, DELTA_PATH)
-        errors.extend(validate_upstream_delta(delta))
-        if delta.get("baseline_commit") != IMPORT_BASELINE:
-            errors.append("upstream delta baseline does not match generator baseline")
-        if delta.get("target_commit") != TARGET:
-            errors.append("upstream delta target does not match generator target")
-    replay_path = repo / REPLAY_PATH
-    if replay_path.exists():
-        replay = _load(repo, REPLAY_PATH)
-        errors.extend(validate_replay_ledger(replay))
-        if replay.get("baseline_commit") != BASELINE:
-            errors.append("replay baseline does not match generator baseline")
-        if replay.get("target_commit") != TARGET:
-            errors.append("replay target does not match generator target")
-        current_vendor_tree = index_subtree(repo, "third_party/codex-cli")
-        if replay.get("overlay_tree") != current_vendor_tree:
-            errors.append("replay overlay tree is stale relative to the Git index")
-        overlay_by_path = {entry["path"]: entry for entry in inventory["entries"]}
-        replay_by_path = {entry["path"]: entry for entry in replay.get("entries", [])}
-        if replay_by_path.keys() != overlay_by_path.keys():
-            errors.append("replay paths do not exactly cover the overlay inventory")
-        delta_by_path = (
-            {entry["path"]: entry for entry in delta["entries"]}
-            if delta is not None
-            else {}
+    for path, validator in (
+        (LEGACY_DELTA_PATH, validate_upstream_delta),
+        (LEGACY_REPLAY_PATH, validate_replay_ledger),
+    ):
+        if (repo / path).exists():
+            errors.extend(validator(_load(repo, path)))
+
+    candidate_overlay = _load(repo, CANDIDATE_OVERLAY_PATH)
+    delta = _load(repo, CANDIDATE_DELTA_PATH)
+    replay = _load(repo, CANDIDATE_REPLAY_PATH)
+    errors.extend(validate_inventory(candidate_overlay))
+    errors.extend(validate_upstream_delta(delta))
+    errors.extend(validate_replay_ledger(replay))
+    if candidate_overlay.get("baseline_commit") != BASELINE:
+        errors.append("candidate overlay baseline does not match cutover baseline")
+    if candidate_overlay.get("target_commit") != CANDIDATE_TARGET:
+        errors.append("candidate overlay target does not match candidate target")
+    if delta.get("baseline_commit") != BASELINE:
+        errors.append("candidate delta baseline does not match cutover baseline")
+    if delta.get("target_commit") != CANDIDATE_TARGET:
+        errors.append("candidate delta target does not match candidate target")
+    if replay.get("baseline_commit") != BASELINE:
+        errors.append("candidate replay baseline does not match cutover baseline")
+    if replay.get("target_commit") != CANDIDATE_TARGET:
+        errors.append("candidate replay target does not match candidate target")
+    overlay_by_path = {entry["path"]: entry for entry in candidate_overlay["entries"]}
+    replay_by_path = {entry["path"]: entry for entry in replay.get("entries", [])}
+    if replay_by_path.keys() != overlay_by_path.keys():
+        errors.append("candidate replay paths do not exactly cover the candidate overlay")
+    delta_by_path = {entry["path"]: entry for entry in delta["entries"]}
+    for path in sorted(replay_by_path.keys() & overlay_by_path.keys()):
+        source = overlay_by_path[path]
+        decision = replay_by_path[path]
+        upstream = delta_by_path.get(path)
+        expected_target = (
+            upstream["target_sha256"]
+            if upstream is not None
+            else source["baseline_sha256"]
         )
-        for path in sorted(replay_by_path.keys() & overlay_by_path.keys()):
-            source = overlay_by_path[path]
-            decision = replay_by_path[path]
-            upstream = delta_by_path.get(path)
-            expected_target = (
-                upstream["target_sha256"]
-                if upstream is not None
-                else source["baseline_sha256"]
-            )
-            if decision.get("current_sha256") != source["current_sha256"]:
-                errors.append(f"{path}: replay current hash is stale")
-            if decision.get("target_sha256") != expected_target:
-                errors.append(f"{path}: replay target hash is stale")
+        if decision.get("current_sha256") != source["current_sha256"]:
+            errors.append(f"{path}: candidate replay current hash is stale")
+        if decision.get("target_sha256") != expected_target:
+            errors.append(f"{path}: candidate replay target hash is stale")
+
+    current_inventory = _load(repo, CURRENT_OVERLAY_PATH)
+    errors.extend(validate_inventory(current_inventory))
+    if current_inventory.get("baseline_commit") != CANDIDATE_TARGET:
+        errors.append("current overlay baseline does not match imported substrate")
+    if current_inventory.get("target_commit") != CANDIDATE_TARGET:
+        errors.append("current overlay target does not match imported substrate")
+    regenerated = render(build_current_inventory(repo))
+    existing = (repo / CURRENT_OVERLAY_PATH).read_text(encoding="utf-8")
+    if existing != regenerated:
+        errors.append("current overlay inventory is stale relative to the Git index")
     if ledger.get("baseline_commit") != IMPORT_BASELINE:
         errors.append("ledger baseline does not match generator baseline")
     if inventory.get("baseline_commit") != BASELINE:
         errors.append("inventory baseline does not match generator baseline")
     if inventory.get("target_commit") != TARGET:
         errors.append("inventory target does not match generator target")
-
-    regenerated = render(build_inventory(repo))
-    existing = (repo / OUTPUT_PATH).read_text(encoding="utf-8")
-    if existing != regenerated:
-        errors.append("overlay inventory is stale relative to the Git index")
 
     baseline_paths = set(list_tree(repo, resolve_tree(repo, IMPORT_BASELINE)))
     current_paths = set(entry[3] for entry in _current_vendor_entries(repo))
@@ -184,6 +196,7 @@ def validate_repository(repo: Path) -> list[str]:
         BASELINE,
         TARGET,
         "overlay-inventory.json",
+        "current-overlay-inventory.json",
         "backport-ledger.json",
         "backport-provenance-backlog.json",
         "upstream-candidate.json",

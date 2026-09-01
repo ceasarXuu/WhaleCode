@@ -362,6 +362,7 @@ def classify(
                 "codex-rs/core/src/tasks/**",
                 "codex-rs/rollout/**",
                 "codex-rs/rollout-trace/**",
+                "codex-rs/state/src/extract.rs",
                 "codex-rs/state/src/runtime/**",
                 "codex-rs/thread-store/**",
             ),

@@ -1,6 +1,6 @@
 # WhaleCode v0.0.7 Codex CLI 0.151 主线追赶计划
 
-- Status: in-progress（Phase D completed / W5 verified；W6 pending rebase）
+- Status: in-progress（Phase E / W6；等待缓存真实回归预算）
 - Plan Validity: valid-with-qualifications
 - Created: 2026-08-31
 - Product Authority: [`prd/2026-08-23-v0.0.6-multi-provider.md#confirmed-product-decisions`](../../../../prd/2026-08-23-v0.0.6-multi-provider.md#confirmed-product-decisions)
@@ -96,7 +96,7 @@
 | W3 | 导入 0.151 substrate 与通用 Whale seam | vendor/generic | `third_party/codex-cli/` 通用 build、identity、home、workspace、sandbox、exec/PTY 路径 | 官方 tree、Whale CLI/workspace seam、安全和效率修复 | 以官方 tree 机械替换 substrate，按 W2 replay 最小 identity/workspace seam；不在本单元设计 Provider 或 TaskSpace 新语义 | 通用底座升至 0.151，并获得权限、安全、shutdown 与执行效率修复 | 避免逐提交 cherry-pick 形成长期漂移 | Complexity：大规模机械 vendor 变化，上游文件豁免普通 500 行限制；Reach/cost：build/sandbox/exec/TUI 基础路径，0 请求 | conflict-free index、fmt/check、CLI identity、workspace doctor、权限/sandbox/PTY/unified-exec 定向测试 | 单独 commit；失败可 revert W3 回到完整 0.149，不在半冲突状态提交 | verified |
 | W4 | 恢复 Multi-Provider 与 DeepSeek 合同 | provider/cache/context | login、model-provider-info、models-manager、core client/session/ToolRouter/compaction、TUI provider/model | route-bound auth、model catalog、prepared transition、history projection、DeepSeek Responses/final-wire | 在 0.151 seam 上重放 v0.0.6 provider overlay，吸收 model-aware ToolRouter/reasoning 修复；retained-image budgeting 只对支持的 route 生效，DeepSeek 保持本地压缩 | 三访问路由和 DeepSeek 三模型行为不退化，同时获得上游模型切换修复 | 直接保护当前主要产品链和缓存正确性 | Complexity：只改既有 route/capability seam，不新增 mega-registry；Reach/cost：凭据、模型、请求、压缩、cache，可能触发真实 revalidation 申请 | login/model/provider/core/TUI 定向测试、DeepSeek SSE、provider transition、history projection、Standard final-wire、`check_cache_regression_gate.py --source index` | 免费 gate 要求真实 revalidation 时立即停止并申请预算；W4 commit 可独立 revert 到 W3 substrate 状态 | verified |
 | W5 | 恢复 TaskSpace、Extension 与 app-server/TUI 组合链 | taskspace/extension/protocol | state、tools、core extension lifecycle、app-server protocol/server、TUI routing/viewer、generated schema | relational store、fork/resume/reload、MCP result lifecycle、TaskSpace RPC/events | 在单一 relational state authority 上适配 0.151 session/extension 协议，生成 schema；PPD1 未确认前不激活冲突的 task UI | TaskSpace 与 extension 组合链在新 substrate 上可恢复、可重放 | 保留差异化能力并吸收 MCP result hook | Complexity：适配既有 extension seam，不建第二 store；Reach/cost：state/core/app-server/TUI/schema，0 请求 | state/tools/core TaskSpace、fork→reload→request、extension lifecycle/MCP result、app-server schema、TUI routing/viewer | 发现双状态权威或 PPD1 依赖即阻断相关入口；W5 独立 commit/revert | verified |
-| W6 | 发布资格与证据收口 | release/metadata | provenance、replay、UPSTREAM、release report、cache evidence | 0.151 vendor identity、完整受控矩阵、延期边界 | 刷新所有生成工件，运行当前 vendor 隔离回归与静态门禁，记录非绿项真实签名并提交推送 | v0.0.7 获得可审计的 0.151 substrate 候选 | 防止“版本已改但证据未跟上” | Complexity：文档/metadata/generated，无新产品逻辑；Reach/cost：长时间本地测试，真实模型费用默认 0 | metadata/delta/inventory/replay check、schema、fmt、isolated affected/full matrix、cache gate、clean tree、remote sync | 未达到退出条件不宣称完成；真实验证仍需单独预算和账本 | not-started |
+| W6 | 发布资格与证据收口 | release/metadata | provenance、replay、UPSTREAM、release report、cache evidence | 0.151 vendor identity、完整受控矩阵、延期边界 | 保持 cutover replay 工件不可变，生成 0.151 substrate 上的 current overlay inventory；运行当前 vendor 隔离回归与静态门禁，记录非绿项真实签名并提交推送 | v0.0.7 获得可审计的 0.151 substrate 候选 | 防止“版本已改但证据未跟上”，且不让发布后状态反向污染迁移历史 | Complexity：文档/metadata/generated，无新产品逻辑；Reach/cost：长时间本地测试，真实模型费用默认 0 | historical replay structural check、current overlay reproducibility、schema、fmt、isolated affected/full matrix、cache gate、clean tree、remote sync | 未达到退出条件不宣称完成；真实验证仍需单独预算和账本 | blocked-on-cache-budget |
 
 ## 9. Phases
 
@@ -105,8 +105,8 @@
 #### Pre-Phase Plan Rebase Gate
 
 - Rebase scope: `main@a3ac0770d`、0.149 vendor、v0.0.6 已发布实现、固定 0.151 tag/commit/tree、当前 overlay/diff 证据
-- Material plan delta: none
-- Plan delta record: not-required
+- Material plan delta: PDL3（历史 cutover replay 与 post-cutover current overlay 分离）
+- Plan delta record: PDL3
 - User approval: user-approved-execution-direct: 2026-09-01 “开始推进”
 - Gate status: ready
 
@@ -167,14 +167,16 @@
 #### Pre-Phase Plan Rebase Gate
 
 - Rebase scope: Phase A–D 全部实现和证据、当前测试基线、剩余发布边界
-- Material plan delta: pending
-- Plan delta record: pending
-- User approval: pending-if-material
-- Gate status: pending
+- Material plan delta: none
+- Plan delta record: not-required
+- User approval: not-required（engineering-only；不修改产品权威、默认值或用户入口）
+- Gate status: ready
+- Rebase result: W1–W5 已形成独立提交并推送，当前 vendor、Provider/DeepSeek、TaskSpace/Extension 与 schema 定向矩阵均闭合。W6 只刷新现有 provenance/replay/UPSTREAM/release evidence，运行隔离回归和免费 cache gate；不再修改生产行为。若 cache gate 明确要求真实请求，则仅该预算门停止并向用户申请，不阻塞其余零成本收口工作。
 
 - Entry: W1–W5 verified；无未解决的物质 conflict/provisional。
 - Exit: provenance 和生成物一致；本地隔离矩阵及 cache gate 达到记录的发布标准；所有本任务修改已原子 commit/push；工作树 clean。
 - Product Decision Delta: 汇总各 Phase 审计，不用实现结果反向扩展产品权威。
+- W6 evidence（2026-09-02）：current overlay inventory 基于最终 index 重生为 883 路径，生成器 `--check`、全局 metadata validator 与 56 个同步脚本测试通过。隔离 runner 已清理宿主 Codex 环境变量，并对 core/app-server scope 重建 Whale CLI，排除陈旧二进制与宿主会话污染。8 项定向隔离运行精确复现用户已批准延期的 7 failed + 1 timeout，并已逐项记录 test name、签名、pristine 0.151 对照、生产路径和延期权威；完整 JUnit 与 manifest 已持久化。受控 `-j 4` 全量为 3969 项中 3948 passed（1 flaky）、7 failed、14 timed out、9 skipped；额外 13 项均为当前宿主 DotSlash zsh + exec-wrapper intercept 超时，单项复跑同样超时，不与 TaskSpace 7+1 混记。PAT route 2/2、Guardian integration 2/2、websocket 42/42、spec plan 54/54、executor MCP 4/4、cache final-wire mock 2/2 通过。免费 final-wire gate 通过；发布级 live-baseline gate 仍以 accepted `4a15…` != current `e39d…` 阻断，证据见 `benchmarks/cache-regression/gate-reports/20260902-codex-0151-w6-closeout.json`。W6 因此继续停在预算门，新增模型请求 0，Product Decision Delta 为 none。
 
 ## 10. Plan Delta Log
 
@@ -182,6 +184,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | PDL1 | Phase B | 以旧的 292 条 overlay、115 个上游交集估算 W3–W5 replay 范围 | v0.0.6 最终 index 形成 883 条 overlay；0.151 有 306 个交集、64 个三方冲突和 2 个非冲突式 apply failure | 保持 W3/W4/W5 架构与顺序不变，改用新生成的 883 条 replay ledger 作为执行全集；每阶段只处理归属自身 batch 的路径 | 不增加产品功能或新架构，但机械 replay、人工复核和回归成本显著增加 | not-required（engineering-only，2026-09-01 用户确认） | accepted |
 | PDL2 | Phase C | W3 只恢复 generic seam，Provider/TaskSpace 文件全部留到 W4/W5 | 0.151 的 app-server、TUI 和 state 编译边界直接引用既有 Provider credential、TaskSpace protocol 和 migration；完全延后会使 W3 无法形成可验证 substrate | W3 只提前恢复编译和既有入口连续性所需的最小接口，并处理 0051 migration 兼容；W4/W5 仍独立完成行为矩阵、schema 和产品语义验证 | 扩大 W3 的接口覆盖但不新增功能、不改变状态权威，也不把编译通过等同于 W4/W5 完成 | not-required（engineering-only） | accepted |
+| PDL3 | Phase E | W6 笼统要求“刷新所有生成工件” | cutover overlay/replay 是切换前 index 的执行合同；在已切到 0.151 的 index 上重建会把上游新增路径误判为 Whale overlay，并产生 191 个错误分类 | 冻结 v0.0.5 历史工件和 v0.0.7 cutover 合同；新增只相对固定 0.151 substrate 计算的 current overlay inventory，validator 同时检查历史结构、cutover 内部一致性和 current overlay 可复现性 | 新增一个轻量 provenance 工件和生成入口，消除迁移历史与当前状态的双重含义；不触及运行时或产品行为 | not-required（engineering-only） | accepted |
 
 每个 Phase 开始前必须在此记录物质变化，禁止静默改计划后继续执行。
 
