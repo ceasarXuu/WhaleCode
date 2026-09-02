@@ -13,6 +13,7 @@ usage() {
 Usage: scripts/install-whale-local.sh [OPTIONS]
 
 Install a locally built Whale binary into an isolated user directory.
+Workspace scope also installs the global worktree-aware whale-dev dispatcher.
 
 Options:
   --scope SCOPE            Required: workspace or user
@@ -62,6 +63,7 @@ done
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/.." && pwd)"
 workspace_cli="$repo_root/scripts/workspace-safety/workspace_context.py"
+whale_dev_dispatcher_source="$repo_root/scripts/workspace-safety/whale_dev_dispatcher.py"
 
 if [ "$scope" != "workspace" ] && [ "$scope" != "user" ]; then
   echo "--scope must be workspace or user" >&2
@@ -79,6 +81,53 @@ if [ "$scope" = "workspace" ]; then
 else
   install_dir="${install_dir:-${WHALE_INSTALL_DIR:-$HOME/.whale/bin}}"
 fi
+
+install_whale_dev_dispatcher() {
+  local global_bin="$HOME/.local/bin"
+  local destination="$global_bin/whale-dev"
+  local temporary=""
+  local source_schema existing_schema
+  if [ ! -f "$whale_dev_dispatcher_source" ]; then
+    echo "Cannot find whale-dev dispatcher source: $whale_dev_dispatcher_source" >&2
+    exit 1
+  fi
+  source_schema="$(sed -n 's/^WHALE_DEV_DISPATCHER_SCHEMA = \([0-9][0-9]*\)$/\1/p' \
+    "$whale_dev_dispatcher_source")"
+  if [ -z "$source_schema" ]; then
+    echo "Invalid whale-dev dispatcher source revision" >&2
+    exit 1
+  fi
+  if [ -e "$destination" ] || [ -L "$destination" ]; then
+    existing_schema="$(sed -n 's/^WHALE_DEV_DISPATCHER_SCHEMA = \([0-9][0-9]*\)$/\1/p' \
+      "$destination" 2>/dev/null || true)"
+    if [ -L "$destination" ] || [ -z "$existing_schema" ]; then
+      echo "Refusing to replace unmanaged whale-dev command: $destination" >&2
+      exit 1
+    fi
+    if [ "$existing_schema" -gt "$source_schema" ]; then
+      echo "Reused newer Whale Dev dispatcher: $destination"
+      return 0
+    fi
+    if [ "$existing_schema" -eq "$source_schema" ]; then
+      if cmp -s "$whale_dev_dispatcher_source" "$destination"; then
+        echo "Reused Whale Dev dispatcher: $destination"
+        return 0
+      fi
+      echo "Refusing to replace different whale-dev content at revision $source_schema" >&2
+      exit 1
+    fi
+  fi
+  mkdir -p "$global_bin"
+  temporary="$(mktemp "$global_bin/.whale-dev.XXXXXX")"
+  trap 'rm -f "$temporary"' RETURN
+  install -m 0755 "$whale_dev_dispatcher_source" "$temporary"
+  mv -f "$temporary" "$destination"
+  trap - RETURN
+  echo "Installed Whale Dev dispatcher: $destination"
+  if [[ ":${PATH:-}:" != *":$global_bin:"* ]]; then
+    echo "Note: add $global_bin to PATH to use whale-dev globally." >&2
+  fi
+}
 
 realpath_existing() {
   if command -v realpath >/dev/null 2>&1; then
@@ -247,4 +296,5 @@ python3 "$repo_root/scripts/workspace-safety/write_binary_attestation.py" \
 
 if [ "$scope" = "workspace" ]; then
   python3 "$workspace_cli" doctor --repo-root "$repo_root" --require-binary >/dev/null
+  install_whale_dev_dispatcher
 fi

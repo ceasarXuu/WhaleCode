@@ -8,8 +8,10 @@ trap 'rm -rf "$temp_root"' EXIT
 fake_home="$temp_root/home"
 fake_whale="$temp_root/whale"
 fake_code_mode_host="$temp_root/codex-code-mode-host"
-mkdir -p "$fake_home/.whale/bin"
+mkdir -p "$fake_home/.whale/bin" "$fake_home/.local/bin"
 printf '%s\n' 'legacy-sentinel' >"$fake_home/.whale/bin/sentinel"
+printf '%s\n' 'release-sentinel' >"$fake_home/.local/bin/whale"
+chmod +x "$fake_home/.local/bin/whale"
 cat >"$fake_whale" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' 'whale 0.1.0'
@@ -23,10 +25,13 @@ prepare_repo() {
   cp "$repo_root/scripts/install-whale-local.sh" "$destination/scripts/install-whale-local.sh"
   cp "$repo_root/scripts/workspace-safety/write_binary_attestation.py" \
     "$destination/scripts/workspace-safety/write_binary_attestation.py"
+  cp "$repo_root/scripts/workspace-safety/whale_dev_dispatcher.py" \
+    "$destination/scripts/workspace-safety/whale_dev_dispatcher.py"
   git -C "$destination" config user.name "Installer Test"
   git -C "$destination" config user.email "installer@example.invalid"
   git -C "$destination" add scripts/install-whale-local.sh \
-    scripts/workspace-safety/write_binary_attestation.py
+    scripts/workspace-safety/write_binary_attestation.py \
+    scripts/workspace-safety/whale_dev_dispatcher.py
   git -C "$destination" commit -q -m "fixture installer"
 }
 
@@ -72,6 +77,15 @@ test -x "$bin_b/codex-code-mode-host"
 test -f "$bin_a/whale.build-attestation.json"
 test -f "$bin_b/whale.build-attestation.json"
 test "$(cat "$fake_home/.whale/bin/sentinel")" = "legacy-sentinel"
+test "$(cat "$fake_home/.local/bin/whale")" = "release-sentinel"
+test -x "$fake_home/.local/bin/whale-dev"
+version_a="$(cd "$repo_a" && HOME="$fake_home" XDG_STATE_HOME="$fake_home/state" \
+  XDG_DATA_HOME="$fake_home/data" "$fake_home/.local/bin/whale-dev" --version)"
+version_b="$(cd "$repo_b" && HOME="$fake_home" XDG_STATE_HOME="$fake_home/state" \
+  XDG_DATA_HOME="$fake_home/data" "$fake_home/.local/bin/whale-dev" --version)"
+test "$version_a" != "$version_b"
+[[ "$version_a" == "whale-dev whale 0.1.0 ["*"]" ]]
+[[ "$version_b" == "whale-dev whale 0.1.0 ["*"]" ]]
 
 user_install="$fake_home/custom-user-bin"
 HOME="$fake_home" XDG_STATE_HOME="$fake_home/state" XDG_DATA_HOME="$fake_home/data" \
@@ -111,5 +125,19 @@ if HOME="$fake_home" XDG_STATE_HOME="$fake_home/state" XDG_DATA_HOME="$fake_home
   exit 1
 fi
 test ! -e "$blocked"
+
+printf '%s\n' '#!/usr/bin/env python3' 'WHALE_DEV_DISPATCHER_SCHEMA = 999' \
+  'print("newer-managed")' >"$fake_home/.local/bin/whale-dev"
+chmod +x "$fake_home/.local/bin/whale-dev"
+workspace_install "$repo_a"
+test "$("$fake_home/.local/bin/whale-dev")" = "newer-managed"
+
+printf '%s\n' '#!/bin/sh' 'echo unmanaged' >"$fake_home/.local/bin/whale-dev"
+chmod +x "$fake_home/.local/bin/whale-dev"
+if workspace_install "$repo_a" >/dev/null 2>&1; then
+  echo "installer replaced an unmanaged whale-dev command" >&2
+  exit 1
+fi
+test "$("$fake_home/.local/bin/whale-dev")" = "unmanaged"
 
 echo "install-whale-local tests passed"

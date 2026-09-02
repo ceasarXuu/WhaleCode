@@ -57,7 +57,7 @@
 
 - 新clone、worktree或切换branch后，在执行安装、Whale运行、cache regression、TaskSpace benchmark等workspace敏感命令前，必须先运行`python3 scripts/workspace-safety/workspace_context.py bootstrap plan --json`。
 - `bootstrap plan`只读；检查输出后，只能把该次计划的精确`fingerprint`传给`bootstrap apply --expect <fingerprint>`。不得跳过确认、复用过期fingerprint或手工创建marker。
-- 初次bootstrap按`plan → apply → bash scripts/install-whale-local.sh --scope workspace → doctor --require-binary`执行。日常开工至少运行`require-ready`；需要隔离运行时环境时通过`workspace_context.py exec -- <command>`启动。
+- 初次bootstrap按`plan → apply → bash scripts/install-whale-local.sh --scope workspace → doctor --require-binary`执行。安装后人工开发统一从目标worktree内使用全局`whale-dev`，由dispatcher选择当前worktree的隔离binary与runtime home；全局`whale`只用于release。日常开工至少运行`require-ready`；自动化需要隔离运行时环境时可通过`workspace_context.py exec -- <command>`启动。
 - 门禁失败必须先按稳定诊断码恢复；禁止fallback到PATH上的全局`whale`，禁止复制或迁移legacy `~/.whale`、凭据、history、sessions、plugins或skills。
 - 真实模型运行的账本与预算批准仍是开发流程约束，不得把它实现成Whale产品逻辑或自然语言运行时授权协议。
 - 在本机对当前 Codex vendor 执行完整 crate 回归时，使用 `python3 scripts/codex-upstream/run_isolated_tests.py <nextest 参数>`；不得用宿主代理或共享临时目录产生的失败判断产品回归。定向测试仍可按上游 `just test` 运行。

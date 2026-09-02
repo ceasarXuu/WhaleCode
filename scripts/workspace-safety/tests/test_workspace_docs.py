@@ -27,13 +27,13 @@ class WorkspaceDocumentationTest(unittest.TestCase):
             "install-whale-local.sh --scope workspace",
             "doctor --require-binary",
             "require-ready",
+            "全局`whale-dev`",
+            "全局`whale`只用于release",
         ):
             self.assertIn(token, text)
 
     def test_runbook_documents_all_states_and_no_fallback_boundary(self) -> None:
-        text = (ROOT / "runbooks/local-workspace-safety.md").read_text(
-            encoding="utf-8"
-        )
+        text = (ROOT / "runbooks/local-workspace-safety.md").read_text(encoding="utf-8")
         for state in (
             "Unbootstrapped",
             "Ready",
@@ -43,6 +43,7 @@ class WorkspaceDocumentationTest(unittest.TestCase):
         ):
             self.assertIn(state, text)
         self.assertIn("不把PATH上的全局`whale`", text)
+        self.assertIn("`whale-dev`必须按cwd解析worktree", text)
         self.assertIn("开发流程规范，不是产品运行时协议", text)
 
 

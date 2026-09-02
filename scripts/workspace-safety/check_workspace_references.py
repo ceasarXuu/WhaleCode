@@ -68,6 +68,11 @@ ENTRYPOINT_CONTRACTS = {
     ),
     "scripts/taskspace-benchmark/run-active-prefix-matrix.py": ("require_ready(",),
     "scripts/taskspace-benchmark/r7_a2_b0_provider_wire_cli.py": ("require_ready(",),
+    "scripts/workspace-safety/whale_dev_dispatcher.py": (
+        "workspace_marker_stale",
+        "workspace_attestation_invalid",
+        "os.execve(binary",
+    ),
 }
 
 
@@ -79,7 +84,9 @@ def discover_sources(root: Path) -> dict[str, str]:
             continue
         if "__pycache__" in path.parts or "/tests/" in f"/{relative}/":
             continue
-        if Path(relative).name.startswith("test-") or Path(relative).name.startswith("test_"):
+        if Path(relative).name.startswith("test-") or Path(relative).name.startswith(
+            "test_"
+        ):
             continue
         if relative == "scripts/workspace-safety/check_workspace_references.py":
             continue
@@ -113,7 +120,9 @@ def inspect_sources(
 
     for allowance in allowances:
         if not allowance.reason.strip():
-            violations.append(f"{allowance.path}: {allowance.rule} allowance lacks reason")
+            violations.append(
+                f"{allowance.path}: {allowance.rule} allowance lacks reason"
+            )
         count = observed.get((allowance.path, allowance.rule), 0)
         if count > allowance.maximum:
             continue
@@ -129,7 +138,9 @@ def inspect_sources(
             continue
         for token in required_tokens:
             if token not in text:
-                violations.append(f"{path}: missing workspace preflight token {token!r}")
+                violations.append(
+                    f"{path}: missing workspace preflight token {token!r}"
+                )
     return violations
 
 
