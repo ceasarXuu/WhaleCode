@@ -14,7 +14,7 @@ class QualifyCandidateTests(unittest.TestCase):
     def test_candidate_target_is_independent_from_overlay_target(self) -> None:
         self.assertEqual(
             qualify_candidate.CANDIDATE_TARGET,
-            "758ef40f50c1a458425c7cfbf1eb12cbc07af0b0",
+            "78c290807ce710180111df227df3b7a4fe845452",
         )
 
     def test_candidate_uses_codex_sandboxed_v8_artifacts(self) -> None:
@@ -70,8 +70,8 @@ class QualifyCandidateTests(unittest.TestCase):
     def test_package_tests_record_reproducible_environment(self) -> None:
         self.assertEqual(
             qualify_candidate.EVIDENCE_DIR,
-            "docs/v0.0.5/codex-upstream-sync/evidence/"
-            "rust-v0.149.0/attempt-1-isolated-qualification",
+            "docs/releases/v0.0.7/codex-upstream-sync/evidence/"
+            "rust-v0.151.0/attempt-1-isolated-qualification",
         )
         self.assertEqual(
             qualify_candidate.ISOLATED_HOME_TEST_IDS,

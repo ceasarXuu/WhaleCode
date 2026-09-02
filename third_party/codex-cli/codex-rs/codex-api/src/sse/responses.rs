@@ -8,7 +8,9 @@ use crate::safety_buffering::treatment_from_headers;
 use crate::telemetry::SseTelemetry;
 use codex_client::ByteStream;
 use codex_client::StreamResponse;
+use codex_protocol::ResponseUsageMetadata;
 use codex_protocol::models::ResponseItem;
+use codex_protocol::protocol::MisalignmentErrorDetails;
 use codex_protocol::protocol::ModelVerification;
 use codex_protocol::protocol::TokenUsage;
 use codex_protocol::protocol::TurnModerationMetadataEvent;
@@ -107,6 +109,8 @@ struct Error {
     message: Option<String>,
     plan_type: Option<String>,
     resets_at: Option<i64>,
+    #[serde(default)]
+    misalignment: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -115,6 +119,7 @@ struct ResponseCompleted {
     id: String,
     #[serde(default)]
     usage: Option<ResponseCompletedUsage>,
+    usage_metadata: Option<ResponseUsageMetadata>,
     #[serde(default)]
     end_turn: Option<bool>,
 }
@@ -174,7 +179,6 @@ pub struct ResponsesStreamEvent {
     text: Option<String>,
     summary_index: Option<i64>,
     content_index: Option<i64>,
-    sequence_number: Option<u64>,
     #[serde(default, deserialize_with = "deserialize_present_value")]
     safety_buffering: Option<Value>,
 }
@@ -363,7 +367,7 @@ pub fn process_responses_event(
                 return Ok(Some(ResponseEvent::OutputTextDelta(delta)));
             }
         }
-        "response.custom_tool_call_input.delta" | "response.function_call_arguments.delta" => {
+        "response.custom_tool_call_input.delta" => {
             if let (Some(delta), Some(item_id)) =
                 (event.delta, event.item_id.clone().or(event.call_id.clone()))
             {
@@ -429,7 +433,12 @@ pub fn process_responses_event(
                                 "This request was blocked due to a misalignment policy violation."
                                     .to_string()
                             });
-                        response_error = ApiError::MisalignmentPolicyViolation { message };
+                        response_error = ApiError::MisalignmentPolicyViolation {
+                            message,
+                            misalignment: error.misalignment.and_then(|details| {
+                                serde_json::from_value::<MisalignmentErrorDetails>(details).ok()
+                            }),
+                        };
                     } else if matches!(error.code.as_deref(), Some("invalid_prompt" | "bio_policy"))
                     {
                         let message = error
@@ -441,7 +450,12 @@ pub fn process_responses_event(
                     } else {
                         let delay = try_parse_retry_after(&error);
                         let message = error.message.unwrap_or_default();
-                        response_error = ApiError::Retryable { message, delay };
+                        response_error = match error.code.as_deref() {
+                            Some("rate_limit_exceeded") => {
+                                ApiError::RateLimitExceeded { message, delay }
+                            }
+                            _ => ApiError::Retryable { message, delay },
+                        };
                     }
                 }
                 return Err(ResponsesEventError::Api(response_error));
@@ -469,6 +483,7 @@ pub fn process_responses_event(
                         return Ok(Some(ResponseEvent::Completed {
                             response_id: resp.id,
                             token_usage: resp.usage.map(Into::into),
+                            usage_metadata: resp.usage_metadata,
                             end_turn: resp.end_turn,
                         }));
                     }
@@ -499,15 +514,12 @@ pub fn process_responses_event(
         | "response.content_part.added"
         | "response.content_part.done"
         | "response.custom_tool_call_input.done"
+        | "response.function_call_arguments.delta"
         | "response.function_call_arguments.done"
         | "response.in_progress"
         | "response.metadata"
         | "response.output_text.done"
-        | "response.reasoning_text.done"
         | "response.reasoning_summary_part.done"
-        | "response.web_search_call.in_progress"
-        | "response.web_search_call.searching"
-        | "response.web_search_call.completed"
         | "responsesapi.websocket_timing" => {
             trace!("unhandled responses event: {}", event.kind);
         }
@@ -550,8 +562,8 @@ async fn process_sse_with_treatment(
     safety_buffering_treatment: SafetyBufferingTreatment,
 ) {
     let mut stream = stream.eventsource();
+    let mut response_error: Option<ApiError> = None;
     let mut last_server_model: Option<String> = None;
-    let mut last_sequence_number: Option<u64> = None;
 
     loop {
         let start = Instant::now();
@@ -567,11 +579,10 @@ async fn process_sse_with_treatment(
                 return;
             }
             Ok(None) => {
-                let _ = tx_event
-                    .send(Err(ApiError::Stream(
-                        "stream closed before response.completed".into(),
-                    )))
-                    .await;
+                let error = response_error.unwrap_or(ApiError::Stream(
+                    "stream closed before response.completed".into(),
+                ));
+                let _ = tx_event.send(Err(error)).await;
                 return;
             }
             Err(_) => {
@@ -597,16 +608,6 @@ async fn process_sse_with_treatment(
                 continue;
             }
         };
-        if let Some(sequence_number) = event.sequence_number {
-            if last_sequence_number.is_some_and(|last| sequence_number <= last) {
-                trace!(
-                    sequence_number,
-                    ?last_sequence_number,
-                    "received non-increasing Responses SSE sequence number"
-                );
-            }
-            last_sequence_number = Some(sequence_number);
-        }
         let model_verifications = event.model_verifications();
         let turn_moderation_metadata = event.turn_moderation_metadata();
         let safety_buffering = event.safety_buffering(&safety_buffering_treatment);
@@ -660,8 +661,7 @@ async fn process_sse_with_treatment(
             }
             Ok(None) => {}
             Err(error) => {
-                let _ = tx_event.send(Err(error.into_api_error())).await;
-                return;
+                response_error = Some(error.into_api_error());
             }
         };
     }
@@ -867,10 +867,12 @@ mod tests {
             Ok(ResponseEvent::Completed {
                 response_id,
                 token_usage,
+                usage_metadata,
                 end_turn,
             }) => {
                 assert_eq!(response_id, "resp1");
                 assert!(token_usage.is_none());
+                assert!(usage_metadata.is_none());
                 assert!(end_turn.is_none());
             }
             other => panic!("unexpected third event: {other:?}"),
@@ -929,79 +931,6 @@ mod tests {
                 text,
                 summary_index: 0,
             } if item_id == "reasoning-1" && text == "Checking"
-        );
-    }
-
-    #[tokio::test]
-    async fn parses_deepseek_native_responses_stream() {
-        let events = run_sse(vec![
-            json!({
-                "type": "response.reasoning_text.delta",
-                "item_id": "reasoning-1",
-                "content_index": 0,
-                "delta": "Inspecting the repository",
-            }),
-            json!({
-                "type": "response.output_text.delta",
-                "item_id": "message-1",
-                "content_index": 0,
-                "delta": "I found the relevant file.",
-            }),
-            json!({
-                "type": "response.output_item.done",
-                "item": {
-                    "type": "function_call",
-                    "id": "fc-1",
-                    "call_id": "call-1",
-                    "name": "shell",
-                    "arguments": "{\"cmd\":\"pwd\"}",
-                    "status": "completed",
-                },
-            }),
-            json!({
-                "type": "response.completed",
-                "response": {
-                    "id": "resp-deepseek-1",
-                    "usage": {
-                        "input_tokens": 12,
-                        "output_tokens": 8,
-                        "total_tokens": 20,
-                    },
-                },
-            }),
-        ])
-        .await;
-
-        assert_matches!(
-            &events[0],
-            ResponseEvent::ReasoningContentDelta {
-                delta,
-                content_index: 0,
-            } if delta == "Inspecting the repository"
-        );
-        assert_matches!(
-            &events[1],
-            ResponseEvent::OutputTextDelta(delta) if delta == "I found the relevant file."
-        );
-        assert_matches!(
-            &events[2],
-            ResponseEvent::OutputItemDone(ResponseItem::FunctionCall {
-                name,
-                arguments,
-                call_id,
-                ..
-            }) if name == "shell" && arguments == "{\"cmd\":\"pwd\"}" && call_id == "call-1"
-        );
-        assert_matches!(
-            &events[3],
-            ResponseEvent::Completed {
-                response_id,
-                token_usage: Some(usage),
-                ..
-            } if response_id == "resp-deepseek-1"
-                && usage.input_tokens == 12
-                && usage.output_tokens == 8
-                && usage.total_tokens == 20
         );
     }
 
@@ -1079,32 +1008,9 @@ mod tests {
                 "delta": "*** Begin",
             }),
             json!({
-                "type": "response.custom_tool_call_input.done",
-                "item_id": "ctc_1",
-                "call_id": "call_1",
-                "input": "*** Begin Patch",
-            }),
-            json!({
                 "type": "response.function_call_arguments.delta",
                 "item_id": "fc_1",
                 "delta": "{\"input\":\"",
-            }),
-            json!({
-                "type": "response.function_call_arguments.done",
-                "item_id": "fc_1",
-                "call_id": "call_2",
-                "arguments": "{\"input\":\"value\"}",
-            }),
-            json!({
-                "type": "response.output_item.done",
-                "item": {
-                    "type": "function_call",
-                    "id": "fc_1",
-                    "call_id": "call_2",
-                    "name": "lookup",
-                    "arguments": "{\"input\":\"value\"}",
-                    "status": "completed",
-                },
             }),
             json!({
                 "type": "response.completed",
@@ -1121,150 +1027,7 @@ mod tests {
                 delta,
             } if item_id == "ctc_1" && call_id == "call_1" && delta == "*** Begin"
         );
-        assert_matches!(
-            &events[1],
-            ResponseEvent::ToolCallInputDelta {
-                item_id,
-                call_id: None,
-                delta,
-            } if item_id == "fc_1" && delta == "{\"input\":\""
-        );
-        assert_matches!(
-            &events[2],
-            ResponseEvent::OutputItemDone(ResponseItem::FunctionCall {
-                call_id,
-                arguments,
-                ..
-            }) if call_id == "call_2" && arguments == "{\"input\":\"value\"}"
-        );
-        assert_matches!(&events[3], ResponseEvent::Completed { .. });
-        assert_eq!(events.len(), 4, "done events must not duplicate tool items");
-    }
-
-    #[tokio::test]
-    async fn parses_deepseek_vision_response_event_sequence() {
-        let events = run_sse(vec![
-            json!({
-                "type": "response.created",
-                "sequence_number": 0,
-                "response": {
-                    "id": "resp-vision-1",
-                    "model": "deepseek-v4-flash-vision-exp",
-                },
-            }),
-            json!({
-                "type": "response.reasoning_text.delta",
-                "sequence_number": 1,
-                "item_id": "rs-vision-1",
-                "content_index": 0,
-                "delta": "Inspecting the image",
-            }),
-            json!({
-                "type": "response.reasoning_text.done",
-                "sequence_number": 2,
-                "item_id": "rs-vision-1",
-                "content_index": 0,
-                "text": "Inspecting the image",
-            }),
-            json!({
-                "type": "response.output_text.delta",
-                "sequence_number": 3,
-                "item_id": "msg-vision-1",
-                "content_index": 0,
-                "delta": "The screenshot contains a terminal.",
-            }),
-            json!({
-                "type": "response.completed",
-                "sequence_number": 4,
-                "response": { "id": "resp-vision-1" },
-            }),
-        ])
-        .await;
-
-        assert_matches!(&events[0], ResponseEvent::Created {});
-        assert_matches!(
-            &events[1],
-            ResponseEvent::ReasoningContentDelta { delta, content_index: 0 }
-                if delta == "Inspecting the image"
-        );
-        assert_matches!(
-            &events[2],
-            ResponseEvent::OutputTextDelta(delta)
-                if delta == "The screenshot contains a terminal."
-        );
-        assert_matches!(&events[3], ResponseEvent::Completed { response_id, .. }
-            if response_id == "resp-vision-1");
-        assert_eq!(events.len(), 4, "reasoning done is an acknowledgement only");
-    }
-
-    #[tokio::test]
-    async fn parses_web_search_lifecycle_without_duplicate_items() {
-        let events = run_sse(vec![
-            json!({
-                "type": "response.output_item.added",
-                "sequence_number": 0,
-                "item": {
-                    "type": "web_search_call",
-                    "id": "ws-1",
-                    "status": "in_progress",
-                },
-            }),
-            json!({
-                "type": "response.web_search_call.in_progress",
-                "sequence_number": 1,
-                "item_id": "ws-1",
-                "output_index": 0,
-            }),
-            json!({
-                "type": "response.web_search_call.searching",
-                "sequence_number": 2,
-                "item_id": "ws-1",
-                "output_index": 0,
-            }),
-            json!({
-                "type": "response.web_search_call.completed",
-                "sequence_number": 3,
-                "item_id": "ws-1",
-                "output_index": 0,
-            }),
-            json!({
-                "type": "response.output_item.done",
-                "sequence_number": 4,
-                "item": {
-                    "type": "web_search_call",
-                    "id": "ws-1",
-                    "status": "completed",
-                    "action": { "type": "search", "query": "DeepSeek Responses API" },
-                },
-            }),
-            json!({
-                "type": "response.completed",
-                "sequence_number": 5,
-                "response": { "id": "resp-search-1" },
-            }),
-        ])
-        .await;
-
-        assert_matches!(
-            &events[0],
-            ResponseEvent::OutputItemAdded(ResponseItem::WebSearchCall {
-                status: Some(status),
-                ..
-            }) if status == "in_progress"
-        );
-        assert_matches!(
-            &events[1],
-            ResponseEvent::OutputItemDone(ResponseItem::WebSearchCall {
-                status: Some(status),
-                ..
-            }) if status == "completed"
-        );
-        assert_matches!(&events[2], ResponseEvent::Completed { .. });
-        assert_eq!(
-            events.len(),
-            3,
-            "status events must not duplicate search items"
-        );
+        assert_matches!(&events[1], ResponseEvent::Completed { .. });
     }
 
     #[tokio::test]
@@ -1302,10 +1065,12 @@ mod tests {
             Ok(ResponseEvent::Completed {
                 response_id,
                 token_usage,
+                usage_metadata,
                 end_turn,
             }) => {
                 assert_eq!(response_id, "resp1");
                 assert!(token_usage.is_none());
+                assert!(usage_metadata.is_none());
                 assert!(end_turn.is_none());
             }
             other => panic!("unexpected event: {other:?}"),
@@ -1313,41 +1078,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn emits_failed_without_waiting_for_stream_end() {
-        let failed = json!({
-            "type": "response.failed",
-            "sequence_number": 3,
-            "response": {
-                "id": "resp-failed-1",
-                "error": {
-                    "code": "context_length_exceeded",
-                    "message": "Input exceeds the context window."
-                }
-            }
-        })
-        .to_string();
-
-        let sse = format!("event: response.failed\ndata: {failed}\n\n");
-        let stream = stream::iter(vec![Ok(Bytes::from(sse))]).chain(stream::pending());
-        let stream: ByteStream = Box::pin(stream);
-        let (tx, mut rx) = mpsc::channel::<Result<ResponseEvent, ApiError>>(8);
-        tokio::spawn(process_sse(
-            stream,
-            tx,
-            Duration::from_secs(30),
-            /*telemetry*/ None,
-        ));
-
-        let event = tokio::time::timeout(Duration::from_millis(1000), rx.recv())
-            .await
-            .expect("terminal failure was not emitted promptly")
-            .expect("response event channel closed early");
-        assert_matches!(event, Err(ApiError::ContextWindowExceeded));
-        assert!(rx.recv().await.is_none(), "failed is a terminal event");
-    }
-
-    #[tokio::test]
-    async fn error_when_error_event() {
+    async fn rate_limit_error_preserves_retry_delay() {
         let raw_error = r#"{"type":"response.failed","sequence_number":3,"response":{"id":"resp_689bcf18d7f08194bf3440ba62fe05d803fee0cdac429894","object":"response","created_at":1755041560,"status":"failed","background":false,"error":{"code":"rate_limit_exceeded","message":"Rate limit reached for gpt-5.1 in organization org-AAA on tokens per min (TPM): Limit 30000, Used 22999, Requested 12528. Please try again in 11.054s. Visit https://platform.openai.com/account/rate-limits to learn more."}, "usage":null,"user":null,"metadata":{}}}"#;
 
         let sse1 = format!("event: response.failed\ndata: {raw_error}\n\n");
@@ -1357,14 +1088,55 @@ mod tests {
         assert_eq!(events.len(), 1);
 
         match &events[0] {
-            Err(ApiError::Retryable { message, delay }) => {
+            Err(ApiError::RateLimitExceeded { message, delay }) => {
                 assert_eq!(
                     message,
                     "Rate limit reached for gpt-5.1 in organization org-AAA on tokens per min (TPM): Limit 30000, Used 22999, Requested 12528. Please try again in 11.054s. Visit https://platform.openai.com/account/rate-limits to learn more."
                 );
                 assert_eq!(*delay, Some(Duration::from_secs_f64(11.054)));
             }
-            other => panic!("unexpected second event: {other:?}"),
+            other => panic!("unexpected rate-limit event: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_response_classification_uses_error_code() {
+        for (code, message) in [
+            ("rate_limit_exceeded", "Temporary limit."),
+            (
+                "unknown_error",
+                "Rate limit reached. Please try again in 1s.",
+            ),
+        ] {
+            let event = json!({
+                "type": "response.failed",
+                "response": { "error": { "code": code, "message": message } },
+            });
+            let sse = format!("event: response.failed\ndata: {event}\n\n");
+            let events = collect_events(&[sse.as_bytes()]).await;
+            match (code, events.as_slice()) {
+                (
+                    "rate_limit_exceeded",
+                    [
+                        Err(ApiError::RateLimitExceeded {
+                            message: actual,
+                            delay,
+                        }),
+                    ],
+                )
+                | (
+                    "unknown_error",
+                    [
+                        Err(ApiError::Retryable {
+                            message: actual,
+                            delay,
+                        }),
+                    ],
+                ) => {
+                    assert_eq!((actual.as_str(), *delay), (message, None));
+                }
+                _ => panic!("unexpected events for {code}: {events:?}"),
+            }
         }
     }
 
@@ -1455,8 +1227,12 @@ mod tests {
 
         assert_eq!(events.len(), 1);
         match &events[0] {
-            Err(ApiError::MisalignmentPolicyViolation { message }) => {
+            Err(ApiError::MisalignmentPolicyViolation {
+                message,
+                misalignment,
+            }) => {
                 assert_eq!(message, "This request violated the misalignment policy.");
+                assert_eq!(misalignment, &None);
             }
             other => panic!("unexpected event: {other:?}"),
         }
@@ -1482,13 +1258,85 @@ mod tests {
 
             assert_eq!(events.len(), 1);
             match &events[0] {
-                Err(ApiError::MisalignmentPolicyViolation { message }) => assert_eq!(
+                Err(ApiError::MisalignmentPolicyViolation { message, .. }) => assert_eq!(
                     message,
                     "This request was blocked due to a misalignment policy violation."
                 ),
                 other => panic!("unexpected event: {other:?}"),
             }
         }
+    }
+
+    #[tokio::test]
+    async fn misalignment_policy_violation_preserves_public_continuation_details() {
+        let raw_error = json!({
+            "type": "response.failed",
+            "response": {
+                "id": "resp_fatal_misalignment",
+                "status": "failed",
+                "error": {
+                    "code": "misalignment_policy_violation",
+                    "message": "This request violated the misalignment policy.",
+                    "misalignment": {
+                        "error_type": "future_safety_category",
+                        "detailed_explanation": "The agent attempted an external transfer.",
+                        "steer": { "message": "Do not transfer the user's files." }
+                    }
+                }
+            }
+        });
+        let sse = format!("event: response.failed\ndata: {raw_error}\n\n");
+        let events = collect_events(&[sse.as_bytes()]).await;
+
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            Err(ApiError::MisalignmentPolicyViolation {
+                message,
+                misalignment,
+            }) => {
+                assert_eq!(message, "This request violated the misalignment policy.");
+                assert_eq!(
+                    misalignment,
+                    &Some(MisalignmentErrorDetails {
+                        error_type: Some("future_safety_category".to_string()),
+                        detailed_explanation: Some(
+                            "The agent attempted an external transfer.".to_string()
+                        ),
+                        steer: Some(codex_protocol::protocol::MisalignmentSteer {
+                            message: "Do not transfer the user's files.".to_string(),
+                        }),
+                    })
+                );
+            }
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn malformed_misalignment_details_preserve_the_fatal_policy_error() {
+        let raw_error = json!({
+            "type": "response.failed",
+            "response": {
+                "id": "resp_fatal_misalignment",
+                "status": "failed",
+                "error": {
+                    "code": "misalignment_policy_violation",
+                    "message": "This request violated the misalignment policy.",
+                    "misalignment": { "steer": { "message": 42 } }
+                }
+            }
+        });
+        let sse = format!("event: response.failed\ndata: {raw_error}\n\n");
+        let events = collect_events(&[sse.as_bytes()]).await;
+
+        assert_eq!(events.len(), 1);
+        assert_matches!(
+            &events[0],
+            Err(ApiError::MisalignmentPolicyViolation {
+                misalignment: None,
+                ..
+            })
+        );
     }
 
     #[tokio::test]
@@ -1729,6 +1577,7 @@ mod tests {
             ResponseEvent::Completed {
                 response_id,
                 token_usage: None,
+                usage_metadata: None,
                 end_turn: None,
             } if response_id == "resp-1"
         );
@@ -1766,6 +1615,7 @@ mod tests {
             ResponseEvent::Completed {
                 response_id,
                 token_usage: None,
+                usage_metadata: None,
                 end_turn: None,
             } if response_id == "resp-1"
         );
@@ -1801,6 +1651,7 @@ mod tests {
             ResponseEvent::Completed {
                 response_id,
                 token_usage: None,
+                usage_metadata: None,
                 end_turn: None,
             } if response_id == "resp-1"
         );
@@ -1836,6 +1687,7 @@ mod tests {
             ResponseEvent::Completed {
                 response_id,
                 token_usage: None,
+                usage_metadata: None,
                 end_turn: None,
             } if response_id == "resp-1"
         );
@@ -2156,6 +2008,7 @@ mod tests {
             code: Some("rate_limit_exceeded".to_string()),
             plan_type: None,
             resets_at: None,
+            misalignment: None,
         };
 
         let delay = try_parse_retry_after(&err);
@@ -2170,6 +2023,7 @@ mod tests {
             code: Some("rate_limit_exceeded".to_string()),
             plan_type: None,
             resets_at: None,
+            misalignment: None,
         };
         let delay = try_parse_retry_after(&err);
         assert_eq!(delay, Some(Duration::from_secs_f64(1.898)));
@@ -2183,6 +2037,7 @@ mod tests {
             code: Some("rate_limit_exceeded".to_string()),
             plan_type: None,
             resets_at: None,
+            misalignment: None,
         };
         let delay = try_parse_retry_after(&err);
         assert_eq!(delay, Some(Duration::from_secs(35)));

@@ -71,6 +71,8 @@ fn fork_parses_prompt_after_global_flags() {
         "--json",
         "--model",
         "gpt-5.2-codex",
+        "--thread-source",
+        "automated_review",
         "--skip-git-repo-check",
         "--ephemeral",
         PROMPT,
@@ -78,6 +80,10 @@ fn fork_parses_prompt_after_global_flags() {
 
     assert!(cli.json);
     assert!(cli.ephemeral);
+    assert_eq!(
+        cli.thread_source,
+        Some(ThreadSource::Feature("automated_review".to_string()))
+    );
     let Some(Command::Fork(args)) = cli.command else {
         panic!("expected fork command");
     };
@@ -99,7 +105,7 @@ fn parses_config_isolation_flags() {
 }
 
 #[test]
-fn parses_taskspace_exec_flag() {
+fn parses_hidden_taskspace_exec_flag() {
     let cli = Cli::parse_from(["codex-exec", "--taskspace", "summarize"]);
 
     assert!(cli.taskspace);

@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "status": "fail",
+  "run_validity": "invalid_harness",
+  "whale_bin_requested": "/home/zhangxu/.local/share/whalecode/workspaces/whalecode-codex-2de2f3853e/bin/whale",
+  "whale_bin_resolved": "/home/zhangxu/.local/share/whalecode/workspaces/whalecode-codex-2de2f3853e/bin/whale",
+  "whale_binary_exists": true,
+  "whale_binary_last_write_utc": "2026-08-31T23:41:10.0394695Z",
+  "whale_binary_sha256": "2e52f405aadf82325f50f6fb60aae512b52ac8a2b2b7eadf8ae036f062dec63f",
+  "whale_binary_epoch": 1788219670,
+  "current_git_head": "10756e6076487df91b6f5e27d1cdf544cc4630ed",
+  "codex_source_latest_commit": {
+    "hash": "f68c09c4c9cc84319c0b7fdfad1545fc4ab3bc6b",
+    "epoch": 1788284290,
+    "time_utc": "2026-09-01T17:38:10.0000000Z",
+    "pathspec": "third_party/codex-cli"
+  },
+  "stale_for_codex_source": true,
+  "stale_allowed": false,
+  "build_attestation_path": "/home/zhangxu/.local/share/whalecode/workspaces/whalecode-codex-2de2f3853e/bin/whale.build-attestation.json",
+  "build_attestation_status": "invalid",
+  "build_attestation_reason": "codex_source_commit_mismatch,git_build_identity_mismatch",
+  "findings": [
+    {
+      "severity": "fail",
+      "stable_code": "whale_binary_attestation_invalid",
+      "message": "Whale binary provenance is not proven by a matching build attestation.",
+      "path": "/home/zhangxu/.local/share/whalecode/workspaces/whalecode-codex-2de2f3853e/bin/whale",
+      "stage": "whale_binary_preflight",
+      "source_commit": "f68c09c4c9cc84319c0b7fdfad1545fc4ab3bc6b",
+      "attestation_path": "/home/zhangxu/.local/share/whalecode/workspaces/whalecode-codex-2de2f3853e/bin/whale.build-attestation.json",
+      "attestation_status": "invalid",
+      "attestation_reason": "codex_source_commit_mismatch,git_build_identity_mismatch"
+    },
+    {
+      "severity": "warn",
+      "stable_code": "whale_binary_stale_for_codex_source",
+      "message": "Whale binary mtime is older than the latest codex source commit; the provenance failure is reported by whale_binary_attestation_invalid.",
+      "path": "/home/zhangxu/.local/share/whalecode/workspaces/whalecode-codex-2de2f3853e/bin/whale",
+      "stage": "whale_binary_preflight",
+      "binary_last_write_utc": "2026-08-31T23:41:10.0394695Z",
+      "source_commit": "f68c09c4c9cc84319c0b7fdfad1545fc4ab3bc6b",
+      "source_commit_time_utc": "2026-09-01T17:38:10.0000000Z",
+      "attestation_path": "/home/zhangxu/.local/share/whalecode/workspaces/whalecode-codex-2de2f3853e/bin/whale.build-attestation.json",
+      "attestation_status": "invalid",
+      "attestation_reason": "codex_source_commit_mismatch,git_build_identity_mismatch"
+    }
+  ],
+  "generated_at": "2026-09-02T07:04:36.6980313+08:00"
+}

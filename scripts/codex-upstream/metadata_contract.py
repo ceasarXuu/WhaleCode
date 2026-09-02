@@ -52,8 +52,8 @@ def validate_candidate(document: dict) -> list[str]:
         return [f"candidate missing fields: {', '.join(missing)}"]
     if document["schema_version"] != 1:
         errors.append("candidate schema_version must be 1")
-    if document["release_tag"] != "rust-v0.149.0":
-        errors.append("candidate release_tag must be rust-v0.149.0")
+    if document["release_tag"] != "rust-v0.151.0":
+        errors.append("candidate release_tag must be rust-v0.151.0")
     for field in ("commit_sha", "tree_sha"):
         if not SHA40.fullmatch(str(document[field])):
             errors.append(f"candidate {field} must be a full SHA")
@@ -344,6 +344,7 @@ def validate_ledger(document: dict) -> list[str]:
     if not SHA40.fullmatch(str(document.get("baseline_commit", ""))):
         errors.append("ledger baseline_commit must be a full SHA")
     expected_policy = {
+        "serialization": "git_show_binary_abbrev_9",
         "trailer_required_false": "recomputed_2026-08-01_not_historical",
         "trailer_required_true": "historical_commit_trailer",
     }

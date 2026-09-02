@@ -1,0 +1,39 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v2",
+  "status": "granted",
+  "approved_by": "user",
+  "authorization_id": "CBA-20260902-CODEX-0151-W6-PACKAGE-R2",
+  "approval_reference": "用户于 2026-09-02 批准本轮总包不超过 1 CNY 并允许多轮审查修复。R1 在 Provider 路由前因陈旧二进制证明失败，实际 provider 请求和费用均为 0；完成当前源码重建和 workspace 安装证明后，本替代授权保持最小范围：deepseek-v4-flash、single-file-fast-fix 的 standard 与 map-request 各 1 次，零 sample 重试，本次硬上限 0.40 CNY，总包累计仍不得超过 1 CNY。",
+  "approved_at": "2026-09-02T07:09:00+08:00",
+  "proposal_id": "CBP-881EE1D90B2A4056",
+  "proposal_sha256": "b5f306f8d81f13c8b27e73af7ce4136d7687f0f0e76da27dcbf848dffbfd0539",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "standard",
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "Retry the minimum Codex 0.151 two-arm live cache qualification after rebuilding and attesting the current workspace Whale binary; the prior preflight produced zero provider requests and zero cost."
+  },
+  "approved_maximums": {
+    "provider_requests": 36,
+    "input_tokens": 360000,
+    "output_tokens": 20000,
+    "elapsed_seconds": 1680,
+    "estimated_cost": 0.4,
+    "currency": "CNY"
+  }
+}

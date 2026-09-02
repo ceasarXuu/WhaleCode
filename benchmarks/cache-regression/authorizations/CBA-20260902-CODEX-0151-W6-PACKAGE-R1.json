@@ -1,0 +1,39 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v2",
+  "status": "granted",
+  "approved_by": "user",
+  "authorization_id": "CBA-20260902-CODEX-0151-W6-PACKAGE-R1",
+  "approval_reference": "用户于 2026-09-02 明确回复‘批准总包不超过1元的预算，你可以多轮审查修复’。本授权从总包中划拨首轮最小双臂真实缓存回归：deepseek-v4-flash、single-file-fast-fix 的 standard 与 map-request 各 1 次，零 sample 重试，首轮费用硬上限 0.40 CNY；剩余总包不得在未生成独立替代授权和新账本记录的情况下使用。",
+  "approved_at": "2026-09-02T07:05:00+08:00",
+  "proposal_id": "CBP-27809F3D4D10F364",
+  "proposal_sha256": "9aa1f8c9c062e8fd61339f75d8063cd6072aad12162ace91f9304b10926b08ca",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "standard",
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "Codex 0.151 content projection changed Standard request metadata and TaskSpace production tool wire; qualify the final committed cache-sensitive surface using the minimum two-arm live contract under the user-approved 1 CNY package."
+  },
+  "approved_maximums": {
+    "provider_requests": 36,
+    "input_tokens": 360000,
+    "output_tokens": 20000,
+    "elapsed_seconds": 1680,
+    "estimated_cost": 0.4,
+    "currency": "CNY"
+  }
+}

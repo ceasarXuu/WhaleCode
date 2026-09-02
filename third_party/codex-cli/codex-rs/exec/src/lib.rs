@@ -82,7 +82,6 @@ use codex_feedback::CodexFeedback;
 use codex_git_utils::get_git_repo_root;
 use codex_history::RolloutItem;
 use codex_history::RolloutLine;
-use codex_login::default_client::OPENAI_CODEX_COMPATIBILITY_VERSION;
 use codex_login::default_client::set_default_client_residency_requirement;
 use codex_login::default_client::set_default_originator;
 use codex_login::enforce_login_restrictions;
@@ -228,6 +227,7 @@ struct ExecRunArgs {
     skip_git_repo_check: bool,
     stderr_with_ansi: bool,
     taskspace: bool,
+    thread_source: ThreadSource,
 }
 
 fn exec_root_span() -> tracing::Span {
@@ -249,13 +249,14 @@ fn exec_stderr_env_filter() -> EnvFilter {
 
 pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
     if let Err(err) = set_default_originator("codex_exec".to_string()) {
-        tracing::warn!(?err, "Failed to set whale exec originator override {err:?}");
+        tracing::warn!(?err, "Failed to set codex exec originator override {err:?}");
     }
 
     let Cli {
         command,
         strict_config,
         shared,
+        thread_source,
         skip_git_repo_check,
         ephemeral,
         ignore_user_config,
@@ -562,7 +563,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         session_source: SessionSource::Exec,
         enable_codex_api_key_env: true,
         client_name: "codex_exec".to_string(),
-        client_version: OPENAI_CODEX_COMPATIBILITY_VERSION.to_string(),
+        client_version: env!("CARGO_PKG_VERSION").to_string(),
         experimental_api: true,
         mcp_server_openai_form_elicitation: false,
         opt_out_notification_methods: Vec::new(),
@@ -586,6 +587,7 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         skip_git_repo_check,
         stderr_with_ansi,
         taskspace,
+        thread_source: thread_source.map(Into::into).unwrap_or(ThreadSource::User),
     })
     .instrument(exec_span)
     .await
@@ -685,6 +687,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
         skip_git_repo_check,
         stderr_with_ansi,
         taskspace,
+        thread_source,
     } = args;
 
     let mut event_processor: Box<dyn EventProcessor> = match json_mode {
@@ -850,7 +853,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
                     .map_err(anyhow::Error::msg)?;
             (session_configured.thread_id, session_configured)
         } else {
-            let response = start_thread(&client, &mut request_ids, &config)
+            let response = start_thread(&client, &mut request_ids, &config, &thread_source)
                 .await
                 .map_err(anyhow::Error::msg)?;
             let session_configured =
@@ -893,7 +896,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
                     permissions,
                     config: thread_config_overrides_from_config(&config),
                     ephemeral: config.ephemeral,
-                    thread_source: Some(ThreadSource::User),
+                    thread_source: Some(thread_source.clone()),
                     exclude_turns: true,
                     defer_goal_continuation: !config.ephemeral,
                     ..ThreadForkParams::default()
@@ -924,7 +927,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
         .map_err(anyhow::Error::msg)?;
         (session_configured.thread_id, session_configured)
     } else {
-        let response = start_thread(&client, &mut request_ids, &config)
+        let response = start_thread(&client, &mut request_ids, &config, &thread_source)
             .await
             .map_err(anyhow::Error::msg)?;
         let session_configured = session_configured_from_thread_start_response(&response, &config)
@@ -957,7 +960,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
 
     exec_span.record("thread.id", primary_thread_id_for_span.as_str());
 
-    // Print the effective configuration and initial request so users can see what Whale
+    // Print the effective configuration and initial request so users can see what Codex
     // is using.
     event_processor.print_config_summary(&config, &prompt_summary, &session_configured);
     if !json_mode
@@ -967,7 +970,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
         event_processor.process_warning(message);
     }
 
-    info!("Whale initialized with event: {session_configured:?}");
+    info!("Codex initialized with event: {session_configured:?}");
 
     let (interrupt_tx, mut interrupt_rx) = mpsc::unbounded_channel::<()>();
     tokio::spawn(async move {
@@ -999,8 +1002,10 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
                     request_id: request_ids.next(),
                     params: TurnStartParams {
                         thread_id: primary_thread_id_for_span.clone(),
+                        turn_trigger: None,
                         client_user_message_id: None,
                         input: items.into_iter().map(Into::into).collect(),
+                        tool_output: None,
                         responsesapi_client_metadata: None,
                         additional_context: None,
                         environments: None,
@@ -1012,12 +1017,14 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
                         permissions: None,
                         model: None,
                         service_tier: None,
+                        service_tier_for_turn: None,
                         effort: default_effort,
                         summary: None,
                         personality: None,
                         output_schema,
                         collaboration_mode: None,
                         multi_agent_mode: None,
+                        cyber_access_program: None,
                     },
                 },
                 "turn/start",
@@ -1171,8 +1178,9 @@ async fn start_thread(
     client: &InProcessAppServerClient,
     request_ids: &mut RequestIdSequencer,
     config: &Config,
+    thread_source: &ThreadSource,
 ) -> Result<ThreadStartResponse, String> {
-    let mut params = thread_start_params_from_config(config);
+    let mut params = thread_start_params_from_config(config, thread_source);
     loop {
         match client
             .request_typed(ClientRequest::ThreadStart {
@@ -1195,7 +1203,10 @@ async fn start_thread(
     }
 }
 
-fn thread_start_params_from_config(config: &Config) -> ThreadStartParams {
+fn thread_start_params_from_config(
+    config: &Config,
+    thread_source: &ThreadSource,
+) -> ThreadStartParams {
     let permissions = permissions_selection_from_config(config);
     let sandbox = permissions.is_none().then(|| {
         sandbox_mode_from_permission_profile(
@@ -1215,7 +1226,7 @@ fn thread_start_params_from_config(config: &Config) -> ThreadStartParams {
         config: thread_config_overrides_from_config(config),
         ephemeral: Some(config.ephemeral),
         history_mode: (!config.ephemeral).then_some(ThreadHistoryMode::Paginated),
-        thread_source: Some(ThreadSource::User),
+        thread_source: Some(thread_source.clone()),
         ..ThreadStartParams::default()
     }
 }

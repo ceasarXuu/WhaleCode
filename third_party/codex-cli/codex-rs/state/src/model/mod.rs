@@ -6,6 +6,7 @@ mod project;
 mod queued_item;
 mod rollout_migration_state;
 mod taskspace_map;
+mod thread_artifact;
 mod thread_goal;
 mod thread_metadata;
 
@@ -36,6 +37,10 @@ pub use taskspace_map::TaskSpaceMapBindingRecord;
 pub use taskspace_map::TaskSpaceMapRecord;
 pub use taskspace_map::TaskSpaceMapRelation;
 pub use taskspace_map::TaskSpaceMapWriteOutcome;
+pub use thread_artifact::ThreadArtifact;
+pub use thread_artifact::ThreadArtifactAttachmentOutcome;
+pub use thread_artifact::ThreadArtifactPage;
+pub use thread_artifact::ThreadArtifactRemovalOutcome;
 pub use thread_goal::ThreadGoal;
 pub use thread_goal::ThreadGoalStatus;
 pub use thread_metadata::Anchor;

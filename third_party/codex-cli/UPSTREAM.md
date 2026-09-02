@@ -14,19 +14,20 @@ Imported for WhaleCode as a whole-repo upstream substrate.
 | Immutable baseline tarball | https://codeload.github.com/openai/codex/tar.gz/fed0a8f4faa58db3138488cca77628c1d54a2cd8 |
 | Local vendor path | `third_party/codex-cli/` |
 | Nested Git metadata | Not imported |
-| Current vendor state | `rust-v0.149.0` substrate + verified Whale identity, DeepSeek Responses, cache and TaskSpace overlay |
-| Overlay inventory | [`overlay-inventory.json`](../../docs/v0.0.5/codex-upstream-sync/overlay-inventory.json) |
+| Current vendor state | `rust-v0.151.0` substrate + verified Whale identity/workspace, Provider/DeepSeek and TaskSpace/Extension overlay |
+| Current overlay inventory | [`current-overlay-inventory.json`](../../docs/releases/v0.0.7/codex-upstream-sync/current-overlay-inventory.json) |
+| Historical 0.149 overlay inventory | [`overlay-inventory.json`](../../docs/v0.0.5/codex-upstream-sync/overlay-inventory.json) |
 | Authoritative backport ledger | [`backport-ledger.json`](../../docs/v0.0.5/codex-upstream-sync/backport-ledger.json) |
 | Provenance backlog | [`backport-provenance-backlog.json`](../../docs/v0.0.5/codex-upstream-sync/backport-provenance-backlog.json) |
-| Current imported substrate | `rust-v0.149.0` / `758ef40f50c1a458425c7cfbf1eb12cbc07af0b0` |
-| Candidate qualification | [`upstream-candidate.json`](../../docs/v0.0.5/codex-upstream-sync/upstream-candidate.json), direction-supported with known test risks |
-| Upstream delta | [`upstream-delta-inventory.json`](../../docs/v0.0.5/codex-upstream-sync/upstream-delta-inventory.json) |
-| Overlay replay ledger | [`overlay-replay-ledger.json`](../../docs/v0.0.5/codex-upstream-sync/overlay-replay-ledger.json) |
+| Current imported substrate | `rust-v0.151.0` / `78c290807ce710180111df227df3b7a4fe845452` |
+| Candidate qualification | [`upstream-candidate.json`](../../docs/releases/v0.0.7/codex-upstream-sync/upstream-candidate.json), direction-supported with known test risks |
+| Upstream delta | [`upstream-delta-inventory.json`](../../docs/releases/v0.0.7/codex-upstream-sync/upstream-delta-inventory.json) |
+| Overlay replay ledger | [`overlay-replay-ledger.json`](../../docs/releases/v0.0.7/codex-upstream-sync/overlay-replay-ledger.json) |
 | License | Apache-2.0, see `LICENSE` |
 
 This is a derived vendor tree, not an unchanged snapshot of the initial
-baseline. The machine-generated inventory is the source of truth for path
-counts and classification; this file intentionally does not carry a manually
+baseline. The current machine-generated inventory is the source of truth for
+post-cutover path counts and classification; this file intentionally does not carry a manually
 maintained patch count. The authoritative ledger records confirmed selective
 backports. Inferred upstream provenance remains separate until its source and
 verification evidence are proved.
@@ -49,9 +50,11 @@ Current verified Whale overlay:
   app-server RPC/events and fork/restart restoration. Legacy v2 JSON tables are
   retained under `taskspace_v2_*` as a non-active archive during migration.
 
-The current generated overlay inventory is the authority for changed vendor
-paths relative to the immutable `rust-v0.149.0` tree. It includes production
-overlay, tests and generated protocol artifacts. OpenAI/ChatGPT login product UI, OpenAI-hosted remote
+The v0.0.7 cutover overlay inventory and replay ledger are the immutable execution
+authority for the 0.149 to 0.151 cutover. The separate v0.0.7 current overlay
+inventory tracks the resulting Whale delta on top of 0.151. The published v0.0.5 inventory remains
+the historical authority for the pre-cutover `rust-v0.149.0` baseline
+`758ef40f50c1a458425c7cfbf1eb12cbc07af0b0`. OpenAI/ChatGPT login product UI, OpenAI-hosted remote
 plugin sharing and recommendations, Bedrock-specific model catalogs, remaining
 user-facing branding cleanup, Windows validation and the known TaskSpace TUI
 fixture remain outside the verified release matrix.
@@ -69,3 +72,5 @@ The release-closeout evidence is recorded in
 R8 semantic migration are recorded in
 [`2026-08-21-u18-main-rebase-r8-semantic-migration.md`](../../docs/migration/codex-sync/2026-08-21-u18-main-rebase-r8-semantic-migration.md). The 0.149 vendor cutover, product-matrix validation and accepted live cache qualification are recorded in
 [`2026-08-21-u19-codex-0149-release-closeout.md`](../../docs/migration/codex-sync/2026-08-21-u19-codex-0149-release-closeout.md).
+The 0.151 substrate cutover, current-overlay inventory and release qualification are recorded in
+[`2026-09-01-u20-codex-0151-release-closeout.md`](../../docs/migration/codex-sync/2026-09-01-u20-codex-0151-release-closeout.md).

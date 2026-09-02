@@ -25,7 +25,7 @@ impl ReadTaskSpaceTool {
     }
 }
 
-impl ToolExecutor<ToolCall> for ReadTaskSpaceTool {
+impl<'call> ToolExecutor<ToolCall<'call>> for ReadTaskSpaceTool {
     fn tool_name(&self) -> ToolName {
         ToolName::plain(TASKSPACE_CONTROL_TOOL)
     }
@@ -41,7 +41,10 @@ impl ToolExecutor<ToolCall> for ReadTaskSpaceTool {
         })
     }
 
-    fn handle(&self, invocation: ToolCall) -> codex_tools::ToolExecutorFuture<'_> {
+    fn handle<'a>(&'a self, invocation: ToolCall<'call>) -> codex_tools::ToolExecutorFuture<'a>
+    where
+        'call: 'a,
+    {
         Box::pin(async move {
             let arguments: serde_json::Value =
                 serde_json::from_str(invocation.function_arguments()?).map_err(|error| {

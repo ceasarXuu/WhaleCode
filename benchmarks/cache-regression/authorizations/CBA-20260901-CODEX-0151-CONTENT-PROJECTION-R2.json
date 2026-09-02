@@ -1,0 +1,39 @@
+{
+  "schema_version": "whalecode-cache-budget-authorization-v2",
+  "status": "granted",
+  "approved_by": "user",
+  "authorization_id": "CBA-20260901-CODEX-0151-CONTENT-PROJECTION-R2",
+  "approval_reference": "用户于 2026-09-01 明确回复‘批准预算’，批准 Codex 0.151 最小双臂真实缓存回归；此前两个 runner 启动均在 authorization claim 和 Provider route 前因本地 harness 问题退出，实际请求与费用为 0。本替代授权保持原批准范围不变：deepseek-v4-flash、single-file-fast-fix 的 standard 与 map-request 各 1 次，零 sample 重试，总费用硬上限 0.40 CNY。",
+  "approved_at": "2026-09-01T07:34:02+08:00",
+  "proposal_id": "CBP-99A23C1A9DEC2D75",
+  "proposal_sha256": "9fd4c7fe31d92dc8e24969cb32c5ec6d21b15b17f3c4b546ebc43d2bbb83802e",
+  "approved_selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "standard",
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "Codex 0.151 content projection changed Standard request metadata and TaskSpace production tool wire; validate the minimum two-arm cache contract after restoring the provider-route attestation CLI removed during cut-over."
+  },
+  "approved_maximums": {
+    "provider_requests": 36,
+    "input_tokens": 360000,
+    "output_tokens": 20000,
+    "elapsed_seconds": 1440,
+    "estimated_cost": 0.4,
+    "currency": "CNY"
+  }
+}

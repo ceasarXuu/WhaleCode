@@ -123,7 +123,7 @@ impl ToolContributor for TaskSpaceExtension {
         &self,
         _session_store: &ExtensionData,
         thread_store: &ExtensionData,
-    ) -> Vec<Arc<dyn ToolExecutor<ToolCall>>> {
+    ) -> Vec<Arc<dyn for<'call> ToolExecutor<ToolCall<'call>>>> {
         runtime(thread_store)
             .filter(|runtime| runtime.is_enabled())
             .map(|runtime| Arc::new(ReadTaskSpaceTool::new(runtime)) as Arc<_>)

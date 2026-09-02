@@ -1,0 +1,9 @@
+command: cargo fetch
+cwd: codex-rs
+proxy_environment: inherited
+exit_code: 0
+
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded rmcp-macros v3.1.3
+  Downloaded rmcp v3.1.3

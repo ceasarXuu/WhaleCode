@@ -55,7 +55,18 @@ class RunIsolatedTestsTests(unittest.TestCase):
             )
 
     def test_environment_scrubs_host_state_and_sets_private_temp_root(self) -> None:
-        with tempfile.TemporaryDirectory() as runtime:
+        with (
+            tempfile.TemporaryDirectory() as runtime,
+            patch.dict(
+                os.environ,
+                {
+                    "CODEX_INTERNAL_ORIGINATOR_OVERRIDE": "Codex Desktop",
+                    "CODEX_PERMISSION_PROFILE": "ambient-profile",
+                    "CODEX_SESSION_ID": "ambient-session",
+                    "CODEX_THREAD_ID": "ambient-thread",
+                },
+            ),
+        ):
             environment = run_isolated_tests._isolated_environment(Path(runtime))
 
         self.assertFalse(
@@ -65,9 +76,14 @@ class RunIsolatedTestsTests(unittest.TestCase):
             )
         )
         self.assertEqual(environment["TMPDIR"], f"{runtime}/tmp")
+        self.assertEqual(environment["HOME"], f"{runtime}/home")
         self.assertEqual(environment["GIT_CEILING_DIRECTORIES"], f"{runtime}/tmp")
         self.assertEqual(environment["RUST_MIN_STACK"], "8388608")
         self.assertEqual(environment["NEXTEST_PROFILE"], "local")
+        self.assertNotIn("CODEX_INTERNAL_ORIGINATOR_OVERRIDE", environment)
+        self.assertNotIn("CODEX_PERMISSION_PROFILE", environment)
+        self.assertNotIn("CODEX_SESSION_ID", environment)
+        self.assertNotIn("CODEX_THREAD_ID", environment)
 
     def test_environment_preserves_explicit_rusty_v8_assets(self) -> None:
         with (
@@ -111,6 +127,7 @@ class RunIsolatedTestsTests(unittest.TestCase):
         self.assertEqual(
             run_isolated_tests._runtime_helper_commands(["-p", "codex-core"]),
             [
+                ["cargo", "build", "-p", "codex-cli", "--bin", "whale"],
                 [
                     "cargo",
                     "build",
@@ -126,7 +143,10 @@ class RunIsolatedTestsTests(unittest.TestCase):
     def test_app_server_scope_builds_code_mode_host(self) -> None:
         self.assertEqual(
             run_isolated_tests._runtime_helper_commands(["-p", "codex-app-server"]),
-            [["cargo", "build", "-p", "codex-code-mode-host"]],
+            [
+                ["cargo", "build", "-p", "codex-cli", "--bin", "whale"],
+                ["cargo", "build", "-p", "codex-code-mode-host"],
+            ],
         )
 
     def test_non_core_scope_skips_stdio_runtime_helper(self) -> None:

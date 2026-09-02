@@ -11,7 +11,10 @@ impl SkillProvider for FailedReads {
         self.0.list(query)
     }
 
-    fn read(&self, _request: SkillReadRequest) -> SkillProviderFuture<'_, SkillReadResult> {
+    fn read<'a>(
+        &'a self,
+        _request: SkillReadRequest<'a>,
+    ) -> SkillProviderFuture<'a, SkillReadResult> {
         Box::pin(async { Err(SkillProviderError::new("read unavailable")) })
     }
 
@@ -107,6 +110,7 @@ async fn task_context_recovers_prior_requests_and_explicit_intent_without_changi
             .on_thread_start(ThreadStartInput {
                 config: &config,
                 session_source: &SessionSource::Cli,
+                forked_from_thread_id: None,
                 persistent_thread_state_available: true,
                 environments: &[],
                 mcp_resource_client: None,

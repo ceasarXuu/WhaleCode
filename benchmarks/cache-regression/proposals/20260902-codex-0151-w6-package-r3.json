@@ -1,0 +1,691 @@
+{
+  "schema_version": "whalecode-cache-budget-proposal-v3",
+  "created_at": "2026-09-02T07:09:44+08:00",
+  "subject_commit": "7d492442f1dfeeca62fc44821c75d1d9c3852590",
+  "surface_sha256": "e39d5bd4a50c4c2948ce5309cffcea534be12c8cf522e48998aa32ec08337068",
+  "execution_identity": {
+    "schema_version": "whalecode-cache-execution-identity-v1",
+    "entries": [
+      {
+        "path": "benchmarks/taskspace/container-runtime-contract.json",
+        "sha256": "1d1179e5b8d75aa535e3ed808fb0fb3b65f5cba5e32ed42cfdec11081a33cb31"
+      },
+      {
+        "path": "benchmarks/taskspace/scenarios/single-file-fast-fix/fixture/README.md",
+        "sha256": "fce07c5d307b305e4b75ed23b2df85f4cfa224da86d0442fade723a8d09762ad"
+      },
+      {
+        "path": "benchmarks/taskspace/scenarios/single-file-fast-fix/fixture/pyproject.toml",
+        "sha256": "8a39608054c58873fe18c65606182e1cb841131c622f2653962184fb2868812d"
+      },
+      {
+        "path": "benchmarks/taskspace/scenarios/single-file-fast-fix/fixture/src/tax_calc.py",
+        "sha256": "37a15f1a7b2bad2e7134817ee2db0881c12bfb92ffa41df8a5bb124b274f9f29"
+      },
+      {
+        "path": "benchmarks/taskspace/scenarios/single-file-fast-fix/fixture/tests/test_tax_calc.py",
+        "sha256": "36d42afedfbef75fc4c026041221b1e39c9cb3e883f292f4bc15b46c7162fe53"
+      },
+      {
+        "path": "benchmarks/taskspace/scenarios/single-file-fast-fix/private-oracle/oracle.py",
+        "sha256": "60ee94fc08f440964cdade140362bde5f592472d02cee7ba266786a26f96ab85"
+      },
+      {
+        "path": "benchmarks/taskspace/scenarios/single-file-fast-fix/prompt.txt",
+        "sha256": "f5c612bf91e5c91669d2ddbd18dadbacded607911a20ed022546fbcfc6d7e6de"
+      },
+      {
+        "path": "benchmarks/taskspace/scenarios/single-file-fast-fix/scenario.json",
+        "sha256": "a09de1f9ae40a40083fbb6de4e54c862ab2e9f819cc0b18ac286c490183c1069"
+      },
+      {
+        "path": "scripts/action-map-graph-health-lib.ps1",
+        "sha256": "02d8d29bc57e2ce256c73c3dbe8f9891fb4af4ec1572414c103e81c2996dde8e"
+      },
+      {
+        "path": "scripts/action-map-real-user-e2e-lib.ps1",
+        "sha256": "7068627dab8bdb8ea262a1b7850f2d7a8782bb9a911b0788793d3e4090e8cc88"
+      },
+      {
+        "path": "scripts/cache-regression/accepted_cache_baseline.py",
+        "sha256": "b647e5045cf06eedb1f37936173cd2c4a504092f35da6d22e24912f90a14efad"
+      },
+      {
+        "path": "scripts/cache-regression/accepted_cache_ledger.py",
+        "sha256": "e19aedac553268935f284d34a7e8af20a31c69f238cd2c61fa514cb8c159947b"
+      },
+      {
+        "path": "scripts/cache-regression/cache_acceptance_identity.py",
+        "sha256": "0c9beebe639fe3602bf34ada08c7fe610f8904109f0ec9c0f4fcf5cdc9247c5e"
+      },
+      {
+        "path": "scripts/cache-regression/cache_arm_identity.py",
+        "sha256": "dcbb8713dcda4f3eba7b047dc8b6b73103776efaca703852175bf22c776534b3"
+      },
+      {
+        "path": "scripts/cache-regression/cache_baseline_test_support.py",
+        "sha256": "6a09dfb8c63a77add9b93c99ea6de66f28c0a5a5c5619ce39b9eb6394dba286d"
+      },
+      {
+        "path": "scripts/cache-regression/cache_binary_health.py",
+        "sha256": "cd48a6e32f447c6b06b9b68db6c0959c0bc3e3954e3b7b7a629e0e7063f460d3"
+      },
+      {
+        "path": "scripts/cache-regression/cache_boundary_test_support.py",
+        "sha256": "b1a0ed6085ebc38d0eaef9deb3862c099420d09b53dd54e766d8d8593ae11869"
+      },
+      {
+        "path": "scripts/cache-regression/cache_budget.py",
+        "sha256": "6c80c977193bc492510fdf255792364e668e7b75b8d6585191d8a768851dc740"
+      },
+      {
+        "path": "scripts/cache-regression/cache_cleanup_contract.py",
+        "sha256": "afaca96aa1187859a9380abec0bc1919ef5c67f26faa65ce0fe9d126e86e0892"
+      },
+      {
+        "path": "scripts/cache-regression/cache_cost.py",
+        "sha256": "f9c41d369b6b2e051fd8156530fde4f38bb0b9431aeb8a61b947628d97a9e20d"
+      },
+      {
+        "path": "scripts/cache-regression/cache_elapsed.py",
+        "sha256": "b343ab753e9af4db8c5ef05235b5f2835772a1f87b7956af5e4090f13fd7da0d"
+      },
+      {
+        "path": "scripts/cache-regression/cache_evidence.py",
+        "sha256": "f6637622fcb9228892b653f7af10772dea97072a53c571ce431a456e5bbfd15b"
+      },
+      {
+        "path": "scripts/cache-regression/cache_execution_identity.py",
+        "sha256": "c6e2024ddbd279b130e80454fde8a3c3a49eddada48079364031f523f9723324"
+      },
+      {
+        "path": "scripts/cache-regression/cache_gate_evidence.py",
+        "sha256": "4526bbc998d5b8d05881cbdf184bd5ead1e91517fea16abd71f3a3861ac3e191"
+      },
+      {
+        "path": "scripts/cache-regression/cache_json.py",
+        "sha256": "33eae88b4bc49562deb324d2219cfa830f18d315a4d3e78412588d91ed83a085"
+      },
+      {
+        "path": "scripts/cache-regression/cache_ledger_test_support.py",
+        "sha256": "7c72aaabf62b13650471d76dee0981b02aaf562b45b8f1db0839722e4ea1216a"
+      },
+      {
+        "path": "scripts/cache-regression/cache_payload_contract.py",
+        "sha256": "189afe88622260eaa2610c7008b0ea5dac17eb652169055ff00551d4c4ebaa5a"
+      },
+      {
+        "path": "scripts/cache-regression/cache_process_control.py",
+        "sha256": "b20e41d652eba1505a9d47717f3055361dc5a0fe27757b01db636ddbdb3ef663"
+      },
+      {
+        "path": "scripts/cache-regression/cache_provider_boundary_evidence.py",
+        "sha256": "e60f0bd861e0cb6e5402e1463398049a84e92d98b53563004348bc0bd08a0967"
+      },
+      {
+        "path": "scripts/cache-regression/cache_provider_promotion.py",
+        "sha256": "03dadb23913ce33024cf0d1a5c2a4c27e8f1918179ee9720f066df4a8e0f3960"
+      },
+      {
+        "path": "scripts/cache-regression/cache_provider_route.py",
+        "sha256": "7e603770596f70ba673c3bf8943fb005517233354e967c408fd8da75aad4cb11"
+      },
+      {
+        "path": "scripts/cache-regression/cache_provider_route_test_support.py",
+        "sha256": "e62f8dc554a0014be07f298bbe69a63ec24bae196bfffacc1f9f73ad970d1744"
+      },
+      {
+        "path": "scripts/cache-regression/cache_request_accounting.py",
+        "sha256": "744f668692e196b0f58d0b20d84cb023c84a7b91f16afbb9608a3987e4963915"
+      },
+      {
+        "path": "scripts/cache-regression/cache_result_envelope.py",
+        "sha256": "620fc0255edec0a7c732b3c81e4219947e7e4c98ddc3b9bcdf94e67e1f2bf7de"
+      },
+      {
+        "path": "scripts/cache-regression/cache_result_integrity.py",
+        "sha256": "40fb2daf74ad6f7520bccda700d075931a6e6c8db0865b460777cfe02a177e9e"
+      },
+      {
+        "path": "scripts/cache-regression/cache_run_analysis.py",
+        "sha256": "732ab5f629d7e0f516287cf37fa367e2d883f84b65bf6e398747bcfb207d4bd1"
+      },
+      {
+        "path": "scripts/cache-regression/cache_run_contract.py",
+        "sha256": "3ff60bffdbca9eaf5bc44de356310d45d989ce7e475f1536e10d1081fcdf5561"
+      },
+      {
+        "path": "scripts/cache-regression/cache_run_environment.py",
+        "sha256": "25987884e23b6448fc9e0946cd5df37a078e408e535c843775876a4a3bafa211"
+      },
+      {
+        "path": "scripts/cache-regression/cache_run_execution_test_support.py",
+        "sha256": "90baca75a8af2e62ffd5bdb3c730480f04ac55ebaf90af606970626430384f05"
+      },
+      {
+        "path": "scripts/cache-regression/cache_run_ledger.py",
+        "sha256": "59ef183db9fef3e87443f418c4dea89d3807c2c0f1e24b2ddabfa0d658943d8d"
+      },
+      {
+        "path": "scripts/cache-regression/cache_run_result.py",
+        "sha256": "b81b9f4c35df0cfcdad6ff2787e6b7030e6fab20f8bcb68abeb4c302cd0b5ca9"
+      },
+      {
+        "path": "scripts/cache-regression/cache_run_supervision.py",
+        "sha256": "de38fc5c7764c55f7d96e77fc7a9e281640d4c4c3fe1de97153338dd9b809d5c"
+      },
+      {
+        "path": "scripts/cache-regression/cache_source_evidence.py",
+        "sha256": "04ccf6d2733992799ce376b768ddd2ecc25a766082b3ace1e13af87dc1b006b4"
+      },
+      {
+        "path": "scripts/cache-regression/cache_surface.py",
+        "sha256": "16c19a9d837bb893c24ce8977539bfe91540356acc6ed261ca807e7aab5b2e38"
+      },
+      {
+        "path": "scripts/cache-regression/cache_time.py",
+        "sha256": "56ef0aa235e3c26195bcc883a9a78bb6b7d1dac3cb39b37324ed3c7bc35fcdd4"
+      },
+      {
+        "path": "scripts/cache-regression/cache_usage_contract.py",
+        "sha256": "ea7a2403afae1540d74d816cc10fd7cf627217802a8d5524c2b61a9dbc372e1e"
+      },
+      {
+        "path": "scripts/cache-regression/cache_windows_job.py",
+        "sha256": "f7e6c760ce0812e882e4ea9f62ae60b9f7b0146477921de9b84cdc9bcd4cdc89"
+      },
+      {
+        "path": "scripts/cache-regression/cache_windows_native.py",
+        "sha256": "c43a932d1a62d06b85b21dce150db8e594cde60081eeb54e25071b9d2359264a"
+      },
+      {
+        "path": "scripts/cache-regression/cache_windows_owner_journal.py",
+        "sha256": "bbc8f30494dea59f8d4ea0bce33e639cf8affd8e0767887c8064af5facc0ac36"
+      },
+      {
+        "path": "scripts/cache-regression/cache_windows_test_support.py",
+        "sha256": "e0b1f92119c977866aad5fc73a8e7dcde3b0c48dcd2abb73c973a62899db3079"
+      },
+      {
+        "path": "scripts/cache-regression/check_cache_regression_gate.py",
+        "sha256": "6610ec4c5a59505c944ac08097844506f4a17c67be5ef482211e965f9bd6644e"
+      },
+      {
+        "path": "scripts/cache-regression/free_cache_contracts.py",
+        "sha256": "78457db46290b04a05c3b810e6b09759873c823c7c4581bf8f8303088fd2eaa8"
+      },
+      {
+        "path": "scripts/cache-regression/promote_cache_baseline.py",
+        "sha256": "fd80ef30bd382538a82048ddc4daf43ac9673324f5911b2cfbd535b337275caf"
+      },
+      {
+        "path": "scripts/cache-regression/promote_cache_baseline_test_support.py",
+        "sha256": "1d3db2172e33d8ce6b3b77799b3f5971a1873e08f18e24cb214bc695237f601b"
+      },
+      {
+        "path": "scripts/cache-regression/propose_cache_regression_budget.py",
+        "sha256": "98a77ac3438673ba75129d6987e4dec9646002bf5ad2f97017fe87ec301183cf"
+      },
+      {
+        "path": "scripts/cache-regression/recover_cache_run_ledger.py",
+        "sha256": "88846586182fb4c0886f004df2ac2729bc6849cfa7fc12fbed454deddb744fc8"
+      },
+      {
+        "path": "scripts/cache-regression/run_cache_hit_regression.ps1",
+        "sha256": "b1d1a61a3f64355389721e89d1c7bd9815d9bdde1a29a1c01da6bac1077ffc29"
+      },
+      {
+        "path": "scripts/cache-regression/run_cache_hit_regression.py",
+        "sha256": "7a02c00d48a6a3b66d31631e4638b8cc49a4682ed7b63fe0fafa0d98a4e65b30"
+      },
+      {
+        "path": "scripts/cache-regression/verify-cache-regression-evidence.ps1",
+        "sha256": "f526eb3294fdf2f79cd25f0a21d441b499f9ebd299bb4fec34026e15f06cd9f2"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/docker/Dockerfile",
+        "sha256": "cb8a5e431aa10dae5dab1054653141151efb3eea476de11eeb0bbf15023832bd"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/docker/provider_boundary_proxy.py",
+        "sha256": "58b8a68058afaae916725dc91642577ff7116f0ef191a26eada7da45e9fafa52"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/docker/taskspace-container-entrypoint.sh",
+        "sha256": "cb83a7652bbc96bcb01112fe6e349c090d6b1c8d0581631af38ecb380d89bed9"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/docker/test_provider_boundary_proxy.py",
+        "sha256": "f4898b1ab70eea02a376dff7b18ad3de888de596b27804865934ef71da87c456"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/docker/verify_provider_boundary.py",
+        "sha256": "516cd93fb0e2c7514fb8dd563487a11daac419e6ede52c1e96055b3c98b49f37"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/invoke-provider-route-preflight.ps1",
+        "sha256": "b9fa7ce2683ac9b66c540503b38719b6851cb2682f806c3aae0ad0f2e88bc107"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/aggregate-report.ps1",
+        "sha256": "a22465ec4e0acc0a9ed8f8dac2a9fa784fc0d017121022ece9500950cc5e66d4"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/artifact-storage.ps1",
+        "sha256": "c58c1f50c5a2ab424b21de89763ab6346a76760d84cd7662919016faf38b8cbc"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/audit-manifest.ps1",
+        "sha256": "4973e552280463470f50d4f93dbed5c717748aa5013ec3e510ab9cc098f78403"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/audit-report.ps1",
+        "sha256": "7ce151cbd7d58605fc2bfc8bedbe837b68ab785020c12d5407232df234e4bbd3"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/base-instructions-observation.ps1",
+        "sha256": "336dd76d73fec3357d65e61bcda8517c77249e661e8047bbe4564240399e5bcc"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/bootstrap.ps1",
+        "sha256": "cb86f4093cdb7d65401a12f84a2e5bf08e307c12b9688ad4c3019f498d2a75dc"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/cache-regression-fixture.ps1",
+        "sha256": "c9e644d6693e870353431d5eede1878213a76a441f559df5039aa33ce2393ba9"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/calibration-gate.ps1",
+        "sha256": "3688aa957ea43625c77aafaff302bdfddc64e69924710f5bd2791f3a1a597f9b"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/calibration-selection.ps1",
+        "sha256": "def260e73f9ac1f651d6f33bb5e354c42c3424314216e2bb8c673b33c0d78317"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/canonical-rollout.ps1",
+        "sha256": "145d71563a427e71ddb4df4935377c26da76394df9740dcdfcf23931c4836874"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/container-benchmark-runner.ps1",
+        "sha256": "dd8ca2ea5248ff766482d83ca5ad8d703b8eb02d8ec0040ed770bc9cf6607b93"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/container-contract.ps1",
+        "sha256": "8801fc496873d687f6e72748e097c9bb46fa91cc931cddbaa212737f06b61ae3"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/container-runtime.ps1",
+        "sha256": "184395c893e91e02eebefb89e38902e7109619242c1f5e20c96d31f503db577a"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/cost-instrumentation.ps1",
+        "sha256": "66e571f0e45b6b315b717a142ce58fc35040ee678d71f900b8cadd139c2c16f3"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/e3-identity.ps1",
+        "sha256": "37478610ad1fc324f3742f2764cf8cc08d0ffa726bfd3af0ab771f21fd7d3388"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/e3-proof.ps1",
+        "sha256": "67a2d391b5444d28b300929ae339a152980add5f509807c725d2b34eccb1119a"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/e3-start-gate.ps1",
+        "sha256": "3e33f373de34f405aa5faa639021dc0a7f75cd93a558cab0b94f1cd7692cf529"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/failure-taxonomy.ps1",
+        "sha256": "137a66b9d6ae1976ee0bc7c77a348e0c8d3f70d8bf6a627dc2f27fb9b272cc3b"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/graph-health.ps1",
+        "sha256": "9d787e90f8fe2bb3944b029b0c930456f6bbfa1dabcf6c2897d08ca64413c8e5"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/harness-health.ps1",
+        "sha256": "6c40bedd5aeedbd2c941b7949379e09c4ee70e5c778fa45785954ee5b076c9ec"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/logical-mode-map.ps1",
+        "sha256": "74045f254fde44fb113c6b70a13ea6f2f4723f7232fd4a591eab79daf490e02a"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/map-budget-k0.ps1",
+        "sha256": "ee88f3188d87836924b43493b9a79bf19624da8454b3a97bbc57532ca47becef"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/matrix-report.ps1",
+        "sha256": "9db09a5eecc6b29381e4f2ddb6277868680d12a4218795ae1b0af95a3b3ecce3"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/metrics-extractor.ps1",
+        "sha256": "88bff443d74b0956439d010ee5f4f194ba948f668ec2ab0369eba750b33c8467"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/native-cadence.ps1",
+        "sha256": "9aae867af8bbe20d2d5691e24944746a4fe029a024280b719d905d50d28b20a5"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/ordinary-tool-outcome.ps1",
+        "sha256": "190fc87f6d0d002ea09bbfaf8df16eef3b12d04a04f5fc7df9eee93c6823e5c7"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/pair-artifact-classifier.ps1",
+        "sha256": "93bc1c4f14a477b6e6159b063c61025651aefd76f6c55888200b503acd0732e4"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/pair-report.ps1",
+        "sha256": "4b225c855244e1ec73adb5199e1d68311c07bb09c436f9b8683c19cf93d45364"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/parallel-diff.ps1",
+        "sha256": "aebe7e4488c44212f5ae078139abbb235383340ec57849f95a4148b7f778ff9f"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/patch-observability.ps1",
+        "sha256": "a6fd1e6c17b5a577ab901c1bbd0955b9df360c5528b26dbba313c2196900fa89"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/performance-count-identity.ps1",
+        "sha256": "6d57d9706e196a06d807760f2d89016cfc7bd32588e67adf8ede7921b78588f0"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/performance-duplication.ps1",
+        "sha256": "2ec2aba37bfbdc692a36aadd9d7b2570ff4de67896cef46993b85f55775a9710"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/performance-observation-report.ps1",
+        "sha256": "b819a741d2303ee05914a381e6e8955c17ce6bf44a46e328826d2c3f1947a750"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/performance-observation.ps1",
+        "sha256": "57e427ff253cf85c5742ddb55d7db8886c8127149aea77736463247ad0936655"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/performance-section-cost.ps1",
+        "sha256": "f8f0b13fa45e17ea9fc73b77572f2332f5b38779d0539f2ab1281a403262875f"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/performance-token-identity.ps1",
+        "sha256": "3243bbe6196f6e167b1d9928666f115c73bcd22260811d24cef3395dd00de500"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/prompt-guard.ps1",
+        "sha256": "cbb5489c18f0e642a2c6275691bb37986f3a32ee01c1707a00aafdfc22c51357"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/provider-boundary.ps1",
+        "sha256": "b78637fdf509dd93522363e227d01762d082d47b168c90d1e41655424dd9e849"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/provider-cache-summary-contract.ps1",
+        "sha256": "6fb659dea5b8896abb24ced06c3aa3f485cbb552bae0d7b7f62b37a462f0ccb4"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/provider-projection-identity.ps1",
+        "sha256": "9e86c6b752127f56a64572943aac6c93879650e068826fbc73f6543b9c59b179"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/provider-section-cost.ps1",
+        "sha256": "f3700983ee51b78a2832e1f5db967d8e11e398d47267d9af8b6b6ccfe62ec697"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/r7-artifact-provenance.ps1",
+        "sha256": "b3b9d805f65a55d8c29d21b12266039742ac0a64986df0b85f635701cf4a3bc8"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/r7-call-evidence.ps1",
+        "sha256": "abb82da4ad4fa4e863687aef9be3d2c134e4216897a346f0347e8e0db2c9c433"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/r7-direct-failure-carrier.ps1",
+        "sha256": "4b832b6cd5f6c54f476e928498963b71a8942ecec5513899aab0787debbc456e"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/r7-evaluation-authority.ps1",
+        "sha256": "c3acb024b3e31c732eb22ff77f3c60676b32c5fffb3565f62d0e9ae033b217e8"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/r7-execution-plan-contract.ps1",
+        "sha256": "03138361d22dd5a1679f9fc30d793268901146f191bb48cbebbb8eb7622701fe"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/r7-execution-plan-evidence.ps1",
+        "sha256": "171186d1e2122fe39a9be8aebbd1e4eeccb15eaa3e043fa1671f98b683ed06ac"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/r7-execution-plan-projection.ps1",
+        "sha256": "7b8d92c67a9f9eb4f3cf9116d70648acdb1ff46b786db38739544e55f24623ba"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/r7-execution-plan-test-fixtures.ps1",
+        "sha256": "89fa996e1c4a873fea56fec470f5e9a4c7f60d1f008b07a1ee4a7810771f1e7b"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/r7-final-control-result-binding.ps1",
+        "sha256": "ab44ea68b42f0e7796017f63799895ed82008fb336cf95e0f3ec9e1e51cab33f"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/r7-final-status-provenance.ps1",
+        "sha256": "06019617ac773c55b1e40f67a67ee4490078a80105efe7196f1c87d6079688dd"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/r7-five-layer-evidence-freshness.ps1",
+        "sha256": "fab8e8ffc59bbb9f799665eddb2a98d4c65e572030c0458a5fd32ea71671d2a4"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/r7-five-layer-evidence-gate.ps1",
+        "sha256": "dec66d1fb1256631cf5a8afe512c6ebf086267c6f7aed465e12914784218c329"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/r7-five-layer-trace-analysis.ps1",
+        "sha256": "b08cac0602f6be767e2704240cd4c3bc76b31011440a1daced6f11bb92d9c81e"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/r7-integer-facts.ps1",
+        "sha256": "22e1c97e05cf63d91452dac1d66a592bc90990c8e6e5f41ebff9175e561b1cfd"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/r7-json-facts.ps1",
+        "sha256": "215f929ab74fda3023a7e230c4cec0ad50efc670fefdcd3e12b9a0ffff6ee18d"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/r7-request-facts-provenance.ps1",
+        "sha256": "3a9fa1f9bb70d49446a0718abe012babf14f96d6ed63c3e360bbaa80a24ed7ee"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/r7-request-observability.ps1",
+        "sha256": "b06c4bf5d6d5e1670715d0b44fb6a141140122d475174820208f1e04f6003382"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/r7-resolved-manifest-identity.ps1",
+        "sha256": "cc74277eebbadf8bff755a8e59cdae7a9a31080d0d66676e2d3cc8fa62ed7a8f"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/r7-state-failure-contract.ps1",
+        "sha256": "dfe5a01968840b486209b59d71fe5a65a37df03beef5c1b5ca1b916b80cecd20"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/r7-state-rejection-summary.ps1",
+        "sha256": "b1e07d92e9d1659ab9479717af5ec64d0a40c0a12846e0bd2acb5ffc9ab33d89"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/r7-supplemental-failure.ps1",
+        "sha256": "b78a3164f5f613d8d3105d743bb2b54ded77d7e2df8a93d99856b24e63cb0768"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/report-summary.ps1",
+        "sha256": "728a31d5e89f16f6840b139be313d58198b14e3499f147f8867b53070412795a"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/request-facts.ps1",
+        "sha256": "5170bccbf49ca2645dbc87b39f62e92c804f9c7cd4dd383fe26b1d3426461a95"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/resource-governor.ps1",
+        "sha256": "6eb869d6bb27cf16681afdec78e34b3a41138aff401c294d81647bb5ce4549c4"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/routing-decision.ps1",
+        "sha256": "2b1aa2980216276d75d3b2efc3e41665d8c9d1a8aaba1bdff547e2092ab02669"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/routing-report.ps1",
+        "sha256": "e712aaa17cea13930378edb0ed5ff41ddceb112c3dade3526ceb1d0c996bdb21"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/run-state.ps1",
+        "sha256": "ae0b3572a3185dee758328eb6a0ffd77e519ed645b189e0087d3a4190da4b6f4"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/runtime-bottleneck-report.ps1",
+        "sha256": "f9d9eff0941b90f9871328e015be0c859c9b9a01b7794df156c7d1a8fbfcab05"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/runtime-reconstruction.ps1",
+        "sha256": "eb3831dfc04c66b68856863dd0e65f0e001d8760f21de4be3f6769142d72003a"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/scenario-manifest.ps1",
+        "sha256": "08cf2301a87c1abb7a9db5e423792a782027c1d7b8d4b75f43a18af9edc26e8b"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/score-validity.ps1",
+        "sha256": "9697ff630086f59a377737784ccf074f309cfb5885aa5e22597ee3a55bb57c7d"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/side-selection.ps1",
+        "sha256": "e440a18757f4711e60c17a75a5c40f17748e856fe6084656a61b58080a1e625c"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/source-guard.ps1",
+        "sha256": "fa880dec54ae336874d488ed4afba93a16220551cfa9563787de2adbc7220c20"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/suite-status.ps1",
+        "sha256": "174751b3121c19dd4b89161b2c3b382a0bf6794272d43eff5f8909ab02258caa"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/taskspace-exec-observation.ps1",
+        "sha256": "d67e2b0d7ad1771406dac1242652e2d6b2796191be70a9f04ee3db7a69b7d8b8"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/timing.ps1",
+        "sha256": "a050223cf860df1cc3dfc23ece69276e6519c4e67ea38a638734e152bb5472b1"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/lib/workspace.ps1",
+        "sha256": "ff795d37361cb0a955941838eabba7b5d7c4198ad703990e4b63a8ed159888b9"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/run-taskspace-benchmark-pairs.ps1",
+        "sha256": "88264844da5653a97052e673dd2682a51178911f35e30614b972c0bef240f165"
+      },
+      {
+        "path": "scripts/taskspace-benchmark/run-taskspace-benchmark.ps1",
+        "sha256": "445efc304eb1e171a2b5aaeb25a2289ae7b77bae02d21dec13c73925a7e70065"
+      }
+    ],
+    "sha256": "69cb8cd798b4c09cb6ac9323f891810b669d79d932a6837ed02c1126faa2bd79"
+  },
+  "trigger": {
+    "gate_report_path": "benchmarks/cache-regression/gate-reports/20260902-codex-0151-w6-package-r3.json",
+    "gate_report_sha256": "49f6705f401523be8b7cedd2d7d72d7600dcaf46cdb8edaa9bbaf344238f9a8c",
+    "failed_free_commands": []
+  },
+  "selection": {
+    "model": "deepseek-v4-flash",
+    "samples": [
+      "single-file-fast-fix"
+    ],
+    "arms": [
+      "standard",
+      "map-request"
+    ],
+    "repeat": 1,
+    "planned_sample_runs": 2,
+    "retry_sample_run_limit": 0,
+    "maximum_sample_runs": 2,
+    "stop_conditions": [
+      "after_any_run_failure",
+      "after_any_business_failure",
+      "after_any_usage_gap",
+      "after_any_budget_observation_exceeded"
+    ],
+    "selection_reason": "Repeat the successful minimum Codex 0.151 two-arm live cache qualification with a durable repository gate report; R2 cost 0.03988532 CNY but its ignored temporary gate report cannot support a reproducible promoted baseline."
+  },
+  "per_sample_run_limits": {
+    "provider_requests": 18,
+    "elapsed_seconds": 720,
+    "cleanup_grace_seconds": 120
+  },
+  "per_sample_run_budget_limits": {
+    "input_tokens": 180000,
+    "output_tokens": 10000,
+    "estimated_cost": 0.2,
+    "currency": "CNY"
+  },
+  "approved_maximums": {
+    "provider_requests": 36,
+    "input_tokens": 360000,
+    "output_tokens": 20000,
+    "elapsed_seconds": 1680,
+    "estimated_cost": 0.4,
+    "currency": "CNY"
+  },
+  "provider_capacity_ceiling": {
+    "provider_requests": 36,
+    "input_tokens": 36000000,
+    "output_tokens": 13824000,
+    "estimated_cost": 63.648,
+    "currency": "CNY"
+  },
+  "pricing_snapshot": {
+    "currency": "CNY",
+    "captured_at": "2026-08-18",
+    "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing/",
+    "cached_input_per_million": 0.02,
+    "uncached_input_per_million": 1.0,
+    "output_per_million": 2.0
+  },
+  "provider_hard_limits": {
+    "max_input_tokens_per_request": 1000000,
+    "max_output_tokens_per_request": 384000,
+    "source": "https://api-docs.deepseek.com/quick_start/pricing/",
+    "captured_at": "2026-08-01"
+  },
+  "capacity_cost_assumption": "hard request count multiplied by provider maximum input/output tokens; all input priced as cache miss",
+  "enforcement_boundary": {
+    "hard_before_start": [
+      "subject_commit",
+      "surface_sha256",
+      "proposal_and_authorization_identity",
+      "sample_arm_repeat_matrix",
+      "no_automatic_retries"
+    ],
+    "hard_during_run": [
+      "provider_requests",
+      "elapsed_seconds"
+    ],
+    "settled_after_each_provider_response": [
+      "input_tokens",
+      "output_tokens",
+      "estimated_cost"
+    ],
+    "reject_before_next_provider_request": [
+      "usage_missing",
+      "approved_budget_reached_or_exceeded"
+    ],
+    "bounded_cleanup_after_run": [
+      "cleanup_grace_seconds"
+    ],
+    "provider_per_request_capacity": [
+      "input_tokens",
+      "output_tokens"
+    ]
+  },
+  "evidence_boundary": "only the explicitly listed model, samples, arms, repeats, and limits",
+  "proposal_id": "CBP-F62CE3162005EC13",
+  "proposal_sha256": "0d63afa730adf17b43b91af67805c899f2786458b50bc70218f178c537879295"
+}

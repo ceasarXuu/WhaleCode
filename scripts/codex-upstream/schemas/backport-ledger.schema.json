@@ -34,10 +34,11 @@
     "patch_digest_policy": {
       "additionalProperties": false,
       "properties": {
+        "serialization": {"const": "git_show_binary_abbrev_9"},
         "trailer_required_false": {"const": "recomputed_2026-08-01_not_historical"},
         "trailer_required_true": {"const": "historical_commit_trailer"}
       },
-      "required": ["trailer_required_true", "trailer_required_false"],
+      "required": ["serialization", "trailer_required_true", "trailer_required_false"],
       "type": "object"
     },
     "schema_version": {"const": 1}

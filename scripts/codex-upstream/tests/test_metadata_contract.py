@@ -103,7 +103,10 @@ class ContractTests(unittest.TestCase):
             (topic / "backport-provenance-backlog.json").read_text()
         )
         cls.tui_baseline = json.loads((topic / "tui-baseline.json").read_text())
-        cls.candidate_path = topic / "upstream-candidate.json"
+        cls.candidate_path = (
+            repo
+            / "docs/releases/v0.0.7/codex-upstream-sync/upstream-candidate.json"
+        )
         cls.delta_path = topic / "upstream-delta-inventory.json"
         cls.replay_path = topic / "overlay-replay-ledger.json"
 
@@ -122,7 +125,7 @@ class ContractTests(unittest.TestCase):
     def test_candidate_rejects_absolute_evidence_path(self) -> None:
         document = {
             "schema_version": 1,
-            "release_tag": "rust-v0.149.0",
+            "release_tag": "rust-v0.151.0",
             "commit_sha": "a" * 40,
             "tree_sha": "b" * 40,
             "release_date": "2026-08-07",

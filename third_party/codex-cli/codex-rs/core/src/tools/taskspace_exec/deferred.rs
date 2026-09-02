@@ -30,7 +30,12 @@ pub(crate) fn loaded_deferred_specs(input: &[ResponseItem]) -> Vec<ToolSpec> {
         .filter_map(|item| match item {
             ResponseItem::FunctionCallOutput {
                 call_id, output, ..
-            } if taskspace_call_ids.contains(call_id) => Some(output_texts(&output.body)),
+            } if call_id
+                .as_ref()
+                .is_some_and(|call_id| taskspace_call_ids.contains(call_id)) =>
+            {
+                Some(output_texts(&output.body))
+            }
             _ => None,
         })
         .flatten()
@@ -128,7 +133,9 @@ mod tests {
     fn output(call_id: &str, value: Value) -> ResponseItem {
         ResponseItem::FunctionCallOutput {
             id: None,
-            call_id: call_id.into(),
+            name: None,
+            namespace: None,
+            call_id: Some(call_id.into()),
             output: FunctionCallOutputPayload::from_text(value.to_string()),
             internal_chat_message_metadata_passthrough: None,
         }

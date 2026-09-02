@@ -1,3 +1,4 @@
+use codex_git_utils::SanitizedGitUrl;
 use codex_git_utils::collect_git_info;
 use codex_login::CODEX_ACCESS_TOKEN_ENV_VAR;
 use codex_login::CODEX_API_KEY_ENV_VAR;
@@ -76,6 +77,8 @@ fn personal_access_token_exec_command(server: &MockServer, home: &TempDir) -> Co
         .arg(format!("openai_base_url=\"{}/api/codex\"", server.uri()))
         .arg("-c")
         .arg("model_provider=\"openai\"")
+        .arg("-c")
+        .arg("model=\"gpt-5.5\"")
         .arg("-c")
         .arg(format!("chatgpt_base_url=\"{}/backend-api\"", server.uri()))
         .arg("-C")
@@ -156,7 +159,6 @@ async fn responses_mode_stream_cli_supports_personal_access_tokens() {
 
     let mut cmd = personal_access_token_exec_command(&server, &home);
     let output = run_cli_command(&mut cmd).unwrap();
-
     assert!(
         output.status.success(),
         "codex-cli exec failed: {}",
@@ -779,6 +781,7 @@ async fn integration_git_info_unit_test() {
         .unwrap()
         .trim()
         .to_string();
+    let expected_remote_url = SanitizedGitUrl::try_from(expected_remote_url.as_str()).unwrap();
     assert_eq!(
         repo_url, &expected_remote_url,
         "Repository URL should match git remote get-url output"
@@ -795,7 +798,13 @@ async fn integration_git_info_unit_test() {
 
     assert_eq!(git_info.commit_hash, deserialized.commit_hash);
     assert_eq!(git_info.branch, deserialized.branch);
-    assert_eq!(git_info.repository_url, deserialized.repository_url);
+    assert_eq!(
+        git_info
+            .repository_url
+            .as_ref()
+            .map(SanitizedGitUrl::as_str),
+        deserialized.repository_url.as_deref()
+    );
 
     println!("✅ Git info serialization test passed!");
 }

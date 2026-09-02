@@ -84,7 +84,7 @@ xychart-beta
 | 联合元数据校验 | test | `python3 scripts/codex-upstream/validate_sync_metadata.py` | passed | 无 |
 | 提交后自引用回归 | test | 在 `4d9777610` 上重新运行 inventory `--check` 与联合校验 | passed | `UPSTREAM.md` 由 `excluded_control_paths` 明确隔离 |
 | 固定对象 | runtime | `git cat-file` / `git rev-parse` | baseline/target/local/upstream 对象可解析 | provenance backlog 有 2 条无可证实 upstream 对象 |
-| Patch 完整性 | test | 官方 `git show --format= --binary` SHA-256 | 15/15 matched | 2026-05-01 digest 是本轮重算，不是历史 trailer |
+| Patch 完整性 | test | 官方 `git show --format= --binary --abbrev=9` SHA-256 | 15/15 matched | 显式固定建账时的 9 位 index 序列化，避免对象库增长改变 Git 自动缩写；2026-05-01 digest 是本轮重算，不是历史 trailer |
 | Overlay 分类 | code/doc | `classification.py`、inventory summary | 730/730 classified，1 条控制路径显式排除 | 分类规则仍需在 vendor refresh 时复审 |
 | TUI focused runner | test/runtime | `run_tui_baseline.py --filter-expr test(...) --output /tmp/whale-tui-focused.json` | 1 passed；JUnit 与规范化 JSON 生成；`.snap.new` 增量 0 | 无 |
 | TUI 三次全量 | test/runtime | 三次 runner 输出 + `compare_tui_baselines.py` | 三份规范化 JSON SHA-256 均为 `5a801391852ac8b88344be3693a0d8677b3a438f229ee2f079b67c8e35099056`；漂移 0 | 33 个稳定失败待处理 |

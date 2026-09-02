@@ -296,6 +296,7 @@
     }
   ],
   "patch_digest_policy": {
+    "serialization": "git_show_binary_abbrev_9",
     "trailer_required_false": "recomputed_2026-08-01_not_historical",
     "trailer_required_true": "historical_commit_trailer"
   },

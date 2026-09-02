@@ -195,6 +195,7 @@ fn new_config(model: Option<String>, arg0_paths: Arg0DispatchPaths) -> anyhow::R
         model_auto_compact_token_limit: None,
         model_auto_compact_token_limit_scope: AutoCompactTokenLimitScope::Total,
         model_provider_id,
+        model_provider_access_method: None,
         model_provider,
         personality: None,
         permissions: Permissions::from_approval_and_profile(
@@ -247,6 +248,7 @@ fn new_config(model: Option<String>, arg0_paths: Arg0DispatchPaths) -> anyhow::R
         mcp_oauth_credentials_store_mode: OAuthCredentialsStoreMode::File,
         mcp_oauth_callback_port: None,
         mcp_oauth_callback_url: None,
+        mcp_optional_startup_grace: std::time::Duration::from_secs(1),
         model_providers,
         project_doc_max_bytes: 32 * 1024,
         project_doc_fallback_filenames: Vec::new(),
@@ -296,7 +298,6 @@ fn new_config(model: Option<String>, arg0_paths: Arg0DispatchPaths) -> anyhow::R
         update_plan_enabled: true,
         tool_registry: Default::default(),
         code_mode: Default::default(),
-        use_experimental_unified_exec_tool: false,
         background_terminal_max_timeout: 300_000,
         ghost_snapshot: GhostSnapshotConfig::default(),
         multi_agent_v2: MultiAgentV2Config::default(),

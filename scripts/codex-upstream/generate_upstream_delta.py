@@ -38,6 +38,8 @@ def crate_owner(path: str) -> str:
 
 
 def generated_kind(path: str) -> str | None:
+    if path.startswith("codex-rs/app-server-protocol/schema/precomputed/"):
+        return "app-server-precomputed-schema"
     if path.startswith("codex-rs/app-server-protocol/schema/json/"):
         return "app-server-json-schema"
     if path.startswith("codex-rs/app-server-protocol/schema/typescript/"):
@@ -51,9 +53,9 @@ def generated_kind(path: str) -> str | None:
     return None
 
 
-def build_delta(repo: Path) -> dict:
-    baseline_tree = resolve_tree(repo, BASELINE)
-    target_tree = resolve_tree(repo, TARGET)
+def build_delta(repo: Path, baseline: str = BASELINE, target: str = TARGET) -> dict:
+    baseline_tree = resolve_tree(repo, baseline)
+    target_tree = resolve_tree(repo, target)
     baseline_entries = list_tree(repo, baseline_tree)
     target_entries = list_tree(repo, target_tree)
     stats = diff_stats(repo, baseline_tree, target_tree)
@@ -90,9 +92,9 @@ def build_delta(repo: Path) -> dict:
     )
     return {
         "schema_version": 1,
-        "baseline_commit": BASELINE,
+        "baseline_commit": baseline,
         "baseline_tree": baseline_tree,
-        "target_commit": TARGET,
+        "target_commit": target,
         "target_tree": target_tree,
         "source": "git-tree",
         "entries": entries,
@@ -128,7 +130,9 @@ def main() -> int:
         rendered = render(document)
         if args.write:
             output.write_text(rendered, encoding="utf-8")
-            logging.info("wrote %s with %d paths", OUTPUT_PATH, len(document["entries"]))
+            logging.info(
+                "wrote %s with %d paths", OUTPUT_PATH, len(document["entries"])
+            )
             return 0
         if not output.is_file() or output.read_text(encoding="utf-8") != rendered:
             logging.error("upstream delta inventory is missing or stale")

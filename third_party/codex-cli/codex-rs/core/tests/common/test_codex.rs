@@ -308,7 +308,7 @@ fn docker_command_capture_stdout<const N: usize>(args: [&str; N]) -> Result<Stri
 /// Non-default apply_patch model output shapes used by compatibility tests.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ApplyPatchModelOutput {
-    ShellCommandViaHeredoc,
+    ExecCommandViaHeredoc,
 }
 
 /// Returns the permission fields required by test thread-settings overrides.
@@ -494,12 +494,21 @@ impl TestCodexBuilder {
         &mut self,
         server: &wiremock::MockServer,
     ) -> anyhow::Result<TestCodex> {
+        let test_env = test_env().await?;
+        self.build_with_environment(server, test_env).await
+    }
+
+    /// Builds a test runtime using an explicitly selected execution environment.
+    pub async fn build_with_environment(
+        &mut self,
+        server: &wiremock::MockServer,
+        test_env: TestEnv,
+    ) -> anyhow::Result<TestCodex> {
         let home = match self.home.clone() {
             Some(home) => home,
             None => Arc::new(TempDir::new()?),
         };
         let base_url = format!("{}/v1", server.uri());
-        let test_env = test_env().await?;
         Box::pin(self.build_with_home_and_base_url(
             base_url, home, /*resume_from*/ None, test_env,
             /*include_local_environment*/ false,
@@ -553,9 +562,7 @@ impl TestCodexBuilder {
             Some(home) => home,
             None => Arc::new(TempDir::new()?),
         };
-        let base_url_clone = base_url.clone();
         self.config_mutators.push(Box::new(move |config| {
-            config.model_provider.base_url = Some(base_url_clone);
             config.model_provider.supports_websockets = true;
             config.model_provider_id = "openai".to_string();
             config
@@ -833,6 +840,14 @@ impl TestCodexBuilder {
         // Keep generic tests stable when the bundled catalog default changes. Tests that need a
         // specific model can still override this with a config mutator.
         config.model = Some("gpt-5.5".to_string());
+        // Keep the mock provider out of the built-in route registry. Binding the mock to the
+        // reserved `openai` id makes resume tests persist a real API-key route and then require
+        // credentials that these local wiremock fixtures intentionally do not configure.
+        config.model_provider_id = "test-openai".to_string();
+        config.model_provider_access_method = None;
+        config
+            .model_providers
+            .insert("test-openai".to_string(), model_provider.clone());
         config.cwd = cwd_override;
         config.model_provider = model_provider;
         if let Ok(path) = codex_utils_cargo_bin::cargo_bin("whale") {

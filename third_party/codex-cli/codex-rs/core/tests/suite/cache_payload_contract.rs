@@ -120,6 +120,7 @@ struct FixtureStabilizer {
     thread_ids: HashMap<String, String>,
     turn_ids: HashMap<String, String>,
     window_ids: HashMap<String, String>,
+    context_window_ids: HashMap<String, String>,
 }
 
 impl FixtureStabilizer {
@@ -181,6 +182,10 @@ impl FixtureStabilizer {
                 }
                 ("window_id", Value::String(text)) => {
                     *text = Self::stable_id(&mut self.window_ids, text, "WINDOW_ID");
+                }
+                ("context_window_id", Value::String(text)) => {
+                    *text =
+                        Self::stable_id(&mut self.context_window_ids, text, "CONTEXT_WINDOW_ID");
                 }
                 ("turn_started_at_unix_ms", value) => {
                     *value = Value::String("<TURN_STARTED_AT_UNIX_MS>".to_string());
@@ -257,7 +262,7 @@ pub(super) fn configure_deepseek_responses(config: &mut Config) {
     provider.base_url = base_url;
     provider.env_key = None;
     provider.env_key_instructions = None;
-    provider.experimental_bearer_token = Some("test-deepseek-key".to_string());
+    provider.experimental_bearer_token = Some("test-deepseek-key".to_string().into());
     config.model_provider_id = DEEPSEEK_PROVIDER_ID.to_string();
     config.model_provider = provider;
     config.model = Some("deepseek-v4-flash".to_string());

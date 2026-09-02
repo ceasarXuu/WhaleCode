@@ -2,31 +2,31 @@
   "schema_version": "whalecode-cache-surface-v1",
   "baseline": {
     "status": "accepted",
-    "surface_sha256": "4a15b25ca426b61703a212e1c40283dbecc1b06dd0e06600784c83a675c5e053",
-    "source_commit": "ddd803b7a3bb223624bb0fd3069a144bc51d5734",
-    "accepted_at": "2026-08-24T07:22:17+08:00",
-    "acceptance_reference": "用户于 2026-08-24 在被明确告知仅当双臂真实缓存回归通过且敏感面指纹匹配时才晋升 baseline 后回复‘允许，继续’。本接受仅覆盖 v0.0.6 多 provider 变更产生的 Standard 与 TaskSpace 两项 final-wire 候选；真实 deepseek-v4-flash Standard + map-request 双臂均业务成功、usage 完整且未超过预算。",
+    "surface_sha256": "e39d5bd4a50c4c2948ce5309cffcea534be12c8cf522e48998aa32ec08337068",
+    "source_commit": "7d492442f1dfeeca62fc44821c75d1d9c3852590",
+    "accepted_at": "2026-09-02T07:13:00+08:00",
+    "acceptance_reference": "用户于 2026-09-02 在被告知本轮剩余阻塞是 Codex 0.151 当前缓存敏感面真实回归与基线晋升后，批准总包不超过 1 CNY 并允许多轮审查修复。持久证据 R3 的 deepseek-v4-flash Standard 与 map-request 双臂均业务成功、usage 完整、证据覆盖率 100%，且未超过预算；本接受仅把相同 final-wire 内容重新绑定到当前 e39d5bd4 缓存敏感面，不扩大产品范围。",
     "acceptance_evidence": {
-      "path": "benchmarks/cache-regression/acceptances/WAR-20260824-072043-CACHE-REGRESSION-9306DB50.json",
-      "sha256": "590e686cf34c6b04031ed6ac6e9383f616c95a0100259018e2151fcdd4d0e393"
+      "path": "benchmarks/cache-regression/acceptances/WAR-20260902-071009-CACHE-REGRESSION-BBE4EBE4.json",
+      "sha256": "5613f759fbfffad30feb59df96daa4c773b920eaa8a942201bd3c6c187a86fd5"
     },
     "final_wire_manifest": [
       {
         "scenario_id": "taskspace_production_tool_wire",
         "baseline_path": "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_final_wire__taskspace_production_tool_wire.snap",
-        "payload_sha256": "00caf1b6db5fc2b539a975c5384d078091883590bacd9cb5f2665adf4978f89c"
+        "payload_sha256": "7f80cbaf600478d438ec66e35be4fd7afa9f46fbb516a3df12e31eb4d109e762"
       },
       {
         "scenario_id": "standard_two_request_final_wire",
         "baseline_path": "third_party/codex-cli/codex-rs/core/tests/suite/snapshots/all__suite__cache_payload_contract__standard_two_request_final_wire.snap",
-        "payload_sha256": "56ed98633c79e51e7ef0a969a937c67e58198d27ba7b9848f39e60869beae56c"
+        "payload_sha256": "1ffbe0c464b52ebec7804f333b365d4d68a199bdb14677d3930b1020e134117f"
       }
     ],
-    "final_wire_manifest_sha256": "ab564f2687cc3183db6b8d43f96008ccfdf59da507ad6c121cb6a4494d7e5c9a",
+    "final_wire_manifest_sha256": "51766a312afd0290af9622bc03075967e944270599cc7560d34531daf9c8cdd1",
     "smoke_evidence": {
-      "result_path": "benchmarks/cache-regression/results/WAR-20260824-072043-CACHE-REGRESSION-9306DB50.json",
-      "result_sha256": "4ba1a75530f78ee95d83001b5948f44a6861b98dcf951bb9d8d1fe65aedd5f71",
-      "proposal_id": "CBP-2FC162901AD9D95D",
+      "result_path": "benchmarks/cache-regression/results/WAR-20260902-071009-CACHE-REGRESSION-BBE4EBE4.json",
+      "result_sha256": "a35e98fe2bdd4a7af7e49208828f7d1fe75363b84d557b6bb5ddde5cfdd4c68b",
+      "proposal_id": "CBP-F62CE3162005EC13",
       "model": "deepseek-v4-flash",
       "samples": [
         "single-file-fast-fix"

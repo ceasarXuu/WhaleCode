@@ -15,6 +15,7 @@ use codex_cli::read_api_key_from_stdin;
 use codex_cli::run_login_status;
 use codex_cli::run_login_with_access_token;
 use codex_cli::run_login_with_api_key;
+use codex_cli::run_login_with_chatgpt;
 use codex_cli::run_login_with_device_code;
 use codex_cli::run_logout;
 use codex_cloud_config::cloud_config_bundle_loader_for_storage;
@@ -37,7 +38,6 @@ use codex_utils_cli::ProfileV2Name;
 use codex_utils_cli::SharedCliOptions;
 use hmac::Hmac;
 use hmac::Mac;
-use owo_colors::OwoColorize;
 use serde::Serialize;
 use sha2::Digest;
 use sha2::Sha256;
@@ -54,6 +54,8 @@ use supports_color::Stream;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod app_cmd;
 mod cloud_config;
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+mod desktop_app;
 mod doctor;
 mod exec_server_telemetry;
 mod marketplace_cmd;
@@ -141,7 +143,7 @@ enum Subcommand {
     /// Browse all agent sessions on the shared local app-server daemon.
     Agents(AgentsCommand),
 
-    /// Run Whale non-interactively.
+    /// Run Codex non-interactively.
     #[clap(visible_alias = "e")]
     Exec(ExecCli),
 
@@ -154,13 +156,13 @@ enum Subcommand {
     /// Remove stored authentication credentials.
     Logout(LogoutCommand),
 
-    /// Manage external MCP servers for Whale.
+    /// Manage external MCP servers for Codex.
     Mcp(McpCli),
 
-    /// Manage Whale plugins.
+    /// Manage Codex plugins.
     Plugin(PluginCli),
 
-    /// Start Whale as an MCP server (stdio).
+    /// Start Codex as an MCP server (stdio).
     McpServer(McpServerCommand),
 
     /// [experimental] Run the app server or related tooling.
@@ -169,20 +171,20 @@ enum Subcommand {
     /// [experimental] Manage the app-server daemon with remote control enabled.
     RemoteControl(RemoteControlCommand),
 
-    /// Report the availability of the Whale Desktop app.
+    /// Launch the Desktop app (opens the app installer if missing).
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     App(app_cmd::AppCommand),
 
     /// Generate shell completion scripts.
     Completion(CompletionCommand),
 
-    /// Update Whale to the latest version.
+    /// Update Codex to the latest version.
     Update,
 
-    /// Diagnose local Whale installation, config, auth, and runtime health.
+    /// Diagnose local Codex installation, config, auth, and runtime health.
     Doctor(DoctorCommand),
 
-    /// Run commands within a Whale-provided sandbox.
+    /// Run commands within a Codex-provided sandbox.
     Sandbox(HostSandboxArgs),
 
     /// Debugging tools.
@@ -192,7 +194,7 @@ enum Subcommand {
     #[clap(hide = true)]
     Execpolicy(ExecpolicyCommand),
 
-    /// Apply the latest diff produced by Whale agent as a `git apply` to your local working tree.
+    /// Apply the latest diff produced by Codex agent as a `git apply` to your local working tree.
     #[clap(visible_alias = "a")]
     Apply(ApplyCommand),
 
@@ -217,8 +219,8 @@ enum Subcommand {
     /// Fork a previous interactive session (picker by default; use --last to fork the most recent).
     Fork(ForkCommand),
 
-    /// Inherited cloud task client; unavailable in Whale distributions.
-    #[clap(name = "cloud", alias = "cloud-tasks", hide = true)]
+    /// [EXPERIMENTAL] Browse tasks from Codex Cloud and apply changes locally.
+    #[clap(name = "cloud", alias = "cloud-tasks")]
     Cloud(CloudTasksCli),
 
     /// Internal: run the responses API proxy.
@@ -315,7 +317,7 @@ struct DebugModelsCommand {
 
 #[derive(Debug, Parser)]
 struct ReviewCommand {
-    /// Error out when config.toml contains fields that are not recognized by this version of Whale.
+    /// Error out when config.toml contains fields that are not recognized by this version of Codex.
     #[arg(long = "strict-config", default_value_t = false)]
     strict_config: bool,
 
@@ -325,7 +327,7 @@ struct ReviewCommand {
 
 #[derive(Debug, Parser)]
 struct McpServerCommand {
-    /// Error out when config.toml contains fields that are not recognized by this version of Whale.
+    /// Error out when config.toml contains fields that are not recognized by this version of Codex.
     #[arg(long = "strict-config", default_value_t = false)]
     strict_config: bool,
 }
@@ -410,7 +412,7 @@ struct SessionArchiveConfigOverrides {
     #[clap(flatten)]
     shared: SharedCliOptions,
 
-    /// Error out when config.toml contains fields that are not recognized by this version of Whale.
+    /// Error out when config.toml contains fields that are not recognized by this version of Codex.
     #[arg(long = "strict-config", default_value_t = false)]
     strict_config: bool,
 
@@ -489,7 +491,7 @@ type HostSandboxArgs = UnsupportedSandboxArgs;
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 #[derive(Debug, Parser)]
 struct UnsupportedSandboxArgs {
-    /// Layer $WHALE_HOME/<name>.config.toml on top of the base user config.
+    /// Layer $CODEX_HOME/<name>.config.toml on top of the base user config.
     #[arg(long = "profile", short = 'p')]
     pub config_profile: Option<ProfileV2Name>,
 
@@ -521,14 +523,13 @@ struct LoginCommand {
 
     #[arg(
         long = "with-api-key",
-        help = "Read the DeepSeek API key from stdin (e.g. `printenv DEEPSEEK_API_KEY | whale login --with-api-key`)"
+        help = "Read the API key from stdin (e.g. `printenv OPENAI_API_KEY | codex login --with-api-key`)"
     )]
     with_api_key: bool,
 
     #[arg(
         long = "with-access-token",
-        help = "Read a legacy ChatGPT access token from stdin",
-        hide = true
+        help = "Read the access token from stdin (e.g. `printenv CODEX_ACCESS_TOKEN | codex login --with-access-token`)"
     )]
     with_access_token: bool,
 
@@ -542,7 +543,7 @@ struct LoginCommand {
     )]
     api_key: Option<String>,
 
-    #[arg(long = "device-auth", hide = true)]
+    #[arg(long = "device-auth")]
     use_device_code: bool,
 
     /// EXPERIMENTAL: Use custom OAuth issuer base URL (advanced)
@@ -579,7 +580,7 @@ struct AppServerCommand {
     #[command(flatten)]
     code_mode_host: codex_app_server::AppServerCodeModeHostArgs,
 
-    /// Error out when config.toml contains fields that are not recognized by this version of Whale.
+    /// Error out when config.toml contains fields that are not recognized by this version of Codex.
     #[arg(long = "strict-config", default_value_t = false)]
     strict_config: bool,
 
@@ -627,7 +628,7 @@ struct ExecServerCommand {
     #[command(subcommand)]
     command: Option<ExecServerSubcommand>,
 
-    /// Error out when config.toml contains fields that are not recognized by this version of Whale.
+    /// Error out when config.toml contains fields that are not recognized by this version of Codex.
     #[arg(
         id = "exec_server_strict_config",
         long = "strict-config",
@@ -713,7 +714,7 @@ enum AppServerSubcommand {
     /// [experimental] Generate JSON Schema for the app server protocol.
     GenerateJsonSchema(GenerateJsonSchemaCommand),
 
-    /// [internal] Generate internal JSON Schema artifacts for Whale tooling.
+    /// [internal] Generate internal JSON Schema artifacts for Codex tooling.
     #[clap(hide = true)]
     GenerateInternalJsonSchema(GenerateInternalJsonSchemaCommand),
 }
@@ -811,34 +812,6 @@ fn parse_socket_path(raw: &str) -> Result<AbsolutePathBuf, String> {
         .map_err(|err| format!("failed to resolve socket path `{raw}`: {err}"))
 }
 
-fn format_exit_messages(exit_info: AppExitInfo, color_enabled: bool) -> Vec<String> {
-    let is_fatal = matches!(&exit_info.exit_reason, ExitReason::Fatal(_));
-    let AppExitInfo {
-        token_usage,
-        thread_id: conversation_id,
-        resume_hint,
-        ..
-    } = exit_info;
-
-    let mut lines = Vec::new();
-    if !token_usage.is_zero() {
-        lines.push(token_usage.to_string());
-    }
-
-    if let Some(resume_cmd) = resume_hint {
-        let command = if color_enabled {
-            resume_cmd.cyan().to_string()
-        } else {
-            resume_cmd
-        };
-        lines.push(format!("To continue this session, run {command}"));
-    } else if is_fatal && let Some(conversation_id) = conversation_id {
-        lines.push(format!("Session ID: {conversation_id}"));
-    }
-
-    lines
-}
-
 /// Handle the app exit and print the results. Optionally run the update action.
 fn handle_app_exit(exit_info: AppExitInfo) -> anyhow::Result<()> {
     let is_fatal = match &exit_info.exit_reason {
@@ -846,12 +819,15 @@ fn handle_app_exit(exit_info: AppExitInfo) -> anyhow::Result<()> {
             eprintln!("ERROR: {message}");
             true
         }
-        ExitReason::UserRequested => false,
+        ExitReason::UserRequested
+        | ExitReason::Archived(_)
+        | ExitReason::TurnInterrupted
+        | ExitReason::ThreadRemoved => false,
     };
 
     let update_action = exit_info.update_action;
     let color_enabled = supports_color::on(Stream::Stdout).is_some();
-    for line in format_exit_messages(exit_info, color_enabled) {
+    for line in exit_info.format_exit_messages(color_enabled) {
         println!("{line}");
     }
     if is_fatal {
@@ -868,14 +844,30 @@ fn handle_app_exit(exit_info: AppExitInfo) -> anyhow::Result<()> {
 fn run_update_action(action: UpdateAction) -> anyhow::Result<()> {
     println!();
     let cmd_str = action.command_str();
-    println!("Updating Whale via `{cmd_str}`...");
-
+    println!("Updating Codex via `{cmd_str}`...");
     let status = {
         #[cfg(windows)]
         {
-            // Run via cmd.exe so .CMD/.BAT package-manager shims are resolved.
-            std::process::Command::new("cmd")
-                .args(["/C", &cmd_str])
+            let (cmd, args) = action.command_args();
+            let cmd = if action == UpdateAction::StandaloneWindows {
+                // These args contain PowerShell metacharacters, so do not let
+                // PATHEXT select a batch shim for this action.
+                "powershell.exe"
+            } else {
+                cmd
+            };
+            let path_env =
+                std::env::var_os("PATH").ok_or_else(|| anyhow::anyhow!("PATH is not set"))?;
+            let command_path = resolve_windows_update_command_from_path(cmd, &path_env)?;
+            // Do not let a project-local command or package-manager config
+            // influence the updater after the user accepts the update prompt.
+            let update_cwd = tempfile::tempdir()?;
+            // Resolve through PATH without consulting the project cwd. When
+            // this returns a .cmd/.bat shim, std::process::Command routes the
+            // absolute path through the system command processor.
+            std::process::Command::new(command_path)
+                .args(args)
+                .current_dir(update_cwd.path())
                 .status()?
         }
         #[cfg(not(windows))]
@@ -894,15 +886,32 @@ fn run_update_action(action: UpdateAction) -> anyhow::Result<()> {
     if !status.success() {
         anyhow::bail!("`{cmd_str}` failed with status {status}");
     }
-    println!("\n🎉 Update ran successfully! Please restart Whale.");
+    println!("\n🎉 Update ran successfully! Please restart Codex.");
     Ok(())
+}
+
+#[cfg(windows)]
+fn resolve_windows_update_command_from_path(
+    command: &str,
+    path_env: &std::ffi::OsStr,
+) -> anyhow::Result<PathBuf> {
+    let path_env =
+        std::env::join_paths(std::env::split_paths(path_env).filter(|path| path.is_absolute()))?;
+    if path_env.is_empty() {
+        anyhow::bail!(
+            "Could not find an absolute update command `{command}` on PATH. Please update manually: https://developers.openai.com/codex/cli/"
+        );
+    }
+    which::which_in_global(command, Some(&path_env))?
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("could not find update command `{command}` on PATH"))
 }
 
 fn run_update_command() -> anyhow::Result<()> {
     #[cfg(debug_assertions)]
     {
         anyhow::bail!(
-            "`whale update` is not available in debug builds. Install a release build of Whale to use this command."
+            "`codex update` is not available in debug builds. Install a release build of Codex to use this command."
         );
     }
 
@@ -910,7 +919,7 @@ fn run_update_command() -> anyhow::Result<()> {
     {
         let Some(action) = codex_tui::get_update_action() else {
             anyhow::bail!(
-                "Whale updates are currently supported for npm, bun, and pnpm installs only. Reinstall with `npm install -g @ceasarxuu/whalecode@latest`."
+                "Could not detect the Codex installation method. Please update manually: https://developers.openai.com/codex/cli/"
             );
         };
         run_update_action(action)
@@ -1086,7 +1095,7 @@ async fn cli_main(
         && let Some(agents_endpoint) = &options.remote.remote
         && root_endpoint != agents_endpoint
     {
-        anyhow::bail!("`whale agents` received conflicting remote server endpoints");
+        anyhow::bail!("`codex agents` received conflicting remote server endpoints");
     }
     let root_remote = agents_options
         .and_then(|options| options.remote.remote.clone())
@@ -1110,30 +1119,36 @@ async fn cli_main(
     let open_agents_overview = matches!(&subcommand, Some(Subcommand::Agents(_)));
     match subcommand {
         None | Some(Subcommand::Agents(_)) => {
+            prepend_config_flags(
+                &mut interactive.config_overrides,
+                root_config_overrides.clone(),
+            );
             if open_agents_overview {
-                if !root_config_overrides.raw_overrides.is_empty()
-                    || root_strict_config
-                    || interactive.prompt.is_some()
-                    || !interactive.images.is_empty()
-                    || interactive.model.is_some()
-                    || interactive.oss
-                    || interactive.oss_provider.is_some()
-                    || interactive.config_profile_v2.is_some()
-                    || interactive.sandbox_mode.is_some()
-                    || interactive.dangerously_bypass_approvals_and_sandbox
-                    || interactive.bypass_hook_trust
-                    || interactive.cwd.is_some() && root_remote.is_none()
-                    || !interactive.add_dir.is_empty()
-                    || interactive.approval_policy.is_some()
-                    || interactive.web_search
+                if interactive.prompt.is_some() || !interactive.images.is_empty() {
+                    anyhow::bail!("`codex agents` does not accept an initial prompt or images");
+                }
+                if root_remote.is_some()
+                    && (interactive.oss
+                        || interactive.oss_provider.is_some()
+                        || !interactive.add_dir.is_empty()
+                        || interactive
+                            .config_overrides
+                            .parse_overrides()
+                            .map_err(anyhow::Error::msg)?
+                            .iter()
+                            .any(|(key, value)| {
+                                key == "sandbox_workspace_write.writable_roots"
+                                    || (key == "sandbox_workspace_write"
+                                        && value.get("writable_roots").is_some())
+                            }))
                 {
                     anyhow::bail!(
-                        "`whale agents` cannot attach to shared sessions with invocation-specific configuration overrides"
+                        "`codex agents` cannot apply local provider or additional-directory overrides to a remote server"
                     );
                 }
                 if is_workload_identity_selected() {
                     anyhow::bail!(
-                        "`whale agents` is unavailable while workload identity is active"
+                        "`codex agents` is unavailable while workload identity is active"
                     );
                 }
                 if root_remote.is_none() {
@@ -1142,14 +1157,10 @@ async fn cli_main(
                         root_remote_auth_token_env.clone(),
                     )?;
                     #[cfg(not(unix))]
-                    anyhow::bail!("`whale agents` requires `--remote` on this platform");
+                    anyhow::bail!("`codex agents` requires `--remote` on this platform");
                 }
                 interactive.agents_overview = true;
             }
-            prepend_config_flags(
-                &mut interactive.config_overrides,
-                root_config_overrides.clone(),
-            );
             let exit_info = run_interactive_tui(
                 interactive,
                 root_remote.clone(),
@@ -1198,7 +1209,7 @@ async fn cli_main(
         }
         Some(Subcommand::McpServer(McpServerCommand { strict_config })) => {
             eprintln!(
-                "warning: `whale mcp-server` is deprecated and will be removed in a future release."
+                "warning: `codex mcp-server` is deprecated and will be removed in a future release."
             );
             reject_remote_mode_for_subcommand(
                 root_remote.as_deref(),
@@ -1559,7 +1570,7 @@ async fn cli_main(
                         .await;
                     } else if login_cli.api_key.is_some() {
                         eprintln!(
-                            "The --api-key flag is no longer supported. Pipe the key instead, e.g. `printenv DEEPSEEK_API_KEY | whale login --with-api-key`."
+                            "The --api-key flag is no longer supported. Pipe the key instead, e.g. `printenv OPENAI_API_KEY | codex login --with-api-key`."
                         );
                         std::process::exit(1);
                     } else if login_cli.with_api_key {
@@ -1569,10 +1580,7 @@ async fn cli_main(
                         let access_token = read_access_token_from_stdin();
                         run_login_with_access_token(login_cli.config_overrides, access_token).await;
                     } else {
-                        eprintln!(
-                            "Whale uses DeepSeek by default. Pipe DEEPSEEK_API_KEY to `whale login --with-api-key`."
-                        );
-                        std::process::exit(1);
+                        run_login_with_chatgpt(login_cli.config_overrides).await;
                     }
                 }
             }
@@ -1619,13 +1627,18 @@ async fn cli_main(
             )
             .await?;
         }
-        Some(Subcommand::Cloud(_)) => {
+        Some(Subcommand::Cloud(mut cloud_cli)) => {
             reject_remote_mode_for_subcommand(
                 root_remote.as_deref(),
                 root_remote_auth_token_env.as_deref(),
                 "cloud",
             )?;
-            anyhow::bail!("Cloud tasks are not available in Whale.");
+            prepend_config_flags(
+                &mut cloud_cli.config_overrides,
+                root_config_overrides.clone(),
+            );
+            codex_cloud_tasks::run_main(cloud_cli, arg0_paths.codex_linux_sandbox_exe.clone())
+                .await?;
         }
         Some(Subcommand::Sandbox(mut sandbox_cli)) => {
             let config_profile = sandbox_cli
@@ -1680,7 +1693,7 @@ async fn cli_main(
             #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
             {
                 let _ = loader_overrides;
-                anyhow::bail!("`whale sandbox` is not supported on this operating system");
+                anyhow::bail!("`codex sandbox` is not supported on this operating system");
             }
         }
         Some(Subcommand::Debug(DebugCommand { subcommand })) => match subcommand {
@@ -1878,7 +1891,7 @@ fn profile_v2_for_subcommand<'a>(
             subcommand: DebugSubcommand::PromptInput(_),
         }) => Ok(Some(profile_v2)),
         _ => anyhow::bail!(
-            "--profile only applies to runtime commands and `whale mcp`: `whale`, `whale exec`, `whale review`, `whale resume`, `whale queue`, `whale archive`, `whale delete`, `whale unarchive`, `whale fork`, `whale mcp`, `whale sandbox`, and `whale debug prompt-input`."
+            "--profile only applies to runtime commands and `codex mcp`: `codex`, `codex exec`, `codex review`, `codex resume`, `codex queue`, `codex archive`, `codex delete`, `codex unarchive`, `codex fork`, `codex mcp`, `codex sandbox`, and `codex debug prompt-input`."
         ),
     }
 }
@@ -1892,7 +1905,7 @@ async fn run_exec_server_command(
     let codex_self_exe = arg0_paths
         .codex_self_exe
         .clone()
-        .ok_or_else(|| anyhow::anyhow!("Whale executable path is not configured"))?;
+        .ok_or_else(|| anyhow::anyhow!("Codex executable path is not configured"))?;
     let runtime_paths = codex_exec_server::ExecServerRuntimePaths::new(
         codex_self_exe,
         arg0_paths.codex_linux_sandbox_exe.clone(),
@@ -2024,7 +2037,7 @@ async fn load_exec_server_remote_auth_provider(
 
     let (auth_manager, auth) = load_exec_server_remote_auth(
         config,
-        "remote exec-server registration requires ChatGPT authentication or API key authentication; run `whale login` or set CODEX_API_KEY",
+        "remote exec-server registration requires ChatGPT authentication or API key authentication; run `codex login` or set CODEX_API_KEY",
     )
     .await?;
 
@@ -2355,16 +2368,16 @@ fn optional_json_hmac_sha256<T: Serialize>(
         .transpose()
 }
 
-fn optional_string_map_hmac_sha256(
+fn optional_string_map_hmac_sha256<T: Serialize>(
     key: &[u8],
-    value: Option<&HashMap<String, String>>,
+    value: Option<&HashMap<String, T>>,
 ) -> anyhow::Result<Option<String>> {
     let Some(value) = value else {
         return Ok(None);
     };
     let ordered = value
         .iter()
-        .map(|(key, value)| (key.as_str(), value.as_str()))
+        .map(|(key, value)| (key.as_str(), value))
         .collect::<BTreeMap<_, _>>();
     optional_json_hmac_sha256(key, Some(&ordered))
 }
@@ -2587,12 +2600,12 @@ fn reject_remote_mode_for_subcommand(
 ) -> anyhow::Result<()> {
     if let Some(remote) = remote {
         anyhow::bail!(
-            "`--remote {remote}` is only supported for interactive TUI commands, not `whale {subcommand}`"
+            "`--remote {remote}` is only supported for interactive TUI commands, not `codex {subcommand}`"
         );
     }
     if remote_auth_token_env.is_some() {
         anyhow::bail!(
-            "`--remote-auth-token-env` is only supported for interactive TUI commands, not `whale {subcommand}`"
+            "`--remote-auth-token-env` is only supported for interactive TUI commands, not `codex {subcommand}`"
         );
     }
     Ok(())
@@ -2686,7 +2699,7 @@ fn reject_strict_config_for_unsupported_subcommand(
     subcommand: &str,
 ) -> anyhow::Result<()> {
     if strict_config {
-        anyhow::bail!("`--strict-config` is not supported for `whale {subcommand}`");
+        anyhow::bail!("`--strict-config` is not supported for `codex {subcommand}`");
     }
     Ok(())
 }
@@ -2794,7 +2807,7 @@ async fn run_interactive_tui(
         }
 
         eprintln!(
-            "WARNING: TERM is set to \"dumb\". Whale's interactive TUI may not work in this terminal."
+            "WARNING: TERM is set to \"dumb\". Codex's interactive TUI may not work in this terminal."
         );
         if !confirm("Continue anyway? [y/N]: ")? {
             return Ok(AppExitInfo::fatal(
@@ -2819,7 +2832,7 @@ async fn run_interactive_tui(
             .map_err(std::io::Error::other)?;
     }
 
-    let remote_endpoint = match resolve_remote_endpoint(remote, remote_auth_token_env) {
+    let remote_endpoint = match resolve_remote_endpoint(remote, remote_auth_token_env.clone()) {
         Ok(remote_endpoint) => remote_endpoint,
         Err(err) if is_remote_auth_usage_error(&err) => {
             return Ok(AppExitInfo::fatal(err.to_string()));
@@ -2834,11 +2847,31 @@ async fn run_interactive_tui(
             remote_endpoint.clone(),
         )
     };
+    run_tui_with_recovery(start_tui, remote_auth_token_env.as_deref()).await
+}
+
+async fn run_tui_with_recovery<F, Fut>(
+    mut start_tui: F,
+    remote_auth_token_env: Option<&str>,
+) -> std::io::Result<AppExitInfo>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = std::io::Result<AppExitInfo>>,
+{
     let mut attempted_backups = HashSet::new();
     loop {
         // Keep the large TUI future out of the CLI dispatcher's stack frame.
         let err = match Box::pin(start_tui()).await {
-            Ok(exit_info) => return Ok(exit_info),
+            Ok(mut exit_info) => {
+                if let Some(disconnect) = &mut exit_info.disconnect_info
+                    && let Some(env_var) = remote_auth_token_env
+                {
+                    disconnect
+                        .command
+                        .extend(["--remote-auth-token-env".to_string(), env_var.to_string()]);
+                }
+                return Ok(exit_info);
+            }
             Err(err) => err,
         };
         let Some(startup_error) = local_state_db::startup_error(&err) else {
@@ -2863,7 +2896,7 @@ async fn run_interactive_tui(
             Err(backup_err) => {
                 local_state_db::print_diagnostic_guidance(startup_error);
                 return Ok(AppExitInfo::fatal(format!(
-                    "failed to move damaged Whale local database files into a backup folder automatically: {backup_err}"
+                    "failed to move damaged Codex local database files into a backup folder automatically: {backup_err}"
                 )));
             }
         }
@@ -2919,7 +2952,7 @@ fn confirm(prompt: &str) -> std::io::Result<bool> {
     Ok(answer.eq_ignore_ascii_case("y") || answer.eq_ignore_ascii_case("yes"))
 }
 
-/// Build the final `TuiCli` for a `whale resume` invocation.
+/// Build the final `TuiCli` for a `codex resume` invocation.
 fn finalize_resume_interactive(
     mut interactive: TuiCli,
     root_config_overrides: CliConfigOverrides,
@@ -2954,7 +2987,7 @@ fn finalize_resume_interactive(
     interactive
 }
 
-/// Build the final `TuiCli` for a `whale fork` invocation.
+/// Build the final `TuiCli` for a `codex fork` invocation.
 fn finalize_fork_interactive(
     mut interactive: TuiCli,
     root_config_overrides: CliConfigOverrides,
@@ -3055,7 +3088,7 @@ fn merge_interactive_cli_flags(interactive: &mut TuiCli, subcommand_cli: TuiCli)
 
 fn print_completion(cmd: CompletionCommand) {
     let mut app = MultitoolCli::command();
-    let name = "codex";
+    let name = "whale";
     generate(cmd.shell, &mut app, name, &mut std::io::stdout());
 }
 
@@ -3080,9 +3113,55 @@ mod tests {
         assert!(size < 64 * 1024, "interactive TUI future is {size} bytes");
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn windows_update_command_resolution_ignores_relative_path_entries() {
+        let cwd = std::env::current_dir().expect("current directory");
+        let decoy_dir = tempfile::tempdir_in(&cwd).expect("relative decoy directory");
+        let trusted_dir = tempfile::tempdir().expect("trusted PATH directory");
+        let relative_decoy_dir = decoy_dir
+            .path()
+            .strip_prefix(&cwd)
+            .expect("decoy directory should be relative to cwd");
+
+        for command in ["npm.cmd", "pnpm.cmd", "bun.exe"] {
+            std::fs::write(decoy_dir.path().join(command), "decoy")
+                .expect("write cwd-relative decoy");
+            std::fs::write(trusted_dir.path().join(command), "trusted")
+                .expect("write trusted PATH command");
+            let path_env = std::env::join_paths([relative_decoy_dir, trusted_dir.path()])
+                .expect("join synthetic PATH");
+
+            let resolved = resolve_windows_update_command_from_path(command, &path_env)
+                .expect("resolve update command");
+
+            assert_eq!(resolved, trusted_dir.path().join(command));
+        }
+
+        let cwd_decoy = tempfile::Builder::new()
+            .suffix(".cmd")
+            .tempfile_in(&cwd)
+            .expect("cwd-local decoy");
+        let command = cwd_decoy
+            .path()
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("decoy filename");
+        let relative_only_path_env = std::env::join_paths(["."]).expect("join relative-only PATH");
+        let err = resolve_windows_update_command_from_path(command, &relative_only_path_env)
+            .expect_err("relative-only PATH should not resolve a cwd command");
+
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "Could not find an absolute update command `{command}` on PATH. Please update manually: https://developers.openai.com/codex/cli/"
+            )
+        );
+    }
+
     #[tokio::test]
     async fn updater_http_client_factory_honors_respect_system_proxy() {
-        let codex_home = tempfile::tempdir().expect("temporary Whale home");
+        let codex_home = tempfile::tempdir().expect("temporary Codex home");
         let config = ConfigBuilder::default()
             .codex_home(codex_home.path().to_path_buf())
             .cli_overrides(vec![(
@@ -3890,6 +3969,7 @@ mod tests {
             token_usage,
             thread_id,
             resume_hint: codex_utils_cli::resume_hint(thread_name, thread_id),
+            disconnect_info: None,
             update_action: None,
             exit_reason: ExitReason::UserRequested,
         }
@@ -3901,11 +3981,71 @@ mod tests {
             token_usage: TokenUsage::default(),
             thread_id: None,
             resume_hint: None,
+            disconnect_info: None,
             update_action: None,
             exit_reason: ExitReason::UserRequested,
         };
-        let lines = format_exit_messages(exit_info, /*color_enabled*/ false);
+        let lines = exit_info.format_exit_messages(/*color_enabled*/ false);
         assert!(lines.is_empty());
+    }
+
+    #[tokio::test]
+    async fn format_exit_messages_preserves_auth_env_through_tui_runner() {
+        let exit_info = run_tui_with_recovery(
+            || async {
+                let mut exit_info = sample_exit_info(
+                    Some("123e4567-e89b-12d3-a456-426614174000"),
+                    /*thread_name*/ None,
+                );
+                exit_info.disconnect_info = Some(codex_tui::DisconnectInfo {
+                    command: vec![
+                        "codex".to_string(),
+                        "--remote".to_string(),
+                        "wss://example.com:443/".to_string(),
+                    ],
+                    stop_hint: "press ctrl + x".to_string(),
+                });
+                Ok(exit_info)
+            },
+            Some("CODEX_REMOTE_TOKEN"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            exit_info.format_exit_messages(/*color_enabled*/ false),
+            vec![
+                "Disconnected from this task. Any running work continues.",
+                "Reconnect: codex --remote wss://example.com:443/ --remote-auth-token-env CODEX_REMOTE_TOKEN resume 123e4567-e89b-12d3-a456-426614174000",
+                "Stop the current turn: run codex --remote wss://example.com:443/ --remote-auth-token-env CODEX_REMOTE_TOKEN agents, select this task, and press ctrl + x.",
+                "Token usage so far: total=2 input=0 output=2",
+            ]
+        );
+    }
+
+    #[test]
+    fn format_exit_messages_includes_session_id_without_resume_hint() {
+        let mut exit_info = sample_exit_info(
+            Some("123e4567-e89b-12d3-a456-426614174000"),
+            /*thread_name*/ None,
+        );
+        exit_info.token_usage = TokenUsage::default();
+        exit_info.resume_hint = None;
+        let lines = exit_info.format_exit_messages(/*color_enabled*/ false);
+        insta::assert_snapshot!(lines.join("\n"), @"Session ID: 123e4567-e89b-12d3-a456-426614174000");
+    }
+
+    #[test]
+    fn format_exit_messages_confirms_archive() {
+        let mut exit_info = sample_exit_info(
+            Some("123e4567-e89b-12d3-a456-426614174000"),
+            /*thread_name*/ None,
+        );
+        exit_info.exit_reason = ExitReason::Archived(exit_info.thread_id.unwrap());
+        let lines = exit_info.format_exit_messages(/*color_enabled*/ false);
+        insta::assert_snapshot!(lines.join("\n"), @"
+        Token usage: total=2 input=0 output=2
+        Session archived: 123e4567-e89b-12d3-a456-426614174000
+        ");
     }
 
     #[test]
@@ -3914,10 +4054,11 @@ mod tests {
             token_usage: TokenUsage::default(),
             thread_id: Some(ThreadId::from_string("123e4567-e89b-12d3-a456-426614174000").unwrap()),
             resume_hint: None,
+            disconnect_info: None,
             update_action: None,
             exit_reason: ExitReason::Fatal("boom".to_string()),
         };
-        let lines = format_exit_messages(exit_info, /*color_enabled*/ false);
+        let lines = exit_info.format_exit_messages(/*color_enabled*/ false);
         assert_eq!(
             lines,
             vec!["Session ID: 123e4567-e89b-12d3-a456-426614174000".to_string()]
@@ -3931,7 +4072,7 @@ mod tests {
             /*thread_name*/ None,
         );
         exit_info.exit_reason = ExitReason::Fatal("boom".to_string());
-        let lines = format_exit_messages(exit_info, /*color_enabled*/ false);
+        let lines = exit_info.format_exit_messages(/*color_enabled*/ false);
         assert_eq!(
             lines,
             vec![
@@ -3948,7 +4089,7 @@ mod tests {
             Some("123e4567-e89b-12d3-a456-426614174000"),
             /*thread_name*/ None,
         );
-        let lines = format_exit_messages(exit_info, /*color_enabled*/ false);
+        let lines = exit_info.format_exit_messages(/*color_enabled*/ false);
         assert_eq!(
             lines,
             vec![
@@ -3965,7 +4106,7 @@ mod tests {
             Some("123e4567-e89b-12d3-a456-426614174000"),
             /*thread_name*/ None,
         );
-        let lines = format_exit_messages(exit_info, /*color_enabled*/ true);
+        let lines = exit_info.format_exit_messages(/*color_enabled*/ true);
         assert_eq!(lines.len(), 2);
         assert!(lines[1].contains("\u{1b}[36m"));
     }
@@ -3976,7 +4117,7 @@ mod tests {
             Some("123e4567-e89b-12d3-a456-426614174000"),
             Some("my-thread"),
         );
-        let lines = format_exit_messages(exit_info, /*color_enabled*/ false);
+        let lines = exit_info.format_exit_messages(/*color_enabled*/ false);
         assert_eq!(
             lines,
             vec![
@@ -4301,28 +4442,6 @@ mod tests {
     }
 
     #[test]
-    fn public_help_uses_whale_identity_and_hides_inherited_cloud() {
-        let mut command = MultitoolCli::command();
-        let root_help = command.render_long_help().to_string();
-        assert!(root_help.contains("Whale CLI"));
-        assert!(root_help.contains("~/.whale/config.toml"));
-        assert!(root_help.contains("$WHALE_HOME/<name>.config.toml"));
-        assert!(!root_help.contains("Codex"));
-        assert!(!root_help.contains("~/.codex"));
-        assert!(!root_help.contains("\n  cloud"));
-
-        let login_help = command
-            .find_subcommand_mut("login")
-            .expect("login subcommand")
-            .render_long_help()
-            .to_string();
-        assert!(login_help.contains("DEEPSEEK_API_KEY"));
-        assert!(!login_help.contains("OPENAI_API_KEY"));
-        assert!(!login_help.contains("device-auth"));
-        assert!(!login_help.contains("with-access-token"));
-    }
-
-    #[test]
     fn exec_server_forward_parses_shared_remote_options() {
         let cli = MultitoolCli::try_parse_from([
             "codex",
@@ -4400,7 +4519,7 @@ mod tests {
 
         assert_eq!(
             err.to_string(),
-            "`--strict-config` is not supported for `whale mcp`"
+            "`--strict-config` is not supported for `codex mcp`"
         );
 
         let cli = MultitoolCli::try_parse_from(["codex", "--strict-config", "remote-control"])
@@ -4413,7 +4532,7 @@ mod tests {
 
         assert_eq!(
             err.to_string(),
-            "`--strict-config` is not supported for `whale remote-control`"
+            "`--strict-config` is not supported for `codex remote-control`"
         );
     }
 
@@ -4429,7 +4548,7 @@ mod tests {
 
         assert_eq!(
             err.to_string(),
-            "`--strict-config` is not supported for `whale app-server proxy`"
+            "`--strict-config` is not supported for `codex app-server proxy`"
         );
     }
 
@@ -4602,35 +4721,6 @@ mod tests {
     }
 
     #[test]
-    fn app_server_code_mode_host_url_parses_independently_of_listen_transport() {
-        let app_server = app_server_from_args(
-            [
-                "codex",
-                "app-server",
-                "--code-mode-host",
-                "wss://example.test/code-mode",
-                "--listen",
-                "ws://127.0.0.1:4500",
-            ]
-            .as_ref(),
-        );
-
-        assert_eq!(
-            app_server.code_mode_host.code_mode_host,
-            Some(
-                url::Url::parse("wss://example.test/code-mode")
-                    .expect("test endpoint should parse")
-            )
-        );
-        assert_eq!(
-            app_server.listen,
-            codex_app_server::AppServerTransport::WebSocket {
-                bind_address: "127.0.0.1:4500".parse().expect("valid socket address"),
-            }
-        );
-    }
-
-    #[test]
     fn app_server_grpc_code_mode_host_url_parses_independently_of_listen_transport() {
         let app_server = app_server_from_args(
             [
@@ -4655,7 +4745,13 @@ mod tests {
         for endpoint in [
             "ftp://127.0.0.1:8765",
             "ws://",
+            "ws://127.0.0.1:8765",
+            "wss://example.test/code-mode",
+            "ws://alice:secret@example.test/code-mode",
+            "wss://alice:secret@example.test/code-mode",
             "wss://example.test/code-mode#fragment",
+            "http://",
+            "https://example.test/#fragment",
             "https://example.test/code-mode",
             "http://alice:secret@example.test",
             "https://alice:secret@example.test",
