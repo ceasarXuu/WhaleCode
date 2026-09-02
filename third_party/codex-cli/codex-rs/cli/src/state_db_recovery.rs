@@ -21,6 +21,12 @@ pub(crate) fn is_corruption(detail: &str) -> bool {
     codex_state::sqlite_error_detail_is_corruption(detail)
 }
 
+fn is_migration_incompatibility(detail: &str) -> bool {
+    detail.contains("migration ")
+        && (detail.contains("was previously applied but has been modified")
+            || detail.contains("was not found in the migration source"))
+}
+
 pub(crate) fn is_auto_backup_recoverable(startup_error: &LocalStateDbStartupError) -> bool {
     is_corruption(startup_error.detail()) || sqlite_home_is_blocking_file(startup_error)
 }
@@ -71,6 +77,19 @@ pub(crate) fn confirm_fresh_start_rebuild(
 }
 
 pub(crate) fn print_diagnostic_guidance(startup_error: &LocalStateDbStartupError) {
+    if is_migration_incompatibility(startup_error.detail()) {
+        eprintln!(
+            "Whale couldn't start because this local database was created by an incompatible Whale build."
+        );
+        eprintln!("Whale did not delete or rebuild the database.");
+        eprintln!("Update Whale, or run the build that last used this database.");
+        eprintln!(
+            "When switching between release and development builds, give each build a separate WHALE_HOME."
+        );
+        print_technical_details(startup_error);
+        return;
+    }
+
     eprintln!("Whale couldn't start because its local database appears to be damaged.");
     eprintln!("Run `whale doctor` to check your setup and get next-step guidance.");
     eprintln!("If this keeps happening, share the technical details below when asking for help.");
@@ -100,6 +119,20 @@ mod tests {
     use pretty_assertions::assert_eq;
     use std::path::PathBuf;
     use tempfile::TempDir;
+
+    #[test]
+    fn classifies_migration_checksum_mismatch_as_incompatible_build() {
+        assert!(is_migration_incompatibility(
+            "migration 51 was previously applied but has been modified"
+        ));
+        assert!(is_migration_incompatibility(
+            "migration 53 was not found in the migration source"
+        ));
+        assert!(!is_migration_incompatibility(
+            "database disk image is malformed"
+        ));
+        assert!(!is_migration_incompatibility("database is locked"));
+    }
 
     #[tokio::test]
     async fn backup_backs_up_only_failed_database_file() -> std::io::Result<()> {
