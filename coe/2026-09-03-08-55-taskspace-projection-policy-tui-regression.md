@@ -1,7 +1,7 @@
 # Problem P-001: TaskSpace projection policy TUI commands disappeared
-- Status: repair-validating
+- Status: fixed
 - Created: 2026-09-03 08:55
-- Updated: 2026-09-03 09:25
+- Updated: 2026-09-03 09:27
 - Objective: 在 v0.0.7 开发版恢复 TaskSpace 会话内切换 `map-request`、`map-append`、`map-always` 的 TUI 命令，并保持选择持久化。
 - Symptoms:
   - `/taskspace` 可启用 TaskSpace，但当前命令面板和 dispatch 中没有三个 projection policy 命令。
@@ -22,13 +22,13 @@
   - none
 - Fix criteria:
   - 回归窗口与断链位置有直接证据；三个命令仅在 TaskSpace active 时可见；每个命令发送正确 policy、持久化配置并保持 TaskSpace active；相关 TUI/core 测试通过；安装后的 `whale-dev` 可完成无模型请求的真实 TUI 切换验证。
-- Current conclusion: H-001 已确认并完成局部修复；代码级测试与免费 cache final-wire 门禁均通过，待 clean-commit 安装后的 `whale-dev` PTY 验证后关闭。
+- Current conclusion: H-001 已确认并修复；代码级测试、免费 cache final-wire 门禁和 clean-commit `whale-dev` 零推理 PTY 验证全部通过。
 - Related hypotheses:
   - H-001
 - Resolution basis:
-  - not satisfied
+  - 三个命令在 TaskSpace 激活后可见并能逐一切换；最终值写入当前 worktree 隔离配置；默认值仍由 runtime 保持 `map-request`；相关测试、schema、cache gate 和真实 dev TUI 验证均通过。
 - Close reason:
-  - not closed
+  - 修复标准全部满足，且验证未产生 provider inference。
 
 ## Hypothesis H-001: vendor rebase 漏回放 TUI policy 控件但保留后端协议
 - Status: confirmed
@@ -67,6 +67,7 @@
   - E-001
   - E-002
   - E-003
+  - E-004
 - Conclusion: `f881e71b2` 首次移除了 `5ce2cfaf8` 的 TUI `MapRequest/MapAppend/MapAlways` 用户入口；当前后端继续支持三种 policy，因此故障是 vendor replay 的局部 UI 断链。
 - Repair design readiness: ready
 - Next step: 按当前 app-server/TUI 架构恢复命令链及持久化测试。
@@ -129,7 +130,7 @@
 - Prediction or plan link:
   - H-001 repair：恢复的 UI 接线应把三种 policy 传给 app-server，持久化合法配置，并保持默认 final-wire 语义。
 - Matched signal:
-  - 5 个定向测试通过；生成后的 config schema 包含三值枚举；免费 final-wire 门禁通过。
+  - 6 个定向测试通过；生成后的 config schema 包含三值枚举；免费 final-wire 门禁通过。
 - Correlation keys:
   - `projection_policy_commands_are_visible_only_in_taskspace`
   - `taskspace_projection_commands_set_policy_and_request_persistence`
@@ -145,3 +146,30 @@
   ```
 - Interpretation: 修复覆盖用户入口、运行时路由、配置 schema/写回与 exec 读取，同时默认请求投影未发生缓存敏感回归。
 - Time: 2026-09-03 09:25
+
+## Evidence E-004: clean-commit whale-dev PTY 闭环通过
+- Related hypotheses:
+  - H-001
+- Direction: supports
+- Type: runtime-observation
+- Source: `/tmp/whale-v007-taskspace-policy-tui.log`；workspace runtime config
+- Prediction or plan link:
+  - P-001 fix criteria：安装后的 worktree 开发版应显示三个命令、即时切换并持久化，且不触碰 release runtime。
+- Matched signal:
+  - `whale-dev --version` 解析到 `whalecode-alpha-48d2219088`；`/taskspace` 后 `/map-` 补全同时显示三项；三次切换分别输出成功；隔离配置最终为 `map-always`。
+- Correlation keys:
+  - commit `326dac740`
+  - workspace `whalecode-alpha-48d2219088`
+  - ledger `WAR-20260903-092201-V007-TASKSPACE-POLICY-TUI`
+- Raw content:
+  ```text
+  /map-request  show the Map only when the agent requests it
+  /map-append   append each new Map projection to context
+  /map-always   keep the latest Map projection in every request
+  TaskSpace projection set to map-request
+  TaskSpace projection set to map-append
+  TaskSpace projection set to map-always
+  taskspace_projection_policy = "map-always"
+  ```
+- Interpretation: 用户入口、运行时切换、配置持久化与 worktree 隔离在实际开发二进制中形成闭环；没有提交自然语言 prompt，provider 请求为 0。
+- Time: 2026-09-03 09:27

@@ -1,6 +1,6 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-09-03T09:22:01+08:00",
+  "updated_at": "2026-09-03T09:27:18+08:00",
   "entries": [
     {
       "record_id": "WAR-20260902-071009-CACHE-REGRESSION-BBE4EBE4",
@@ -14011,11 +14011,11 @@
     {
       "record_id": "WAR-20260903-092201-V007-TASKSPACE-POLICY-TUI",
       "record_type": "run_batch",
-      "status": "planned",
+      "status": "settled",
       "started_at": "2026-09-03T09:22:01+08:00",
-      "ended_at": null,
-      "elapsed_calendar_seconds": null,
-      "aggregate_agent_wall_time_ms": null,
+      "ended_at": "2026-09-03T09:27:18+08:00",
+      "elapsed_calendar_seconds": 317,
+      "aggregate_agent_wall_time_ms": 24000,
       "reason": "Verify the restored v0.0.7 development TaskSpace projection commands and workspace-isolated persistence in a no-prompt PTY session.",
       "authorization": {
         "required": false,
@@ -14040,9 +14040,9 @@
         "arm_ids": ["tui-command-persistence-pty"],
         "repeats_per_arm_per_sample": 1,
         "planned_sample_runs": 1,
-        "actual_sample_runs": 0,
+        "actual_sample_runs": 1,
         "api_requests": 0,
-        "api_requests_evidence_status": "planned-zero-inference"
+        "api_requests_evidence_status": "complete"
       },
       "tokens": {
         "input": 0,
@@ -14051,10 +14051,10 @@
         "output": 0
       },
       "monetary_cost": {
-        "status": "planned",
+        "status": "actual",
         "currency": "USD",
         "amount": 0.0,
-        "actual_billed_amount": null,
+        "actual_billed_amount": 0.0,
         "components": {"provider_inference_requests": 0},
         "pricing_snapshot": {"billing_model": "no-inference"},
         "formula": null,
@@ -14064,10 +14064,10 @@
         "subject_release": "development-v0.0.7",
         "workspace_id": "whalecode-alpha-48d2219088",
         "stop_conditions": "Stop after all three commands render success and map-always is present in the isolated config, or after twenty seconds; submit no prompt.",
-        "usage_evidence_status": "planned",
+        "usage_evidence_status": "completed-zero-inference",
         "result_path": "/tmp/whale-v007-taskspace-policy-tui.log",
-        "stop_reason": null,
-        "outcome": null
+        "stop_reason": "All three commands rendered success, map-always was persisted in the workspace runtime config, and the TUI exited via Ctrl-C without a prompt submission.",
+        "outcome": "The worktree-routed whale-dev displayed all three projection commands after /taskspace, applied map-request, map-append, and map-always, and persisted only the final map-always value in the isolated workspace config. No provider inference occurred."
       }
     }
   ]
