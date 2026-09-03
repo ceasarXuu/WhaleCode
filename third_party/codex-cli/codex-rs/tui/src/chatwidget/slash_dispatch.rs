@@ -16,6 +16,7 @@ use crate::bottom_pane::slash_commands::find_slash_command;
 use crate::goal_display::GOAL_USAGE;
 use crate::goal_files::GoalDraft;
 use codex_app_server_protocol::MapRuntimeMode;
+use codex_app_server_protocol::TaskSpaceProjectionPolicy;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SlashCommandDispatchSource {
@@ -40,8 +41,20 @@ const GOAL_USAGE_HINT: &str = "Example: /goal improve benchmark coverage";
 const RAW_USAGE: &str = "Usage: /raw [on|off]";
 impl ChatWidget {
     fn submit_taskspace_enable(&mut self) {
-        self.submit_op(AppCommand::set_taskspace_mode(MapRuntimeMode::Experiment));
+        self.set_taskspace_active(true);
+        if let Some(policy) = self.config.taskspace_projection_policy {
+            self.submit_op(AppCommand::set_taskspace_projection_policy(policy));
+        } else {
+            self.submit_op(AppCommand::set_taskspace_mode(MapRuntimeMode::Experiment));
+        }
         self.submit_op(AppCommand::show_taskspace());
+    }
+
+    fn select_taskspace_projection_policy(&mut self, policy: TaskSpaceProjectionPolicy) {
+        self.set_taskspace_active(true);
+        self.submit_op(AppCommand::set_taskspace_projection_policy(policy));
+        self.app_event_tx
+            .send(AppEvent::PersistTaskSpaceProjectionPolicy(policy));
     }
 
     /// Dispatch a bare slash command and record its staged local-history entry.
@@ -330,6 +343,15 @@ impl ChatWidget {
                 }
             }
             SlashCommand::TaskSpace => self.submit_taskspace_enable(),
+            SlashCommand::MapRequest => {
+                self.select_taskspace_projection_policy(TaskSpaceProjectionPolicy::MapRequest);
+            }
+            SlashCommand::MapAppend => {
+                self.select_taskspace_projection_policy(TaskSpaceProjectionPolicy::MapAppend);
+            }
+            SlashCommand::MapAlways => {
+                self.select_taskspace_projection_policy(TaskSpaceProjectionPolicy::MapAlways);
+            }
             SlashCommand::TaskShow => {
                 self.submit_op(AppCommand::show_taskspace());
             }
@@ -1127,6 +1149,7 @@ impl ChatWidget {
             personality_command_enabled: self.config.features.enabled(Feature::Personality),
             allow_elevate_sandbox,
             side_conversation_active: self.active_side_conversation,
+            taskspace_active: self.taskspace_active,
         }
     }
 
@@ -1186,6 +1209,9 @@ impl ChatWidget {
             | SlashCommand::Plan
             | SlashCommand::Goal
             | SlashCommand::TaskSpace
+            | SlashCommand::MapRequest
+            | SlashCommand::MapAppend
+            | SlashCommand::MapAlways
             | SlashCommand::Side
             | SlashCommand::Btw
             | SlashCommand::Keymap

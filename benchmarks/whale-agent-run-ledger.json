@@ -1,6 +1,6 @@
 {
   "schema_version": "whale-agent-run-ledger-v1",
-  "updated_at": "2026-09-03T08:23:23+08:00",
+  "updated_at": "2026-09-03T09:22:01+08:00",
   "entries": [
     {
       "record_id": "WAR-20260902-071009-CACHE-REGRESSION-BBE4EBE4",
@@ -14006,6 +14006,68 @@
         "result_path": "/tmp/whale-v006-recovery-tui.log",
         "stop_reason": "The model label resolved and the input screen rendered; exited with Ctrl-C without submitting a prompt.",
         "outcome": "Release v0.0.6 initialized the recovered state DB and changed the model display from loading to deepseek-v4-flash-vision-exp high. A preliminary piped logging attempt was rejected before TUI startup because stdout was not a terminal; the valid PTY sample then passed. No provider inference occurred."
+      }
+    },
+    {
+      "record_id": "WAR-20260903-092201-V007-TASKSPACE-POLICY-TUI",
+      "record_type": "run_batch",
+      "status": "planned",
+      "started_at": "2026-09-03T09:22:01+08:00",
+      "ended_at": null,
+      "elapsed_calendar_seconds": null,
+      "aggregate_agent_wall_time_ms": null,
+      "reason": "Verify the restored v0.0.7 development TaskSpace projection commands and workspace-isolated persistence in a no-prompt PTY session.",
+      "authorization": {
+        "required": false,
+        "status": "not_required",
+        "id": null,
+        "reference": "User requested the v0.0.7 dev fix and a self-contained development validation loop; this is one no-inference sample below the three-sample gate.",
+        "budget_summary": {
+          "maximum_sample_runs": 1,
+          "maximum_api_requests": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cost_usd": 0.0,
+          "elapsed_seconds": 20
+        },
+        "note": "Launch only the current worktree's whale-dev, submit slash commands but no natural-language prompt, verify config persistence, then exit."
+      },
+      "execution": {
+        "provider": "none",
+        "model": "none",
+        "batch_count": 1,
+        "sample_ids": ["v007-taskspace-projection-policy"],
+        "arm_ids": ["tui-command-persistence-pty"],
+        "repeats_per_arm_per_sample": 1,
+        "planned_sample_runs": 1,
+        "actual_sample_runs": 0,
+        "api_requests": 0,
+        "api_requests_evidence_status": "planned-zero-inference"
+      },
+      "tokens": {
+        "input": 0,
+        "cached_input": 0,
+        "uncached_input": 0,
+        "output": 0
+      },
+      "monetary_cost": {
+        "status": "planned",
+        "currency": "USD",
+        "amount": 0.0,
+        "actual_billed_amount": null,
+        "components": {"provider_inference_requests": 0},
+        "pricing_snapshot": {"billing_model": "no-inference"},
+        "formula": null,
+        "note": "No natural-language prompt will be submitted."
+      },
+      "evidence": {
+        "subject_release": "development-v0.0.7",
+        "workspace_id": "whalecode-alpha-48d2219088",
+        "stop_conditions": "Stop after all three commands render success and map-always is present in the isolated config, or after twenty seconds; submit no prompt.",
+        "usage_evidence_status": "planned",
+        "result_path": "/tmp/whale-v007-taskspace-policy-tui.log",
+        "stop_reason": null,
+        "outcome": null
       }
     }
   ]

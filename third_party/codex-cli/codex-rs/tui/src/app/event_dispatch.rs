@@ -2241,6 +2241,26 @@ impl App {
                     }
                 }
             }
+            AppEvent::PersistTaskSpaceProjectionPolicy(policy) => {
+                self.config.taskspace_projection_policy = Some(policy);
+                self.chat_widget.set_taskspace_projection_policy(policy);
+                match ConfigEditsBuilder::for_config(&self.config)
+                    .set_taskspace_projection_policy(policy)
+                    .apply()
+                    .await
+                {
+                    Ok(()) => self.chat_widget.add_info_message(
+                        format!("TaskSpace projection set to {policy}"),
+                        /*hint*/ None,
+                    ),
+                    Err(err) => {
+                        tracing::error!(error = %err, "failed to persist TaskSpace projection policy");
+                        self.chat_widget.add_error_message(format!(
+                            "Failed to save TaskSpace projection policy: {err}"
+                        ));
+                    }
+                }
+            }
             AppEvent::UpdateAskForApprovalPolicy(policy) => {
                 let mut config = self.config.clone();
                 if !self.try_set_approval_policy_on_config(

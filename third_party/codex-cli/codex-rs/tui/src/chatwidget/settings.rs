@@ -5,6 +5,18 @@ use crate::app_event::AppEvent;
 use crate::chatwidget::rate_limits::RATE_LIMIT_SWITCH_PROMPT_VIEW_ID;
 
 impl ChatWidget {
+    pub(crate) fn set_taskspace_active(&mut self, active: bool) {
+        self.taskspace_active = active;
+        self.bottom_pane.set_taskspace_active(active);
+    }
+
+    pub(crate) fn set_taskspace_projection_policy(
+        &mut self,
+        policy: codex_app_server_protocol::TaskSpaceProjectionPolicy,
+    ) {
+        self.config.taskspace_projection_policy = Some(policy);
+    }
+
     /// Set the approval policy in the widget's config copy.
     pub(crate) fn set_approval_policy(&mut self, policy: AskForApproval) {
         if let Err(err) = self

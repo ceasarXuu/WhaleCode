@@ -674,6 +674,7 @@ pub(crate) struct ChatWidget {
     pending_automatic_thread_names: HashSet<String>,
     thread_rename_block_message: Option<String>,
     active_side_conversation: bool,
+    taskspace_active: bool,
     blocks_direct_input: bool,
     misalignment_policy_violation: bool,
     normal_placeholder_text: String,

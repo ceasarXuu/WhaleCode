@@ -44,6 +44,9 @@ pub enum SlashCommand {
     Goal,
     #[strum(serialize = "taskspace")]
     TaskSpace,
+    MapRequest,
+    MapAppend,
+    MapAlways,
     #[strum(serialize = "task-show")]
     TaskShow,
     Agents,
@@ -137,6 +140,9 @@ impl SlashCommand {
             SlashCommand::Plan => "switch to Plan mode",
             SlashCommand::Goal => "set or view the goal for a long-running task",
             SlashCommand::TaskSpace => "enter TaskSpace mode and show the current map",
+            SlashCommand::MapRequest => "show the Map only when the agent requests it",
+            SlashCommand::MapAppend => "append each new Map projection to context",
+            SlashCommand::MapAlways => "keep the latest Map projection in every request",
             SlashCommand::TaskShow => "show the current TaskSpace map",
             SlashCommand::Agent | SlashCommand::MultiAgents => "switch the active agent thread",
             SlashCommand::Agents => "view and switch between all active agent sessions",
@@ -233,6 +239,9 @@ impl SlashCommand {
             | SlashCommand::Review
             | SlashCommand::Plan
             | SlashCommand::TaskSpace
+            | SlashCommand::MapRequest
+            | SlashCommand::MapAppend
+            | SlashCommand::MapAlways
             | SlashCommand::Cd
             | SlashCommand::Clear
             | SlashCommand::Logout

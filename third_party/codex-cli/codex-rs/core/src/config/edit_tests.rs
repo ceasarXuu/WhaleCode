@@ -1611,3 +1611,15 @@ fn replace_mcp_servers_blocking_clears_table_when_empty() {
     let contents = std::fs::read_to_string(codex_home.join(CONFIG_TOML_FILE)).expect("read config");
     assert!(!contents.contains("mcp_servers"));
 }
+#[test]
+fn taskspace_projection_policy_is_persisted() {
+    let tmp = tempfile::tempdir().expect("tmpdir");
+
+    ConfigEditsBuilder::new(tmp.path())
+        .set_taskspace_projection_policy(TaskSpaceProjectionPolicy::MapAppend)
+        .apply_blocking()
+        .expect("persist projection policy");
+
+    let contents = std::fs::read_to_string(tmp.path().join(CONFIG_TOML_FILE)).expect("read config");
+    assert_eq!(contents, "taskspace_projection_policy = \"map-append\"\n");
+}

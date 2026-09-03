@@ -55,6 +55,7 @@ use codex_protocol::models::PermissionProfile;
 use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::permissions::NetworkSandboxPolicy;
 use codex_protocol::protocol::AskForApproval;
+use codex_protocol::protocol::TaskSpaceProjectionPolicy;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_path::normalize_for_path_comparison;
 use schemars::JsonSchema;
@@ -160,6 +161,9 @@ pub struct ConfigToml {
     pub model: Option<String>,
     /// Review model override used by the `/review` feature.
     pub review_model: Option<String>,
+
+    /// Controls how the active TaskSpace Map is projected into model requests.
+    pub taskspace_projection_policy: Option<TaskSpaceProjectionPolicy>,
 
     /// Provider to use from the model_providers map.
     pub model_provider: Option<String>,
@@ -985,6 +989,21 @@ mod tests {
 
     const WORKSPACE_ID_A: &str = "123e4567-e89b-42d3-a456-426614174000";
     const WORKSPACE_ID_B: &str = "123e4567-e89b-42d3-a456-426614174001";
+
+    #[test]
+    fn taskspace_projection_policy_accepts_all_modes() {
+        for (value, expected) in [
+            ("map-request", TaskSpaceProjectionPolicy::MapRequest),
+            ("map-append", TaskSpaceProjectionPolicy::MapAppend),
+            ("map-always", TaskSpaceProjectionPolicy::MapAlways),
+        ] {
+            let config: ConfigToml =
+                toml::from_str(&format!("taskspace_projection_policy = \"{value}\""))
+                    .expect("TaskSpace projection policy should deserialize");
+
+            assert_eq!(config.taskspace_projection_policy, Some(expected));
+        }
+    }
 
     #[test]
     fn forced_chatgpt_workspace_id_accepts_single_string() {

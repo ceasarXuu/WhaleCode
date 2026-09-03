@@ -1363,6 +1363,7 @@ impl AppServerSession {
         &mut self,
         thread_id: ThreadId,
         mode: MapRuntimeMode,
+        projection_policy: Option<codex_app_server_protocol::TaskSpaceProjectionPolicy>,
     ) -> Result<ThreadMapRuntimeModeSetResponse> {
         let request_id = self.next_request_id();
         self.client
@@ -1371,7 +1372,7 @@ impl AppServerSession {
                 params: ThreadMapRuntimeModeSetParams {
                     thread_id: thread_id.to_string(),
                     mode,
-                    projection_policy: None,
+                    projection_policy,
                 },
             })
             .await

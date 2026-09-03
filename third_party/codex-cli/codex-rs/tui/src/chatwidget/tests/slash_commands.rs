@@ -1,6 +1,7 @@
 use super::*;
 use crate::bottom_pane::slash_commands::ServiceTierCommand;
 use codex_app_server_protocol::MapRuntimeMode;
+use codex_app_server_protocol::TaskSpaceProjectionPolicy;
 use pretty_assertions::assert_eq;
 use serial_test::serial;
 
@@ -89,6 +90,39 @@ async fn task_show_requests_current_snapshot_without_changing_mode() {
         Op::ShowTaskSpace
     );
     assert_no_submit_op(&mut op_rx);
+}
+
+#[tokio::test]
+async fn taskspace_projection_commands_set_policy_and_request_persistence() {
+    for (command, policy) in [
+        (
+            SlashCommand::MapRequest,
+            TaskSpaceProjectionPolicy::MapRequest,
+        ),
+        (
+            SlashCommand::MapAppend,
+            TaskSpaceProjectionPolicy::MapAppend,
+        ),
+        (
+            SlashCommand::MapAlways,
+            TaskSpaceProjectionPolicy::MapAlways,
+        ),
+    ] {
+        let (mut chat, mut app_rx, mut op_rx) =
+            make_chatwidget_manual(/*model_override*/ None).await;
+
+        chat.dispatch_command(command);
+
+        assert_matches!(
+            op_rx.try_recv().expect("policy command should be submitted"),
+            Op::SetTaskSpaceProjectionPolicy { policy: actual } if actual == policy
+        );
+        assert!(matches!(
+            app_rx.try_recv(),
+            Ok(AppEvent::PersistTaskSpaceProjectionPolicy(actual)) if actual == policy
+        ));
+        assert_no_submit_op(&mut op_rx);
+    }
 }
 
 fn queue_composer_text_with_tab(chat: &mut ChatWidget, text: &str) {

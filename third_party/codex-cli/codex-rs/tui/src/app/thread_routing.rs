@@ -9,6 +9,7 @@ use super::*;
 use crate::app_event::ThreadTitleDestination;
 use crate::chatwidget::ThreadInputStateRestoreMode;
 use crate::session_resume::read_session_model;
+use codex_app_server_protocol::MapRuntimeMode;
 use codex_app_server_protocol::ThreadStartedNotification;
 use codex_app_server_protocol::TurnInterruptParams;
 use codex_app_server_protocol::TurnInterruptResponse;
@@ -792,7 +793,17 @@ impl App {
             }
             AppCommand::SetTaskSpaceMode { mode } => {
                 app_server
-                    .thread_map_runtime_mode_set(thread_id, *mode)
+                    .thread_map_runtime_mode_set(thread_id, *mode, None)
+                    .await?;
+                Ok(true)
+            }
+            AppCommand::SetTaskSpaceProjectionPolicy { policy } => {
+                app_server
+                    .thread_map_runtime_mode_set(
+                        thread_id,
+                        MapRuntimeMode::Experiment,
+                        Some(*policy),
+                    )
                     .await?;
                 Ok(true)
             }

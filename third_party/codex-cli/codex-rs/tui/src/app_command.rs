@@ -7,6 +7,7 @@ use codex_app_server_protocol::MapRuntimeMode;
 use codex_app_server_protocol::McpServerElicitationAction;
 use codex_app_server_protocol::RequestId as AppServerRequestId;
 use codex_app_server_protocol::ReviewTarget;
+use codex_app_server_protocol::TaskSpaceProjectionPolicy;
 use codex_app_server_protocol::ToolRequestUserInputResponse;
 use codex_app_server_protocol::UserInput;
 use codex_config::types::ApprovalsReviewer;
@@ -93,6 +94,9 @@ pub(crate) enum AppCommand {
     },
     SetTaskSpaceMode {
         mode: MapRuntimeMode,
+    },
+    SetTaskSpaceProjectionPolicy {
+        policy: TaskSpaceProjectionPolicy,
     },
     ShowTaskSpace,
     Review {
@@ -238,6 +242,10 @@ impl AppCommand {
 
     pub(crate) fn set_taskspace_mode(mode: MapRuntimeMode) -> Self {
         Self::SetTaskSpaceMode { mode }
+    }
+
+    pub(crate) fn set_taskspace_projection_policy(policy: TaskSpaceProjectionPolicy) -> Self {
+        Self::SetTaskSpaceProjectionPolicy { policy }
     }
 
     pub(crate) fn show_taskspace() -> Self {

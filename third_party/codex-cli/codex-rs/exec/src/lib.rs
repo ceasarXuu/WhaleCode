@@ -949,7 +949,7 @@ async fn run_exec_session(args: ExecRunArgs) -> anyhow::Result<()> {
                 params: ThreadMapRuntimeModeSetParams {
                     thread_id: primary_thread_id_for_span.clone(),
                     mode: MapRuntimeMode::Experiment,
-                    projection_policy: None,
+                    projection_policy: config.taskspace_projection_policy,
                 },
             },
             "thread/mapRuntimeMode/set",

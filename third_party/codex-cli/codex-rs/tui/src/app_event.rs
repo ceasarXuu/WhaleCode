@@ -32,6 +32,7 @@ use codex_app_server_protocol::PluginReadResponse;
 use codex_app_server_protocol::PluginUninstallResponse;
 use codex_app_server_protocol::RequestId as AppServerRequestId;
 use codex_app_server_protocol::SkillsListResponse;
+use codex_app_server_protocol::TaskSpaceProjectionPolicy;
 use codex_app_server_protocol::Thread;
 use codex_app_server_protocol::ThreadGoalStatus;
 use codex_app_server_protocol::ThreadItemsListResponse;
@@ -1004,6 +1005,9 @@ pub(crate) enum AppEvent {
     PersistServiceTierSelection {
         service_tier: Option<String>,
     },
+
+    /// Persist the projection policy used by current and future TaskSpace sessions.
+    PersistTaskSpaceProjectionPolicy(TaskSpaceProjectionPolicy),
 
     /// Open the reasoning selection popup after picking a model.
     OpenReasoningPopup {

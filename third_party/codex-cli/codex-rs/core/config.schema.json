@@ -3512,6 +3512,14 @@
       },
       "type": "object"
     },
+    "TaskSpaceProjectionPolicy": {
+      "enum": [
+        "map-always",
+        "map-append",
+        "map-request"
+      ],
+      "type": "string"
+    },
     "ThreadStoreToml": {
       "oneOf": [
         {
@@ -6582,6 +6590,14 @@
     "suppress_unstable_features_warning": {
       "description": "Suppress warnings about unstable (under development) features.",
       "type": "boolean"
+    },
+    "taskspace_projection_policy": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/TaskSpaceProjectionPolicy"
+        }
+      ],
+      "description": "Controls how the active TaskSpace Map is projected into model requests."
     },
     "tool_output_token_limit": {
       "description": "Token budget applied when storing tool/function outputs in the context manager.",
