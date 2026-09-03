@@ -1,7 +1,7 @@
 # Problem P-001: v0.0.6 无法打开被 0.151 开发版升级的 state DB
-- Status: open
+- Status: fixed
 - Created: 2026-09-03 00:17
-- Updated: 2026-09-03 00:34
+- Updated: 2026-09-03 08:23
 - Objective: 在不丢失本机 Whale 会话数据的前提下，恢复 release v0.0.6 启动，并阻止同类开发环境污染再次发生。
 - Symptoms:
   - `whale --yolo` 报 migration 51 已应用但内容被修改，启动中止。
@@ -23,14 +23,14 @@
   - SQLite 文件物理损坏。
 - Fix criteria:
   - 合成的“0.151 DB → v0.0.6 运行”复现先稳定失败；修复后保留原数据库与关键表/记录并可启动；fresh 与既有迁移测试无回归；本机 release 启动验证使用可恢复备份且不丢数据。
-- Current conclusion: H-001/H-002 已确认。当前开发版已修正错误分类并验证可打开 0.151 schema；全局 v0.0.6 仍是不可前向兼容的已发布旧二进制。恢复全局命令必须在“升级二进制”或“备份并重建 release state DB”之间选择，未经用户明确授权不执行后者。
+- Current conclusion: H-001/H-002 已确认。开发版与 release 已通过 `whale-dev`/`whale` 及 worktree 私有 home 隔离；经用户单次授权，release DB 已在逐文件备份后精确恢复为 v0.0.6 migration 51/52 布局。`whale doctor` 确认 state healthy，真实 PTY 中模型由 `loading` 收敛为 `deepseek-v4-flash-vision-exp high`。
 - Related hypotheses:
   - H-001
   - H-002
 - Resolution basis:
-  - not satisfied
+  - 根因由版本迁移 checksum 证据与隔离复现确认；错误分类修复及迁移测试已通过；release DB 有可恢复的原始文件备份，859 条线程记录保持不变；v0.0.6 doctor 与无输入 PTY 启动均越过数据库初始化。
 - Close reason:
-  - not closed
+  - 本机 release 已恢复，且后续开发运行由 worktree 级 `whale-dev` 隔离，不再复用 `~/.whale`。
 
 ## Hypothesis H-001: 0.151 与 v0.0.6 对 migration 51 的不同占用触发 SQLx VersionMismatch
 - Status: confirmed
@@ -263,3 +263,29 @@
   ```
 - Interpretation: 本次改动只影响用户提示，未改变数据库兼容性与保护边界。
 - Time: 2026-09-03 00:30
+
+## Evidence E-008: release v0.0.6 数据库已备份并恢复启动
+- Related hypotheses:
+  - H-001
+  - H-002
+- Direction: supports
+- Type: fix-validation
+- Source: `/home/zhangxu/.whale/db-backups/manual-v006-migration-recovery-20260903-082006`；`whale doctor`；`/tmp/whale-v006-recovery-tui.log`
+- Prediction or plan link:
+  - P-001：恢复后 v0.0.6 应通过 state 初始化，且缺少 DeepSeek API key 不应阻塞本地模型配置加载。
+- Matched signal:
+  - DB/WAL/SHM 备份与恢复前文件逐个一致；恢复后 integrity `ok`，migration 为 51/52，859 条 threads 不变；doctor 报 `state databases healthy`；PTY 最终显示 `deepseek-v4-flash-vision-exp high`。
+- Correlation keys:
+  - `/home/zhangxu/.whale/state_5.sqlite`
+  - `WAR-20260903-082207-V006-RECOVERY-TUI-SMOKE`
+- Raw content:
+  ```text
+  integrity_check: ok
+  51|taskspace canonical store
+  52|taskspace relational store
+  rollout DB rows: 859
+  state: databases healthy
+  model: deepseek-v4-flash-vision-exp high
+  ```
+- Interpretation: v0.0.6 的启动阻塞来自 migration 同号异义，而不是缺少 API key；精确恢复 migration 后，未配置 key 时模型元数据仍可正常完成加载。
+- Time: 2026-09-03 08:23
