@@ -12,6 +12,7 @@
 | 文件 | 用途 |
 |---|---|
 | [taskspace-evidence-levels-and-samples.md](./taskspace-evidence-levels-and-samples.md) | 定义 E1-E5、当前样本集、允许结论和报告规则。 |
+| [2026-10-11-dsh-taskspace-plugin-feasibility-spike.md](./2026-10-11-dsh-taskspace-plugin-feasibility-spike.md) | E1 机制冒烟：TaskSpace 三个卡点在 DeepSeek Harness 上以纯插件（零上游改动）通过的可行性验证；源码见 [dsh-taskspace-spike/](./dsh-taskspace-spike/README.md)。 |
 
 ## 不可违反的规则
 
