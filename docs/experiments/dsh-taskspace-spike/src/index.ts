@@ -18,10 +18,12 @@
 
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
+import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import { appendPluginRecord, pluginRecordOf } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, appendPluginRecord, pluginRecordOf } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import { CommandDefinitionId } from '@deepseek-ai/dsh-commands'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { batchCallsOf, CONTROL_TOOL, validateBatch } from './batch.ts'
@@ -30,13 +32,14 @@ import { applyMutations, initialMap, renderMap } from './domain.ts'
 import type { ExecuteManifest, InitPayload, MapSnapshot, Mutation } from './domain.ts'
 import {
   ACTIONS_RECORD,
+  BINDING_RECORD,
   DEFAULT_POLICY,
   MAP_RECORD,
   MODE_RECORD,
   POLICY_RECORD,
   taskspaceProjection,
 } from './records.ts'
-import type { ActionEntry, ActionsSnapshot, PolicyRecord, TaskspaceMode, TaskspaceState } from './records.ts'
+import type { ActionEntry, ActionsSnapshot, BindingRecord, PolicyRecord, TaskspaceMode, TaskspaceState, TaskspaceView } from './records.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -71,8 +74,8 @@ const GUIDANCE = [
  * batch guard, mode gating, reservations, context projection and the TaskMap
  * projection.
  */
-export class WhaleTaskspaceSpike extends Service {
-  static inject = ['tools', 'sessionProjections', 'systemPrompt']
+export class WhaleTaskspaceSpike extends TypertRemoteService {
+  static inject = ['tools', 'sessions', 'sessionProjections', 'systemPrompt']
 
   private readonly runtimes = new Map<SessionId, SessionRuntime>()
   private probeCount = 0
@@ -113,14 +116,21 @@ export class WhaleTaskspaceSpike extends Service {
       parameters: {
         label: { type: 'string', required: true },
         fail: { type: 'boolean', description: 'When true the probe fails after recording the attempt.' },
+        hang: { type: 'boolean', description: 'When true the probe stays in flight until cancelled.' },
       },
       isConcurrencySafe: () => true,
       output: {
         schema: { type: 'string' },
         render: (_args, value) => [{ type: 'text', text: value }],
       },
-      execute: async (args) => {
+      execute: async (args, exec) => {
         this.probeCount += 1
+        if (args.hang === true) {
+          await new Promise((_resolve, reject) => {
+            if (exec.signal.aborted) { reject(new Error(`probe ${args.label} aborted`)); return }
+            exec.signal.addEventListener('abort', () => reject(new Error(`probe ${args.label} aborted`)), { once: true })
+          })
+        }
         if (args.fail === true) throw new Error(`probe ${args.label} failed`)
         return `probe:${args.label}`
       },
@@ -130,6 +140,20 @@ export class WhaleTaskspaceSpike extends Service {
   /** Number of `probe` sibling executions observed. */
   get probeRuns(): number {
     return this.probeCount
+  }
+
+  /**
+   * Remote (source-mode) read of one session's TaskMap wire view — the seam an
+   * external viewer or SDK client uses without a generated descriptor.
+   * @param sessionId - exact session to read.
+   * @returns the client view, or null when the session has no TaskMap.
+   */
+  @Remote('get')
+  remoteGet(sessionId: string): TaskspaceView | null {
+    const session = this.ctx.sessions.get(SessionId(sessionId))
+    if (session === undefined) return null
+    const snapshot = this.ctx.sessionProjections.snapshot(session, ['whaleTaskspace'])
+    return (snapshot.values.whaleTaskspace as TaskspaceView | undefined) ?? null
   }
 
   /** Append one durable mode record; the plugin reacts and re-gates the agent. */
@@ -151,13 +175,13 @@ export class WhaleTaskspaceSpike extends Service {
 
   /** Bounded map summary as the model context projection renders it. */
   summaryOf(session: Session): string | undefined {
-    const state = this.stateOf(session)
+    const { state } = this.resolved(session)
     if (state?.map === null || state?.map === undefined) return undefined
     return renderMap(state.map, state.policy.maxChars)
   }
 
   private policyOf(session: Session): PolicyRecord {
-    return this.stateOf(session)?.policy ?? DEFAULT_POLICY
+    return this.resolved(session).state?.policy ?? DEFAULT_POLICY
   }
 
   private modeOf(session: Session): TaskspaceMode {
@@ -170,6 +194,36 @@ export class WhaleTaskspaceSpike extends Service {
     const created: SessionRuntime = {}
     this.runtimes.set(sessionId, created)
     return created
+  }
+
+  /**
+   * Bind one member session to another session's canonical map: the member
+   * writes through the owner's log (the owner stays the only authority) and
+   * gains taskspace mode. The binding itself is a durable record on the member
+   * log, so it survives restart and replay.
+   * @param member - participating session (for example a delegated child).
+   * @param owner - session whose map is the authority.
+   */
+  bindTeam(member: Session, owner: Session): BindingRecord {
+    const map = this.stateOf(owner)?.map
+    if (map === null || map === undefined) throw new Error('the team owner has no active map')
+    const binding: BindingRecord = { version: 1, ownerSessionId: String(owner.header.id), mapId: map.mapId }
+    appendPluginRecord(member, BINDING_RECORD, binding)
+    appendPluginRecord(member, MODE_RECORD, { mode: 'taskspace' })
+    return binding
+  }
+
+  /** Resolve the session that owns the map this session reads and writes. */
+  private resolved(session: Session): { owner: Session; state: TaskspaceState | undefined } {
+    const binding = this.stateOf(session)?.binding
+    if (binding === null || binding === undefined) return { owner: session, state: this.stateOf(session) }
+    const owner = this.ctx.sessions.get(SessionId(binding.ownerSessionId))
+    if (owner === undefined) return { owner: session, state: this.stateOf(session) }
+    return { owner, state: this.stateOf(owner) }
+  }
+
+  private agentOf(session: Session): Agent | undefined {
+    return this.runtimes.get(session.header.id)?.agent
   }
 
   private attachAgent(agent: Agent): void {
@@ -235,7 +289,7 @@ export class WhaleTaskspaceSpike extends Service {
 
   /** State preconditions that must reject the whole batch before any dispatch. */
   private stateGate(session: Session, verdict: Extract<BatchVerdict, { kind: 'valid' }>): string | undefined {
-    const map = this.stateOf(session)?.map ?? null
+    const map = this.resolved(session).state?.map ?? null
     if (verdict.action === 'initialize') {
       return map === null ? undefined : `map "${map.mapId}" is already active`
     }
@@ -268,15 +322,17 @@ export class WhaleTaskspaceSpike extends Service {
   private alwaysContext(context: { agent?: Agent }): string {
     const agent = context.agent
     if (agent === undefined) return ''
-    const state = this.stateOf(agent.session)
+    const { state } = this.resolved(agent.session)
     if (state === undefined || state.map === null) return ''
     if (state.mode !== 'taskspace' || state.policy.projection !== 'always') return ''
     return renderMap(state.map, state.policy.maxChars)
   }
 
   /** Append the committed map summary after changes under the `append` policy. */
-  private afterCommit(agent: Agent): void {
-    const state = this.stateOf(agent.session)
+  private afterCommit(owner: Session): void {
+    const agent = this.agentOf(owner)
+    if (agent === undefined) return
+    const state = this.stateOf(owner)
     if (state === undefined || state.map === null) return
     if (state.mode !== 'taskspace' || state.policy.projection !== 'append') return
     const last = state.actions.at(-1)
@@ -292,7 +348,7 @@ export class WhaleTaskspaceSpike extends Service {
     const agent = exec.agent
     const session = agent?.session
     if (agent === undefined || session === undefined) throw new Error(`${CONTROL_TOOL} requires an agent session`)
-    const state = this.stateOf(session)
+    const { owner, state } = this.resolved(session)
     const map = state?.map ?? null
     switch (action) {
       case 'read_map': {
@@ -302,8 +358,8 @@ export class WhaleTaskspaceSpike extends Service {
       case 'initialize': {
         if (map !== null) throw new Error(`map "${map.mapId}" is already active`)
         const snapshot = initialMap(this.parse<InitPayload>(rawManifest, 'initialize payload'))
-        appendPluginRecord(session, MAP_RECORD, snapshot)
-        this.afterCommit(agent)
+        appendPluginRecord(owner, MAP_RECORD, snapshot)
+        this.afterCommit(owner)
         return JSON.stringify({ kind: 'receipt', operation: 'initialize', mapId: snapshot.mapId, revision: snapshot.revision })
       }
       case 'execute': {
@@ -315,7 +371,7 @@ export class WhaleTaskspaceSpike extends Service {
         let next = map
         if (immediate.length > 0) {
           next = applyMutations(map, immediate)
-          appendPluginRecord(session, MAP_RECORD, next)
+          appendPluginRecord(owner, MAP_RECORD, next)
         }
         const siblings = this.siblingsOf(agent, String(exec.callId))
         const entries: ActionEntry[] = manifest.actions.map((declaration, index) => {
@@ -330,8 +386,8 @@ export class WhaleTaskspaceSpike extends Service {
             ...deferredMutation === undefined ? {} : { deferredMutation },
           }
         })
-        this.appendActions(session, next.mapId, [...(state?.actions ?? []), ...entries])
-        this.afterCommit(agent)
+        this.appendActions(owner, next.mapId, [...(state?.actions ?? []), ...entries])
+        this.afterCommit(owner)
         return JSON.stringify({
           kind: 'receipt',
           operation: 'execute',
@@ -347,16 +403,16 @@ export class WhaleTaskspaceSpike extends Service {
           throw new Error(`map "${map.mapId}" has ${unfinished.length} unfinished node(s): ${unfinished.map(node => node.id).join(', ')}`)
         }
         const finished: MapSnapshot = { ...map, revision: map.revision + 1, terminal: true }
-        appendPluginRecord(session, MAP_RECORD, finished)
-        this.afterCommit(agent)
+        appendPluginRecord(owner, MAP_RECORD, finished)
+        this.afterCommit(owner)
         return JSON.stringify({ kind: 'receipt', operation: 'finish_map', mapId: finished.mapId, revision: finished.revision })
       }
       case 'reopen_map': {
         if (map === null) throw new Error('no canonical map is active')
         if (!map.terminal) throw new Error(`map "${map.mapId}" is not terminal`)
         const reopened: MapSnapshot = { ...map, revision: map.revision + 1, terminal: false }
-        appendPluginRecord(session, MAP_RECORD, reopened)
-        this.afterCommit(agent)
+        appendPluginRecord(owner, MAP_RECORD, reopened)
+        this.afterCommit(owner)
         return JSON.stringify({ kind: 'receipt', operation: 'reopen_map', mapId: reopened.mapId, revision: reopened.revision })
       }
       default:
@@ -377,7 +433,7 @@ export class WhaleTaskspaceSpike extends Service {
   private onToolResult(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): void {
     const agent = exec.agent
     if (agent === undefined) return
-    const state = this.stateOf(agent.session)
+    const { owner, state } = this.resolved(agent.session)
     if (state?.map === null || state?.map === undefined) return
     const index = state.actions.findIndex(entry => entry.callId === String(exec.callId) && entry.state === 'reserved')
     if (index < 0) return
@@ -393,10 +449,10 @@ export class WhaleTaskspaceSpike extends Service {
         next = { ...next, state: 'failed' }
       }
     }
-    if (map !== state.map) appendPluginRecord(agent.session, MAP_RECORD, map)
+    if (map !== state.map) appendPluginRecord(owner, MAP_RECORD, map)
     const entries = state.actions.map((candidate, position) => position === index ? next : candidate)
-    this.appendActions(agent.session, map.mapId, entries)
-    this.afterCommit(agent)
+    this.appendActions(owner, map.mapId, entries)
+    this.afterCommit(owner)
   }
 
   private parse<T>(raw: string | undefined, label: string): T {
@@ -409,9 +465,46 @@ export class WhaleTaskspaceSpike extends Service {
   }
 }
 
+/**
+ * Optional command surface (`/taskspace`, `/map-projection`) as its own
+ * capability plugin: commands live in a separate role package, matching the
+ * DSH one-role-per-package seam discipline and keeping the service free of a
+ * hard commands dependency.
+ */
+export const taskspaceCommands = {
+  name: 'whale-taskspace-commands',
+  inject: ['commands', 'whaleTaskspaceSpike'],
+  apply: (ctx: Context): void => {
+    ctx.commands.register({
+      definitionId: CommandDefinitionId('@whale/taskspace'),
+      name: 'taskspace',
+      description: 'Enter TaskMap mode, or leave it with /taskspace off.',
+      input: { hint: '[off]' },
+      handler: ({ agent, rawInput }) => {
+        const off = rawInput.trim() === 'off'
+        ctx.whaleTaskspaceSpike.setMode(agent.session, off ? 'standard' : 'taskspace')
+        return { kind: 'success', text: off ? 'TaskMap mode off.' : 'TaskMap mode on.' }
+      },
+    })
+    ctx.commands.register({
+      definitionId: CommandDefinitionId('@whale/taskspace-projection'),
+      name: 'map-projection',
+      description: 'Set the TaskMap context projection (request|append|always).',
+      input: { hint: 'request|append|always' },
+      handler: ({ agent, rawInput }) => {
+        const value = rawInput.trim()
+        const projection = value === 'request' ? 'on-request' : value === 'append' || value === 'always' ? value : undefined
+        if (projection === undefined) return { kind: 'error', text: 'Usage: /map-projection request|append|always' }
+        ctx.whaleTaskspaceSpike.setProjection(agent.session, { projection })
+        return { kind: 'success', text: `TaskMap projection: ${projection}` }
+      },
+    })
+  },
+}
+
 /** Re-export the seams a consumer or test needs. */
 export { CONTROL_TOOL, validateBatch } from './batch.ts'
 export { applyMutations, countsOf, frontierOf, initialMap, renderMap } from './domain.ts'
-export { ACTIONS_RECORD, MAP_RECORD, MODE_RECORD, POLICY_RECORD, taskspaceProjection } from './records.ts'
-export type { ActionEntry, ActionsSnapshot, PolicyRecord, TaskspaceMode, TaskspaceState, TaskspaceView } from './records.ts'
+export { ACTIONS_RECORD, BINDING_RECORD, MAP_RECORD, MODE_RECORD, POLICY_RECORD, taskspaceProjection } from './records.ts'
+export type { ActionEntry, ActionsSnapshot, BindingRecord, PolicyRecord, TaskspaceMode, TaskspaceState, TaskspaceView } from './records.ts'
 export type { ExecuteManifest, InitPayload, MapSnapshot, Mutation, WorkNode } from './domain.ts'

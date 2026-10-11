@@ -21,6 +21,8 @@ export const MODE_RECORD = 'plugin:whale-taskspace/mode' as const
 export const POLICY_RECORD = 'plugin:whale-taskspace/policy' as const
 /** Durable action-reservation snapshot record name owned by this spike. */
 export const ACTIONS_RECORD = 'plugin:whale-taskspace/actions' as const
+/** Durable team-binding record: this session participates in an owner's map. */
+export const BINDING_RECORD = 'plugin:whale-taskspace/binding' as const
 
 export type TaskspaceMode = 'standard' | 'taskspace'
 
@@ -55,6 +57,13 @@ export interface ActionsSnapshot {
   readonly entries: readonly ActionEntry[]
 }
 
+/** One member session bound to another session's canonical map. */
+export interface BindingRecord {
+  readonly version: 1
+  readonly ownerSessionId: string
+  readonly mapId: string
+}
+
 export const policySchema = z.object({
   projection: z.enum(['on-request', 'append', 'always']),
   maxChars: z.number().int().min(64).max(100_000),
@@ -76,12 +85,20 @@ export const actionsSchema = z.object({
   entries: z.array(actionEntrySchema),
 })
 
+export const bindingSchema = z.object({
+  version: z.literal(1),
+  ownerSessionId: z.string(),
+  mapId: z.string(),
+})
+
 /** Host fold state for the spike projection. */
 export interface TaskspaceState {
   readonly mode: TaskspaceMode
   readonly policy: PolicyRecord
   readonly map: MapSnapshot | null
   readonly actions: readonly ActionEntry[]
+  /** Set on a member session that writes through another session's map. */
+  readonly binding: BindingRecord | null
 }
 
 /** Client-visible whole value served by `sessionProjections.snapshot()`. */
@@ -116,6 +133,7 @@ export const taskspaceStateSchema = z.object({
   policy: policySchema,
   map: mapSchema.nullable(),
   actions: z.array(actionEntrySchema),
+  binding: bindingSchema.nullable(),
 })
 
 declare module '@deepseek-ai/dsh-session/types' {
@@ -124,6 +142,7 @@ declare module '@deepseek-ai/dsh-session/types' {
     'plugin:whale-taskspace/mode': { readonly mode: TaskspaceMode }
     'plugin:whale-taskspace/policy': PolicyRecord
     'plugin:whale-taskspace/actions': ActionsSnapshot
+    'plugin:whale-taskspace/binding': BindingRecord
   }
 }
 
@@ -166,7 +185,7 @@ function viewOf(state: TaskspaceState): TaskspaceView {
 export const taskspaceProjection: ProjectionDefinition<'whaleTaskspace'> = {
   key: 'whaleTaskspace',
   stateSchema: taskspaceStateSchema,
-  init: () => ({ mode: 'standard', policy: DEFAULT_POLICY, map: null, actions: [] }),
+  init: () => ({ mode: 'standard', policy: DEFAULT_POLICY, map: null, actions: [], binding: null }),
   apply: (state, event) => {
     const record = pluginRecordOf(event)
     if (record === undefined) return state
@@ -174,6 +193,10 @@ export const taskspaceProjection: ProjectionDefinition<'whaleTaskspace'> = {
       const mode = (record.data as { readonly mode?: unknown } | null)?.mode
       if (mode === 'taskspace' || mode === 'standard') return { ...state, mode }
       return state
+    }
+    if (record.type === BINDING_RECORD) {
+      const parsed = bindingSchema.safeParse(record.data)
+      return parsed.success ? { ...state, binding: parsed.data } : state
     }
     if (record.type === POLICY_RECORD) {
       const parsed = policySchema.safeParse(record.data)

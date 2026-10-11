@@ -3,7 +3,7 @@
 ```text
 experiment_level: E1
 sample_set_id: dsh-taskspace-plugin-spike_deterministic_1_1
-sample_names: dsh-plugin-batch-admission, dsh-plugin-parallel-admission, dsh-plugin-mode-switch, dsh-plugin-durable-state, dsh-plugin-taskmap-dag, dsh-plugin-reservations, dsh-plugin-context-projection, dsh-plugin-resume-continuity, dsh-plugin-multi-agent
+sample_names: dsh-plugin-batch-admission, dsh-plugin-parallel-admission, dsh-plugin-mode-switch, dsh-plugin-durable-state, dsh-plugin-taskmap-dag, dsh-plugin-reservations, dsh-plugin-context-projection, dsh-plugin-resume-continuity, dsh-plugin-multi-agent, dsh-plugin-cross-session-authority, dsh-plugin-cancel-integrity, dsh-plugin-rpc-commands, dsh-plugin-fork-lineage
 repeats_per_sample: 1
 runner_family: internal-matrix
 runner_entrypoint: pnpm vitest run packages/experimental/whale-taskspace-spike/tests
@@ -14,10 +14,10 @@ allowed_claim: 在 DeepSeek Harness 0.2.1-alpha.2 上，TaskSpace/TaskMap 的核
 ```
 
 - 状态：`passed`
-- 日期：2026-10-11（Wave 1：卡点验证；Wave 2：TaskMap 思路复刻）
+- 日期：2026-10-11（Wave 1：卡点验证；Wave 2：TaskMap 思路复刻；Wave 3：剩余边界）
 - 上游：`deepseek-ai/deepseek-harness` @ `d743267388641bc76f17c45ce8b4c231aed1d32c`（release-0.2.1-alpha.2，MIT）
 - 源码归档：[`dsh-taskspace-spike/`](./dsh-taskspace-spike/README.md)
-- 测试规模：**26 个确定性用例全部通过**；真实模型请求 0；真实费用 0；DSH 上游 tracked 文件改动 0
+- 测试规模：**30 个确定性用例全部通过**；真实模型请求 0；真实费用 0；DSH 上游 tracked 文件改动 0
 
 ## 1. 问题
 
@@ -102,7 +102,32 @@ Wave 2 复刻 TaskMap 思路：
 | 进程重启续写 | session log 重放（JSONL） | `ctx.agents.resume` + projection 懒重放 |
 | 多 agent 协调 | lead 会话独占 map 记录；子 agent 通过结果回流 | `ctx.subagents.startActivation`（spawn + parent delivery） |
 
-## 5. 判定
+## 5. Wave 3 结果：剩余边界（跨会话权威、取消、暴露、血缘）
+
+Wave 3 专门回答"还有没有必须改本体的卡点"：
+
+| # | 用例 | 断言要点 | 结果 |
+|---|---|---|---|
+| 27 | **跨会话权威写入** | 委派子会话绑定到 lead 的 map 后，子会话的 `taskspace_control.execute` 把 revision 2 写进 **lead 的 log**；子会话自己的 log 只有 binding/mode、零 map 记录；子会话 `read_map` 读到 lead 的 map | ✅ |
+| 28 | **取消时的 reservation 完整性** | 挂起的 sibling 被 cancel 后，reservation 由 `tools/result` 正常释放为 failed，deferred mutation 未应用、revision 不变、无 `reserved` 泄漏 | ✅ |
+| 29 | **Typert source-mode RPC** | 插件服务继承 `TypertRemoteService` + `@Remote('get')`，gateway 在运行时通过 `typertRemote` 绑定发现并调用，返回 wire 视图；无生成式 descriptor、无上游注册 | ✅ |
+| 30 | **viewer 变更通知 + slash 命令 + fork 血缘** | `sessionProjections.onChanged` 收到 `whaleTaskspace`；`/taskspace`、`/map-projection` 命令改变模式与策略；fork 子会话继承 map 前缀并在自己的 lineage 提交，父会话保持 revision 1 | ✅ |
+
+### 唯一确认的边界：跨版本格式迁移的持久性
+
+`appendPluginRecord` 写入的是 `plugin:` 命名空间的 **ignorable** 记录。上游明文：
+
+> "Experimental packages keep state there that their owners can lose: a format migration retains records on a best-effort basis, so a release package declares its events instead."
+> —— `.agents/notes/implemented/architecture/2026-08-30-retain-ignorable-external-session-events.md`
+
+含义：
+
+- **今天即可用**：map 状态、CAS、重放、resume、fork 血缘、跨会话权威写入全部验证通过。
+- **若要"发布级、跨 DSH 格式迁移不丢"的保证**：需要把 map 事件升格为 `SessionEventMap` 成员（仓库内/上游声明），或插件侧把 canonical 状态镜像到 `ctx.storage` 并可从日志重建。前者需要动上游事件词表，后者仍是纯插件。
+
+这是本次实验找到的**唯一**"纯插件不能完全覆盖"的点，且它影响的是保证等级，不是功能可用性。
+
+## 6. 判定
 
 在 Wave 1 + Wave 2 的 26 个确定性用例范围内，**没有出现"必须改 DSH 本体"的卡点**：
 
@@ -110,15 +135,17 @@ Wave 2 复刻 TaskMap 思路：
 |---|---|
 | B1 批级原子准入、B2 模式热切换、B3 canonical 状态 | 纯插件可解 |
 | V1–V7（DAG/frontier、CAS 门禁、reservation、上下文策略、viewer、resume、多 agent） | 纯插件可解 |
+| V8 跨会话权威写入、V9 取消完整性、V10 RPC/命令暴露、V11 fork 血缘 | 纯插件可解 |
+| V12 跨版本格式迁移的持久性保证 | **超出纯插件边界**：需上游声明事件，或插件侧双写 `ctx.storage` |
 
-## 6. 实验过程中被测试抓出的设计错误（证据价值）
+## 7. 实验过程中被测试抓出的设计错误（证据价值）
 
 写 Wave 2 时，真实事件流两次推翻了实现假设，说明这套 harness 能抓设计错误而不只是"跑通"：
 
 1. **revision 单调性**：`finish_map` / `reopen_map` 最初只翻转 `terminal` 而不递增 revision，CAS 计数出现空洞；测试追踪请求序列后修正为一次提交 +1。
 2. **节点就绪语义**：resume 用例里对未完成依赖的节点做 `activate_node` 被域规则正确拒绝，暴露了测试脚本的业务假设错误（而非实现错误），说明 Domain 不变式在真实路径上生效。
 
-## 7. DSH 摩擦点（实证，非阻塞）
+## 8. DSH 摩擦点（实证，非阻塞）
 
 1. JSONL 持久化依赖 `native/system` 原生插件，首次跑持久化用例前必须 `pnpm run build:native-system`。
 2. `MockAdapter` 没有多 tool-call 单响应辅助函数，需要自写约 20 行构造器。
@@ -127,38 +154,40 @@ Wave 2 复刻 TaskMap 思路：
 5. 出仓库插件真正安装路径是 `dsh plugin --profile <name> add <pkg>`；本 spike 放在 `packages/experimental/` 只为复用仓库内 tsconfig paths。
 6. `pre-step` 期间注入时序、dynamic context 与注入消息在 prefix 上的行为需要按真实 provider 验证（见残余风险 1）。
 
-## 8. 未覆盖与残余风险
+## 9. 未覆盖与残余风险
 
 | 项 | 状态 | 说明 |
 |---|---|---|
 | DeepSeek 前缀缓存 / token 成本 | 未验证 | 模式切换与 `always` 策略会改变 prompt；DSH 有 `toolUpdate`/`systemPromptUpdate` 路由能力与 request-series 记账，实际缓存影响需真实 provider 对照（受预算门禁） |
-| 跨会话全局 map 与并发写 | 未验证 | 本 spike 采用 DSH 的 session 内权威 + lead 独占；多 lead 共享一张图的 CAS 需按 lead-session 或 `ctx.storage` 模式另做设计验证 |
+| 跨会话全局 map 与并发写 | 已验证 | Wave 3：member 会话写 owner log 成功；多 owner 共享一张图的并发 CAS 仍建议按 `ctx.storage` 模式另做设计验证 |
+| 跨 DSH 版本格式迁移 | **边界已确认** | plugin 记录为 best-effort 保留；发布级保证需上游声明事件或插件侧 `ctx.storage` 双写 |
 | 终端 TUI | 未验证 | DSH 自带 web/desktop 客户端；终端 TUI 需作为客户端插件新建，与 TaskMap 语义无关但是产品工作量 |
 | RPC / app-server 暴露 | 未验证 | `wire` 视图已验证数据面；把服务暴露给 SDK/ACP 客户端仍需 typert 远程服务模式 |
 | 上游 API 稳定性 | 风险 | 官方声明 developer preview 会有 breaking changes；`PluginRecordMap`/`tools.restrict`/`systemPrompt.context` 契约需随版本迁移 |
 | 大图性能 | 未验证 | 40 节点渲染有界；未测数百节点 + 长会话的投影 fold 成本 |
 
-## 9. 覆盖率与上游门禁
+## 10. 覆盖率与上游门禁
 
 DSH 仓库自带 per-file 100% 覆盖率门禁。本 spike（out-of-tree）当前：
 
 | 文件 | Stmts | Branch | Lines |
 |---|---|---|---|
-| 全部 src | 88.0% | 77.4% | 95.9% |
+| 全部 src | 88.0% | 77.1% | 96.3% |
 | `batch.ts` | 73.6% | 72.2% | 88.2% |
 | `domain.ts` | 94.3% | 82.5% | 98.8% |
-| `index.ts` | 90.0% | 81.1% | 97.8% |
-| `records.ts` | 94.1% | 64.7% | 93.8% |
+| `index.ts` | 89.5% | 80.1% | 98.1% |
+| `records.ts` | 94.9% | 65.8% | 94.6% |
 
 差额集中在错误分支（无效 manifest 形态、非法 payload、异常 mutation 等），属机械补齐；作为 out-of-tree 插件由我们自定门槛，若要合入上游需补到 100%。命令：
 `pnpm vitest run packages/experimental/whale-taskspace-spike/tests --coverage --coverage.include='packages/experimental/whale-taskspace-spike/src/**/*.ts'`
 
-## 10. 复现
+## 11. 复现
 
 见 [`dsh-taskspace-spike/README.md`](./dsh-taskspace-spike/README.md)：clone 固定 commit、安装、构建原生插件、拷贝源码、运行测试。
 
-## 11. 对底座决策的含义
+## 12. 对底座决策的含义
 
-- **思路复刻成立**：TaskSpace/TaskMap 的核心（唯一写路径、批级准入、CAS、DAG、reservation/归因、上下文投影、重放、多 agent 独占）全部能在 upstream 之外以插件实现，且能被确定性测试完整覆盖。这正是相对 Codex fork overlay（56 路径侵入、每次上游 sync 重放）的结构性维护性差异。
-- **结论不自动支持整体切换底座**：缓存/成本、TUI、RPC、跨会话状态、上游 pre-stable 风险仍待验证；Codex 线路上的既有资产（U 系列迁移、R4–R8、cache 基线）不会自动迁移。
-- 建议下一步按序推进：① 补 B4/B5（跨会话 map、RPC/viewer 远程暴露）；② 预算批准后用同 corpus 做 DeepSeek 缓存对照（尤其验证 `append`/`always` 两种策略的前缀影响）；③ 通过后再评估底座级迁移方案与重基线计划。
+- **思路复刻成立**：TaskSpace/TaskMap 的核心（唯一写路径、批级准入、CAS、DAG、reservation/归因、上下文投影、重放、多 agent、跨会话权威写入、取消完整性、RPC/命令暴露、fork 血缘）全部能在 upstream 之外以插件实现，且能被 30 个确定性用例覆盖。这正是相对 Codex fork overlay（56 路径侵入、每次上游 sync 重放）的结构性维护性差异。
+- **唯一边界已定位**：跨 DSH 版本格式迁移的持久性保证不在纯插件边界内（ignorable 记录 best-effort 保留）；若产品要求发布级不丢，需要上游声明事件词表，或插件侧双写 `ctx.storage`。这条应当在底座决策中显式记录。
+- **结论不自动支持整体切换底座**：TUI（DSH 无终端 TUI，需自建客户端）、跨多进程/多 host 的共享 map、上游 pre-stable 风险仍未覆盖；Codex 线路上的既有资产（U 系列迁移、R4–R8、cache 基线）不会自动迁移。
+- 建议下一步按序推进：① 在 spike 上补 TUI 客户端可行性（可用 SDK/ACP profile 或 client plugin 验证）；② 评估 `ctx.storage` 双写方案以消除迁移持久性边界；③ 通过后再评估底座级迁移方案与重基线计划。

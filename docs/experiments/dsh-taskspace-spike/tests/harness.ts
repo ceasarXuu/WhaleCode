@@ -10,6 +10,7 @@ import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import CommandRuntime from '@deepseek-ai/dsh-commands'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { MockAdapter } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -25,6 +26,7 @@ export async function harness(adapter: MockAdapter, root?: string): Promise<Harn
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   if (root !== undefined) await ctx.plugin(JsonlSessionPersistence, { root })
+  await ctx.plugin(CommandRuntime)
   await ctx.plugin(WhaleTaskspaceSpike)
   await ctx.plugin(AgentLoop, { agents: [] })
   ctx.llm.registerAdapter(['mock'], adapter)
