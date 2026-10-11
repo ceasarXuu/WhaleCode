@@ -1,13 +1,16 @@
 /**
- * TaskSpace spike plugin — a pure out-of-tree-style DSH plugin probing the
- * three suspected blockers:
+ * TaskMap spike plugin — a pure out-of-tree-style DSH plugin replicating the
+ * WhaleCode TaskSpace idea on DSH seams:
  *
- * 1. batch-atomic admission (control-first manifest, zero dispatch on
- *    mismatch) with no core hook;
- * 2. live standard <-> taskspace mode switching through per-agent
- *    `tools.restrict()` + a monotonic guard;
- * 3. durable canonical map state as ignorable `plugin:` records folded by a
- *    session projection, replayable without any core file edit.
+ * - canonical work-node DAG whose only write path is the `taskspace_control`
+ *   tool, admitted as a whole batch (control-first manifest, zero dispatch on
+ *   mismatch, CAS by revision);
+ * - action reservations with deterministic ids and deferred mutations that
+ *   apply only when their sibling action succeeds;
+ * - per-thread standard <-> taskspace mode with scoped tool gating;
+ * - context projection policies (`on-request` / `append` / `always`) built
+ *   from DSH injection, dynamic prompt context and guidance sections;
+ * - a client-visible projection view for a viewer or RPC carrier.
  *
  * Deleting this package restores DSH exactly; no upstream file is touched.
  * @module @deepseek-ai/dsh-whale-taskspace-spike
@@ -16,20 +19,24 @@
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { ToolCallBlock } from '@deepseek-ai/dsh-llm'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { appendPluginRecord, pluginRecordOf } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { ToolExecution } from '@deepseek-ai/dsh-tools'
+import type { ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import { batchCallsOf, CONTROL_TOOL, validateBatch } from './batch.ts'
+import type { BatchCall, BatchVerdict } from './batch.ts'
+import { applyMutations, initialMap, renderMap } from './domain.ts'
+import type { ExecuteManifest, InitPayload, MapSnapshot, Mutation } from './domain.ts'
 import {
-  applyMutations,
-  CONTROL_TOOL,
+  ACTIONS_RECORD,
+  DEFAULT_POLICY,
   MAP_RECORD,
   MODE_RECORD,
+  POLICY_RECORD,
   taskspaceProjection,
-  validateBatch,
-} from './types.ts'
-import type { BatchCall, BatchVerdict, ExecuteManifest, MapSnapshot, TaskspaceMode, TaskspaceState } from './types.ts'
+} from './records.ts'
+import type { ActionEntry, ActionsSnapshot, PolicyRecord, TaskspaceMode, TaskspaceState } from './records.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -39,28 +46,33 @@ declare module '@deepseek-ai/cordis' {
 }
 
 interface SessionRuntime {
-  mode: TaskspaceMode
   agent?: Agent
   restriction?: () => void
 }
 
-/** Extract the ordered tool-call blocks of one assistant message payload. */
-function toolCallsOf(content: readonly { readonly type: string }[]): BatchCall[] {
-  return content.flatMap(block => block.type === 'tool-call'
-    ? [{
-        id: String((block as ToolCallBlock).id),
-        name: (block as ToolCallBlock).name,
-        arguments: (block as ToolCallBlock).arguments,
-      }]
-    : [])
-}
+/** Prompt-section order for the TaskMap policy guidance (between plan and team). */
+const POLICY_SECTION_ORDER = 650
+/** Dynamic-context order for the always-projected map (after delegation context). */
+const MAP_CONTEXT_ORDER = 130
+/** Bounded action ledger entries retained per map. */
+const ACTION_LEDGER_LIMIT = 50
+
+const GUIDANCE = [
+  'TaskMap is active in this session.',
+  `Write map state ONLY through ${CONTROL_TOOL}:`,
+  `- ${CONTROL_TOOL} must be the first call of its assistant message when action="execute",`,
+  '  and every following sibling call must match manifest.actions in count, order and tool name;',
+  '- action="read_map" | "initialize" | "finish_map" | "reopen_map" must be the only call;',
+  '- manifest.expected_revision is the compare-and-set token for the revision you read.',
+].join('\n')
 
 /**
- * The spike: a service plugin that owns the control tool, the sibling probe,
- * the batch guard, per-session mode gating and the TaskSpace projection.
+ * The spike: a service plugin owning the control tool, the sibling probe, the
+ * batch guard, mode gating, reservations, context projection and the TaskMap
+ * projection.
  */
 export class WhaleTaskspaceSpike extends Service {
-  static inject = ['tools', 'sessionProjections']
+  static inject = ['tools', 'sessionProjections', 'systemPrompt']
 
   private readonly runtimes = new Map<SessionId, SessionRuntime>()
   private probeCount = 0
@@ -71,12 +83,23 @@ export class WhaleTaskspaceSpike extends Service {
     this.ctx.tools.guard(exec => this.denyReason(exec))
     this.ctx.on('agent/created', ({ agent }) => this.attachAgent(agent))
     this.ctx.on('session/event', (session, event) => this.onSessionEvent(session, event))
+    this.ctx.on('tools/result', (exec, result) => this.onToolResult(exec, result))
+    this.ctx.systemPrompt.section({
+      name: 'whale-taskspace:policy',
+      order: POLICY_SECTION_ORDER,
+      text: context => this.guidance(context),
+    })
+    this.ctx.systemPrompt.context({
+      name: 'whale-taskspace:map',
+      order: MAP_CONTEXT_ORDER,
+      text: context => this.alwaysContext(context),
+    })
     this.ctx.tools.register(defineTool({
       name: CONTROL_TOOL,
-      description: 'TaskSpace control plane: read the canonical map, initialize one, or commit an execute manifest.',
+      description: 'TaskMap control plane: read the canonical map, initialize one, commit an execute manifest, or finish/reopen it.',
       parameters: {
-        action: { type: 'string', required: true, description: 'read_map | initialize | execute' },
-        manifest: { type: 'string', description: 'JSON manifest or initialization payload' },
+        action: { type: 'string', required: true, description: 'read_map | initialize | execute | finish_map | reopen_map' },
+        manifest: { type: 'string', description: 'JSON payload required by initialize and execute' },
       },
       output: {
         schema: { type: 'string' },
@@ -87,7 +110,10 @@ export class WhaleTaskspaceSpike extends Service {
     this.ctx.tools.register(defineTool({
       name: 'probe',
       description: 'Spike sibling tool: records one observable side effect and reports it.',
-      parameters: { label: { type: 'string', required: true } },
+      parameters: {
+        label: { type: 'string', required: true },
+        fail: { type: 'boolean', description: 'When true the probe fails after recording the attempt.' },
+      },
       isConcurrencySafe: () => true,
       output: {
         schema: { type: 'string' },
@@ -95,6 +121,7 @@ export class WhaleTaskspaceSpike extends Service {
       },
       execute: async (args) => {
         this.probeCount += 1
+        if (args.fail === true) throw new Error(`probe ${args.label} failed`)
         return `probe:${args.label}`
       },
     }))
@@ -110,34 +137,48 @@ export class WhaleTaskspaceSpike extends Service {
     appendPluginRecord(session, MODE_RECORD, { mode })
   }
 
-  /** Projected TaskSpace state for one session, or undefined when unknown. */
+  /** Append one durable projection-policy record; omitted fields keep their current value. */
+  setProjection(session: Session, policy: Partial<PolicyRecord>): PolicyRecord {
+    const next: PolicyRecord = { ...this.policyOf(session), ...policy }
+    appendPluginRecord(session, POLICY_RECORD, next)
+    return next
+  }
+
+  /** Projected TaskMap state for one session, or undefined when unknown. */
   stateOf(session: Session): TaskspaceState | undefined {
     return this.ctx.sessionProjections.stateOf(session, 'whaleTaskspace')
+  }
+
+  /** Bounded map summary as the model context projection renders it. */
+  summaryOf(session: Session): string | undefined {
+    const state = this.stateOf(session)
+    if (state?.map === null || state?.map === undefined) return undefined
+    return renderMap(state.map, state.policy.maxChars)
+  }
+
+  private policyOf(session: Session): PolicyRecord {
+    return this.stateOf(session)?.policy ?? DEFAULT_POLICY
+  }
+
+  private modeOf(session: Session): TaskspaceMode {
+    return this.stateOf(session)?.mode ?? 'standard'
   }
 
   private runtimeOf(sessionId: SessionId): SessionRuntime {
     const existing = this.runtimes.get(sessionId)
     if (existing !== undefined) return existing
-    const created: SessionRuntime = { mode: 'standard' }
+    const created: SessionRuntime = {}
     this.runtimes.set(sessionId, created)
     return created
   }
 
   private attachAgent(agent: Agent): void {
-    const runtime = this.runtimeOf(agent.session.header.id)
-    runtime.agent = agent
-    const projected = this.stateOf(agent.session)
-    if (projected !== undefined) runtime.mode = projected.mode
+    this.runtimeOf(agent.session.header.id).agent = agent
     this.applyMode(agent.session.header.id)
   }
 
   private onSessionEvent(session: Session, event: SessionEvent): void {
-    const record = pluginRecordOf(event)
-    if (record?.type !== MODE_RECORD) return
-    const mode = (record.data as { readonly mode?: unknown } | null)?.mode
-    if (mode !== 'standard' && mode !== 'taskspace') return
-    const runtime = this.runtimeOf(session.header.id)
-    runtime.mode = mode
+    if (pluginRecordOf(event)?.type !== MODE_RECORD) return
     this.applyMode(session.header.id)
   }
 
@@ -145,7 +186,8 @@ export class WhaleTaskspaceSpike extends Service {
   private applyMode(sessionId: SessionId): void {
     const runtime = this.runtimes.get(sessionId)
     if (runtime?.agent === undefined) return
-    if (runtime.mode === 'taskspace') {
+    const mode = this.modeOf(runtime.agent.session)
+    if (mode === 'taskspace') {
       runtime.restriction?.()
       runtime.restriction = undefined
       return
@@ -154,69 +196,207 @@ export class WhaleTaskspaceSpike extends Service {
     runtime.restriction = runtime.agent.ctx.tools.restrict({ deny: [CONTROL_TOOL] })
   }
 
-  /**
-   * The batch verdict for the assistant message that carries `callId`.
-   * Reading it from the live log means the verdict is fixed before any
-   * pre-execute/guard runs, so a rejected batch denies every sibling
-   * independently and no call can slip through under a rolling scheduler.
-   */
+  /** The batch verdict for the assistant message that carries `callId`. */
   private batchVerdict(agent: Agent | undefined, callId: string): BatchVerdict | undefined {
     if (agent === undefined) return undefined
+    const calls = this.batchOf(agent, callId)
+    return calls === undefined ? undefined : validateBatch(calls)
+  }
+
+  private batchOf(agent: Agent, callId: string): BatchCall[] | undefined {
     const events = agent.session.snapshotEvents()
     for (let index = events.length - 1; index >= 0; index -= 1) {
       const event = events[index]!
       if (event.type !== 'assistant/message') continue
-      const calls = toolCallsOf(event.data.message.content)
+      const calls = batchCallsOf(event.data.message.content)
       if (!calls.some(call => call.id === callId)) return undefined
-      return validateBatch(calls)
+      return calls
     }
     return undefined
+  }
+
+  /** Sibling calls of the batch whose control call is `callId`, in model order. */
+  private siblingsOf(agent: Agent, callId: string): BatchCall[] {
+    const calls = this.batchOf(agent, callId) ?? []
+    const control = calls.findIndex(call => call.id === callId)
+    return control < 0 ? [] : calls.slice(control + 1)
   }
 
   private denyReason(exec: ToolExecution): string | undefined {
     const agent = exec.agent
-    if (agent !== undefined && exec.name === CONTROL_TOOL) {
-      const mode = this.runtimes.get(agent.session.header.id)?.mode ?? 'standard'
-      if (mode !== 'taskspace') return `${CONTROL_TOOL} is unavailable in standard mode`
+    if (agent !== undefined && exec.name === CONTROL_TOOL && this.modeOf(agent.session) !== 'taskspace') {
+      return `${CONTROL_TOOL} is unavailable in standard mode`
     }
     const verdict = this.batchVerdict(agent, String(exec.callId))
-    if (verdict?.kind === 'invalid') return `TaskSpace batch rejected: ${verdict.reason}`
+    if (verdict?.kind === 'invalid') return `TaskMap batch rejected: ${verdict.reason}`
+    if (verdict?.kind !== 'valid' || agent === undefined) return undefined
+    return this.stateGate(agent.session, verdict)
+  }
+
+  /** State preconditions that must reject the whole batch before any dispatch. */
+  private stateGate(session: Session, verdict: Extract<BatchVerdict, { kind: 'valid' }>): string | undefined {
+    const map = this.stateOf(session)?.map ?? null
+    if (verdict.action === 'initialize') {
+      return map === null ? undefined : `map "${map.mapId}" is already active`
+    }
+    if (map === null) return 'no canonical map is active'
+    if (verdict.action === 'execute') {
+      const manifest = verdict.manifest!
+      if (map.terminal) return `map "${map.mapId}" is terminal; reopen before mutating`
+      if (manifest.mapId !== map.mapId) return `manifest mapId "${manifest.mapId}" does not match map "${map.mapId}"`
+      if (manifest.expectedRevision !== undefined && manifest.expectedRevision !== map.revision) {
+        return `revision conflict: expected ${manifest.expectedRevision} but map is at ${map.revision}`
+      }
+    }
+    if (verdict.action === 'finish_map') {
+      const unfinished = map.nodes.filter(node => node.status !== 'done')
+      if (unfinished.length > 0) {
+        return `map "${map.mapId}" has ${unfinished.length} unfinished node(s): ${unfinished.map(node => node.id).join(', ')}`
+      }
+      if (map.terminal) return `map "${map.mapId}" is already terminal`
+    }
+    if (verdict.action === 'reopen_map' && !map.terminal) return `map "${map.mapId}" is not terminal`
     return undefined
   }
 
-  private control(action: string, manifest: string | undefined, exec: ToolExecution): string {
-    const session = exec.agent?.session
-    if (session === undefined) throw new Error(`${CONTROL_TOOL} requires an agent session`)
-    const current = this.stateOf(session)?.map ?? null
+  private guidance(context: { agent?: Agent }): string {
+    const agent = context.agent
+    if (agent === undefined) return ''
+    return this.modeOf(agent.session) === 'taskspace' ? GUIDANCE : ''
+  }
+
+  private alwaysContext(context: { agent?: Agent }): string {
+    const agent = context.agent
+    if (agent === undefined) return ''
+    const state = this.stateOf(agent.session)
+    if (state === undefined || state.map === null) return ''
+    if (state.mode !== 'taskspace' || state.policy.projection !== 'always') return ''
+    return renderMap(state.map, state.policy.maxChars)
+  }
+
+  /** Append the committed map summary after changes under the `append` policy. */
+  private afterCommit(agent: Agent): void {
+    const state = this.stateOf(agent.session)
+    if (state === undefined || state.map === null) return
+    if (state.mode !== 'taskspace' || state.policy.projection !== 'append') return
+    const last = state.actions.at(-1)
+    const tail = last === undefined ? '' : `\nlast action ${last.id} ${last.state}`
+    const text = `${renderMap(state.map, state.policy.maxChars)}${tail}`
+    agent.inject(createUserMessage({
+      content: [{ type: 'text', text }],
+      source: { kind: 'whale-taskspace', form: 'instructions' },
+    }))
+  }
+
+  private control(action: string, rawManifest: string | undefined, exec: ToolExecution): string {
+    const agent = exec.agent
+    const session = agent?.session
+    if (agent === undefined || session === undefined) throw new Error(`${CONTROL_TOOL} requires an agent session`)
+    const state = this.stateOf(session)
+    const map = state?.map ?? null
     switch (action) {
       case 'read_map': {
-        if (current === null) throw new Error('no canonical map is active for this session')
-        return JSON.stringify(current)
+        if (map === null) throw new Error('no canonical map is active')
+        return JSON.stringify({ map, actions: state?.actions ?? [] })
       }
       case 'initialize': {
-        if (current !== null) throw new Error(`map "${current.mapId}" is already active`)
-        const payload = this.parse<{ mapId: string; nodes: readonly { id: string; title: string }[] }>(manifest, 'initialize payload')
-        const snapshot: MapSnapshot = {
-          version: 1,
-          mapId: payload.mapId,
-          revision: 1,
-          nodes: payload.nodes.map(node => ({ id: node.id, title: node.title, status: 'pending' as const })),
-          edges: [],
-          terminal: false,
-        }
+        if (map !== null) throw new Error(`map "${map.mapId}" is already active`)
+        const snapshot = initialMap(this.parse<InitPayload>(rawManifest, 'initialize payload'))
         appendPluginRecord(session, MAP_RECORD, snapshot)
+        this.afterCommit(agent)
         return JSON.stringify({ kind: 'receipt', operation: 'initialize', mapId: snapshot.mapId, revision: snapshot.revision })
       }
       case 'execute': {
-        if (current === null) throw new Error('no canonical map is active for this session')
-        const parsed = this.parse<ExecuteManifest>(manifest, 'execute manifest')
-        const next = applyMutations(current, parsed)
-        appendPluginRecord(session, MAP_RECORD, next)
-        return JSON.stringify({ kind: 'receipt', operation: 'execute', mapId: next.mapId, revision: next.revision })
+        if (map === null) throw new Error('no canonical map is active')
+        const manifest = this.parse<ExecuteManifest>(rawManifest, 'execute manifest')
+        const deferredByAction = new Map((manifest.deferred ?? []).map(deferral => [deferral.actionIndex, manifest.mutations[deferral.mutationIndex]!]))
+        const deferredIndexes = new Set((manifest.deferred ?? []).map(deferral => deferral.mutationIndex))
+        const immediate = manifest.mutations.filter((_mutation, index) => !deferredIndexes.has(index))
+        let next = map
+        if (immediate.length > 0) {
+          next = applyMutations(map, immediate)
+          appendPluginRecord(session, MAP_RECORD, next)
+        }
+        const siblings = this.siblingsOf(agent, String(exec.callId))
+        const entries: ActionEntry[] = manifest.actions.map((declaration, index) => {
+          const sibling = siblings[index]
+          const deferredMutation = deferredByAction.get(index)
+          return {
+            id: `action:${map.mapId}:${String(exec.callId)}:${index}`,
+            callId: sibling === undefined ? `${String(exec.callId)}:missing:${index}` : sibling.id,
+            tool: declaration.tool,
+            ...declaration.nodeId === undefined ? {} : { nodeId: declaration.nodeId },
+            state: 'reserved',
+            ...deferredMutation === undefined ? {} : { deferredMutation },
+          }
+        })
+        this.appendActions(session, next.mapId, [...(state?.actions ?? []), ...entries])
+        this.afterCommit(agent)
+        return JSON.stringify({
+          kind: 'receipt',
+          operation: 'execute',
+          mapId: next.mapId,
+          revision: next.revision,
+          reservations: entries.map(entry => entry.id),
+        })
+      }
+      case 'finish_map': {
+        if (map === null) throw new Error('no canonical map is active')
+        const unfinished = map.nodes.filter(node => node.status !== 'done')
+        if (unfinished.length > 0) {
+          throw new Error(`map "${map.mapId}" has ${unfinished.length} unfinished node(s): ${unfinished.map(node => node.id).join(', ')}`)
+        }
+        const finished: MapSnapshot = { ...map, revision: map.revision + 1, terminal: true }
+        appendPluginRecord(session, MAP_RECORD, finished)
+        this.afterCommit(agent)
+        return JSON.stringify({ kind: 'receipt', operation: 'finish_map', mapId: finished.mapId, revision: finished.revision })
+      }
+      case 'reopen_map': {
+        if (map === null) throw new Error('no canonical map is active')
+        if (!map.terminal) throw new Error(`map "${map.mapId}" is not terminal`)
+        const reopened: MapSnapshot = { ...map, revision: map.revision + 1, terminal: false }
+        appendPluginRecord(session, MAP_RECORD, reopened)
+        this.afterCommit(agent)
+        return JSON.stringify({ kind: 'receipt', operation: 'reopen_map', mapId: reopened.mapId, revision: reopened.revision })
       }
       default:
         throw new Error(`unknown ${CONTROL_TOOL} action ${JSON.stringify(action)}`)
     }
+  }
+
+  private appendActions(session: Session, mapId: string, entries: readonly ActionEntry[]): void {
+    const snapshot: ActionsSnapshot = {
+      version: 1,
+      mapId,
+      entries: entries.slice(Math.max(0, entries.length - ACTION_LEDGER_LIMIT)),
+    }
+    appendPluginRecord(session, ACTIONS_RECORD, snapshot)
+  }
+
+  /** Release one reservation when its sibling settles; apply a deferred mutation on success. */
+  private onToolResult(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): void {
+    const agent = exec.agent
+    if (agent === undefined) return
+    const state = this.stateOf(agent.session)
+    if (state?.map === null || state?.map === undefined) return
+    const index = state.actions.findIndex(entry => entry.callId === String(exec.callId) && entry.state === 'reserved')
+    if (index < 0) return
+    const entry = state.actions[index]!
+    const ok = result.isError === false
+    let map = state.map
+    let next: ActionEntry = { ...entry, state: ok ? 'released' : 'failed' }
+    if (ok && entry.deferredMutation !== undefined) {
+      try {
+        map = applyMutations(map, [entry.deferredMutation])
+        next = { ...next, appliedMutation: entry.deferredMutation }
+      } catch {
+        next = { ...next, state: 'failed' }
+      }
+    }
+    if (map !== state.map) appendPluginRecord(agent.session, MAP_RECORD, map)
+    const entries = state.actions.map((candidate, position) => position === index ? next : candidate)
+    this.appendActions(agent.session, map.mapId, entries)
+    this.afterCommit(agent)
   }
 
   private parse<T>(raw: string | undefined, label: string): T {
@@ -228,3 +408,10 @@ export class WhaleTaskspaceSpike extends Service {
     }
   }
 }
+
+/** Re-export the seams a consumer or test needs. */
+export { CONTROL_TOOL, validateBatch } from './batch.ts'
+export { applyMutations, countsOf, frontierOf, initialMap, renderMap } from './domain.ts'
+export { ACTIONS_RECORD, MAP_RECORD, MODE_RECORD, POLICY_RECORD, taskspaceProjection } from './records.ts'
+export type { ActionEntry, ActionsSnapshot, PolicyRecord, TaskspaceMode, TaskspaceState, TaskspaceView } from './records.ts'
+export type { ExecuteManifest, InitPayload, MapSnapshot, Mutation, WorkNode } from './domain.ts'

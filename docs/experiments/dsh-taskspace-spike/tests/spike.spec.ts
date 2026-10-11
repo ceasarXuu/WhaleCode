@@ -1,7 +1,7 @@
 /**
- * Spike verification: the three suspected TaskSpace blockers, probed with the
- * real agent loop, real tool pipeline, real session log and real projection
- * registry — the only mock is the LLM adapter.
+ * Wave-1 verification (kept as regression): the three suspected TaskSpace
+ * blockers, probed with the real agent loop, real tool pipeline, real session
+ * log and real projection registry — the only mock is the LLM adapter.
  *
  * Nothing in this file (or the package it imports) edits an upstream DSH file.
  */
@@ -11,89 +11,33 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime, { ToolCallId, createUserMessage } from '@deepseek-ai/dsh-llm'
-import type { StreamChunk } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId, pluginRecordOf } from '@deepseek-ai/dsh-session'
+import { SessionId, pluginRecordOf } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import { KNOWN_SESSION_EVENT_TYPES } from '../../../core/session/src/known-event-types.ts'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
-import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
-import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import SessionStore from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
-import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import { WhaleTaskspaceSpike } from '../src/index.ts'
-import { CONTROL_TOOL, MAP_RECORD, MODE_RECORD, taskspaceProjection } from '../src/types.ts'
+import { KNOWN_SESSION_EVENT_TYPES } from '../../../core/session/src/known-event-types.ts'
+import { textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { MockAdapter } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { ACTIONS_RECORD, CONTROL_TOOL, MAP_RECORD, MODE_RECORD, taskspaceProjection } from '../src/index.ts'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import {
+  events,
+  harness,
+  multiToolCallResponse,
+  send,
+  toolResults,
+  waitForIdle,
+} from './harness.ts'
 
 const dirs: string[] = []
 afterEach(async () => { for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true }) })
 
-/** One assistant message carrying several tool calls, in model order. */
-function multiToolCallResponse(calls: readonly { id: string; name: string; args: object }[]): StreamChunk[] {
-  const chunks: StreamChunk[] = []
-  calls.forEach((call, index) => {
-    const rawId = ToolCallId(call.id)
-    const argumentsJson = JSON.stringify(call.args)
-    chunks.push(
-      { type: 'block-start', index, blockType: 'tool-call' },
-      { type: 'tool-call-delta', index, id: rawId, name: call.name, argumentsDelta: argumentsJson.slice(0, 4) },
-      { type: 'tool-call-delta', index, id: rawId, name: call.name, argumentsDelta: argumentsJson.slice(4) },
-      { type: 'block-end', index, block: { type: 'tool-call', id: rawId, name: call.name, arguments: argumentsJson } },
-    )
-  })
-  chunks.push(
-    { type: 'usage', usage: { inputTokens: 10, outputTokens: 5 } },
-    { type: 'finish', reason: { kind: 'tool-calls' } },
-  )
-  return chunks
-}
-
-async function harness(adapter: MockAdapter, root?: string): Promise<{ ctx: Context; controller: WhaleTaskspaceSpike }> {
-  const ctx = new Context()
-  await ctx.plugin(LlmRuntime)
-  await ctx.plugin(SessionStore)
-  await ctx.plugin(SessionProjectionRegistry)
-  await ctx.plugin(SystemPrompt)
-  await ctx.plugin(ToolRuntime)
-  await ctx.plugin(AgentRegistry)
-  if (root !== undefined) await ctx.plugin(JsonlSessionPersistence, { root })
-  await ctx.plugin(WhaleTaskspaceSpike)
-  await ctx.plugin(AgentLoop, { agents: [] })
-  ctx.llm.registerAdapter(['mock'], adapter)
-  return { ctx, controller: ctx.whaleTaskspaceSpike }
-}
-
-function waitForIdle(ctx: Context, agent: Agent): Promise<void> {
-  return new Promise(resolve => {
-    const dispose = ctx.on('agent/status', ({ agent: subject, status }) => {
-      if (subject === agent && status === 'idle') {
-        dispose()
-        resolve()
-      }
-    })
-  })
-}
-
-function send(agent: Agent, text: string): void {
-  agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
-}
-
-function events(agent: Agent): readonly SessionEvent[] {
-  return agent.session.snapshotEvents()
-}
-
-function toolResults(agent: Agent): readonly { text: string; isError: boolean }[] {
-  return events(agent).flatMap(event => event.type === 'tool/result'
-    ? [{
-        text: event.data.message.content.map(block => block.type === 'text' ? block.text : '').join(''),
-        isError: event.data.message.isError === true,
-      }]
-    : [])
-}
-
 function manifestOf(overrides: object = {}): object {
   return { mapId: 'map-1', actions: [{ tool: 'probe' }], mutations: [], ...overrides }
+}
+
+function recordsOf(agent: Agent): readonly SessionEvent[] {
+  return events(agent).filter(event => pluginRecordOf(event) !== undefined)
 }
 
 describe('blocker 1: batch-atomic admission without a core hook', () => {
@@ -300,10 +244,12 @@ describe('blocker 3: durable canonical state as an out-of-repo plugin', () => {
     expect(live?.map?.revision).toBe(2)
     expect(live?.mode).toBe('taskspace')
 
-    const records = events(agent).filter(event => pluginRecordOf(event) !== undefined)
-    expect(records.map(event => event.type)).toEqual([MODE_RECORD, MAP_RECORD, MAP_RECORD])
+    const records = recordsOf(agent)
+    expect(records.map(event => event.type)).toEqual([MODE_RECORD, MAP_RECORD, MAP_RECORD, ACTIONS_RECORD, ACTIONS_RECORD])
     expect(records.every(event => event.ignorable === true)).toBe(true)
     expect(KNOWN_SESSION_EVENT_TYPES.has(MAP_RECORD)).toBe(false)
+    expect(live?.actions).toHaveLength(1)
+    expect(live?.actions[0]?.state).toBe('released')
 
     await ctx.sessions.flush(agent.session)
     await ctx.fiber.dispose()
