@@ -3,7 +3,7 @@
 ```text
 experiment_level: E1
 sample_set_id: dsh-taskspace-plugin-spike_deterministic_1_1
-sample_names: dsh-plugin-batch-admission, dsh-plugin-parallel-admission, dsh-plugin-mode-switch, dsh-plugin-durable-state, dsh-plugin-taskmap-dag, dsh-plugin-reservations, dsh-plugin-context-projection, dsh-plugin-resume-continuity, dsh-plugin-multi-agent, dsh-plugin-cross-session-authority, dsh-plugin-cancel-integrity, dsh-plugin-rpc-commands, dsh-plugin-fork-lineage
+sample_names: dsh-plugin-batch-admission, dsh-plugin-parallel-admission, dsh-plugin-mode-switch, dsh-plugin-durable-state, dsh-plugin-taskmap-dag, dsh-plugin-reservations, dsh-plugin-context-projection, dsh-plugin-resume-continuity, dsh-plugin-multi-agent, dsh-plugin-cross-session-authority, dsh-plugin-cancel-integrity, dsh-plugin-rpc-commands, dsh-plugin-fork-lineage, dsh-plugin-gui-activation
 repeats_per_sample: 1
 runner_family: internal-matrix
 runner_entrypoint: pnpm vitest run packages/experimental/whale-taskspace-spike/tests
@@ -14,10 +14,10 @@ allowed_claim: 在 DeepSeek Harness 0.2.1-alpha.2 上，TaskSpace/TaskMap 的核
 ```
 
 - 状态：`passed`
-- 日期：2026-10-11（Wave 1：卡点验证；Wave 2：TaskMap 思路复刻；Wave 3：剩余边界）
+- 日期：2026-10-11（Wave 1：卡点验证；Wave 2：TaskMap 思路复刻；Wave 3：剩余边界；Wave 4：GUI 激活路径）
 - 上游：`deepseek-ai/deepseek-harness` @ `d743267388641bc76f17c45ce8b4c231aed1d32c`（release-0.2.1-alpha.2，MIT）
 - 源码归档：[`dsh-taskspace-spike/`](./dsh-taskspace-spike/README.md)
-- 测试规模：**30 个确定性用例全部通过**；真实模型请求 0；真实费用 0；DSH 上游 tracked 文件改动 0
+- 测试规模：**32 个确定性用例全部通过**；真实模型请求 0；真实费用 0；DSH 上游 tracked 文件改动 0
 
 ## 1. 问题
 
@@ -127,7 +127,36 @@ Wave 3 专门回答"还有没有必须改本体的卡点"：
 
 这是本次实验找到的**唯一**"纯插件不能完全覆盖"的点，且它影响的是保证等级，不是功能可用性。
 
-## 6. 判定
+## 6. Wave 4 结果：GUI 激活路径（装插件即用）
+
+用户预期是"在 DSH GUI 中安装插件就能应用 TaskMap 能力"，该路径逐环节确认可行，且全部走 DSH 原生扩展契约：
+
+| 步骤 | 机制 | 证据 |
+|---|---|---|
+| 安装与启用 | Web 侧栏 **Plugins 页**管理 profile 的 bundle：支持 registry / git / tarball / 绝对路径 / `link:`，安装后默认启用，HMR 生效或提示重启 | 上游 `packages/boot/plugin-manager/README.md` |
+| 宿主能力 | bundle 的 `cordis.patch.yml` 插入宿主服务行（本 spike 的 `WhaleTaskspaceSpike`：control 工具、guard、投影、RPC） | 本 spike 全部用例 |
+| 客户端入口 | 包声明 `dsh.client: { platform: 'web' }` + `exports["./client"]`；宿主 client-module 扫描把入口编入 `window.__DSH_BOOT__`，并在 `/plugins` 路由服务该 bundle —— **不需要重建前端、不改上游** | 用例 31 |
+| GUI 面板 | `ctx.sidebarRightTabs.register({ kind: 'taskmap', priority: 'extension', patterns: ['dsh-resource://taskmap/**'] })` + keyed 槽位 `sidebar.right.pane.tab` / `.title`；`extension` band 明确设计为"外部类型优先于内置 viewer" | 用例 32 |
+| 数据面 | 宿主 projection 的 `wire` 值随 `session/projection` 推送到客户端，客户端用 `useProjection('whaleTaskspace')` 读取；`ui-goal` 是同一模式的现成先例，**无需生成式 Remote 客户端** | 宿主侧 `exposure.spec.ts`；客户端源码 `src/client/index.tsx` |
+
+bundle 的包清单形状（真实发布需 `tsdown` 构建客户端 bundle）：
+
+```json
+{
+  "name": "@whale/dsh-taskmap",
+  "exports": { ".": { "default": "./lib/index.js" }, "./client": { "default": "./lib/client.js" } },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": { "platform": "web", "inject": ["@deepseek-ai/dsh-client-ui-renderer"] }
+  }
+}
+```
+
+**结论：用户预期的"GUI 安装插件 → TaskMap 能力可用"可由纯 bundle 实现**，无需 TUI、无需前端重建、无需上游改动。
+
+未覆盖：浏览器内的实际渲染（可用 DSH 自带 `test:web` 浏览器快照门禁验证）、客户端 bundle 构建产物本身。
+
+## 7. 判定
 
 在 Wave 1 + Wave 2 的 26 个确定性用例范围内，**没有出现"必须改 DSH 本体"的卡点**：
 
@@ -136,16 +165,17 @@ Wave 3 专门回答"还有没有必须改本体的卡点"：
 | B1 批级原子准入、B2 模式热切换、B3 canonical 状态 | 纯插件可解 |
 | V1–V7（DAG/frontier、CAS 门禁、reservation、上下文策略、viewer、resume、多 agent） | 纯插件可解 |
 | V8 跨会话权威写入、V9 取消完整性、V10 RPC/命令暴露、V11 fork 血缘 | 纯插件可解 |
-| V12 跨版本格式迁移的持久性保证 | **超出纯插件边界**：需上游声明事件，或插件侧双写 `ctx.storage` |
+| V12 GUI 激活路径（安装 bundle → 客户端入口 → 面板 → projection 数据面） | 纯插件可解 |
+| V13 跨版本格式迁移的持久性保证 | **超出纯插件边界**：需上游声明事件，或插件侧双写 `ctx.storage` |
 
-## 7. 实验过程中被测试抓出的设计错误（证据价值）
+## 8. 实验过程中被测试抓出的设计错误（证据价值）
 
 写 Wave 2 时，真实事件流两次推翻了实现假设，说明这套 harness 能抓设计错误而不只是"跑通"：
 
 1. **revision 单调性**：`finish_map` / `reopen_map` 最初只翻转 `terminal` 而不递增 revision，CAS 计数出现空洞；测试追踪请求序列后修正为一次提交 +1。
 2. **节点就绪语义**：resume 用例里对未完成依赖的节点做 `activate_node` 被域规则正确拒绝，暴露了测试脚本的业务假设错误（而非实现错误），说明 Domain 不变式在真实路径上生效。
 
-## 8. DSH 摩擦点（实证，非阻塞）
+## 9. DSH 摩擦点（实证，非阻塞）
 
 1. JSONL 持久化依赖 `native/system` 原生插件，首次跑持久化用例前必须 `pnpm run build:native-system`。
 2. `MockAdapter` 没有多 tool-call 单响应辅助函数，需要自写约 20 行构造器。
@@ -154,19 +184,20 @@ Wave 3 专门回答"还有没有必须改本体的卡点"：
 5. 出仓库插件真正安装路径是 `dsh plugin --profile <name> add <pkg>`；本 spike 放在 `packages/experimental/` 只为复用仓库内 tsconfig paths。
 6. `pre-step` 期间注入时序、dynamic context 与注入消息在 prefix 上的行为需要按真实 provider 验证（见残余风险 1）。
 
-## 9. 未覆盖与残余风险
+## 10. 未覆盖与残余风险
 
 | 项 | 状态 | 说明 |
 |---|---|---|
 | DeepSeek 前缀缓存 / token 成本 | 未验证 | 模式切换与 `always` 策略会改变 prompt；DSH 有 `toolUpdate`/`systemPromptUpdate` 路由能力与 request-series 记账，实际缓存影响需真实 provider 对照（受预算门禁） |
 | 跨会话全局 map 与并发写 | 已验证 | Wave 3：member 会话写 owner log 成功；多 owner 共享一张图的并发 CAS 仍建议按 `ctx.storage` 模式另做设计验证 |
 | 跨 DSH 版本格式迁移 | **边界已确认** | plugin 记录为 best-effort 保留；发布级保证需上游声明事件或插件侧 `ctx.storage` 双写 |
-| 终端 TUI | 未验证 | DSH 自带 web/desktop 客户端；终端 TUI 需作为客户端插件新建，与 TaskMap 语义无关但是产品工作量 |
+| 终端 TUI | 不需要 | 用户已确认目标是 GUI 路径；GUI 安装即用已在 Wave 4 验证 |
+| GUI 浏览器内渲染 | 未验证 | 客户端入口加载、面板注册、数据面均已 headless 验证；像素级渲染建议用 DSH `test:web` 浏览器快照门禁覆盖 |
 | RPC / app-server 暴露 | 未验证 | `wire` 视图已验证数据面；把服务暴露给 SDK/ACP 客户端仍需 typert 远程服务模式 |
 | 上游 API 稳定性 | 风险 | 官方声明 developer preview 会有 breaking changes；`PluginRecordMap`/`tools.restrict`/`systemPrompt.context` 契约需随版本迁移 |
 | 大图性能 | 未验证 | 40 节点渲染有界；未测数百节点 + 长会话的投影 fold 成本 |
 
-## 10. 覆盖率与上游门禁
+## 11. 覆盖率与上游门禁
 
 DSH 仓库自带 per-file 100% 覆盖率门禁。本 spike（out-of-tree）当前：
 
@@ -181,13 +212,14 @@ DSH 仓库自带 per-file 100% 覆盖率门禁。本 spike（out-of-tree）当�
 差额集中在错误分支（无效 manifest 形态、非法 payload、异常 mutation 等），属机械补齐；作为 out-of-tree 插件由我们自定门槛，若要合入上游需补到 100%。命令：
 `pnpm vitest run packages/experimental/whale-taskspace-spike/tests --coverage --coverage.include='packages/experimental/whale-taskspace-spike/src/**/*.ts'`
 
-## 11. 复现
+## 12. 复现
 
 见 [`dsh-taskspace-spike/README.md`](./dsh-taskspace-spike/README.md)：clone 固定 commit、安装、构建原生插件、拷贝源码、运行测试。
 
-## 12. 对底座决策的含义
+## 13. 对底座决策的含义
 
 - **思路复刻成立**：TaskSpace/TaskMap 的核心（唯一写路径、批级准入、CAS、DAG、reservation/归因、上下文投影、重放、多 agent、跨会话权威写入、取消完整性、RPC/命令暴露、fork 血缘）全部能在 upstream 之外以插件实现，且能被 30 个确定性用例覆盖。这正是相对 Codex fork overlay（56 路径侵入、每次上游 sync 重放）的结构性维护性差异。
 - **唯一边界已定位**：跨 DSH 版本格式迁移的持久性保证不在纯插件边界内（ignorable 记录 best-effort 保留）；若产品要求发布级不丢，需要上游声明事件词表，或插件侧双写 `ctx.storage`。这条应当在底座决策中显式记录。
-- **结论不自动支持整体切换底座**：TUI（DSH 无终端 TUI，需自建客户端）、跨多进程/多 host 的共享 map、上游 pre-stable 风险仍未覆盖；Codex 线路上的既有资产（U 系列迁移、R4–R8、cache 基线）不会自动迁移。
-- 建议下一步按序推进：① 在 spike 上补 TUI 客户端可行性（可用 SDK/ACP profile 或 client plugin 验证）；② 评估 `ctx.storage` 双写方案以消除迁移持久性边界；③ 通过后再评估底座级迁移方案与重基线计划。
+- **GUI 交付路径成立**：Wave 4 确认"安装 bundle → GUI 出现 TaskMap 面板"全程可纯插件实现（客户端入口运行时加载、侧栏 extension 类型、projection 数据面），符合用户预期的产品形态。
+- **结论不自动支持整体切换底座**：跨多进程/多 host 的共享 map、上游 pre-stable 风险仍未覆盖；Codex 线路上的既有资产（U 系列迁移、R4–R8、cache 基线）不会自动迁移。
+- 建议下一步按序推进：① 用 `ctx.storage` 双写消除迁移持久性边界；② 在真实 GUI 中用 `test:web` 快照验证渲染；③ 通过后再评估底座级迁移方案与重基线计划。
