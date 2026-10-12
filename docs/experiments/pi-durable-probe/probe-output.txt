@@ -1,0 +1,8 @@
+v1.snapshot: {"revision":1,"nodes":[{"id":"n1","status":"pending"}]}
+shared.otherConversationSees: {"revision":1,"nodes":[{"id":"n1","status":"pending"}]}
+watch.frames: [2]
+taskGraph.frames: [[{"kind":"probe.parent","status":"waiting","owner":null,"on":2},{"kind":"probe.child","status":"running","owner":14,"on":0},{"kind":"probe.child","status":"running","owner":14,"on":0}],[{"kind":"probe.parent","status":"waiting","owner":null,"on":2},{"kind":"probe.child","status":"running","owner":14,"on":0}],[{"kind":"probe.parent","status":"waiting","owner":null,"on":2}],[{"kind":"probe.parent","status":"running","owner":null,"on":0}]]
+parent.outcome: {"status":"completed","result":{"settled":["completed","completed"]}}
+map.afterTasks: {"revision":2,"nodes":[{"id":"n1","status":"done"}]}
+closed: true
+v2.migratedSnapshot: {"revision":2,"nodes":[{"id":"n1","status":"done"}],"status":"open"}

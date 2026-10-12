@@ -13,6 +13,7 @@
 |---|---|
 | [taskspace-evidence-levels-and-samples.md](./taskspace-evidence-levels-and-samples.md) | 定义 E1-E5、当前样本集、允许结论和报告规则。 |
 | [2026-10-11-dsh-taskspace-plugin-feasibility-spike.md](./2026-10-11-dsh-taskspace-plugin-feasibility-spike.md) | E1 机制冒烟：TaskSpace 三个卡点 + TaskMap 核心思路（DAG/frontier、CAS 门禁、reservation、上下文策略、viewer 视图、resume、多 agent、跨会话权威写入、取消完整性、Typert RPC、命令、fork 血缘）在 DeepSeek Harness 上以纯插件（零上游改动）复刻的可行性验证，并确认唯一超出插件边界的是跨版本格式迁移的持久性保证；源码见 [dsh-taskspace-spike/](./dsh-taskspace-spike/README.md)。 |
+| [pi-durable-probe/](./pi-durable-probe/README.md) | E1 机制冒烟：pi-durable 的 session 级文档、原子提交、文档 live watch、跨版本文档迁移、durable 父子任务与 task graph 原语验证；源码与原始输出见同目录。 |
 
 ## 不可违反的规则
 
